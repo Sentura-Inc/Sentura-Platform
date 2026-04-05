@@ -3,7 +3,7 @@
 > **Version analyzed:** `2026.4.4` (package.json)
 > **License:** MIT (Copyright 2025 Peter Steinberger)
 > **Repository:** `github.com/openclaw/openclaw`
-> **Runtime:** Node.js 22.12+ (24 recommended)
+> **Runtime:** Node.js 22.14+ (24 recommended)
 > **Language:** TypeScript (ESM, strict mode, ES2023 target)
 > **Package manager:** pnpm 10.32.1
 
@@ -222,7 +222,7 @@ openclaw (bin) → openclaw.mjs → dist/entry.js → src/entry.ts
 ```
 
 **`openclaw.mjs`** (181 lines):
-- Validates Node.js version (>=22.12)
+- Validates Node.js version (>=22.14)
 - Enables compile cache
 - Handles fast-path `--help` via precomputed metadata
 - Imports `dist/entry.js` or `dist/entry.mjs`

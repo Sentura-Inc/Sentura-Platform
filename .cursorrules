@@ -17,7 +17,7 @@ The `ekg/` folder contains technical documentation for a reference enterprise (G
 The platform is built on **OpenClaw** (Node.js/TypeScript) with a **Sentura control plane** layer:
 
 ```
-sentura-platform/
+Sentura-Platform/
 ├── openclaw/                    # OpenClaw core (submodule or local install)
 │   ├── src/                     # Core TypeScript source
 │   ├── extensions/              # 86 plugin extensions
@@ -45,9 +45,6 @@ sentura-platform/
 │   │
 │   └── config/                  # Default configurations and templates
 │
-├── workspaces/                  # AI Employee workspaces (created at runtime)
-├── docker-compose.yml
-├── .env.example
 └── README.md
 ```
 
@@ -73,7 +70,7 @@ Do NOT substitute these without explicit approval:
 | Styling | Tailwind CSS + shadcn/ui (if Next.js) | Dashboard components |
 | Build | tsdown / Vite | TypeScript compilation |
 | Testing | Vitest | Unit, integration, and E2E tests |
-| Container | Docker / Docker Compose | Deployment |
+| Container | Docker / Docker Compose | Production deployment only; dev builds from `openclaw/` source via `pnpm gateway:watch` |
 
 ## Coding Standards
 
@@ -147,7 +144,7 @@ Do NOT substitute these without explicit approval:
 
 5. **Follow the design.** The README.md is the architecture bible. If a chat's request contradicts the design, flag it and ask before proceeding.
 
-6. **OpenClaw is the runtime.** Never build custom agent runtimes, custom gateways, or custom channel adapters. Use OpenClaw's existing infrastructure. Extend it via extensions and skills, not by forking.
+6. **OpenClaw is the runtime — do not touch its infra.** Never build custom agent runtimes, custom gateways, custom Docker setup scripts, custom docker-compose files, or custom channel adapters. For development, build OpenClaw from source (`cd openclaw && pnpm install && pnpm ui:build && pnpm build`) and run via `pnpm gateway:watch`. For production, use OpenClaw's own Docker setup (`cd openclaw && bash docker-setup.sh`). Sentura is a control plane LAYER on top — extend via extensions and skills, not by wrapping or replacing OpenClaw's infrastructure.
 
 7. **Config over code.** AI employees are configured, not programmed. Prefer JSON5 config and SKILL.md files over TypeScript logic. If something can be a skill, make it a skill.
 
@@ -157,7 +154,7 @@ Do NOT substitute these without explicit approval:
 
 10. **Trace everything.** Every LLM call, tool execution, approval event, and self-provisioning action must produce an observable trace.
 
-11. **No secrets in code.** API keys, passwords, tokens go in OpenClaw's secret store or `.env`. Never commit secrets.
+11. **No secrets in code.** API keys, passwords, tokens go in OpenClaw's `~/.openclaw/.env` (read by gateway's dotenv loader at startup) or its secret store. Never commit secrets.
 
 12. **Web search constantly.** ALWAYS use web search to verify implementation details for: OpenClaw APIs, MCP SDK usage, Playwright patterns, Next.js App Router, shadcn/ui components, and any other third-party integration. Libraries evolve fast — never rely on memory alone.
 
@@ -196,3 +193,4 @@ Do NOT substitute these without explicit approval:
 - Do NOT import from OpenClaw's internal `src/` paths. Use the stable `openclaw/plugin-sdk/*` API.
 - Do NOT assume a specific deployment environment. Code must work cloud, on-prem, and hybrid.
 - Do NOT commit large model files, binary data, or generated artifacts to the repo.
+- Do NOT create custom Docker setup scripts, docker-compose files, or `.env` wrappers for OpenClaw. For dev, build from source and use `pnpm openclaw onboard` then `pnpm gateway:watch`. For production Docker, use `cd openclaw && bash docker-setup.sh`. OpenClaw manages its own infra.

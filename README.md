@@ -157,7 +157,7 @@ Each AI employee maps to an OpenClaw agent entry in the gateway configuration:
   agents: {
     entries: {
       "ap-clerk-finance": {
-        model: "anthropic/claude-sonnet-4-20250514",
+        model: "openai/gpt-5.2",
         systemPrompt: "You are the Accounts Payable Clerk for Acme Corp...",
         workspace: "./workspaces/ap-clerk-finance",
         skills: ["./skills/accounts-payable", "./skills/enterprise-erp"],
@@ -741,7 +741,7 @@ Different AI employees can use different models based on their needs:
   agents: {
     entries: {
       "ap-clerk": {
-        model: "anthropic/claude-sonnet-4-20250514",
+        model: "openai/gpt-5.2",
         // Complex financial reasoning needs a strong model
       },
       "faq-bot": {
@@ -764,11 +764,11 @@ OpenClaw supports model fallback chains — if the primary provider is unavailab
 ```json5
 {
   models: {
-    primary: "anthropic/claude-sonnet-4-20250514",
+    primary: "openai/gpt-5.2",
     fallback: ["openai/gpt-4o", "ollama/llama3.3-70b"],
     routing: {
       "simple_query": "groq/llama-3.3-70b-versatile",
-      "complex_reasoning": "anthropic/claude-sonnet-4-20250514",
+      "complex_reasoning": "openai/gpt-5.2",
       "code_generation": "openai/o3"
     }
   }
@@ -1273,40 +1273,38 @@ When AI employees communicate on external channels (Slack, Teams, WhatsApp):
 
 ## 16. Deployment Options
 
-### Cloud Deployment
+### Local Development (Default)
 
 ```bash
-# Docker Compose (recommended for small-medium)
-git clone https://github.com/sentura/sentura-platform.git
-cd sentura-platform
-cp .env.example .env
-# Edit .env with your LLM API keys and channel credentials
-docker compose up -d
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform
 
-# Render.com (one-click deploy)
-# See render.yaml in repository
+# Build OpenClaw from source
+cd openclaw
+pnpm install && pnpm ui:build && pnpm build
 
-# Kubernetes (enterprise scale)
-helm install sentura ./charts/sentura \
-  --set openclaw.gateway.replicas=3 \
-  --set llm.provider=anthropic \
-  --set llm.apiKey=$ANTHROPIC_API_KEY
+# Onboard (configures gateway, LLM provider, API keys)
+pnpm openclaw onboard
+pnpm gateway:watch
 ```
 
-### On-Premise Deployment
+### On-Premise with Local LLM
 
 ```bash
-# Install OpenClaw + Sentura
-npm install -g openclaw@latest
-npm install -g @sentura/control-plane@latest
+# Install Ollama for local LLM inference
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.3:70b
 
-# Run the setup wizard
-openclaw onboard --install-daemon
-sentura setup --enterprise
-
-# Or Docker behind your firewall
-docker compose -f docker-compose.onprem.yml up -d
+# Build OpenClaw from source and onboard with local provider
+cd openclaw
+pnpm install && pnpm ui:build && pnpm build
+pnpm openclaw onboard
+pnpm gateway:watch
 ```
+
+### Production (Docker)
+
+Docker deployment is available for production environments. See `openclaw/docker-setup.sh` and `openclaw/docker-compose.yml`.
 
 ### Hybrid Deployment
 
@@ -1441,7 +1439,7 @@ The Sentura Control Plane communicates with OpenClaw exclusively through the **G
 ## 19. Project Structure
 
 ```
-sentura-platform/
+Sentura-Platform/
 ├── openclaw/                    # OpenClaw core (submodule or local install)
 │   ├── src/                     # Core TypeScript source
 │   ├── extensions/              # 86 plugin extensions
@@ -1499,12 +1497,9 @@ sentura-platform/
 │   └── cs-agent-support/        # Example: Customer Support agent
 │       └── ...
 │
-├── docker-compose.yml           # Full platform stack
-├── docker-compose.onprem.yml    # On-premise variant
 ├── render.yaml                  # Cloud deployment (Render)
 ├── charts/                      # Helm charts for Kubernetes
 │   └── sentura/
-├── .env.example                 # Environment template
 ├── package.json                 # Root workspace
 └── README.md                    # This file
 ```
@@ -1578,22 +1573,17 @@ sentura-platform/
 
 ## Quick Start
 
-### 1. Cloud (Fastest)
+### 1. Cloud API (Fastest)
 
 ```bash
-# Clone and configure
-git clone https://github.com/sentura/sentura-platform.git
-cd sentura-platform
-cp .env.example .env
-# Add your LLM API key (e.g., ANTHROPIC_API_KEY=sk-ant-...)
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform/openclaw
 
-# Start everything
-docker compose up -d
-
-# Open dashboard
-open http://localhost:3000
-
-# Create your first AI employee through the dashboard chat!
+pnpm install && pnpm ui:build && pnpm build
+pnpm openclaw onboard
+pnpm gateway:watch
+# Follow prompts — provide your LLM API key (OpenAI, Anthropic, etc.)
+# Open the Control UI URL printed at the end
 ```
 
 ### 2. Local with Ollama (Privacy-First)
@@ -1603,35 +1593,28 @@ open http://localhost:3000
 curl -fsSL https://ollama.ai/install.sh | sh
 ollama pull llama3.3:70b
 
-# Clone and configure
-git clone https://github.com/sentura/sentura-platform.git
-cd sentura-platform
-cp .env.example .env
-# Set OLLAMA_BASE_URL=http://localhost:11434
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform/openclaw
 
-# Start
-docker compose up -d
-
-# Create AI employees that run entirely on your hardware
+pnpm install && pnpm ui:build && pnpm build
+pnpm openclaw onboard
+pnpm gateway:watch
+# Choose local provider during onboarding
 ```
 
 ### 3. Development Setup
 
 ```bash
-# Install OpenClaw
-npm install -g openclaw@latest
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform/openclaw
 
-# Clone Sentura
-git clone https://github.com/sentura/sentura-platform.git
-cd sentura-platform
-pnpm install
+pnpm install && pnpm ui:build && pnpm build
+pnpm openclaw onboard
+pnpm gateway:watch
 
-# Start OpenClaw gateway in dev mode
-cd openclaw && pnpm dev gateway --port 18789
+# Start Sentura dashboard in dev mode (when built)
+cd ../sentura/dashboard && pnpm dev
 
-# Start Sentura dashboard in dev mode
-cd sentura/dashboard && pnpm dev
-
-# OpenClaw Control UI available at http://localhost:18790
+# OpenClaw Control UI available at http://localhost:18789
 # Sentura Dashboard available at http://localhost:3000
 ```

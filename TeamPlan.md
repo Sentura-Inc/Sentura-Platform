@@ -4,7 +4,7 @@
 
 | Person | Title | Ownership | Directories |
 |--------|-------|-----------|-------------|
-| **A** | Platform & OpenClaw Engineer | OpenClaw setup, gateway configuration, deployment, infrastructure | `openclaw/` setup, `docker-compose.yml`, deployment configs, CI/CD |
+| **A** | Platform & OpenClaw Engineer | OpenClaw local runtime, Sentura extensions integration, deployment, infrastructure | OpenClaw source (`openclaw/`, `pnpm gateway:watch`), deployment configs, CI/CD |
 | **B** | AI Employee & Skills Engineer | Meta-agents (Creator, Tuner, Orchestrator), skills, self-provisioning | `sentura/agents/`, `sentura/skills/`, `workspaces/`, skill templates |
 | **C** | Frontend & Dashboard Engineer | Sentura admin dashboard, all UI pages, gateway RPC integration | `sentura/dashboard/`, all UI routes, components, WebSocket client |
 | **D** | Extensions & Integrations Engineer | Sentura OpenClaw extensions, MCP integrations, security, observability | `sentura/extensions/`, MCP server configs, approval workflows |
@@ -15,7 +15,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 | Contract | Owner | Consumers | Format |
 |----------|-------|-----------|--------|
-| OpenClaw config schema (agents, channels, MCP) | A | B, C, D | JSON5 + Zod schemas (OpenClaw native) |
+| OpenClaw config schema (agents, channels, MCP) | A | B, C, D | JSON5 + Zod schemas (OpenClaw native, managed by OpenClaw) |
 | Gateway RPC API surface | A | C (dashboard), B (meta-agents) | WebSocket JSON-RPC (OpenClaw protocol) |
 | Agent workspace file structure | B | C (UI display), D (extensions) | SOUL.md, SKILL.md, RULES.md, AGENTS.md convention |
 | Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + workspace files |
@@ -33,15 +33,14 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 > **Goal**: OpenClaw running as the core runtime. Everyone has a working local environment. Shared conventions established.
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Set up OpenClaw in the repository (submodule or local install)
-- [ ] Configure OpenClaw gateway with basic settings (port, auth, state dir)
-- [ ] Create `docker-compose.yml` with OpenClaw gateway + supporting services
-- [ ] Configure at least 2 LLM providers (one cloud API like Anthropic, one local like Ollama)
-- [ ] Configure at least 2 channels (Slack + WebChat) for dev testing
-- [ ] Write `.env.example` with all environment variables
-- [ ] Set up the project monorepo structure (`sentura/`, `workspaces/`, etc.)
-- [ ] Document the OpenClaw Gateway RPC methods the team will use
-- [ ] Create `docker-compose.onprem.yml` variant for on-premise deployment
+- [x] Build OpenClaw from source (`cd openclaw && pnpm install && pnpm ui:build && pnpm build`)
+- [x] Run `pnpm openclaw onboard` — configure gateway, LLM provider, API keys
+- [x] Verify LLM providers work (cloud API keys via `~/.openclaw/.env`, local via Ollama)
+- [x] Verify channels available (Slack + WebChat via OpenClaw's onboarding)
+- [x] Set up the project monorepo structure (`sentura/`, etc.)
+- [x] Document the OpenClaw Gateway RPC methods the team will use
+- [x] Write `SETUP.md` for local development setup
+- Note: OpenClaw builds from source and runs via `pnpm gateway:watch`. Docker is for production only.
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Create the Creator Agent workspace: `sentura/agents/creator/SOUL.md`, skills
@@ -109,9 +108,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 ### Person A — Platform & OpenClaw Engineer
 - [ ] Build secret store helpers: programmatic write/read of OpenClaw secrets
 - [ ] Build MCP server dynamic registration: add MCP server configs via `config.patch`
-- [ ] Set up Playwright browser in Docker (for self-provisioning in containers)
+- [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
-- [ ] Build deployment documentation for cloud (Docker Compose + Render.yaml)
+- [ ] Build deployment documentation for cloud and on-premise
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Creator Agent Phase 3: Self-Provisioning (browser-based service registration)

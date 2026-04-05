@@ -1,0 +1,3 @@
+packages:
+  - "sentura/dashboard"
+  - "sentura/extensions/*"

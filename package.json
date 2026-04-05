@@ -1,0 +1,25 @@
+{
+  "name": "sentura-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise AI employee platform built on OpenClaw",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev:dashboard": "cd sentura/dashboard && pnpm dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  },
+  "keywords": [
+    "ai",
+    "enterprise",
+    "agents",
+    "openclaw",
+    "mcp"
+  ],
+  "license": "UNLICENSED"
+}
