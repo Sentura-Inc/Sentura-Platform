@@ -33,13 +33,55 @@ Each AI employee is an **OpenClaw agent instance** with its own specialized skil
 
 **What makes Sentura unique**: when an AI employee needs a new capability — say, access to a CRM or an email service — it can **autonomously browse the web, register for the service, obtain API keys, and configure itself** without human intervention. No code, no DevOps, no manual configuration.
 
+### Core Mission
+
+Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise positions — by connecting enterprise data and applications, wiring internal API tools, adding position-specific skills, defining safety guardrails, and configuring identity files — all through natural language, with zero code required.
+
+### What Sentura Builds (That OpenClaw Does Not Have)
+
+OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 12 capabilities verified absent from the OpenClaw codebase:
+
+| # | Sentura Builds | Why OpenClaw Doesn't Have It |
+|---|---------------|------------------------------|
+| 1 | **Enterprise data integration** — CRM, ERP, contact center, database connectors built during onboarding | OpenClaw has zero enterprise connectors (no Salesforce, SAP, Zendesk, etc.) — only messaging channels and AI providers |
+| 2 | **Internal MCP server generation** — organize enterprise API endpoints into MCP tools and wire them to employees | OpenClaw's `mcp.servers` config is manual JSON5; no auto-discovery or API-to-MCP generation |
+| 3 | **Self-provisioning orchestration** — skills + approval workflows + error handling for autonomous service registration | OpenClaw has the browser tool (Playwright) but no built-in workflow for account registration or credential harvesting |
+| 4 | **Position-specific safety guardrails** — RULES.md, decision-context-aware approval, escalation chains | OpenClaw has generic tool denylists and binary agent-scoped exec approvals; no `RULES.md` in its workspace files |
+| 5 | **No-code employee creation** — natural language → working AI employee via Creator Agent | OpenClaw's `agents.create` takes structured config params; no NL creation flow exists |
+| 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura adds RULES.md, CONTEXT.md, and structured skills |
+| 7 | **Enterprise orchestration** — macro-objective decomposition, multi-employee task coordination | OpenClaw has basic subagent spawning with depth limits; no task decomposition or progress tracking |
+| 8 | **Multi-tenancy** — tenant isolation, per-department namespacing, data segregation | OpenClaw is single-tenant (one user, one gateway, one config) |
+| 9 | **Enterprise authentication** — SAML/OIDC/SSO for the dashboard | OpenClaw uses token + device pairing; no SSO |
+| 10 | **Cost management** — per-employee, per-department LLM spend tracking and attribution | OpenClaw has no per-agent cost tracking |
+| 11 | **Knowledge ingestion pipeline** — enterprise documents → SKILL.md distribution across employees | OpenClaw's memory is per-agent LanceDB; no document ingestion or cross-employee knowledge distribution |
+| 12 | **Employee lifecycle management** — versioning, cloning, health scoring, rollback, retirement | OpenClaw creates and runs agents; no lifecycle management |
+
+### What OpenClaw Provides (That We Leverage As-Is)
+
+These are mature, battle-tested, and require no Sentura reimplementation:
+
+- **22+ messaging channels** (Slack, Teams, WhatsApp, Discord, Telegram, Signal, Matrix, and more)
+- **40+ AI provider integrations** (OpenAI, Anthropic, Google, Ollama, vLLM, and more)
+- **Agent tool system** (30+ built-in tools: browser, search, fetch, PDF, canvas, exec, cron, etc.)
+- **Gateway server** with HTTP + WebSocket JSON-RPC protocol
+- **Config system** with hot-patchable JSON5, Zod validation, `config.patch` RPC
+- **Memory system** (LanceDB vector embeddings, dreaming/consolidation)
+- **Cron scheduler** for recurring autonomous tasks
+- **Plugin SDK** with 86 bundled extensions and typed contracts
+- **Security primitives** (tool denylists, sandbox mode, SSRF guards, path safety, audit logging)
+- **Exec approval system** (`exec.approval.*`, `plugin.approval.*` RPC)
+- **Subagent spawning** with depth limits and isolated sessions
+- **Secret store** for encrypted credential management
+- **Native apps** (macOS, iOS, Android) and Control UI (Lit web components)
+- **Deployment options** (npm, Docker, Podman, Render, Kubernetes)
+
 ### Core Principles
 
 - **OpenClaw at the Core**: Every AI employee is a configured OpenClaw agent. No custom runtime — we stand on the shoulders of a battle-tested, open-source, MIT-licensed platform with 86 extensions, 40+ AI providers, and 22+ channels.
 - **No-Code Everything**: Enterprise users create and manage AI employees through natural language. Describe a role → get a working AI employee.
-- **Self-Provisioning**: AI employees autonomously discover, register for, and configure external services they need using browser automation.
+- **Self-Provisioning**: AI employees autonomously register for services, obtain credentials, and configure integrations using browser automation, structured skills, approval workflows, and error recovery.
 - **Flexible Deployment**: Run in the cloud, install on-premise, or hybrid. Use API keys for LLMs or self-host with Ollama/vLLM.
-- **Human-in-the-Loop**: High-risk decisions always require human approval via OpenClaw's built-in exec approval system.
+- **Human-in-the-Loop**: High-risk decisions always require human approval. Sentura extends OpenClaw's generic exec approval into position-aware, decision-context-aware HITL with escalation chains and timeout policies.
 - **Enterprise-Grade Multi-Tenancy**: Multiple departments, teams, and roles — each with isolated AI employees, permissions, and audit trails.
 
 ### Platform Modes
@@ -196,16 +238,25 @@ Each AI employee maps to an OpenClaw agent entry in the gateway configuration:
 
 ### Agent Workspace Structure
 
-Each AI employee has a dedicated workspace directory:
+Each AI employee has a dedicated workspace directory. OpenClaw provides 8 default bootstrap files; Sentura adds enterprise-specific files on top:
 
 ```
 workspaces/ap-clerk-finance/
-├── SOUL.md              # Core identity, values, personality
-├── AGENTS.md            # Role definition, responsibilities, escalation rules
-├── TOOLS.md             # Available tools documentation
-├── RULES.md             # Hard boundaries (what to never do)
+│
+│ — OpenClaw Default Workspace Files (8) ——
+├── AGENTS.md            # Multi-agent routing (OpenClaw default)
+├── SOUL.md              # Core identity, personality (OpenClaw default)
+├── TOOLS.md             # Tool documentation (OpenClaw default)
+├── IDENTITY.md          # Agent identity descriptor (OpenClaw default)
+├── USER.md              # User context / preferences (OpenClaw default)
+├── HEARTBEAT.md         # Cron heartbeat instructions (OpenClaw default)
+├── BOOTSTRAP.md         # Agent bootstrap instructions (OpenClaw default)
+├── MEMORY.md            # Memory notes / scratchpad (OpenClaw default)
+│
+│ — Sentura Enterprise Additions ——
+├── RULES.md             # Hard boundaries — Sentura-specific, not in OpenClaw
 ├── CONTEXT.md           # Enterprise-specific context (org structure, policies)
-├── skills/
+├── skills/              # Structured position-specific skills
 │   ├── invoice-processing/
 │   │   └── SKILL.md
 │   ├── vendor-management/
@@ -215,6 +266,8 @@ workspaces/ap-clerk-finance/
 ├── mcp-servers/         # Self-provisioned MCP server configs
 └── data/                # Working data (templates, references)
 ```
+
+> **Important distinction**: OpenClaw's `AGENTS.md` defines multi-agent routing rules; `SOUL.md` defines personality; `TOOLS.md` documents available tools; `IDENTITY.md` provides agent identity; `USER.md` captures user context; `HEARTBEAT.md` gives cron-invoked instructions; `BOOTSTRAP.md` provides initial setup instructions; `MEMORY.md` serves as a scratchpad. **Sentura adds `RULES.md`** (hard safety boundaries per position — this file does not exist in OpenClaw's workspace system) **and `CONTEXT.md`** (enterprise-specific context like org structure, policies, system inventory).
 
 ### SOUL.md — Employee Identity
 
@@ -369,15 +422,19 @@ The Creator Agent can read the new employee's session transcripts via `sessions_
 
 Traditional enterprise AI requires manual integration: a developer writes API connectors, an admin provisions credentials, a DevOps engineer deploys the connector. Sentura eliminates this entire workflow.
 
-When an AI employee needs a tool or service it doesn't yet have access to, it **uses OpenClaw's browser extension (Playwright-based)** to:
+> **What OpenClaw provides**: The browser tool (Playwright-based) for web automation, the encrypted secret store for credential management, and `config.patch` RPC for runtime configuration changes. **What Sentura builds**: The self-provisioning *system* — structured SKILL.md procedures, approval integration, error recovery, audit logging, and the orchestration layer that turns raw browser + secrets primitives into a reliable autonomous provisioning pipeline.
 
-1. Navigate to the service's website
-2. Create an account (using the enterprise's designated email)
-3. Complete any setup wizard
-4. Generate API keys or tokens
-5. Store the credentials in OpenClaw's encrypted secret store
-6. Configure the MCP server or tool to use those credentials
-7. Verify the connection works
+When an AI employee needs a tool or service it doesn't yet have access to, the Sentura self-provisioning system:
+
+1. Detects the missing capability (via skill procedure or Creator Agent)
+2. Checks for existing credentials in the secret store
+3. Determines if approval is needed (new accounts, paid services → HITL)
+4. Executes the provisioning skill (browser automation for registration)
+5. Handles errors gracefully (CAPTCHA, 2FA, rate limits → escalate to human)
+6. Stores credentials in OpenClaw's encrypted secret store
+7. Configures the MCP server or tool via `config.patch`
+8. Verifies the connection with a test call
+9. Logs the entire provisioning event for enterprise audit
 
 ### Self-Provisioning Flow
 
@@ -781,29 +838,33 @@ OpenClaw supports model fallback chains — if the primary provider is unavailab
 
 ### Multi-Layer Safety Architecture
 
-Sentura implements safety at every level, leveraging and extending OpenClaw's built-in security:
+Sentura implements safety at every level, combining OpenClaw's built-in security primitives with enterprise-grade additions. The distinction matters:
+
+- **OpenClaw provides** (Layers 2–3): Generic tool allowlists/denylists per agent (`DEFAULT_GATEWAY_HTTP_TOOL_DENY`), sandbox mode, binary exec approvals per agent ID, SSRF guards, path safety
+- **Sentura adds** (Layers 1, 4–5): Position-specific `RULES.md` files, decision-context-aware approvals (e.g., "approve if refund < $500"), skill-level safety sections, escalation chains, timeout policies, enterprise-wide data classification, audit requirements
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Layer 1: SKILL-LEVEL GUARDRAILS                          │
+│  Layer 1: SKILL-LEVEL GUARDRAILS              [SENTURA]  │
 │  Each SKILL.md has a ## Safety section with hard rules    │
 │  "NEVER approve payment without matching PO > $10K"      │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 2: TOOL POLICIES                                   │
-│  OpenClaw tool allowlists/denylists per agent             │
-│  Dangerous tools blocked by default on HTTP               │
+│  Layer 2: TOOL POLICIES                       [OPENCLAW] │
+│  Tool allowlists/denylists per agent config               │
+│  DEFAULT_GATEWAY_HTTP_TOOL_DENY blocks dangerous tools    │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 3: APPROVAL WORKFLOWS                              │
-│  OpenClaw exec.approval system for high-risk operations   │
-│  Human must approve before execution proceeds             │
+│  Layer 3: APPROVAL WORKFLOWS           [OPENCLAW+SENTURA]│
+│  OpenClaw: binary exec.approval per agent ID              │
+│  Sentura: decision-context approvals, escalation, timeout │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 4: RULES.md HARD BOUNDARIES                        │
+│  Layer 4: RULES.md HARD BOUNDARIES            [SENTURA]  │
 │  Per-employee rules that override everything else         │
+│  This file does NOT exist in OpenClaw's workspace system  │
 │  "You may NEVER share customer PII outside the CRM"      │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 5: PLATFORM-LEVEL POLICIES                         │
+│  Layer 5: PLATFORM-LEVEL POLICIES             [SENTURA]  │
 │  Sentura-wide policies enforced across all employees      │
-│  Data classification, retention, audit requirements       │
+│  Data classification, retention, audit, RBAC, multi-tenant│
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -859,9 +920,9 @@ AI Employee wants to execute a high-risk action
         → Timeout → escalate to next approver
 ```
 
-### RULES.md — Hard Boundaries
+### RULES.md — Hard Boundaries (Sentura Innovation)
 
-Every AI employee has a `RULES.md` file that defines absolute constraints:
+Every AI employee has a `RULES.md` file that defines absolute constraints. **This is a Sentura-specific addition** — OpenClaw's default workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) do not include a dedicated rules file. Sentura injects `RULES.md` into each employee's workspace and includes its contents in the agent's system prompt via OpenClaw's bootstrap-extra-files hook:
 
 ```markdown
 # AP Clerk — Hard Rules
@@ -1144,6 +1205,20 @@ The Tuning Agent enforces safety boundaries:
 
 MCP is the primary integration mechanism. Enterprise systems are exposed as **MCP servers** that AI employees can call as tools.
 
+> **What OpenClaw provides**: The `mcp.servers` config section that accepts manual JSON5 entries, `@modelcontextprotocol/sdk` for stdio/SSE/streamable-HTTP transports, and the MCP loopback server for exposing OpenClaw's own tools. **What Sentura builds**: The entire enterprise integration pipeline — discovering an enterprise's internal APIs, organizing endpoints into typed MCP tools, generating MCP server code or config, wiring credentials from the secret store, and deploying servers for each AI employee. OpenClaw contains **zero enterprise-specific connectors** (no Salesforce, SAP, Zendesk, Workday, etc.) — all of these must be built, sourced from open-source MCP servers, or auto-generated by Sentura during onboarding.
+
+### Enterprise MCP Strategy
+
+Sentura's integration approach has three tiers:
+
+| Tier | Source | Example |
+|------|--------|---------|
+| **Open-source MCP servers** | npm packages (`@mcp-servers/*`, community) | Salesforce, Jira, PostgreSQL, Slack |
+| **Sentura-generated MCP servers** | Auto-generated from enterprise API docs during onboarding | Custom REST APIs, internal microservices |
+| **Self-provisioned MCP configs** | AI employee uses browser to obtain credentials, then configures MCP | SaaS tools with API key setup flows |
+
+For enterprises with internal REST APIs (like the GradSale example in `ekg/`), Sentura builds custom MCP servers that wrap those endpoints as typed tools — this is a core onboarding deliverable, not something OpenClaw handles.
+
 ### MCP Server Configuration
 
 ```json5
@@ -1201,17 +1276,30 @@ Beyond MCP servers, OpenClaw's plugin system provides additional integration poi
 
 ### Integration at Inception (IAI)
 
-Sentura's IAI principle means that when an AI employee is created, all required integrations are set up as part of the incubation process — either from existing enterprise credentials or via self-provisioning:
+Sentura's IAI principle means that when an AI employee is created, all required integrations are set up as part of the incubation process. This is where Sentura does the heavy lifting that OpenClaw does not provide:
 
 ```
 Employee Creation Request
   → Creator Agent identifies needed integrations
-    → Check existing MCP servers / secrets
-      → Missing? → Self-provision (Section 5)
-    → Configure MCP servers in agent config
-    → Verify all connections
+    → Tier 1: Check for open-source MCP server packages (npm registry)
+    → Tier 2: Generate MCP server from enterprise API documentation (ekg/)
+    → Tier 3: Self-provision via browser automation (Section 5)
+    → Check existing credentials in secret store
+      → Missing? → Self-provision or request from enterprise admin
+    → Configure MCP servers in agent config via config.patch
+    → Wire tool allowlists so the employee can access the new MCP tools
+    → Verify all connections with test calls
     → Deploy employee with all integrations ready
 ```
+
+The enterprise data integration during onboarding covers:
+
+| Data Source | Integration Method | Sentura's Job |
+|------------|-------------------|---------------|
+| **Structured** (SQL databases, ERP tables) | MCP server wrapping database queries | Build/generate the MCP server, manage credentials |
+| **Semi-structured** (APIs, webhooks, event streams) | MCP server wrapping REST/GraphQL endpoints | Map API docs to MCP tools, generate typed schemas |
+| **Unstructured** (PDFs, wikis, Confluence, SharePoint) | Browser + PDF tools → SKILL.md distribution | Ingest, extract, convert to skills and memory entries |
+| **Real-time** (CRM events, ticket updates, Slack messages) | Channel extensions + MCP servers with SSE | Configure event listeners and routing rules |
 
 ### The ACP Extension
 

@@ -62,19 +62,45 @@ cd openclaw && pnpm openclaw onboard
 
 ## Sentura Layer
 
-Sentura is the enterprise control plane built on top of the running OpenClaw instance. It adds:
+Sentura is the enterprise management layer built on top of the running OpenClaw instance. OpenClaw provides the runtime (gateway, channels, providers, tools, memory, config). Sentura builds everything an enterprise needs that OpenClaw does not have:
 
-- AI employee management (Creator, Tuner, Orchestrator meta-agents)
-- Enterprise dashboard
-- RBAC, audit logging, approval workflows
-- Sentura-specific extensions and skills
+### What Sentura Adds
 
-Development of Sentura components (once OpenClaw is running):
+| Capability | Component | Status |
+|-----------|-----------|--------|
+| **No-code employee creation** | Creator Agent (`sentura/agents/creator/`) | In progress |
+| **NL configuration** | Tuner Agent (`sentura/agents/tuner/`) | Planned |
+| **Multi-agent orchestration** | Orchestrator Agent (`sentura/agents/orchestrator/`) | Planned |
+| **Enterprise MCP generation** | Build/wire internal API tools for employees | Planned |
+| **Position-specific guardrails** | RULES.md files, decision-context approvals | Planned |
+| **Self-provisioning pipeline** | Skills + approval + error handling for service registration | Planned |
+| **Multi-tenancy** | Tenant isolation, department namespacing | Planned |
+| **Enterprise SSO** | SAML/OIDC integration for dashboard | Planned |
+| **Cost management** | Per-employee, per-department LLM spend tracking | Planned |
+| **Knowledge ingestion** | Documents → SKILL.md distribution | Planned |
+| **Employee lifecycle** | Versioning, cloning, health scoring, rollback | Planned |
+| **Admin Dashboard** | Next.js app with RBAC, approvals, monitoring | Planned |
+| **Enterprise extensions** | sentura-approval, sentura-audit, sentura-rbac, sentura-provisioner | Planned |
+
+### Development (once OpenClaw is running)
 
 ```bash
 # Dashboard (when built)
 pnpm dev:dashboard
+
+# Run tests
+pnpm test
 ```
+
+### Key Directories
+
+- `sentura/agents/` — Meta-agents (Creator, Tuner, Orchestrator) with their workspace files
+- `sentura/dashboard/` — Next.js admin dashboard
+- `sentura/extensions/` — OpenClaw extensions for enterprise features (approval, audit, RBAC)
+- `sentura/skills/` — Bundled skills (self-provisioning, knowledge curation, compliance)
+- `sentura/config/` — Default configs, templates, and policies
+- `workspaces/` — Runtime AI employee workspaces (created when employees are incubated)
+- `ekg/` — GradSale enterprise documentation (test enterprise for integration features)
 
 ---
 

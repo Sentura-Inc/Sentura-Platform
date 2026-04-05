@@ -159,3 +159,80 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 **Nothing left incomplete.**
 
 **Known issues:** None introduced.
+
+---
+
+## 2026-04-05 — OpenClaw vs Sentura Gap Analysis & README/SETUP Accuracy Update
+
+**What was done:**
+- Deep analysis of OpenClaw codebase to objectively verify what it provides vs what Sentura must build
+- Identified 12 specific capabilities Sentura needs that OpenClaw does not have (7 user-identified + 5 discovered)
+- Updated README.md with accurate OpenClaw vs Sentura distinction across 5 sections:
+  - **Section 1 (Executive Summary)**: Added "Core Mission" statement, "What Sentura Builds" table (12 items), "What OpenClaw Provides" list
+  - **Section 3 (AI Employee Model)**: Fixed workspace file list — OpenClaw has 8 default files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md); Sentura adds RULES.md, CONTEXT.md, and structured skills/
+  - **Section 5 (Self-Provisioning)**: Clarified self-provisioning is a Sentura-built system (skills + approval + error handling + audit), not just a browser prompt
+  - **Section 9 (Safety)**: Marked each safety layer as [OPENCLAW] or [SENTURA]; clarified RULES.md does not exist in OpenClaw's workspace system
+  - **Section 14 (Integration Layer)**: Added Enterprise MCP Strategy (3-tier approach); clarified OpenClaw has zero enterprise connectors and Sentura builds all of them
+- Updated SETUP.md with comprehensive Sentura layer description showing all 13 capabilities with status
+
+**Key findings from OpenClaw codebase analysis:**
+1. OpenClaw's default workspace files are defined in `openclaw/src/agents/workspace.ts`: AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, BOOTSTRAP, MEMORY — no RULES.md
+2. OpenClaw's security is generic: `DEFAULT_GATEWAY_HTTP_TOOL_DENY` in `src/security/dangerous-tools.ts` blocks high-risk tools on HTTP; exec approvals in `src/infra/exec-approvals.ts` are binary per-agent-ID overrides — no decision-context awareness
+3. OpenClaw's `agents.create` RPC takes structured params (model, systemPrompt, workspace, tools) — no natural language creation
+4. OpenClaw has zero enterprise connector extensions — all 86 extensions are channels, AI providers, speech, search, tools, or infrastructure
+5. OpenClaw is single-tenant: one gateway, one config file, one user context
+6. OpenClaw's `sessions_spawn` has depth limits but no task decomposition, progress tracking, or macro-objective planning
+
+**Files modified:**
+- `README.md` — 5 sections updated with accurate OpenClaw/Sentura attribution
+- `SETUP.md` — Sentura layer section rewritten with capability inventory
+- `docs/MEMORY.md` — this entry
+
+**Nothing left incomplete.**
+
+**Known issues:** None introduced.
+
+---
+
+## 2026-04-05 — TeamPlan.md Full Rewrite for 12-Capability Alignment
+
+**What was done:**
+- Complete rewrite of `TeamPlan.md` to align with the updated README.md's 12 Sentura capabilities
+- Every capability now has explicit sprint tasks and owner assignments
+
+**Major changes from previous plan:**
+
+1. **Added Capability Coverage Map** — table mapping all 12 capabilities to owners and sprint weeks
+2. **Added multi-tenancy tasks** (was completely missing):
+   - Person A designs/implements tenant isolation model in Week 4
+   - Person D implements tenant-aware extensions in Week 4
+   - Person A completes data segregation in Week 5
+3. **Added enterprise MCP generation tasks** (was missing):
+   - Person D builds first MCP server from ekg/ GradSale API docs in Week 2
+   - Person D builds MCP generation CLI tool in Week 3
+4. **Added cost tracking backend** (only had frontend page before):
+   - Person A builds cost tracking event system in Week 4
+5. **Added employee lifecycle management** (was partial):
+   - Person B builds health scoring and retirement in Week 5
+   - Person C builds lifecycle UI in Week 5
+6. **Added ekg/ GradSale references** throughout:
+   - Person D studies ekg/ docs in Week 1
+   - First MCP server from ekg/ in Week 2
+   - GradSale E2E scenario in Week 6
+   - Demo scenarios use GradSale in Week 8
+7. **Updated workspace file convention** in Interface Contracts:
+   - Now lists all 8 OpenClaw files + 2 Sentura additions explicitly
+8. **Updated self-provisioning tasks** to emphasize the full pipeline:
+   - Error recovery (CAPTCHA, 2FA, rate limits)
+   - Audit logging
+   - Structured skill procedure (not just a prompt)
+9. **Added Capability-to-README Traceability** section at bottom
+10. **Updated Integration Checkpoints** to reference capability numbers
+
+**Files modified:**
+- `TeamPlan.md` — full rewrite
+- `docs/MEMORY.md` — this entry
+
+**Nothing left incomplete.**
+
+**Known issues:** None introduced.
