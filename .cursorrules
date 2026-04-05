@@ -1,0 +1,198 @@
+# Sentura Platform — Cursor Rules
+
+You are an expert AI/ML engineer building the Sentura platform: an **enterprise AI employee platform built on top of OpenClaw**. Each AI employee is an OpenClaw agent instance with specialized skills, tools, instructions, safety guardrails, human-in-the-loop approval workflows, and long-term memory. The platform targets **all enterprise customers** with flexible deployment (cloud, on-premise, or hybrid) and flexible LLM usage (API keys or self-hosted).
+
+## Project Context
+
+Read `README.md` at the start of every new chat to understand the full architecture. It is the single source of truth for all design decisions. Read `OPENCLAW.md` to understand OpenClaw's capabilities. The `openclaw/` directory contains the OpenClaw core runtime — scan its source when working on extensions or integrations.
+
+The `Documents/` folder contains the original pitch deck and demo scenarios. Reference these when building features that relate to employee creation, agent behavior, or enterprise integration.
+
+The `ekg/` folder contains technical documentation for a reference enterprise (GradSale) — database schema, backend architecture, web API, admin API, and admin panel docs. Use these as the real-world test case when building enterprise integration features, MCP servers, or customer-facing agent scenarios.
+
+`TeamPlan.md` is the 8-week sprint plan with per-person task breakdowns and integration checkpoints. It is the single source of truth for what needs to be done, who owns it, and the current progress.
+
+## Architecture & Project Structure
+
+The platform is built on **OpenClaw** (Node.js/TypeScript) with a **Sentura control plane** layer:
+
+```
+sentura-platform/
+├── openclaw/                    # OpenClaw core (submodule or local install)
+│   ├── src/                     # Core TypeScript source
+│   ├── extensions/              # 86 plugin extensions
+│   ├── skills/                  # Bundled skills
+│   ├── ui/                      # Control UI (Lit web components)
+│   └── ...
+│
+├── sentura/                     # Sentura control plane
+│   ├── agents/                  # Meta-agents (Creator, Tuner, Orchestrator)
+│   │   ├── creator/             # Creates new AI employees from NL descriptions
+│   │   ├── tuner/               # Modifies employee config via NL commands
+│   │   └── orchestrator/        # Mode B: multi-agent task coordination
+│   │
+│   ├── dashboard/               # Sentura Admin Dashboard (Next.js or extend OpenClaw UI)
+│   ├── extensions/              # Sentura-specific OpenClaw extensions
+│   │   ├── sentura-approval/    # Enhanced HITL approval
+│   │   ├── sentura-audit/       # Enterprise audit logging
+│   │   ├── sentura-rbac/        # Role-based access control
+│   │   └── sentura-provisioner/ # Self-provisioning coordinator
+│   │
+│   ├── skills/                  # Sentura bundled skills
+│   │   ├── self-provisioning/   # Service registration skill
+│   │   ├── knowledge-curation/  # Enterprise knowledge ingestion
+│   │   └── compliance/          # Cross-industry compliance
+│   │
+│   └── config/                  # Default configurations and templates
+│
+├── workspaces/                  # AI Employee workspaces (created at runtime)
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## Technology Stack — Mandatory Choices
+
+Do NOT substitute these without explicit approval:
+
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| Core Runtime | OpenClaw (Node.js 22+, TypeScript) | Gateway, agents, channels, plugins |
+| Agent Core | `@mariozechner/pi-agent-core` | OpenClaw's agent execution engine |
+| Configuration | JSON5 + Zod validation | OpenClaw's config system — hot-patchable via gateway RPC |
+| State | File-based (SQLite-vec, JSON) | OpenClaw's state layer — no external DB required |
+| Memory | LanceDB (via `memory-lancedb` extension) | Semantic vector memory per employee |
+| Browser | Playwright (via `browser` extension) | Self-provisioning and web automation |
+| MCP | `@modelcontextprotocol/sdk` | Enterprise integration protocol |
+| ACP | `@agentclientprotocol/sdk` | Agent-to-agent communication |
+| Channels | OpenClaw channel extensions (22+) | Slack, Teams, WhatsApp, Discord, etc. |
+| LLM Providers | OpenClaw provider extensions (40+) | Cloud APIs or self-hosted (Ollama/vLLM/SGLang) |
+| Gateway | Hono (HTTP) + ws (WebSocket) | OpenClaw's gateway server |
+| CLI | Commander.js | OpenClaw CLI |
+| Dashboard | Next.js 15+ or extend OpenClaw's Lit Control UI | Admin interface |
+| Styling | Tailwind CSS + shadcn/ui (if Next.js) | Dashboard components |
+| Build | tsdown / Vite | TypeScript compilation |
+| Testing | Vitest | Unit, integration, and E2E tests |
+| Container | Docker / Docker Compose | Deployment |
+
+## Coding Standards
+
+### TypeScript (Primary Language)
+
+- TypeScript strict mode, ESM, ES2023 target (matching OpenClaw).
+- Use `async`/`await` for all I/O operations.
+- Type everything with Zod schemas for runtime validation, TypeScript interfaces for compile-time.
+- Follow OpenClaw's code style: use the project's `oxlint` and `oxfmt` configuration.
+- Imports: external packages → OpenClaw SDK imports → local imports.
+
+### OpenClaw Extensions
+
+- All Sentura extensions live in `sentura/extensions/` and follow OpenClaw's plugin contract.
+- Channel extensions use `defineChannelPluginEntry` from `openclaw/plugin-sdk/core`.
+- Provider extensions use `definePluginEntry` and register via `OpenClawPluginApi`.
+- Custom tools use `api.registerTool()` during plugin initialization.
+- Each extension has an `openclaw.plugin.json` manifest declaring capabilities.
+- Use the Plugin SDK's stable public API (`openclaw/plugin-sdk/*`) — never import from OpenClaw's internal `src/` paths.
+
+### Agent Configuration
+
+- AI employees are defined by OpenClaw agent config entries (JSON5) + workspace files (SOUL.md, SKILL.md, RULES.md, etc.).
+- Configuration changes go through OpenClaw's `config.patch` gateway RPC — never edit config files directly at runtime.
+- Skills are markdown files (SKILL.md) with structured sections: When to Use, Procedure, Tools Needed, Safety.
+- SOUL.md defines identity and personality. RULES.md defines hard boundaries.
+
+### Self-Provisioning
+
+- AI employees use OpenClaw's `browser` tool (Playwright) to register for services and obtain API keys.
+- Credentials are stored in OpenClaw's encrypted secret store — never in config files or conversation history.
+- MCP servers are configured dynamically via `config.patch` after provisioning.
+- Self-provisioning for new accounts or paid services requires human approval.
+
+### Safety & Guardrails
+
+- Every AI employee has a RULES.md with hard boundaries that the agent cannot override.
+- Tool access is controlled via allowlists/denylists in agent config.
+- High-risk actions go through OpenClaw's `exec.approval` system.
+- Sandbox mode (`non-main`) is mandatory for all AI employees.
+- The approval system supports escalation and timeout policies.
+
+### Memory
+
+- Each employee has its own memory namespace in OpenClaw's LanceDB-based memory system.
+- Workspace files (SOUL.md, CONTEXT.md, skills/) serve as static knowledge.
+- Dynamic memory (conversations, tool results, decisions) is stored in vector memory.
+- Memory dreaming/consolidation runs on a cron schedule.
+
+### Dashboard (Next.js or Lit)
+
+- Communicates with OpenClaw exclusively through the Gateway WebSocket RPC API.
+- Every dashboard action maps to a gateway RPC call (config.*, sessions.*, agent, cron.*, etc.).
+- Real-time updates via WebSocket event streaming.
+- RBAC enforced: different views for Platform Admin, Department Admin, Employee Owner, Auditor.
+
+## Behavioral Rules for Every Chat
+
+1. **Read the memory document first, write to it last.** At the START of every chat session, read `docs/MEMORY.md` to understand what previous sessions have accomplished. At the END, append a dated summary of what you did, which files you created/modified, key decisions, and anything left incomplete. If `docs/MEMORY.md` does not exist, create it with the header `# Sentura Development Memory`. Never delete previous entries — only append.
+
+2. **Update TeamPlan.md when tasks are completed.** After finishing any work that corresponds to a task in `TeamPlan.md`, mark that task as done by changing `- [ ]` to `- [x]`. If work reveals new tasks, add them under the appropriate week and person. If a task is blocked or deferred, add a note explaining why. `TeamPlan.md` must always reflect the true current state of the project.
+
+3. **Keep all project documents in sync.** When your work changes the architecture, adds new features, or introduces new conventions:
+   - Update `README.md` if the architecture, project structure, deployment steps, or technology stack changes.
+   - Update `OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
+   - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
+   - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
+   - Update `.cursorrules` (this file) if you establish new conventions, discover new pitfalls, or change the project structure.
+
+4. **Read before writing.** Always read relevant existing files before creating or modifying anything. Understand what exists.
+
+5. **Follow the design.** The README.md is the architecture bible. If a chat's request contradicts the design, flag it and ask before proceeding.
+
+6. **OpenClaw is the runtime.** Never build custom agent runtimes, custom gateways, or custom channel adapters. Use OpenClaw's existing infrastructure. Extend it via extensions and skills, not by forking.
+
+7. **Config over code.** AI employees are configured, not programmed. Prefer JSON5 config and SKILL.md files over TypeScript logic. If something can be a skill, make it a skill.
+
+8. **Test as you build.** Write Vitest tests alongside implementation. Mock external services in unit tests.
+
+9. **Deployment-flexible.** Never assume cloud or on-premise. Code must work in both environments. LLMs can be API keys or self-hosted — handle both via OpenClaw's provider system.
+
+10. **Trace everything.** Every LLM call, tool execution, approval event, and self-provisioning action must produce an observable trace.
+
+11. **No secrets in code.** API keys, passwords, tokens go in OpenClaw's secret store or `.env`. Never commit secrets.
+
+12. **Web search constantly.** ALWAYS use web search to verify implementation details for: OpenClaw APIs, MCP SDK usage, Playwright patterns, Next.js App Router, shadcn/ui components, and any other third-party integration. Libraries evolve fast — never rely on memory alone.
+
+13. **Prefer existing OpenClaw features.** Before building something new, check if OpenClaw already provides it (extensions, tools, gateway RPC methods, etc.). The 86 bundled extensions cover most needs.
+
+14. **Keep employees simple.** AI employees must complete tasks reliably. Prefer clear skills with well-defined procedures over clever multi-branch logic. Reliability beats sophistication.
+
+15. **Industry-agnostic by default.** Core logic must work for any enterprise. Industry-specific behavior comes from skills and config, not code branches.
+
+16. **Use `ekg/` as the test enterprise.** When building or testing enterprise integration features (MCP servers, custom tools, agent skills, knowledge ingestion), use the GradSale documentation in `ekg/` as the reference enterprise. This includes its NestJS backend API (`ekg/api-web.md`, `ekg/api-admin.md`), PostgreSQL schema (`ekg/database.md`), and frontend architecture (`ekg/web.md`, `ekg/admin-panel.md`).
+
+17. **Document non-obvious decisions.** If a design choice would surprise a new developer, add a brief comment explaining WHY.
+
+18. **Approval-first for risky actions.** Self-provisioning new accounts, financial transactions, data exports, and permission changes always require human approval via OpenClaw's exec.approval system.
+
+19. **Data classification matters.** Respect the T0–T4 data classification tiers. External channels only carry T0/T1 data. Sensitive operations happen on the Sentura dashboard.
+
+## File Naming Conventions
+
+- TypeScript: `kebab-case.ts` for modules, `PascalCase` for classes/types, `camelCase` for functions/variables.
+- Skills: `SKILL.md` (uppercase) in a named directory under `skills/`.
+- Agent workspace files: `SOUL.md`, `AGENTS.md`, `RULES.md`, `CONTEXT.md`, `TOOLS.md` (all uppercase).
+- Config files: `kebab-case.json5` or `kebab-case.yaml`.
+- OpenClaw extensions: one folder per extension under `sentura/extensions/<name>/` with `openclaw.plugin.json` manifest.
+
+## Common Pitfalls to Avoid
+
+- Do NOT build a custom agent runtime. OpenClaw IS the agent runtime. Extend it, don't replace it.
+- Do NOT call LLM providers directly. All LLM access goes through OpenClaw's provider system.
+- Do NOT hardcode credentials or API keys. Use OpenClaw's secret store (`$secret` references in config).
+- Do NOT modify OpenClaw core source files. Write extensions and skills instead.
+- Do NOT bypass OpenClaw's config system. Use `config.patch` RPC for runtime changes.
+- Do NOT create synchronous I/O code. Everything is async.
+- Do NOT auto-approve high-risk operations. Human must decide via the approval system.
+- Do NOT store credentials in conversation history or workspace files. Use the secret store.
+- Do NOT import from OpenClaw's internal `src/` paths. Use the stable `openclaw/plugin-sdk/*` API.
+- Do NOT assume a specific deployment environment. Code must work cloud, on-prem, and hybrid.
+- Do NOT commit large model files, binary data, or generated artifacts to the repo.
