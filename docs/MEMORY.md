@@ -236,3 +236,48 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 **Nothing left incomplete.**
 
 **Known issues:** None introduced.
+
+---
+
+## 2026-04-05 — Capability #13: Pre-Deployment Testing & Validation
+
+### Summary
+Added a critical missing capability: pre-deployment testing of AI employees against real/mock enterprise tasks before they go live. An employee that can't handle actual work on day one isn't "mission-ready."
+
+### What was added
+
+**README.md:**
+- Added capability #13 to Section 1 capability table: "Pre-deployment testing & validation"
+- Updated capability count from 12 → 13
+- Added new **Phase 4: Pre-Deployment Testing & Validation** to Section 4 (No-Code Employee Creation), shifting the old Phase 4 (Deploy) to Phase 5
+- Phase 4 includes: 3 test case sources (historical records, generated mocks, role template suites), testing flow diagram, 6 test dimensions table, auto-tune on failure logic
+- Updated the incubation flow diagram to show the testing step
+- Updated incubation from "four phases" to "five phases"
+
+**TeamPlan.md:**
+- Updated all "12 capabilities" references to "13 capabilities"
+- Added #13 to Capability Coverage Map (Owner: B + D + C, Weeks: 3, 4, 5)
+- Added new interface contract: "Pre-deployment test harness contract"
+- Week 3/B: Design test harness (test case schema, extractor, mock generator, thresholds)
+- Week 3/D: Build test data extraction tools via MCP, test with ekg/ GradSale
+- Week 4/B: Implement test runner, scoring across 6 dimensions, auto-tune loop
+- Week 4/C: Build Test Results dashboard page
+- Week 5/B: Bundle role template test suites (10 test cases per template)
+- Week 6/B: E2E test of full pre-deployment testing pipeline
+- Updated GradSale E2E test to include pre-deployment testing step
+- Updated integration checkpoints IC-3 through IC-8 to include #13
+- Added 2 risk entries (insufficient historical data, auto-tune non-convergence)
+- Added capability-to-README traceability row
+
+**SETUP.md:**
+- Added "Pre-deployment testing" row to What Sentura Adds table
+
+**Files modified:**
+- `README.md` — capability table, Section 4 (5-phase incubation)
+- `TeamPlan.md` — capability map, contracts, weekly tasks, checkpoints, risks, traceability
+- `SETUP.md` — capability table
+- `docs/MEMORY.md` — this entry
+
+**Nothing left incomplete.**
+
+**Known issues:** None introduced.

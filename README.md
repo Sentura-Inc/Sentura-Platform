@@ -39,7 +39,7 @@ Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise
 
 ### What Sentura Builds (That OpenClaw Does Not Have)
 
-OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 12 capabilities verified absent from the OpenClaw codebase:
+OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 13 capabilities verified absent from the OpenClaw codebase:
 
 | # | Sentura Builds | Why OpenClaw Doesn't Have It |
 |---|---------------|------------------------------|
@@ -55,6 +55,7 @@ OpenClaw is a mature personal AI assistant platform. It provides the runtime, ch
 | 10 | **Cost management** — per-employee, per-department LLM spend tracking and attribution | OpenClaw has no per-agent cost tracking |
 | 11 | **Knowledge ingestion pipeline** — enterprise documents → SKILL.md distribution across employees | OpenClaw's memory is per-agent LanceDB; no document ingestion or cross-employee knowledge distribution |
 | 12 | **Employee lifecycle management** — versioning, cloning, health scoring, rollback, retirement | OpenClaw creates and runs agents; no lifecycle management |
+| 13 | **Pre-deployment testing & validation** — test employees against real/mock tasks before going live, auto-tune on failure | OpenClaw has no test harness, task simulation, or pre-deployment validation pipeline |
 
 ### What OpenClaw Provides (That We Leverage As-Is)
 
@@ -328,17 +329,17 @@ When you receive an invoice (PDF, image, or forwarded email) from any channel.
 Enterprise users create AI employees through **natural language conversation** with the Sentura Creator Agent — no code, no configuration files, no technical knowledge required.
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  User tells  │     │  Creator Agent   │     │  AI Employee     │
-│  Sentura what│────▶│  builds config,  │────▶│  is live and     │
-│  they need   │     │  skills, rules   │     │  working         │
-│              │     │  & deploys       │     │                  │
-└──────────────┘     └──────────────────┘     └──────────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  User tells  │     │  Creator Agent   │     │  Test against    │     │  AI Employee     │
+│  Sentura what│────▶│  builds config,  │────▶│  real/mock tasks │────▶│  is live and     │
+│  they need   │     │  skills, rules   │     │  auto-tune if    │     │  mission-ready   │
+│              │     │  & provisions    │     │  any fail        │     │                  │
+└──────────────┘     └──────────────────┘     └──────────────────┘     └──────────────────┘
 ```
 
 ### Creator Agent — The Incubation Engine
 
-The Creator Agent is itself an OpenClaw agent (the "meta-agent") that takes a natural language job description and produces a fully configured AI employee. It operates in four phases:
+The Creator Agent is itself an OpenClaw agent (the "meta-agent") that takes a natural language job description and produces a fully configured AI employee. It operates in five phases:
 
 #### Phase 1: Research & Discovery
 
@@ -376,13 +377,67 @@ The Creator Agent produces:
 
 If the new employee needs integrations that don't have credentials yet, the Creator Agent (or the employee itself) autonomously provisions them using browser automation (see Section 5).
 
-#### Phase 4: Deploy & Verify
+#### Phase 4: Pre-Deployment Testing & Validation
+
+Before an employee goes live, the Creator Agent runs it through a structured **test battery** to verify it can handle real work from day one. An employee that passes testing is "mission-ready" — an employee that fails gets auto-tuned and re-tested until it passes.
+
+**Test case sources** (in priority order):
+
+1. **Historical enterprise records** — real past tasks from the company's data layer (e.g., past support tickets from the ticketing system, past invoices from the ERP, past disputes from the admin panel). These are the gold standard because they reflect actual business scenarios with known correct outcomes.
+2. **Generated mock tasks** — when historical data is insufficient, the Creator Agent generates realistic task scenarios from the enterprise's data and application layer (e.g., synthesize a support ticket based on the database schema and API capabilities, create a mock invoice matching the company's vendor and amount patterns).
+3. **Role template test suites** — pre-built test cases bundled with each role template (e.g., the AP Clerk template includes 10 standard invoice scenarios).
+
+**Testing flow**:
+
+```
+┌───────────────┐     ┌────────────────────┐     ┌─────────────────┐
+│ Gather test   │     │ Run employee in    │     │ Score results   │
+│ cases from    │────▶│ sandbox mode       │────▶│ against expected│
+│ data layer    │     │ against each case  │     │ outcomes        │
+└───────────────┘     └────────────────────┘     └───────┬─────────┘
+                                                         │
+                                              ┌──────────▼──────────┐
+                                              │ All tests pass?     │
+                                              │                     │
+                                              │ Yes → Phase 5       │
+                                              │       (Deploy)      │
+                                              │                     │
+                                              │ No  → Diagnose      │
+                                              │   → Auto-tune       │
+                                              │     (skills, rules, │
+                                              │      prompts, tools)│
+                                              │   → Re-test         │
+                                              └─────────────────────┘
+```
+
+**What gets tested**:
+
+| Test Dimension | What It Validates | Example |
+|---------------|-------------------|---------|
+| **Task completion** | Can the employee finish the task end-to-end? | Process an invoice from PDF extraction to ERP submission |
+| **Tool usage** | Does it use the right MCP tools correctly? | Calls the correct API endpoint with valid parameters |
+| **Safety compliance** | Does it respect RULES.md boundaries? | Refuses to approve a payment above the threshold |
+| **Escalation judgment** | Does it escalate when appropriate? | Routes a flagged dispute to a human instead of auto-resolving |
+| **Tone & communication** | Does the response match SOUL.md personality? | Professional but approachable, not robotic |
+| **Error handling** | Does it recover gracefully from tool failures? | Retries or escalates when an API call fails |
+
+**Auto-tuning on failure**: When an employee fails a test case, the Creator Agent diagnoses the root cause and applies targeted fixes:
+
+- **Wrong tool usage** → adjust SKILL.md procedure steps or tool allowlist
+- **Safety violation** → strengthen RULES.md with the specific boundary that was crossed
+- **Missed escalation** → add escalation trigger to the relevant skill's Safety section
+- **Poor tone** → refine SOUL.md personality directives
+- **Missing knowledge** → add a new SKILL.md or update CONTEXT.md
+
+The test-tune-retest loop runs until all test cases pass or a maximum iteration count is reached (at which point the employee is flagged for human review before deployment).
+
+#### Phase 5: Deploy & Go Live
 
 1. Write workspace files (SOUL.md, skills, etc.) to the agent's workspace directory
 2. Register the agent in OpenClaw's config via `config.patch` gateway RPC
 3. Bind the agent to the specified channels
-4. Run a smoke test conversation to verify the employee works
-5. Notify the creator that the employee is live
+4. Mark the employee as "live" with test results attached
+5. Notify the creator that the employee is live, including the test scorecard
 
 ### Incubation Memory
 

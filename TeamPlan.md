@@ -1,6 +1,6 @@
 # Sentura Platform — 8-Week Team Sprint Plan
 
-> **Aligned with**: README.md (12 Sentura capabilities), OPENCLAW.md, ekg/ test enterprise
+> **Aligned with**: README.md (13 Sentura capabilities), OPENCLAW.md, ekg/ test enterprise
 >
 > **Last synced**: 2026-04-05
 
@@ -15,7 +15,7 @@
 
 ## Sentura Capability Coverage Map
 
-Each of the 12 capabilities from README.md Section 1 must have explicit sprint tasks:
+Each of the 13 capabilities from README.md Section 1 must have explicit sprint tasks:
 
 | # | Capability | Primary Owner | Sprint Weeks |
 |---|-----------|--------------|-------------|
@@ -31,6 +31,7 @@ Each of the 12 capabilities from README.md Section 1 must have explicit sprint t
 | 10 | Cost management | A + C | 4, 5 |
 | 11 | Knowledge ingestion pipeline | B | 4, 5 |
 | 12 | Employee lifecycle management | B + A + C | 5, 6 |
+| 13 | Pre-deployment testing & validation | B + D + C | 3, 4, 5 |
 
 ## Interface Contracts (Agreed Day 1)
 
@@ -51,6 +52,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Enterprise MCP generation contract | D | B (Creator Agent wires MCP), A (infra) | API docs (ekg/) → MCP server code → config.patch |
 | Multi-tenancy model | A | D (extensions), C (dashboard) | Tenant isolation strategy, namespace convention |
 | Cost tracking event schema | A | C (Cost Center UI), D (audit) | Per-agent LLM call events with token counts and cost estimates |
+| Pre-deployment test harness contract | B | D (test data extraction via MCP), C (test results UI) | Test case format (input, expected outcome, scoring rubric), test run results schema, pass/fail thresholds |
 
 ---
 
@@ -145,7 +147,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: AI employees can self-provision new tools with approval + error handling. Users can tune employees via NL.
 >
-> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement)
+> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement), #13 (test harness design)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] Build secret store helpers: programmatic write/read of OpenClaw secrets
@@ -161,6 +163,11 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Error recovery (CAPTCHA, 2FA, rate limits → escalate to human with context)
   - Audit logging of every provisioning event
 - [ ] Test self-provisioning end-to-end: create employee → needs Zendesk → registers → configures
+- [ ] **Design the pre-deployment test harness (capability #13)**:
+  - Define test case schema: input scenario, expected actions, expected outcome, scoring rubric
+  - Build test case extractor: pull historical tasks from enterprise data layer via MCP tools
+  - Build mock task generator: synthesize realistic scenarios from database schema + API capabilities when historical data is insufficient
+  - Define pass/fail thresholds and maximum auto-tune iteration count
 - [ ] Build Tuning Agent: NL instruction → workspace file edits + config.patch
 - [ ] Test Tuning Agent: "make the AP clerk more casual" → SOUL.md updated
 - [ ] Create the Orchestrator Agent workspace (Mode B: multi-agent coordination)
@@ -182,6 +189,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Input: OpenAPI spec or markdown API docs (like ekg/*.md)
   - Output: MCP server TypeScript code with typed tool definitions
 - [ ] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools
+- [ ] **Build test data extraction tools for pre-deployment testing (capability #13)**:
+  - MCP tool wrapper that queries enterprise data for historical task records (e.g., past support tickets, past invoices)
+  - Output in standardized test case format (matching B's test harness schema)
+  - Test with ekg/ GradSale: extract past dispute records and support threads as test cases
 - [ ] Test approval flow: AI employee triggers high-risk action → human approves on dashboard
 
 ---
@@ -190,7 +201,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: Multi-tenancy foundation. Mode B orchestration working. Knowledge ingestion functional. Cost tracking starts.
 >
-> **Capabilities covered**: #7 (orchestration), #8 (multi-tenancy), #10 (cost tracking), #11 (knowledge pipeline)
+> **Capabilities covered**: #7 (orchestration), #8 (multi-tenancy), #10 (cost tracking), #11 (knowledge pipeline), #13 (test runner implementation)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] **Design and implement multi-tenancy model**:
@@ -220,6 +231,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Distribute skills across employees (cross-employee knowledge — not in OpenClaw)
   - Notify affected employees of new knowledge
 - [ ] Test knowledge flow: upload PDF → Knowledge Curator → SKILL.md → employee uses it
+- [ ] **Implement pre-deployment test runner (capability #13)**:
+  - Run employee in sandbox mode against each test case
+  - Score results across 6 dimensions: task completion, tool usage, safety compliance, escalation judgment, tone, error handling
+  - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, RULES.md, SOUL.md, CONTEXT.md, or tool config) → re-test
+  - Cap iterations with human-review escalation if max retries exceeded
+  - Test against ekg/ GradSale: create CS agent → run against historical dispute records → tune until all pass
 - [ ] Build incubation memory: Creator Agent remembers past creations, learns from failures
 - [ ] Write reflection loop: Creator monitors new employee, auto-patches issues
 
@@ -228,6 +245,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build the Knowledge Manager UI (upload documents, view generated skills, skill distribution)
 - [ ] **Build the Cost Center page** (per-employee, per-department LLM spend — backed by A's cost tracking)
 - [ ] Build the Health Monitor (employee uptime, error rates, response latency)
+- [ ] **Build the Test Results dashboard (capability #13)**: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history, link to test case details
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
 
 ### Person D — Extensions & Integrations Engineer
@@ -246,7 +264,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: Enterprise-grade security. SSO integration. Complete RBAC. Employee lifecycle management.
 >
-> **Capabilities covered**: #8 (multi-tenancy complete), #9 (SSO), #12 (employee lifecycle)
+> **Capabilities covered**: #8 (multi-tenancy complete), #9 (SSO), #12 (employee lifecycle), #13 (role template test suites)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] **Implement enterprise SSO integration** (SAML/OIDC for dashboard auth)
@@ -265,8 +283,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Employee versioning: rollback to previous configuration (workspace files + config)
   - Employee health scoring: response quality, error rate, approval rejection rate
   - Employee retirement: graceful shutdown, session handoff, data archival
+- [ ] **Bundle role template test suites**: write 10 standard test cases per role template (AP Clerk, CS Agent, SDR, etc.)
 - [ ] Refine self-provisioning for 10+ common SaaS services
-- [ ] Test Creator Agent against GradSale ekg/ scenario: create a CS agent for GradSale
+- [ ] Test Creator Agent against GradSale ekg/ scenario: create a CS agent for GradSale → run pre-deployment tests → auto-tune → deploy
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Implement full RBAC in dashboard (role-based views, permission enforcement per README §15)
@@ -288,9 +307,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 6 — Polish & Integration Testing
 
-> **Goal**: All features integrated. End-to-end flows working reliably. All 12 capabilities functional.
+> **Goal**: All features integrated. End-to-end flows working reliably. All 13 capabilities functional.
 >
-> **Validation**: Test every capability against the ekg/ GradSale enterprise scenario
+> **Validation**: Test every capability against the ekg/ GradSale enterprise scenario (including pre-deployment testing pipeline)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] E2E test: full employee lifecycle (create → provision → work → tune → version → clone → retire)
@@ -305,7 +324,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] E2E test: self-provisioning works for all supported services (including error recovery)
 - [ ] E2E test: Tuning Agent handles diverse tuning requests
 - [ ] E2E test: Knowledge Curator ingests documents and distributes skills to employees
-- [ ] **E2E test: GradSale scenario end-to-end** (create CS agent from ekg/ docs → wire MCP → handle support tickets)
+- [ ] **E2E test: GradSale scenario end-to-end** (create CS agent from ekg/ docs → wire MCP → pre-deployment tests → auto-tune → deploy → handle support tickets)
+- [ ] **E2E test: Pre-deployment testing pipeline** (historical task extraction → test run → failure → auto-tune → re-test → pass → deploy)
 - [ ] Polish skill templates based on testing feedback
 - [ ] Write the employee onboarding skill (new employee introduces itself)
 
@@ -367,10 +387,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 8 — Beta Release & Stabilization
 
-> **Goal**: Beta-ready platform. All 12 capabilities stable. Documentation complete.
+> **Goal**: Beta-ready platform. All 13 capabilities stable. Documentation complete.
 
 ### All Team Members
-- [ ] Full regression testing against all 12 Sentura capabilities
+- [ ] Full regression testing against all 13 Sentura capabilities
 - [ ] Fix all critical and high-priority bugs
 - [ ] Review and merge all pending PRs
 - [ ] Final documentation review
@@ -383,7 +403,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ### Person A
 - [ ] Final deployment pipeline validation (cloud + on-premise)
-- [ ] Write release notes covering all 12 capabilities
+- [ ] Write release notes covering all 13 capabilities
 - [ ] Set up monitoring and alerting for beta deployment
 - [ ] Validate multi-tenancy and cost tracking in production-like environment
 
@@ -413,12 +433,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 |------------|------|-----------------|----------------------|
 | **IC-1** | End of Week 1 | OpenClaw gateway runs, channels connected, LLM responds | Foundation |
 | **IC-2** | End of Week 2 | Creator Agent produces a working AI employee; visible in dashboard; GradSale MCP server works | #1, #2, #5, #6 |
-| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees | #3, #4 |
-| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works; knowledge ingestion functional; cost tracking live | #7, #8, #10, #11 |
-| **IC-5** | End of Week 5 | SSO login works; RBAC enforced; employee lifecycle (version, clone, retire) functional | #9, #12 |
-| **IC-6** | End of Week 6 | All 12 capabilities tested E2E; GradSale scenario fully working | All 12 |
-| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 12 |
-| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise | All 12 |
+| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees; test harness design complete | #3, #4, #13 (design) |
+| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works; knowledge ingestion functional; cost tracking live; pre-deployment test runner working | #7, #8, #10, #11, #13 |
+| **IC-5** | End of Week 5 | SSO login works; RBAC enforced; employee lifecycle (version, clone, retire) functional; role template test suites bundled | #9, #12, #13 |
+| **IC-6** | End of Week 6 | All 13 capabilities tested E2E; GradSale scenario fully working (including pre-deployment test pipeline) | All 13 |
+| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 13 |
+| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise | All 13 |
 
 ---
 
@@ -437,6 +457,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Enterprise MCP generation quality | Test against ekg/ GradSale docs first; iterate on generation quality |
 | Cost tracking accuracy | Cross-validate with LLM provider billing; add reconciliation checks |
 | OpenClaw single-tenant architecture limits | Namespace-level isolation first; full gateway-per-tenant if needed later |
+| Pre-deployment testing insufficient historical data | Fall back to mock task generation from schema + API docs; bundle role template test suites as baseline |
+| Auto-tune loop doesn't converge | Cap iterations; escalate to human review; store failure diagnostics for Creator Agent learning |
 
 ---
 
@@ -458,3 +480,4 @@ Every Sentura capability references specific README.md sections for requirements
 | Cost management | §11, §17 | Per-employee + per-department cost tracking, Cost Center dashboard page |
 | Knowledge ingestion pipeline | §6 | Knowledge Curator agent, document → SKILL.md → employee distribution |
 | Employee lifecycle management | §1 | Versioning, cloning, health scoring, rollback, retirement |
+| Pre-deployment testing & validation | §1, §4 | 5-phase incubation (Phase 4: Testing), 3 test case sources, 6 test dimensions, auto-tune loop, pass/fail thresholds |
