@@ -23,45 +23,44 @@ Used by: **Person A** (infra), **Person B** (Creator/Tuner agents), **Person C**
 
 **List all AI employees:**
 ```json
-{ "method": "config.get", "params": { "path": "agents.entries" } }
+{ "method": "config.get", "params": { "path": "agents.list" } }
 ```
 
-**Add a new AI employee (Creator Agent uses this):**
-```json
+**Add a new AI employee (Creator Agent uses the `gateway` tool with action `config.patch`):**
+
+Note: `config.patch` takes a `raw` param (JSON5 string), not a `patch` object. The patch is a merge-patch applied to the current config. `agents.list` is an **array** — the merge patch engine handles array-of-objects by matching on `id`.
+```json5
+// Payload sent via the gateway tool's config.patch action
 {
-  "method": "config.patch",
-  "params": {
-    "patch": {
-      "agents": {
-        "entries": {
-          "ap-clerk-finance": {
-            "model": "openai/gpt-5.2",
-            "systemPrompt": "You are the AP Clerk...",
-            "workspace": "./workspaces/ap-clerk-finance",
-            "tools": { "allowlist": ["web_search", "pdf", "message"] },
-            "memory": { "enabled": true }
-          }
-        }
+  agents: {
+    list: [
+      {
+        id: "ap-clerk-finance",
+        name: "AP Clerk",
+        model: "openai/gpt-4o",
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch", "pdf", "message"],
+          deny: ["exec", "gateway"],
+        },
       }
-    }
+    ]
   }
 }
 ```
 
-**Tune an employee (Tuner Agent uses this):**
-```json
+**Tune an employee (Tuner Agent patches an existing entry by matching `id`):**
+```json5
 {
-  "method": "config.patch",
-  "params": {
-    "patch": {
-      "agents": {
-        "entries": {
-          "ap-clerk-finance": {
-            "model": "openai/gpt-5.2"
-          }
-        }
+  agents: {
+    list: [
+      {
+        id: "ap-clerk-finance",
+        model: "openai/gpt-5.4"
       }
-    }
+    ]
   }
 }
 ```
@@ -244,7 +243,7 @@ function rpc(method: string, params: Record<string, unknown>): Promise<unknown> 
 }
 
 // List all AI employees
-const employees = await rpc("config.get", { path: "agents.entries" });
+const employees = await rpc("config.get", { path: "agents.list" });
 ```
 
 ---

@@ -1,7 +1,11 @@
-# HEARTBEAT.md Template
+# Sentura Creator Agent — HEARTBEAT.md
 
-```markdown
-# Keep this file empty (or with only comments) to skip heartbeat API calls.
+## Periodic Checks
 
-# Add tasks below when you want the agent to check something periodically.
-```
+On heartbeat, check for:
+
+1. **Pending incubations** — any employee creation in progress that needs follow-up?
+2. **Post-deployment monitoring** — any recently deployed employees showing issues in their first sessions?
+3. **Provisioning status** — any self-provisioning workflows waiting for approval or stuck on errors?
+
+If nothing needs attention, reply HEARTBEAT_OK.

@@ -1,0 +1,23 @@
+// Sentura Orchestrator Agent ("Conductor") — Agent Configuration
+//
+// This config is applied by scripts/sentura-setup.sh during platform setup.
+// The Orchestrator coordinates multi-agent tasks across AI employees.
+// It needs sessions_send/sessions_spawn for inter-agent communication.
+{
+  agents: {
+    list: [
+      {
+        id: "orchestrator",
+        name: "Conductor",
+        model: "openai/gpt-4o",
+        skills: ["~/.openclaw/workspace/orchestrator/skills/*"],
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["sessions_send", "sessions_spawn", "web_search"],
+        },
+      }
+    ]
+  },
+}

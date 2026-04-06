@@ -1,0 +1,59 @@
+// GradSale CS Agent — Agent Configuration (Reference Example)
+//
+// This is the config.patch payload the Creator Agent would apply to register
+// this AI employee with the OpenClaw gateway.
+//
+// Apply with: gateway tool → config.patch (JSON5 merge-patch)
+//
+// OpenClaw schema: agents.list is an ARRAY of entries with `id` field.
+// No `workspace` — OpenClaw defaults to ~/.openclaw/workspace/cs-agent-gradsale
+// No `systemPrompt` — identity comes from workspace SOUL.md and AGENTS.md
+// Bindings and MCP servers are top-level config, not inside the agent entry.
+{
+  agents: {
+    list: [
+      {
+        id: "cs-agent-gradsale",
+        name: "GradSale Support",
+        model: "openai/gpt-4o",
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch", "canvas", "cron", "message"],
+          deny: ["exec", "gateway", "browser"],
+        },
+      }
+    ]
+  },
+
+  // Route Slack #support messages to this agent
+  // bindings: [
+  //   {
+  //     agentId: "cs-agent-gradsale",
+  //     match: { channel: "slack", accountId: "gradsale-workspace", peer: { kind: "channel", id: "#support" } }
+  //   }
+  // ],
+
+  // MCP servers for GradSale enterprise APIs (top-level, shared across agents)
+  mcp: {
+    servers: {
+      "gradsale-admin": {
+        command: "node",
+        args: ["./sentura/mcp-servers/gradsale-admin/index.js"],
+        env: {
+          GRADSALE_API_URL: "${GRADSALE_API_URL}",
+          GRADSALE_ADMIN_TOKEN: "${GRADSALE_ADMIN_TOKEN}",
+        }
+      },
+      "gradsale-web": {
+        command: "node",
+        args: ["./sentura/mcp-servers/gradsale-web/index.js"],
+        env: {
+          GRADSALE_API_URL: "${GRADSALE_API_URL}",
+          GRADSALE_WEB_TOKEN: "${GRADSALE_WEB_TOKEN}",
+        }
+      }
+    }
+  },
+}

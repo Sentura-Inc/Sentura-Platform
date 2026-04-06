@@ -1,0 +1,36 @@
+// Sentura Creator Agent ("Forge") — Agent Configuration
+//
+// This config is applied by scripts/sentura-setup.sh during platform setup.
+// It uses the correct OpenClaw schema: agents.list array, top-level bindings.
+//
+// The Creator Agent is a meta-agent that creates new AI employees.
+// It needs elevated tool access:
+//   - "gateway" tool for config.patch (register new agents)
+//   - "coding" profile for fs_write (create workspace files)
+//   - "sessions_send"/"sessions_spawn" for inter-agent communication
+{
+  agents: {
+    list: [
+      {
+        id: "creator",
+        name: "Forge",
+        model: "openai/gpt-4o",
+        skills: ["~/.openclaw/workspace/creator/skills/*"],
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "coding",
+          alsoAllow: ["gateway", "sessions_send", "sessions_spawn", "web_search", "web_fetch", "browser", "pdf", "canvas"],
+        },
+      }
+    ]
+  },
+
+  // Default binding: Creator handles webchat DMs
+  bindings: [
+    {
+      agentId: "creator",
+      match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
+    }
+  ],
+}

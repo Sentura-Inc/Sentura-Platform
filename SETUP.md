@@ -60,6 +60,34 @@ cd openclaw && pnpm openclaw onboard
 
 ---
 
+## Sentura Setup
+
+After OpenClaw is onboarded and the gateway starts successfully, register Sentura's meta-agents:
+
+```bash
+# From the project root (Sentura-Platform/)
+./scripts/sentura-setup.sh
+```
+
+This script:
+1. Verifies OpenClaw is onboarded (`~/.openclaw/openclaw.json` exists)
+2. Copies meta-agent workspace files (Creator, Tuner, Orchestrator) to `~/.openclaw/workspace/`
+3. Registers each meta-agent with the OpenClaw gateway via the CLI
+4. Applies tool permissions (Creator gets `gateway` access, etc.)
+5. Installs the `sentura-bootstrap` hook at `~/.openclaw/hooks/sentura-bootstrap/` and enables it — this hook injects RULES.md and CONTEXT.md into every agent's system prompt
+
+The script is idempotent — safe to re-run if agents are added later.
+
+After setup, restart the gateway:
+
+```bash
+cd openclaw && pnpm gateway:watch
+```
+
+The Creator Agent ("Forge") will be available in the webchat UI. Send it a message to create your first AI employee.
+
+---
+
 ## Sentura Layer
 
 Sentura is the enterprise management layer built on top of the running OpenClaw instance. OpenClaw provides the runtime (gateway, channels, providers, tools, memory, config). Sentura builds everything an enterprise needs that OpenClaw does not have:
@@ -100,7 +128,8 @@ pnpm test
 - `sentura/extensions/` — OpenClaw extensions for enterprise features (approval, audit, RBAC)
 - `sentura/skills/` — Bundled skills (self-provisioning, knowledge curation, compliance)
 - `sentura/config/` — Default configs, templates, and policies
-- `workspaces/` — Runtime AI employee workspaces (created when employees are incubated)
+- `workspaces/` — Git-tracked reference employee workspaces (runtime workspaces live in `~/.openclaw/workspace/`)
+- `scripts/` — Setup and utility scripts (including `sentura-setup.sh`)
 - `ekg/` — GradSale enterprise documentation (test enterprise for integration features)
 
 ---

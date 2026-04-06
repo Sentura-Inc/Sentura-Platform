@@ -1,0 +1,32 @@
+// CS Agent Role Template — Agent Configuration
+// Apply via gateway tool config.patch (JSON5 merge-patch) after customizing placeholders.
+//
+// OpenClaw schema: agents.list is an ARRAY of entries with `id` field.
+// No `workspace` field — OpenClaw defaults to ~/.openclaw/workspace/{agent-id}
+// No `systemPrompt` — identity comes from workspace SOUL.md and AGENTS.md
+// Bindings and MCP servers are top-level config, not inside the agent entry.
+{
+  agents: {
+    list: [
+      {
+        id: "{agent-id}",
+        name: "{agent-name}",
+        model: "openai/gpt-4o",
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch", "canvas", "cron", "message"],
+          deny: ["exec", "gateway"],
+        },
+      }
+    ]
+  },
+
+  // bindings: [
+  //   {
+  //     agentId: "{agent-id}",
+  //     match: { channel: "slack", accountId: "{slack-workspace}", peer: { kind: "channel", id: "#customer-support" } }
+  //   }
+  // ],
+}

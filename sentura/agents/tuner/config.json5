@@ -1,0 +1,23 @@
+// Sentura Tuner Agent ("Refine") — Agent Configuration
+//
+// This config is applied by scripts/sentura-setup.sh during platform setup.
+// The Tuner Agent modifies existing AI employee configurations via NL commands.
+// It needs the "gateway" tool for config.patch to update agent settings.
+{
+  agents: {
+    list: [
+      {
+        id: "tuner",
+        name: "Refine",
+        model: "openai/gpt-4o",
+        skills: ["~/.openclaw/workspace/tuner/skills/*"],
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "coding",
+          alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch"],
+        },
+      }
+    ]
+  },
+}

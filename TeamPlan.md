@@ -73,16 +73,16 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - Note: OpenClaw builds from source and runs via `pnpm gateway:watch`. Docker is for production only.
 
 ### Person B — AI Employee & Skills Engineer
-- [ ] Create the Creator Agent workspace: `sentura/agents/creator/` with SOUL.md, AGENTS.md, skills/
-- [ ] Write the first version of the Creator Agent's system prompt
-- [ ] Design the agent workspace file convention documenting the 10-file structure:
+- [x] Create the Creator Agent workspace: `sentura/agents/creator/` with SOUL.md, AGENTS.md, skills/
+- [x] Write the first version of the Creator Agent's system prompt
+- [x] Design the agent workspace file convention documenting the 10-file structure:
   - OpenClaw 8: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md
   - Sentura additions: RULES.md (position-specific safety — not in OpenClaw), CONTEXT.md (enterprise context)
   - Skills directory: structured SKILL.md files per capability
-- [ ] Create 3 role templates: `sentura/config/templates/` (AP Clerk, CS Agent, SDR)
-- [ ] Write the `self-provisioning` skill: `sentura/skills/self-provisioning/SKILL.md`
-- [ ] Write the `knowledge-curation` skill: `sentura/skills/knowledge-curation/SKILL.md`
-- [ ] Test manual creation of an AI employee by writing config + workspace files by hand
+- [x] Create 3 role templates: `sentura/config/templates/` (AP Clerk, CS Agent, SDR)
+- [x] Write the `self-provisioning` skill: `sentura/skills/self-provisioning/SKILL.md`
+- [x] Write the `knowledge-curation` skill: `sentura/skills/knowledge-curation/SKILL.md`
+- [x] Test manual creation of an AI employee by writing config + workspace files by hand
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Scaffold Sentura dashboard (Next.js 15 + Tailwind + shadcn/ui)

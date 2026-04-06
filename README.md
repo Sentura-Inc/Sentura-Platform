@@ -181,7 +181,7 @@ An AI employee is an **OpenClaw agent configuration** — a bundle of:
 
 | Component | OpenClaw Primitive | Purpose |
 |-----------|-------------------|---------|
-| **Identity** | Agent `id` + `systemPrompt` | Who the employee is, their role, personality, boundaries |
+| **Identity** | Agent `id` + workspace files (SOUL.md, AGENTS.md) | Who the employee is, their role, personality, boundaries |
 | **Skills** | `SKILL.md` files in agent workspace | Domain knowledge and procedural expertise |
 | **Tools** | OpenClaw tools + MCP servers + plugin tools | What the employee can do (browse, search, file I/O, APIs) |
 | **Channels** | Channel bindings (`bindings` config) | Where the employee communicates (Slack, Teams, etc.) |
@@ -193,47 +193,39 @@ An AI employee is an **OpenClaw agent configuration** — a bundle of:
 
 ### Agent Configuration Anatomy
 
-Each AI employee maps to an OpenClaw agent entry in the gateway configuration:
+Each AI employee maps to an entry in the `agents.list` array in the OpenClaw gateway config (`~/.openclaw/openclaw.json`). Identity comes from workspace files (SOUL.md, AGENTS.md), not a `systemPrompt` field. Bindings and MCP servers are top-level config:
 
 ```json5
 {
   agents: {
-    entries: {
-      "ap-clerk-finance": {
-        model: "openai/gpt-5.2",
-        systemPrompt: "You are the Accounts Payable Clerk for Acme Corp...",
-        workspace: "./workspaces/ap-clerk-finance",
-        skills: ["./skills/accounts-payable", "./skills/enterprise-erp"],
+    list: [
+      {
+        id: "ap-clerk-finance",
+        name: "AP Clerk",
+        model: "openai/gpt-4o",
+        // No workspace — defaults to ~/.openclaw/workspace/ap-clerk-finance
+        // No systemPrompt — identity from SOUL.md and AGENTS.md
         runtime: { type: "embedded" },
         sandbox: { mode: "non-main" },
         tools: {
-          allowlist: [
-            "web_search", "web_fetch", "browser", "canvas",
-            "cron", "pdf", "message", "image_generation"
-          ]
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch", "pdf", "canvas", "cron", "message"],
+          deny: ["exec", "gateway"],
         },
-        bindings: [
-          {
-            channel: "slack",
-            account: "acme-workspace",
-            peers: ["#accounts-payable", "#finance-team"],
-            type: "agent"
-          },
-          {
-            channel: "msteams",
-            account: "acme-tenant",
-            peers: ["finance-general"],
-            type: "agent"
-          }
-        ],
-        memory: { enabled: true },
-        approvals: {
-          autoApprove: false,
-          requireApproval: ["exec", "fs_write", "message"]
-        }
       }
+    ]
+  },
+  // Bindings are top-level — route channel messages to agents
+  bindings: [
+    {
+      agentId: "ap-clerk-finance",
+      match: { channel: "slack", accountId: "acme-workspace", peer: { kind: "channel", id: "#accounts-payable" } },
+    },
+    {
+      agentId: "ap-clerk-finance",
+      match: { channel: "msteams", accountId: "acme-tenant", peer: { kind: "channel", id: "finance-general" } },
     }
-  }
+  ],
 }
 ```
 
@@ -851,20 +843,23 @@ Different AI employees can use different models based on their needs:
 ```json5
 {
   agents: {
-    entries: {
-      "ap-clerk": {
-        model: "openai/gpt-5.2",
+    list: [
+      {
+        id: "ap-clerk",
+        model: "openai/gpt-4o",
         // Complex financial reasoning needs a strong model
       },
-      "faq-bot": {
+      {
+        id: "faq-bot",
         model: "ollama/llama3.2",
         // Simple FAQ answering can use a local model
       },
-      "code-reviewer": {
+      {
+        id: "code-reviewer",
         model: "openai/o3",
         // Code review benefits from reasoning models
       }
-    }
+    ]
   }
 }
 ```
@@ -977,7 +972,7 @@ AI Employee wants to execute a high-risk action
 
 ### RULES.md — Hard Boundaries (Sentura Innovation)
 
-Every AI employee has a `RULES.md` file that defines absolute constraints. **This is a Sentura-specific addition** — OpenClaw's default workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) do not include a dedicated rules file. Sentura injects `RULES.md` into each employee's workspace and includes its contents in the agent's system prompt via OpenClaw's bootstrap-extra-files hook:
+Every AI employee has a `RULES.md` file that defines absolute constraints. **This is a Sentura-specific addition** — OpenClaw's default workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) do not include a dedicated rules file. Sentura's `sentura-bootstrap` hook (`~/.openclaw/hooks/sentura-bootstrap/`) injects `RULES.md` and `CONTEXT.md` into each agent's system prompt during the `agent:bootstrap` event:
 
 ```markdown
 # AP Clerk — Hard Rules
@@ -1007,26 +1002,18 @@ OpenClaw's security layer enforces tool policies at the runtime level:
 
 ```json5
 {
-  // Per-agent tool configuration
   agents: {
-    entries: {
-      "ap-clerk-finance": {
+    list: [
+      {
+        id: "ap-clerk-finance",
         tools: {
-          // Only these tools are available to this employee
-          allowlist: [
-            "web_search", "web_fetch", "browser", "pdf",
-            "cron", "message", "canvas", "sessions_history"
-          ],
-          // These are explicitly blocked even if allowlisted
-          denylist: ["exec", "shell", "spawn", "gateway"]
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch", "pdf", "cron", "message", "canvas"],
+          deny: ["exec", "gateway"],
         },
-        sandbox: {
-          mode: "non-main",
-          // Sandboxed execution: no host file access, no network
-          // bypass, no process spawning
-        }
+        sandbox: { mode: "non-main" },
       }
-    }
+    ]
   }
 }
 ```
@@ -1422,13 +1409,18 @@ When AI employees communicate on external channels (Slack, Teams, WhatsApp):
 git clone https://github.com/sentura/Sentura-Platform.git
 cd Sentura-Platform
 
-# Build OpenClaw from source
+# Step 1: Build OpenClaw from source
 cd openclaw
 pnpm install && pnpm ui:build && pnpm build
 
-# Onboard (configures gateway, LLM provider, API keys)
+# Step 2: Onboard OpenClaw (configures gateway, LLM provider, API keys)
 pnpm openclaw onboard
-pnpm gateway:watch
+
+# Step 3: Register Sentura meta-agents
+cd .. && ./scripts/sentura-setup.sh
+
+# Step 4: Start the gateway
+cd openclaw && pnpm gateway:watch
 ```
 
 ### On-Premise with Local LLM
@@ -1442,7 +1434,10 @@ ollama pull llama3.3:70b
 cd openclaw
 pnpm install && pnpm ui:build && pnpm build
 pnpm openclaw onboard
-pnpm gateway:watch
+
+# Register Sentura meta-agents, then start
+cd .. && ./scripts/sentura-setup.sh
+cd openclaw && pnpm gateway:watch
 ```
 
 ### Production (Docker)
@@ -1527,7 +1522,7 @@ The Sentura Control Plane communicates with OpenClaw exclusively through the **G
 | Dashboard Action | Gateway RPC Call |
 |-----------------|-----------------|
 | Create employee | `config.patch` (add agent entry) + file writes for workspace |
-| List employees | `config.get` → parse `agents.entries` |
+| List employees | `config.get` → parse `agents.list` |
 | Tune employee | `config.patch` + workspace file updates |
 | View conversations | `sessions.list` + `sessions.transcript` |
 | Approve action | `exec.approval.resolve` / `plugin.approval.resolve` |
@@ -1617,6 +1612,11 @@ Sentura-Platform/
 │   │   ├── sentura-audit/       # Enterprise audit logging
 │   │   ├── sentura-rbac/        # Role-based access control
 │   │   └── sentura-provisioner/ # Self-provisioning coordinator
+│   │
+│   ├── hooks/                   # Sentura OpenClaw hooks
+│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md into system prompt
+│   │       ├── HOOK.md          # Hook metadata (events, install info)
+│   │       └── handler.ts       # Bootstrap event handler
 │   │
 │   ├── skills/                  # Sentura bundled skills
 │   │   ├── self-provisioning/   # Service registration skill
@@ -1722,10 +1722,16 @@ Sentura-Platform/
 git clone https://github.com/sentura/Sentura-Platform.git
 cd Sentura-Platform/openclaw
 
+# Step 1: Build and onboard OpenClaw
 pnpm install && pnpm ui:build && pnpm build
 pnpm openclaw onboard
-pnpm gateway:watch
 # Follow prompts — provide your LLM API key (OpenAI, Anthropic, etc.)
+
+# Step 2: Register Sentura meta-agents
+cd .. && ./scripts/sentura-setup.sh
+
+# Step 3: Start the gateway
+cd openclaw && pnpm gateway:watch
 # Open the Control UI URL printed at the end
 ```
 
@@ -1741,8 +1747,10 @@ cd Sentura-Platform/openclaw
 
 pnpm install && pnpm ui:build && pnpm build
 pnpm openclaw onboard
-pnpm gateway:watch
 # Choose local provider during onboarding
+
+cd .. && ./scripts/sentura-setup.sh
+cd openclaw && pnpm gateway:watch
 ```
 
 ### 3. Development Setup
@@ -1753,7 +1761,12 @@ cd Sentura-Platform/openclaw
 
 pnpm install && pnpm ui:build && pnpm build
 pnpm openclaw onboard
-pnpm gateway:watch
+
+# Register Sentura meta-agents (Creator, Tuner, Orchestrator)
+cd .. && ./scripts/sentura-setup.sh
+
+# Start the gateway
+cd openclaw && pnpm gateway:watch
 
 # Start Sentura dashboard in dev mode (when built)
 cd ../sentura/dashboard && pnpm dev
