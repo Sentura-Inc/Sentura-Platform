@@ -750,3 +750,159 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 - `sentura/dashboard/src/lib/gateway/client.ts` — meta-agent filtering, JSDoc fix
 - `sentura/dashboard/src/lib/gateway/types.ts` — corrected GatewayEventType union
 - `sentura/dashboard/src/app/page.tsx` — disconnection banner, error-aware imports
+
+---
+
+### 2026-04-08 — Person D Week 1 Complete
+
+**Summary:** Completed all Person D Week 1 tasks: studied OpenClaw's plugin SDK and approval system, built the `sentura-audit` extension, designed and scaffolded the `sentura-rbac` extension, wrote initial approval policy configs, and studied the GradSale API docs for MCP generation prep.
+
+**What was done:**
+
+1. **OpenClaw Plugin SDK study** — Analyzed `definePluginEntry`, `OpenClawPluginApi`, `api.registerTool()`, `api.on()` typed hooks, `api.registerGatewayMethod()`, and `api.registerHttpRoute()`. Identified key hooks: `before_tool_call`, `after_tool_call`, `session_start`, `session_end`, `message_received`, `message_sent`, `agent_end`, `gateway_start`, `gateway_stop`. Extension entry points follow `openclaw.extensions` in `package.json` pointing to `index.ts`.
+
+2. **OpenClaw Approval System study** — Analyzed `exec.approval.*` and `plugin.approval.*` systems. Learned the `ExecApprovalsFile` structure (version, defaults, per-agent overrides, allowlists), security modes (`deny`/`allowlist`/`full`), ask modes (`off`/`on-miss`/`always`), approval persistence (`~/.openclaw/exec-approvals.json`), and human approval via Unix socket.
+
+3. **sentura-audit extension** — Full implementation with:
+   - `package.json`, `openclaw.plugin.json` manifest, `api.ts` barrel
+   - `src/types.ts` — Audit event types, severity levels, AuditEntry, AuditConfig, AuditQueryParams
+   - `src/redaction.ts` — Configurable PII/secret redaction with regex patterns
+   - `src/store.ts` — File-based JSONL audit store with daily rotation, age/size retention, query filtering
+   - `src/tool.ts` — `sentura_audit_query` agent-facing tool for querying audit logs
+   - `index.ts` — Plugin entry registering all hooks (tool_call, tool_result, session_start/end, message_received/sent, agent_end, gateway_start/stop), gateway RPC methods (`sentura.audit.query`, `sentura.audit.stats`)
+
+4. **RBAC model design** — Created `DESIGN.md` documenting the five-role permission model:
+   - **platform_admin**: All scopes, all resources, T0-T4 data access
+   - **dept_admin**: read/write/approvals scopes, department-scoped resources, T0-T2
+   - **employee_owner**: read/write scopes, owned-employee resources, T0-T1
+   - **auditor**: read scope, all resources read-only, T0-T2 (redacted PII)
+   - **end_user**: read scope (limited), self-scoped sessions/approvals, T0 only
+   - Three-layer authorization: OpenClaw scope → Sentura method policy → resource-level filtering
+   - Department hierarchy with inheritance for nested departments
+
+5. **sentura-rbac extension** — Scaffolded with:
+   - `package.json`, `openclaw.plugin.json`, `api.ts`
+   - `src/types.ts` — SenturaRole, SenturaUser, Department, RbacConfig, AuthorizationResult
+   - `src/roles.ts` — Complete role definitions with operator scopes, permissions, data tier access
+   - `src/store.ts` — File-based CRUD for users and departments with department hierarchy
+   - `src/authorizer.ts` — Method-level authorization with role-permission matching and scope resolution
+   - `index.ts` — Plugin entry with gateway RPC methods (roles.list, users.list/get/assign/upsert, departments.list, authorize, scope.employees) and `sentura_rbac_manage` agent tool
+
+6. **Approval policy configs** — Created two files:
+   - `sentura/config/approval-policies.json5` — Comprehensive Sentura-layer policy with tool-level policies (high/medium/low risk), action-level policies (self-provisioning, financial, data export, permissions), escalation chain (employee_owner → dept_admin → platform_admin), notification channels, reminder settings
+   - `sentura/config/exec-approvals-template.json` — OpenClaw-native exec-approvals template with `security: "full"`, `ask: "always"`, `askFallback: "deny"`
+
+7. **GradSale API study** — Analyzed all ekg/ docs. Identified 40+ admin API endpoints and 30+ web API endpoints. Categorized by MCP tool suitability: admin-scoped (user management, dispute resolution, report handling) vs user-scoped (listings, transactions, messaging). Key insight: separate MCP servers for admin vs user operations, with different approval policies.
+
+**Files created:**
+- `sentura/extensions/sentura-audit/package.json`
+- `sentura/extensions/sentura-audit/openclaw.plugin.json`
+- `sentura/extensions/sentura-audit/api.ts`
+- `sentura/extensions/sentura-audit/index.ts`
+- `sentura/extensions/sentura-audit/src/types.ts`
+- `sentura/extensions/sentura-audit/src/redaction.ts`
+- `sentura/extensions/sentura-audit/src/store.ts`
+- `sentura/extensions/sentura-audit/src/tool.ts`
+- `sentura/extensions/sentura-rbac/package.json`
+- `sentura/extensions/sentura-rbac/openclaw.plugin.json`
+- `sentura/extensions/sentura-rbac/api.ts`
+- `sentura/extensions/sentura-rbac/index.ts`
+- `sentura/extensions/sentura-rbac/DESIGN.md`
+- `sentura/extensions/sentura-rbac/src/types.ts`
+- `sentura/extensions/sentura-rbac/src/roles.ts`
+- `sentura/extensions/sentura-rbac/src/store.ts`
+- `sentura/extensions/sentura-rbac/src/authorizer.ts`
+- `sentura/config/approval-policies.json5`
+- `sentura/config/exec-approvals-template.json`
+
+**Files modified:**
+- `TeamPlan.md` — Marked all Person D Week 1 tasks as done
+- `docs/MEMORY.md` — This entry
+
+**Key decisions:**
+- Audit logs use daily JSONL files (not SQLite) for simplicity and grep-ability, with configurable retention by age and size
+- RBAC uses file-based JSON storage consistent with OpenClaw's state layer (no external DB)
+- Sentura roles map to subsets of OpenClaw's six operator scopes — platform_admin gets all six, end_user gets only operator.read
+- Approval policies are layered: OpenClaw's exec.approval handles shell commands, Sentura's policy layer handles tool-level and action-level approvals
+- Escalation chain follows role hierarchy: employee_owner → dept_admin → platform_admin, with 15-minute escalation timeout
+- GradSale MCP servers should be split: admin-scoped vs user-scoped, each with different approval policies
+
+---
+
+## 2026-04-08 — Cross-Platform Setup Scripts (Linux + Windows)
+
+**What was done:**
+- Audited existing `scripts/sentura-setup.sh` — confirmed it was bash-only, works on macOS but had no explicit Linux or Windows support
+- Studied OpenClaw's cross-platform approach: native Windows support via `scripts/install.ps1` (PowerShell), `schtasks.ts` daemon install, `USERPROFILE` home dir resolution; Linux via systemd; WSL2 detected via `/proc/version`
+- Created `scripts/sentura-setup.ps1` — full PowerShell port of the setup script for native Windows, matching all 7 steps from the bash version (workspace copy, agent registration, config patching, hook installation)
+- Hardened `scripts/sentura-setup.sh` — added platform detection (Linux/macOS/WSL2/MINGW), Node.js version check, WSL2 detection via `/proc/version`, and early exit with redirect to PowerShell for Windows Git Bash/MSYS users
+- Updated `SETUP.md` with cross-platform instructions: platform-specific prerequisite install commands (brew/apt/winget), parallel bash/PowerShell command blocks for all steps, state directory table by platform, Windows-specific troubleshooting (execution policy, long paths, WSL2 recommendation)
+
+**Files created:**
+- `scripts/sentura-setup.ps1`
+
+**Files modified:**
+- `scripts/sentura-setup.sh` — Added platform detection, Node.js version guard, WSL2 detection, MINGW/MSYS redirect
+- `SETUP.md` — Full cross-platform rewrite of prerequisites, OpenClaw setup, Sentura setup, troubleshooting
+- `docs/MEMORY.md` — This entry
+
+**Key decisions:**
+- PowerShell script uses `$env:USERPROFILE\.openclaw` as the default state dir (matching OpenClaw's `home-dir.ts` resolution: `OPENCLAW_HOME` → `HOME` → `USERPROFILE` → `os.homedir()`)
+- Inline `node -e` scripts for JSON config patching work identically on both platforms — Node.js normalizes path separators
+- Windows Git Bash / MSYS / Cygwin users are explicitly redirected to the PowerShell script to avoid path resolution issues
+- WSL2 is treated as Linux (uses the bash script), with an informational log message
+
+---
+
+## 2026-04-08 — TESTS.md Policy Added to Project Rules
+
+**What was done:**
+- Added TESTS.md maintenance as a mandatory behavioral rule (rule 3) in `.cursorrules` — every agent must update `TESTS.md` when adding, changing, or removing testable deliverables
+- Added "Test Documentation Policy" section to `TeamPlan.md` (above Interface Contracts) with specific update guidelines
+- Added `TESTS.md` to `README.md` project structure tree and added a "Key Documentation" table in the Quick Start section with a bold callout about keeping TESTS.md updated
+- Renumbered `.cursorrules` behavioral rules 4–19 → 5–20 to accommodate the new rule 3
+- Added `TESTS.md` to the document sync list in `.cursorrules` rule 4
+
+**Files modified:**
+- `.cursorrules` — New rule 3 (TESTS.md policy); TESTS.md added to rule 4 sync list; rules 4–19 renumbered to 5–20
+- `TeamPlan.md` — New "Test Documentation Policy" section
+- `README.md` — Project structure updated; Key Documentation table added
+- `docs/MEMORY.md` — This entry
+
+---
+
+## 2026-04-08 — Sentura Communication Panel Design & Plan
+
+**What was done:**
+
+Deep investigation of OpenClaw's session, channel, binding, and multi-agent orchestration systems to design Sentura's Communication Panel — a WhatsApp/Slack-style chat interface for the dashboard.
+
+**Key investigation findings:**
+
+- OpenClaw sessions use keys of the form `agent:<agentId>:<rest>`, and the embedded `agentId` determines which agent handles the conversation
+- `sessions.create` RPC accepts an explicit `agentId` parameter, creating keys like `agent:<agentId>:dashboard:<uuid>` — this is the supported way to start direct sessions with non-main agents
+- `chat.send` resolves the agent from the session key via `resolveSessionAgentId` — no separate agent parameter needed
+- The gateway broadcasts `chat` events with `state: "delta"` / `"final"` for real-time streaming
+- OpenClaw's Control UI can already target any agent by changing `sessionKey`, but its UX is a single-pane developer tool, not an enterprise messaging experience
+- `webchat` is a built-in internal channel constant (`INTERNAL_MESSAGE_CHANNEL`), not a plugin — identified by `client.mode === "webchat"`
+- Bindings map `{ channel, accountId, peer }` → `agentId` via tiered first-match resolution, but `sessions.create` with explicit `agentId` bypasses binding resolution entirely
+- Multi-agent orchestration uses `sessions_spawn` (agent tool, NOT an RPC) for subagent delegation; there is no `sessions.spawn` RPC
+- ACP (`@agentclientprotocol/sdk`) is used for external ACP-capable child processes, not for intra-OpenClaw agent-to-agent messaging
+
+**Critical decision: No OpenClaw core modifications needed for 1:1 chat.** All required RPCs (`sessions.create`, `chat.send`, `chat.history`, `sessions.list`, `chat.abort`) already exist. Group chat requires a Sentura-level fan-out orchestration layer but still uses the same underlying RPCs.
+
+**Architecture decisions:**
+
+- Dual-mode communication: external channels (Slack, Teams, etc.) for daily operations + Sentura dashboard chat for management/testing/debugging
+- 1:1 chat: two-pane layout (conversation list + chat thread), uses `sessions.create` with `agentId` + `chat.send` with `sessionKey`
+- Group chat: Sentura maintains group metadata and N underlying OpenClaw sessions (one per agent), fans out messages via `sessions.send`, merges responses into a unified thread
+- Communication panel added as capability #14 (was 13 capabilities, now 14)
+- Sprint allocation: 1:1 chat in Week 3 (Person C + Person A), group chat in Week 4 (Person C + Person D for audit)
+
+**Files modified:**
+- `README.md` — Added "Sentura Communication Panel" subsection to Section 7 (Communication & Channels) with 1:1 chat design, group chat architecture, enterprise interaction strategy; updated capability count from 13 to 14; added capability #14 to the Sentura Builds table
+- `TeamPlan.md` — Updated capability coverage map (13→14 capabilities); added capability #14 row; added Week 3 tasks: Person A session management helpers, Person C 1:1 Chat Panel; added Week 4 tasks: Person C group chat, Person D audit integration for chat; updated integration checkpoints IC-3 and IC-4; added communication panel session contract to Interface Contracts; updated all "13 capabilities" references to "14"
+- `docs/MEMORY.md` — This entry
+
+**Also fixed in this session:**
+- Dashboard `config.get` bug: `sentura/dashboard/src/lib/gateway/client.ts` `getConfig()` was not unwrapping the `{ hash, config }` snapshot wrapper from OpenClaw's `config.get` RPC, causing `getAgents()` to return empty. Fixed by extracting `snapshot.config` before returning.

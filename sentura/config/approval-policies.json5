@@ -1,0 +1,242 @@
+// Sentura Approval Policies — Initial Configuration
+// These policies define which actions require human approval, escalation rules,
+// and timeout behavior for AI employees across the enterprise.
+//
+// Layered on top of OpenClaw's exec.approval system:
+//   exec-approvals.json → security: "full" | "allowlist" | "deny"
+//   This file → Sentura's tool-level and action-level approval policies
+
+{
+  "version": 1,
+  "description": "Default Sentura approval policies for enterprise AI employees",
+
+  // Global defaults applied to all employees unless overridden
+  "defaults": {
+    // OpenClaw exec approval settings
+    "exec": {
+      "security": "full",       // All shell commands require approval
+      "ask": "always",          // Always ask for approval on exec
+      "askFallback": "deny",    // If approval times out, deny
+      "autoAllowSkills": false  // Skills do NOT auto-approve commands
+    },
+
+    // Default timeout for approval requests (30 minutes)
+    "timeoutMs": 1800000,
+
+    // What happens when an approval times out
+    "timeoutAction": "deny",  // "deny" | "escalate" | "auto-approve"
+
+    // Maximum number of pending approvals per employee before new requests are queued
+    "maxPendingApprovals": 10
+  },
+
+  // Tool-level approval policies
+  // Keys are tool name patterns (exact match or glob)
+  "toolPolicies": {
+    // --- HIGH RISK: Always require approval ---
+    "browser_navigate": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "Web navigation can expose credentials or trigger external actions",
+      "escalateTo": "employee_owner"
+    },
+    "browser_fill": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "Form filling may submit sensitive data to external services",
+      "escalateTo": "employee_owner"
+    },
+    "browser_click": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "Clicking may trigger irreversible actions (purchases, deletions)",
+      "escalateTo": "employee_owner"
+    },
+    "mcp_*": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "MCP tool calls interact with external enterprise systems",
+      "escalateTo": "dept_admin",
+      "exceptions": [
+        // Read-only MCP operations can be auto-approved after initial setup
+        "mcp_gradsale_list_*",
+        "mcp_gradsale_get_*"
+      ]
+    },
+
+    // --- MEDIUM RISK: Require approval on first use per session ---
+    "send_email": {
+      "requireApproval": "first-per-session",
+      "riskLevel": "medium",
+      "reason": "Email sends are visible externally and may contain sensitive data",
+      "escalateTo": "employee_owner"
+    },
+    "send_message": {
+      "requireApproval": "first-per-session",
+      "riskLevel": "medium",
+      "reason": "Channel messages are visible to external users",
+      "escalateTo": "employee_owner"
+    },
+    "config_patch": {
+      "requireApproval": true,
+      "riskLevel": "medium",
+      "reason": "Configuration changes affect employee behavior",
+      "escalateTo": "dept_admin"
+    },
+
+    // --- LOW RISK: No approval needed ---
+    "memory_*": {
+      "requireApproval": false,
+      "riskLevel": "low",
+      "reason": "Memory operations are internal and reversible"
+    },
+    "file_read": {
+      "requireApproval": false,
+      "riskLevel": "low",
+      "reason": "Reading workspace files is safe"
+    },
+    "file_write": {
+      "requireApproval": false,
+      "riskLevel": "low",
+      "reason": "Writing to employee workspace is sandboxed"
+    },
+    "sentura_audit_query": {
+      "requireApproval": false,
+      "riskLevel": "low",
+      "reason": "Read-only audit log queries"
+    },
+    "sentura_rbac_manage": {
+      "requireApproval": false,
+      "riskLevel": "low",
+      "reason": "Read-only RBAC queries (writes handled by gateway RPC)"
+    }
+  },
+
+  // Action-level approval policies (for self-provisioning and account management)
+  "actionPolicies": {
+    // Self-provisioning: creating new accounts on external services
+    "self_provision_new_account": {
+      "requireApproval": true,
+      "riskLevel": "critical",
+      "reason": "Creating accounts on external services has legal and financial implications",
+      "escalateTo": "platform_admin",
+      "timeoutMs": 3600000,  // 1 hour for critical decisions
+      "timeoutAction": "deny",
+      "notifyChannels": ["slack", "email"]
+    },
+
+    // Self-provisioning: using existing credentials
+    "self_provision_existing_account": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "Accessing existing enterprise accounts requires authorization",
+      "escalateTo": "dept_admin"
+    },
+
+    // Financial transactions
+    "financial_transaction": {
+      "requireApproval": true,
+      "riskLevel": "critical",
+      "reason": "Financial actions require explicit human authorization",
+      "escalateTo": "platform_admin",
+      "timeoutMs": 3600000,
+      "timeoutAction": "deny"
+    },
+
+    // Data export
+    "data_export": {
+      "requireApproval": true,
+      "riskLevel": "high",
+      "reason": "Exporting data may expose sensitive information outside the organization",
+      "escalateTo": "dept_admin",
+      "dataClassificationMinimum": "T2"
+    },
+
+    // Permission changes
+    "permission_change": {
+      "requireApproval": true,
+      "riskLevel": "critical",
+      "reason": "Permission changes affect security boundaries",
+      "escalateTo": "platform_admin"
+    },
+
+    // Employee configuration changes
+    "employee_config_change": {
+      "requireApproval": true,
+      "riskLevel": "medium",
+      "reason": "Employee configuration changes affect behavior and capabilities",
+      "escalateTo": "employee_owner"
+    },
+
+    // Skill installation
+    "skill_install": {
+      "requireApproval": true,
+      "riskLevel": "medium",
+      "reason": "New skills grant new capabilities to AI employees",
+      "escalateTo": "dept_admin"
+    }
+  },
+
+  // Escalation rules
+  "escalation": {
+    // If the designated approver doesn't respond within escalation timeout,
+    // escalate to the next level
+    "enabled": true,
+    "escalationTimeoutMs": 900000,  // 15 minutes before escalation
+
+    // Escalation chain (each level escalates to the next)
+    "chain": [
+      "employee_owner",
+      "dept_admin",
+      "platform_admin"
+    ],
+
+    // Maximum escalation level (stops here even if no response)
+    "maxEscalations": 2,
+
+    // What happens if final escalation times out
+    "finalTimeoutAction": "deny"
+  },
+
+  // Notification settings for approval requests
+  "notifications": {
+    // Where to send approval notifications
+    "channels": {
+      "slack": {
+        "enabled": true,
+        "urgentOnly": false  // Send all approval requests
+      },
+      "email": {
+        "enabled": true,
+        "urgentOnly": true   // Only critical/high risk
+      },
+      "dashboard": {
+        "enabled": true,
+        "urgentOnly": false
+      }
+    },
+
+    // Reminder settings
+    "reminders": {
+      "enabled": true,
+      "intervalMs": 300000,  // Remind every 5 minutes
+      "maxReminders": 3
+    }
+  },
+
+  // Per-employee overrides (referenced by agent ID)
+  "employeeOverrides": {
+    // Example: A customer support agent that needs faster approvals
+    // "cs-agent-gradsale": {
+    //   "toolPolicies": {
+    //     "mcp_gradsale_*": {
+    //       "requireApproval": "first-per-session",
+    //       "riskLevel": "medium"
+    //     }
+    //   },
+    //   "defaults": {
+    //     "timeoutMs": 600000  // 10 minute timeout for support scenarios
+    //   }
+    // }
+  }
+}

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sentura Platform Setup
+# Sentura Platform Setup (macOS / Linux)
 # Run AFTER `pnpm openclaw onboard` to register Sentura meta-agents.
 # Idempotent — safe to re-run.
+#
+# Supported platforms: macOS (darwin), Linux (including WSL2)
+# For Windows (native PowerShell), use: scripts/sentura-setup.ps1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -28,7 +31,40 @@ ok()    { echo -e "${GREEN}[sentura]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[sentura]${NC} $*"; }
 err()   { echo -e "${RED}[sentura]${NC} $*" >&2; }
 
+# --- Platform detection ---
+
+PLATFORM="$(uname -s)"
+case "$PLATFORM" in
+  Linux*)  log "Platform: Linux" ;;
+  Darwin*) log "Platform: macOS" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    err "This script is not designed for Windows Git Bash / MSYS / Cygwin."
+    err "Use the PowerShell script instead:  .\\scripts\\sentura-setup.ps1"
+    exit 1
+    ;;
+  *)
+    warn "Unknown platform: $PLATFORM — proceeding anyway"
+    ;;
+esac
+
+# WSL detection
+if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+  log "WSL2 detected — running in Windows Subsystem for Linux"
+fi
+
 # --- Pre-flight checks ---
+
+if ! command -v node &>/dev/null; then
+  err "Node.js not found. Install Node.js 22+ before running this script."
+  err "  Linux: https://nodejs.org/en/download/package-manager"
+  err "  macOS: brew install node"
+  exit 1
+fi
+
+NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])')"
+if [[ "$NODE_MAJOR" -lt 22 ]]; then
+  warn "Node.js v$(node --version) detected — OpenClaw requires v22+. Things may break."
+fi
 
 if [[ ! -f "$OPENCLAW_CONFIG" ]]; then
   err "OpenClaw config not found at $OPENCLAW_CONFIG"
@@ -76,7 +112,7 @@ copy_workspace() {
 
 register_agent() {
   local agent_id="$1"
-  local model="${2:-openai/gpt-4o}"
+  local model="${2:-openai/gpt-5.4}"
   local workspace_dir="$WORKSPACE_BASE/$agent_id"
 
   log "Registering agent: $agent_id"

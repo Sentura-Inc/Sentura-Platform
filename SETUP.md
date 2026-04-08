@@ -7,8 +7,36 @@
 | Node.js | 22.14+ | `node --version` |
 | pnpm | 10+ | `pnpm --version` |
 
-Install Node.js: https://nodejs.org/ (or `brew install node` on macOS)
-Install pnpm: `npm install -g pnpm` (or `corepack enable`)
+### Installing prerequisites by platform
+
+**macOS:**
+```bash
+brew install node
+npm install -g pnpm   # or: corepack enable
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Node.js 22 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+npm install -g pnpm   # or: corepack enable
+```
+
+**Windows (PowerShell):**
+```powershell
+# Via winget (preferred)
+winget install OpenJS.NodeJS.LTS
+npm install -g pnpm   # or: corepack enable
+
+# Or download from https://nodejs.org/
+```
+
+**Windows (WSL2) — recommended for Windows users:**
+```bash
+# Inside WSL2 (Ubuntu), follow the Linux instructions above
+wsl --install   # if WSL2 is not yet installed (requires reboot)
+```
 
 ---
 
@@ -16,11 +44,24 @@ Install pnpm: `npm install -g pnpm` (or `corepack enable`)
 
 The OpenClaw source is included in the `openclaw/` directory. Build and run it locally — no Docker needed.
 
+These commands work on **macOS, Linux, and WSL2**:
+
 ```bash
 cd openclaw
 
 pnpm install
 pnpm ui:build          # auto-installs UI deps on first run
+pnpm build
+
+pnpm openclaw onboard
+```
+
+**Windows (native PowerShell):**
+```powershell
+cd openclaw
+
+pnpm install
+pnpm ui:build
 pnpm build
 
 pnpm openclaw onboard
@@ -35,10 +76,15 @@ pnpm gateway:watch     # auto-reload on source/config changes
 
 ### API Keys
 
-API keys are stored in `~/.openclaw/.env`. You can edit this file directly:
+API keys are stored in the OpenClaw state directory:
+
+| Platform | Path |
+|----------|------|
+| macOS / Linux / WSL2 | `~/.openclaw/.env` |
+| Windows (native) | `%USERPROFILE%\.openclaw\.env` |
 
 ```bash
-# ~/.openclaw/.env
+# ~/.openclaw/.env  (or %USERPROFILE%\.openclaw\.env on Windows)
 OPENAI_API_KEY=sk-...
 # or
 ANTHROPIC_API_KEY=sk-ant-...
@@ -46,37 +92,67 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ### Local LLM (Ollama)
 
+**macOS:**
 ```bash
-# Install Ollama
 brew install ollama && ollama serve
 ollama pull llama3.3:70b
-
-# Add to ~/.openclaw/.env
-OLLAMA_BASE_URL=http://localhost:11434
-
-# Re-run onboard to select local provider
-cd openclaw && pnpm openclaw onboard
 ```
+
+**Linux:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve
+ollama pull llama3.3:70b
+```
+
+**Windows:**
+Download from https://ollama.com/download/windows, then:
+```powershell
+ollama serve
+ollama pull llama3.3:70b
+```
+
+Then add to your `.env`:
+```bash
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+Re-run onboard to select the local provider: `cd openclaw && pnpm openclaw onboard`
 
 ---
 
 ## Sentura Setup
 
-After OpenClaw is onboarded and the gateway starts successfully, register Sentura's meta-agents:
+After OpenClaw is onboarded and the gateway starts successfully, register Sentura's meta-agents.
 
+**macOS / Linux / WSL2:**
 ```bash
 # From the project root (Sentura-Platform/)
 ./scripts/sentura-setup.sh
 ```
 
-This script:
-1. Verifies OpenClaw is onboarded (`~/.openclaw/openclaw.json` exists)
-2. Copies meta-agent workspace files (Creator, Tuner, Orchestrator) to `~/.openclaw/workspace/`
-3. Registers each meta-agent with the OpenClaw gateway via the CLI
-4. Applies tool permissions (Creator gets `gateway` access, etc.)
-5. Installs the `sentura-bootstrap` hook at `~/.openclaw/hooks/sentura-bootstrap/` and enables it — this hook injects RULES.md and CONTEXT.md into every agent's system prompt
+**Windows (PowerShell):**
+```powershell
+# From the project root (Sentura-Platform\)
+powershell -ExecutionPolicy Bypass -File scripts\sentura-setup.ps1
+```
 
-The script is idempotent — safe to re-run if agents are added later.
+Both scripts perform the same steps:
+1. Detect platform and verify prerequisites (Node.js 22+, OpenClaw config)
+2. Copy meta-agent workspace files (Creator, Tuner, Orchestrator) to the OpenClaw workspace
+3. Register each meta-agent with the OpenClaw gateway via the CLI
+4. Apply tool permissions (Creator gets `gateway` access, etc.)
+5. Configure the gateway for dashboard access
+6. Install the `sentura-bootstrap` hook — this injects RULES.md and CONTEXT.md into every agent's system prompt
+
+Both scripts are idempotent — safe to re-run if agents are added later.
+
+| Platform | State directory | Script |
+|----------|----------------|--------|
+| macOS | `~/.openclaw/` | `scripts/sentura-setup.sh` |
+| Linux | `~/.openclaw/` | `scripts/sentura-setup.sh` |
+| WSL2 | `~/.openclaw/` (inside WSL) | `scripts/sentura-setup.sh` |
+| Windows (native) | `%USERPROFILE%\.openclaw\` | `scripts/sentura-setup.ps1` |
 
 After setup, restart the gateway:
 
@@ -146,21 +222,38 @@ pnpm test
 
 ### Gateway logs
 
+**macOS / Linux / WSL2:**
 ```bash
-# Logs are at ~/.openclaw/logs/
 ls ~/.openclaw/logs/
-
-# Or run diagnostics
 cd openclaw && pnpm openclaw doctor
+```
+
+**Windows (PowerShell):**
+```powershell
+Get-ChildItem "$env:USERPROFILE\.openclaw\logs\"
+cd openclaw; pnpm openclaw doctor
 ```
 
 ### Fresh restart
 
+**macOS / Linux / WSL2:**
 ```bash
 rm -rf ~/.openclaw
 cd openclaw && pnpm openclaw onboard
 ```
 
+**Windows (PowerShell):**
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.openclaw"
+cd openclaw; pnpm openclaw onboard
+```
+
 ### Control UI auth issues
 
 Use the `#token=` URL from the onboard output, or try an incognito window.
+
+### Windows-specific issues
+
+- **Execution policy errors**: Run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` before running the setup script
+- **Long path errors**: Enable long paths: `New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force` (requires admin)
+- **WSL2 recommended**: For the smoothest experience on Windows, use WSL2 (`wsl --install`) and follow the Linux instructions inside it

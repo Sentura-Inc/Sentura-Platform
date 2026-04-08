@@ -39,7 +39,7 @@ Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise
 
 ### What Sentura Builds (That OpenClaw Does Not Have)
 
-OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 13 capabilities verified absent from the OpenClaw codebase:
+OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 14 capabilities verified absent from the OpenClaw codebase:
 
 | # | Sentura Builds | Why OpenClaw Doesn't Have It |
 |---|---------------|------------------------------|
@@ -56,6 +56,7 @@ OpenClaw is a mature personal AI assistant platform. It provides the runtime, ch
 | 11 | **Knowledge ingestion pipeline** — enterprise documents → SKILL.md distribution across employees | OpenClaw's memory is per-agent LanceDB; no document ingestion or cross-employee knowledge distribution |
 | 12 | **Employee lifecycle management** — versioning, cloning, health scoring, rollback, retirement | OpenClaw creates and runs agents; no lifecycle management |
 | 13 | **Pre-deployment testing & validation** — test employees against real/mock tasks before going live, auto-tune on failure | OpenClaw has no test harness, task simulation, or pre-deployment validation pipeline |
+| 14 | **Communication panel** — WhatsApp/Slack-style dashboard chat with 1:1 employee conversations and multi-agent group chat | OpenClaw's Control UI has a single-pane developer chat; no conversation list, group chat, or enterprise messaging UX |
 
 ### What OpenClaw Provides (That We Leverage As-Is)
 
@@ -802,6 +803,111 @@ Human sends message on Slack #accounts-payable
         → Reply pipeline formats response
           → Slack extension sends reply to #accounts-payable
 ```
+
+### Sentura Communication Panel
+
+While OpenClaw's 22+ channel integrations handle **external** communication (employees living in Slack, Teams, etc.), Sentura adds a **dedicated communication hub** inside the admin dashboard — a WhatsApp/Slack-style chat panel for direct interaction with AI employees.
+
+#### Why Not Use OpenClaw's Control UI Chat?
+
+OpenClaw's Control UI provides a single-pane developer chat that can target any agent via session keys. However, it is designed as a developer tool, not an enterprise messaging experience:
+
+- No conversation list or multi-conversation management
+- No group chat or multi-agent coordination
+- No RBAC, tenant scoping, or enterprise identity
+- No audit integration for compliance
+
+Sentura's Communication Panel is purpose-built for enterprise interaction patterns.
+
+#### Dual-Mode Communication Model
+
+Enterprises interact with AI employees through two complementary modes:
+
+| Mode | Surface | Purpose | Who Uses It |
+|------|---------|---------|-------------|
+| **External Channels** | Slack, Teams, WhatsApp, etc. | Daily operations — employees live where humans work | All employees, all humans |
+| **Dashboard Chat** | Sentura `/chat` page | Management, testing, debugging, coordination | Admins, managers, department leads |
+
+**External Channels** (Mode A) are OpenClaw-native — employees are bound to channels via `bindings` config, and humans interact through their familiar tools. No Sentura work is required; this is OpenClaw's core strength.
+
+**Dashboard Chat** (Mode B) is Sentura-specific — a unified messaging hub for enterprise management of AI employees.
+
+#### 1:1 Direct Employee Chat
+
+The dashboard provides a two-pane messaging interface:
+
+```
+┌─────────────────────┬──────────────────────────────────────────┐
+│  Conversations      │  Chat with GradSale Support              │
+│                     │                                          │
+│  ● GradSale Support │  [Bot] Hi! I'm your GradSale CS agent.  │
+│    "How can I help" │  How can I help today?                   │
+│                     │                                          │
+│  ○ AP Clerk Finance │  [You] Can you look up order #4521?      │
+│    "Invoice #1092…" │                                          │
+│                     │  [Bot] Sure! Order #4521 was placed on   │
+│  ○ SDR Outbound     │  March 15 by customer Jane Doe...        │
+│    "3 new leads…"   │                                          │
+│                     │  ┌──────────────────────────────────────┐ │
+│  [+ New Chat]       │  │  Type a message…              [Send] │ │
+│                     │  └──────────────────────────────────────┘ │
+└─────────────────────┴──────────────────────────────────────────┘
+```
+
+**Technical implementation** — uses OpenClaw's existing gateway RPCs with zero core modifications:
+
+| Action | Gateway RPC | Details |
+|--------|-------------|---------|
+| Start conversation | `sessions.create` | Pass `agentId` to target a specific employee; returns `sessionKey` |
+| Send message | `chat.send` | Pass `sessionKey` + `message`; agent resolved from key |
+| Receive streaming response | WebSocket `chat` events | Gateway broadcasts `state: "delta"` / `"final"` events |
+| Load history | `chat.history` | Pass `sessionKey` to retrieve transcript |
+| List conversations | `sessions.list` | Returns all dashboard sessions with metadata |
+| Cancel response | `chat.abort` / `sessions.abort` | Interrupt a running agent turn |
+
+Session keys encode the target agent: `agent:<agentId>:dashboard:<uuid>`. The gateway's `resolveSessionAgentId` extracts the agent from the key, so each conversation is automatically routed to the correct employee. Sessions persist in OpenClaw's per-agent session stores and survive page reloads.
+
+#### Group Chat (Multi-Agent + Human Coordination)
+
+For tasks requiring multiple AI employees — "prepare the quarterly report" involving finance, sales, and marketing agents — Sentura provides group chat rooms:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  #Q4-Report  (3 agents, 1 human)                     │
+│                                                      │
+│  [Manager] Team, I need the Q4 report by Friday.     │
+│  AP Clerk, pull the financial summary.               │
+│  CS Agent, compile the support metrics.              │
+│  SDR, get the sales pipeline numbers.                │
+│                                                      │
+│  [AP Clerk Finance] On it. Pulling revenue data      │
+│  from the ERP now...                                 │
+│                                                      │
+│  [CS Agent] I'll query our ticketing system for      │
+│  Q4 resolution times and CSAT scores.                │
+│                                                      │
+│  [SDR Outbound] Fetching pipeline data from CRM.     │
+│  I'll have the numbers in a moment.                  │
+└──────────────────────────────────────────────────────┘
+```
+
+**Architecture**: OpenClaw sessions are 1:1 (one session key maps to one agent), so group chat requires a Sentura orchestration layer:
+
+- Each group maintains N underlying OpenClaw sessions (one per participating agent)
+- When a human sends a message, the Sentura layer fans it out to relevant agent sessions via `sessions.send`
+- Agent responses stream back and are merged into a unified thread with agent attribution
+- Human participants are managed at the Sentura layer (messages stored in Sentura state, displayed in thread, forwarded to agent sessions)
+- Group metadata (participants, name, purpose) stored in a Sentura-managed data store
+
+#### Enterprise Interaction Strategy
+
+| Interaction Pattern | Recommended Surface | Example |
+|----|-----|---------|
+| **Daily operations** | External channels (Slack, Teams) | CS Agent answers support tickets in `#support` |
+| **Management & admin** | Dashboard 1:1 chat | Manager reviews AP Clerk's invoice handling |
+| **Cross-team coordination** | Dashboard group chat | "Prepare quarterly report" with 3 agents |
+| **Onboarding & testing** | Dashboard 1:1 chat | Test new employee before deploying to production channels |
+| **Debugging & tuning** | Dashboard 1:1 chat | Investigate why an employee gave an incorrect response |
 
 ---
 
@@ -1664,7 +1770,14 @@ Sentura-Platform/
 ├── render.yaml                  # Cloud deployment (Render)
 ├── charts/                      # Helm charts for Kubernetes
 │   └── sentura/
+├── scripts/                     # Setup and utility scripts
+│   ├── sentura-setup.sh         # Sentura setup (macOS / Linux / WSL2)
+│   └── sentura-setup.ps1        # Sentura setup (Windows PowerShell)
 ├── package.json                 # Root workspace
+├── TESTS.md                     # Test documentation — what to test and how to verify
+├── SETUP.md                     # Local development setup guide
+├── HOSTING.md                   # Production hosting guide
+├── TeamPlan.md                  # 8-week sprint plan and task tracking
 └── README.md                    # This file
 ```
 
@@ -1795,3 +1908,16 @@ cd ../sentura/dashboard && pnpm dev
 # OpenClaw Control UI available at http://localhost:18789
 # Sentura Dashboard available at http://localhost:3000
 ```
+
+### Key Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [`README.md`](README.md) | Architecture and design (this file) |
+| [`SETUP.md`](SETUP.md) | Local development setup (cross-platform) |
+| [`TESTS.md`](TESTS.md) | Test documentation — what to test, how to verify, expected results |
+| [`TeamPlan.md`](TeamPlan.md) | 8-week sprint plan with per-person task breakdowns |
+| [`HOSTING.md`](HOSTING.md) | Production hosting, deployment topologies, security |
+| [`docs/MEMORY.md`](docs/MEMORY.md) | Development session log — decisions, progress, context |
+
+> **All contributors must keep `TESTS.md` up to date.** When you add, change, or remove testable deliverables (files, extensions, UI pages, scripts, configs), update the corresponding test cases in `TESTS.md`. See `.cursorrules` rule 3 and `TeamPlan.md` "Test Documentation Policy" for details.

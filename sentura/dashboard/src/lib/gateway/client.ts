@@ -303,7 +303,16 @@ export class GatewayClient {
   // --- Config Methods ---
 
   async getConfig(): Promise<Record<string, unknown>> {
-    return this.rpc<Record<string, unknown>>("config.get");
+    const snapshot = await this.rpc<{
+      hash?: string;
+      config?: Record<string, unknown>;
+    }>("config.get");
+    return snapshot?.config ?? {};
+  }
+
+  async getConfigHash(): Promise<string | undefined> {
+    const snapshot = await this.rpc<{ hash?: string }>("config.get");
+    return snapshot?.hash;
   }
 
   async patchConfig(raw: string, baseHash?: string): Promise<unknown> {

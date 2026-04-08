@@ -1,0 +1,15 @@
+{
+  "name": "@sentura/audit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentura enterprise audit logging extension for OpenClaw",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "openclaw": "*"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "sentura-rbac",
+  "name": "Sentura RBAC",
+  "description": "Enterprise role-based access control — enforces five-role permission model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User) across all gateway RPC methods with department and ownership scoping.",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": ["sentura_rbac_manage"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dataDir": {
+        "type": "string",
+        "description": "Directory for RBAC data files. Defaults to ~/.openclaw/sentura-rbac/"
+      },
+      "defaultRole": {
+        "type": "string",
+        "enum": ["platform_admin", "dept_admin", "employee_owner", "auditor", "end_user"],
+        "default": "end_user",
+        "description": "Default role for new users without explicit assignment"
+      },
+      "enforceOnPluginMethods": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to enforce RBAC on plugin-registered gateway methods (sentura.audit.*, etc.)"
+      }
+    }
+  }
+}

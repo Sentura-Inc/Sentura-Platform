@@ -15,7 +15,7 @@
 
 ## Sentura Capability Coverage Map
 
-Each of the 13 capabilities from README.md Section 1 must have explicit sprint tasks:
+Each of the 14 capabilities from README.md Section 1 must have explicit sprint tasks:
 
 | # | Capability | Primary Owner | Sprint Weeks |
 |---|-----------|--------------|-------------|
@@ -32,6 +32,22 @@ Each of the 13 capabilities from README.md Section 1 must have explicit sprint t
 | 11 | Knowledge ingestion pipeline | B | 4, 5 |
 | 12 | Employee lifecycle management | B + A + C | 5, 6 |
 | 13 | Pre-deployment testing & validation | B + D + C | 3, 4, 5 |
+| 14 | Communication panel (1:1 chat + group chat) | C + A + D | 3, 4 |
+
+## Test Documentation Policy
+
+**`TESTS.md` is the single source of truth for what to test and how to verify it.** Every team member must update `TESTS.md` when they add, change, or remove testable deliverables:
+
+- Add test cases for new files, extensions, UI pages, scripts, configs, or skills under your Person section (A, B, C, or D).
+- Update existing test cases if behavior, file paths, schemas, or expected outputs change.
+- Add cross-team integration tests if your work affects other team members' deliverables.
+- Update the "How to Run Tests" section if new test commands are introduced.
+- Update the "Test Results Summary Template" totals when test counts change.
+- Keep the `Last updated` date current.
+
+This policy is enforced by `.cursorrules` rule 3.
+
+---
 
 ## Interface Contracts (Agreed Day 1)
 
@@ -53,6 +69,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Multi-tenancy model | A | D (extensions), C (dashboard) | Tenant isolation strategy, namespace convention |
 | Cost tracking event schema | A | C (Cost Center UI), D (audit) | Per-agent LLM call events with token counts and cost estimates |
 | Pre-deployment test harness contract | B | D (test data extraction via MCP), C (test results UI) | Test case format (input, expected outcome, scoring rubric), test run results schema, pass/fail thresholds |
+| Communication panel session contract | C + A | D (audit), B (meta-agent chat) | `sessions.create` with `agentId` → `sessionKey`; `chat.send` with `sessionKey`; group chat fan-out via `sessions.send`; group metadata store schema |
 
 ---
 
@@ -93,13 +110,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] Revise dashboard to hybrid architecture: remove duplicate pages (sessions), add Control UI external links in sidebar, repurpose home/employees pages for enterprise focus
 
 ### Person D — Extensions & Integrations Engineer
-- [ ] Study OpenClaw's plugin SDK thoroughly (`openclaw/plugin-sdk/*`)
-- [ ] Scaffold Sentura extension boilerplate: `sentura/extensions/sentura-audit/`
-- [ ] Build `sentura-audit` extension: logs all tool calls, approvals, config changes to structured output
-- [ ] Study OpenClaw's approval system (`exec.approval.*`, `plugin.approval.*`)
-- [ ] Design the RBAC model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User)
-- [ ] Write initial approval policy configs (which tools need approval, escalation rules)
-- [ ] Study the `ekg/` GradSale API docs (api-admin.md, api-web.md, database.md) for enterprise MCP generation prep
+- [x] Study OpenClaw's plugin SDK thoroughly (`openclaw/plugin-sdk/*`)
+- [x] Scaffold Sentura extension boilerplate: `sentura/extensions/sentura-audit/`
+- [x] Build `sentura-audit` extension: logs all tool calls, approvals, config changes to structured output
+- [x] Study OpenClaw's approval system (`exec.approval.*`, `plugin.approval.*`)
+- [x] Design the RBAC model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User)
+- [x] Write initial approval policy configs (which tools need approval, escalation rules)
+- [x] Study the `ekg/` GradSale API docs (api-admin.md, api-web.md, database.md) for enterprise MCP generation prep
 
 ---
 
@@ -148,7 +165,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: AI employees can self-provision new tools with approval + error handling. Users can tune employees via NL.
 >
-> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement), #13 (test harness design)
+> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement), #13 (test harness design), #14 (communication panel — 1:1 chat)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] Build secret store helpers: programmatic write/read of OpenClaw secrets
@@ -156,6 +173,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
 - [ ] Build deployment documentation for cloud and on-premise (see [`HOSTING.md`](HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
+- [ ] **Build session management helpers for Communication Panel (capability #14)**:
+  - Helper to create dashboard sessions targeting specific agents (`sessions.create` with `agentId`)
+  - Helper to list/filter dashboard sessions across all agents (`sessions.list` with dashboard key prefix filtering)
+  - Extend gateway client with `createChatSession(agentId)`, `listChatSessions()`, `sendChatMessage(sessionKey, message)` typed wrappers
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Creator Agent Phase 3: Self-Provisioning pipeline
@@ -179,6 +200,15 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
 - [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
 - [ ] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI)
+- [ ] **Build 1:1 Chat Panel — Communication Panel MVP (capability #14)**:
+  - New `/chat` route with two-pane layout: conversation list (left) + chat thread (right)
+  - Conversation list: all dashboard sessions grouped by employee, sorted by last activity
+  - "New conversation" button: employee picker → `sessions.create` with selected `agentId`
+  - Chat thread: send messages via `chat.send`, stream responses via WebSocket `chat` events (`state: "delta"` / `"final"`)
+  - Load conversation history via `chat.history` on conversation open
+  - Typing indicator, message timestamps, agent avatar/name attribution
+  - Conversation persistence (OpenClaw session stores survive page reloads)
+  - Add `/chat` link to dashboard sidebar navigation
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build `sentura-provisioner` extension: coordinates self-provisioning workflows
@@ -202,7 +232,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: Multi-tenancy foundation. Mode B orchestration working. Knowledge ingestion functional. Cost tracking starts.
 >
-> **Capabilities covered**: #7 (orchestration), #8 (multi-tenancy), #10 (cost tracking), #11 (knowledge pipeline), #13 (test runner implementation)
+> **Capabilities covered**: #7 (orchestration), #8 (multi-tenancy), #10 (cost tracking), #11 (knowledge pipeline), #13 (test runner implementation), #14 (communication panel — group chat)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] **Design and implement multi-tenancy model**:
@@ -248,11 +278,21 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
 - [ ] **Build the Test Results dashboard** (`/testing` — capability #13: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
+- [ ] **Build Group Chat — Communication Panel Phase 2 (capability #14)**:
+  - Group creation UI: select multiple AI employees + invite humans by name/role
+  - Fan-out orchestration layer (Next.js API route): receives a human message → sends to N agent sessions via `sessions.send` → merges streaming responses into a unified thread with agent attribution
+  - Group metadata store (Sentura-managed JSON/SQLite): group name, participant list, purpose, underlying session keys
+  - Unified chat thread view: messages from all agents and humans interleaved chronologically with sender attribution
+  - Group management: add/remove participants, rename group, archive
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build comprehensive audit logging (every action, every tool call, searchable)
 - [ ] Implement data classification (T0–T4 tiers) in audit extension
 - [ ] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping
+- [ ] **Integrate audit logging for Communication Panel conversations (capability #14)**:
+  - Log all dashboard chat messages (human → agent, agent → human) as audit events
+  - Log group chat creation, participant changes, and fan-out actions
+  - Ensure chat audit events are queryable via the audit trail page
 - [ ] Configure more MCP servers using 3-tier strategy:
   - 2 more open-source MCP servers (Tier 1)
   - 1 more enterprise-generated MCP server from ekg/ docs (Tier 2)
@@ -308,7 +348,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 6 — Polish & Integration Testing
 
-> **Goal**: All features integrated. End-to-end flows working reliably. All 13 capabilities functional.
+> **Goal**: All features integrated. End-to-end flows working reliably. All 14 capabilities functional.
 >
 > **Validation**: Test every capability against the ekg/ GradSale enterprise scenario (including pre-deployment testing pipeline)
 
@@ -332,6 +372,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] E2E test: all enterprise dashboard pages with real data (excludes Control UI pages)
+- [ ] **E2E test: Communication Panel (capability #14)**: 1:1 chat with 3+ employees, group chat with 2+ agents, message streaming, history persistence, conversation list accuracy
 - [ ] UI polish: loading states, error handling, empty states, responsive design
 - [ ] Accessibility audit (keyboard nav, screen readers)
 - [ ] Build the onboarding wizard (first-time setup experience — includes Control UI URL configuration)
@@ -389,7 +430,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 8 — Beta Release & Stabilization
 
-> **Goal**: Beta-ready platform. All 13 capabilities stable. Documentation complete.
+> **Goal**: Beta-ready platform. All 14 capabilities stable. Documentation complete.
 
 ### All Team Members
 - [ ] Full regression testing against all 13 Sentura capabilities
@@ -405,7 +446,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ### Person A
 - [ ] Final deployment pipeline validation (cloud + on-premise)
-- [ ] Write release notes covering all 13 capabilities
+- [ ] Write release notes covering all 14 capabilities
 - [ ] Set up monitoring and alerting for beta deployment
 - [ ] Validate multi-tenancy and cost tracking in production-like environment
 
@@ -436,12 +477,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 |------------|------|-----------------|----------------------|
 | **IC-1** | End of Week 1 | OpenClaw gateway runs, channels connected, LLM responds | Foundation |
 | **IC-2** | End of Week 2 | Creator Agent produces a working AI employee; visible in dashboard; GradSale MCP server works | #1, #2, #5, #6 |
-| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees; test harness design complete | #3, #4, #13 (design) |
-| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works; knowledge ingestion functional; cost tracking live; pre-deployment test runner working | #7, #8, #10, #11, #13 |
+| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees; test harness design complete; 1:1 Chat Panel functional | #3, #4, #13 (design), #14 (1:1 chat) |
+| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works; knowledge ingestion functional; cost tracking live; pre-deployment test runner working; group chat functional | #7, #8, #10, #11, #13, #14 (group chat) |
 | **IC-5** | End of Week 5 | SSO login works; RBAC enforced; employee lifecycle (version, clone, retire) functional; role template test suites bundled | #9, #12, #13 |
-| **IC-6** | End of Week 6 | All 13 capabilities tested E2E; GradSale scenario fully working (including pre-deployment test pipeline) | All 13 |
-| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 13 |
-| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise | All 13 |
+| **IC-6** | End of Week 6 | All 14 capabilities tested E2E; GradSale scenario fully working (including pre-deployment test pipeline) | All 14 |
+| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 14 |
+| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise | All 14 |
 
 ---
 

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "defaults": {
+    "security": "full",
+    "ask": "always",
+    "askFallback": "deny",
+    "autoAllowSkills": false
+  },
+  "agents": {
+    "__comment__": "Per-agent overrides. Sentura provisions these via config.patch during employee creation.",
+
+    "default": {
+      "security": "full",
+      "ask": "always",
+      "askFallback": "deny",
+      "autoAllowSkills": false,
+      "allowlist": []
+    }
+  }
+}

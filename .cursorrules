@@ -133,44 +133,54 @@ Do NOT substitute these without explicit approval:
 
 2. **Update TeamPlan.md when tasks are completed.** After finishing any work that corresponds to a task in `TeamPlan.md`, mark that task as done by changing `- [ ]` to `- [x]`. If work reveals new tasks, add them under the appropriate week and person. If a task is blocked or deferred, add a note explaining why. `TeamPlan.md` must always reflect the true current state of the project.
 
-3. **Keep all project documents in sync.** When your work changes the architecture, adds new features, or introduces new conventions:
+3. **Update TESTS.md when you add, change, or remove testable deliverables.** `TESTS.md` is the single source of truth for what to test and how to verify it. When your work produces new files, extensions, UI pages, scripts, configs, or modifies existing ones:
+   - Add test cases for new deliverables under the appropriate Person section (A, B, C, or D).
+   - Update existing test cases if behavior, file paths, schemas, or expected outputs change.
+   - Add cross-team integration tests under the "Cross-Team Integration Tests" section if your work affects multiple team members' deliverables.
+   - Update the "How to Run Tests" section if new test commands or prerequisites are introduced.
+   - Update the "Test Results Summary Template" totals if you add or remove test cases.
+   - Keep the `Last updated` date at the top current.
+   - Never remove test cases for existing functionality — only add, update, or mark as superseded.
+
+4. **Keep all project documents in sync.** When your work changes the architecture, adds new features, or introduces new conventions:
    - Update `README.md` if the architecture, project structure, deployment steps, or technology stack changes.
    - Update `OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
    - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
    - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
+   - Update `TESTS.md` with test cases for any new or modified deliverables (see rule 3).
    - Update `.cursorrules` (this file) if you establish new conventions, discover new pitfalls, or change the project structure.
 
-4. **Read before writing.** Always read relevant existing files before creating or modifying anything. Understand what exists.
+5. **Read before writing.** Always read relevant existing files before creating or modifying anything. Understand what exists.
 
-5. **Follow the design.** The README.md is the architecture bible. If a chat's request contradicts the design, flag it and ask before proceeding.
+6. **Follow the design.** The README.md is the architecture bible. If a chat's request contradicts the design, flag it and ask before proceeding.
 
-6. **OpenClaw is the runtime — do not touch its infra.** Never build custom agent runtimes, custom gateways, custom Docker setup scripts, custom docker-compose files, or custom channel adapters. For development, build OpenClaw from source (`cd openclaw && pnpm install && pnpm ui:build && pnpm build`) and run via `pnpm gateway:watch`. For production, use OpenClaw's own Docker setup (`cd openclaw && bash docker-setup.sh`). Sentura is a control plane LAYER on top — extend via extensions and skills, not by wrapping or replacing OpenClaw's infrastructure.
+7. **OpenClaw is the runtime — do not touch its infra.** Never build custom agent runtimes, custom gateways, custom Docker setup scripts, custom docker-compose files, or custom channel adapters. For development, build OpenClaw from source (`cd openclaw && pnpm install && pnpm ui:build && pnpm build`) and run via `pnpm gateway:watch`. For production, use OpenClaw's own Docker setup (`cd openclaw && bash docker-setup.sh`). Sentura is a control plane LAYER on top — extend via extensions and skills, not by wrapping or replacing OpenClaw's infrastructure.
 
-7. **Config over code.** AI employees are configured, not programmed. Prefer JSON5 config and SKILL.md files over TypeScript logic. If something can be a skill, make it a skill.
+8. **Config over code.** AI employees are configured, not programmed. Prefer JSON5 config and SKILL.md files over TypeScript logic. If something can be a skill, make it a skill.
 
-8. **Test as you build.** Write Vitest tests alongside implementation. Mock external services in unit tests.
+9. **Test as you build.** Write Vitest tests alongside implementation. Mock external services in unit tests.
 
-9. **Deployment-flexible.** Never assume cloud or on-premise. Code must work in both environments. LLMs can be API keys or self-hosted — handle both via OpenClaw's provider system.
+10. **Deployment-flexible.** Never assume cloud or on-premise. Code must work in both environments. LLMs can be API keys or self-hosted — handle both via OpenClaw's provider system.
 
-10. **Trace everything.** Every LLM call, tool execution, approval event, and self-provisioning action must produce an observable trace.
+11. **Trace everything.** Every LLM call, tool execution, approval event, and self-provisioning action must produce an observable trace.
 
-11. **No secrets in code.** API keys, passwords, tokens go in OpenClaw's `~/.openclaw/.env` (read by gateway's dotenv loader at startup) or its secret store. Never commit secrets.
+12. **No secrets in code.** API keys, passwords, tokens go in OpenClaw's `~/.openclaw/.env` (read by gateway's dotenv loader at startup) or its secret store. Never commit secrets.
 
-12. **Web search constantly.** ALWAYS use web search to verify implementation details for: OpenClaw APIs, MCP SDK usage, Playwright patterns, Next.js App Router, shadcn/ui components, and any other third-party integration. Libraries evolve fast — never rely on memory alone.
+13. **Web search constantly.** ALWAYS use web search to verify implementation details for: OpenClaw APIs, MCP SDK usage, Playwright patterns, Next.js App Router, shadcn/ui components, and any other third-party integration. Libraries evolve fast — never rely on memory alone.
 
-13. **Prefer existing OpenClaw features.** Before building something new, check if OpenClaw already provides it (extensions, tools, gateway RPC methods, etc.). The 86 bundled extensions cover most needs.
+14. **Prefer existing OpenClaw features.** Before building something new, check if OpenClaw already provides it (extensions, tools, gateway RPC methods, etc.). The 86 bundled extensions cover most needs.
 
-14. **Keep employees simple.** AI employees must complete tasks reliably. Prefer clear skills with well-defined procedures over clever multi-branch logic. Reliability beats sophistication.
+15. **Keep employees simple.** AI employees must complete tasks reliably. Prefer clear skills with well-defined procedures over clever multi-branch logic. Reliability beats sophistication.
 
-15. **Industry-agnostic by default.** Core logic must work for any enterprise. Industry-specific behavior comes from skills and config, not code branches.
+16. **Industry-agnostic by default.** Core logic must work for any enterprise. Industry-specific behavior comes from skills and config, not code branches.
 
-16. **Use `ekg/` as the test enterprise.** When building or testing enterprise integration features (MCP servers, custom tools, agent skills, knowledge ingestion), use the GradSale documentation in `ekg/` as the reference enterprise. This includes its NestJS backend API (`ekg/api-web.md`, `ekg/api-admin.md`), PostgreSQL schema (`ekg/database.md`), and frontend architecture (`ekg/web.md`, `ekg/admin-panel.md`).
+17. **Use `ekg/` as the test enterprise.** When building or testing enterprise integration features (MCP servers, custom tools, agent skills, knowledge ingestion), use the GradSale documentation in `ekg/` as the reference enterprise. This includes its NestJS backend API (`ekg/api-web.md`, `ekg/api-admin.md`), PostgreSQL schema (`ekg/database.md`), and frontend architecture (`ekg/web.md`, `ekg/admin-panel.md`).
 
-17. **Document non-obvious decisions.** If a design choice would surprise a new developer, add a brief comment explaining WHY.
+18. **Document non-obvious decisions.** If a design choice would surprise a new developer, add a brief comment explaining WHY.
 
-18. **Approval-first for risky actions.** Self-provisioning new accounts, financial transactions, data exports, and permission changes always require human approval via OpenClaw's exec.approval system.
+19. **Approval-first for risky actions.** Self-provisioning new accounts, financial transactions, data exports, and permission changes always require human approval via OpenClaw's exec.approval system.
 
-19. **Data classification matters.** Respect the T0–T4 data classification tiers. External channels only carry T0/T1 data. Sensitive operations happen on the Sentura dashboard.
+20. **Data classification matters.** Respect the T0–T4 data classification tiers. External channels only carry T0/T1 data. Sensitive operations happen on the Sentura dashboard.
 
 ## File Naming Conventions
 

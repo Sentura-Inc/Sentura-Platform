@@ -1,0 +1,58 @@
+{
+  "id": "sentura-audit",
+  "name": "Sentura Audit",
+  "description": "Enterprise audit logging — captures tool calls, approvals, config changes, session events, and message activity for compliance and observability.",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": ["sentura_audit_query"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "logDir": {
+        "type": "string",
+        "description": "Directory for audit log files. Defaults to ~/.openclaw/sentura-audit/"
+      },
+      "retention": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxAgeDays": {
+            "type": "number",
+            "minimum": 1,
+            "default": 90,
+            "description": "Maximum age in days before log rotation"
+          },
+          "maxSizeMb": {
+            "type": "number",
+            "minimum": 10,
+            "default": 500,
+            "description": "Maximum total log size in MB before rotation"
+          }
+        }
+      },
+      "redaction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Redact sensitive fields (API keys, tokens, passwords) from audit logs"
+          },
+          "patterns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional regex patterns for sensitive field names to redact"
+          }
+        }
+      },
+      "verbose": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include full tool arguments and results in audit entries (caution: may contain sensitive data)"
+      }
+    }
+  }
+}
