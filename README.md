@@ -1354,6 +1354,8 @@ For advanced inter-agent communication, Sentura can leverage OpenClaw's `acpx` e
 
 ## 15. Security Model
 
+> **Production hosting security**: For a detailed risk analysis per hosting type (Cloud VPS, VM, on-premise) and platform-wide security risks specific to AI agent workloads, see [`HOSTING.md`](HOSTING.md#security--risk-analysis).
+
 ### Defense in Depth
 
 Sentura inherits OpenClaw's security layers and adds enterprise-grade controls:
@@ -1403,6 +1405,8 @@ When AI employees communicate on external channels (Slack, Teams, WhatsApp):
 
 ## 16. Deployment Options
 
+> **Production hosting guide**: For complete production deployment architecture, reverse proxy configuration, authentication modes, host requirements, security risk analysis, and deployment packaging across all target environments (Cloud VPS, VM, on-premise), see [`HOSTING.md`](HOSTING.md).
+
 ### Local Development (Default)
 
 ```bash
@@ -1442,7 +1446,7 @@ cd openclaw && pnpm gateway:watch
 
 ### Production (Docker)
 
-Docker deployment is available for production environments. See `openclaw/docker-setup.sh` and `openclaw/docker-compose.yml`.
+Docker deployment is available for production environments. See `openclaw/docker-setup.sh` and `openclaw/docker-compose.yml`. For the full production topology (co-hosted Dashboard + Gateway behind a reverse proxy), auth mode selection, Nginx/Caddy configs, and security considerations, see [`HOSTING.md`](HOSTING.md).
 
 ### Hybrid Deployment
 
@@ -1503,17 +1507,34 @@ The Sentura Control Plane is a management layer that sits on top of OpenClaw's g
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Dashboard Features
+### Hybrid UI Architecture
 
-1. **Employee Roster** — list all AI employees with status, channel bindings, recent activity
+The Sentura platform uses a **hybrid UI approach** with two complementary frontends:
+
+- **Sentura Dashboard** (Next.js) — enterprise management features that OpenClaw's Control UI does not provide
+- **OpenClaw Control UI** (Lit, served by gateway) — operational and developer tools already built into OpenClaw
+
+Both UIs connect to the same gateway via WebSocket RPC. The Sentura Dashboard sidebar includes external links to the Control UI for operational tasks. In production, both are served from a single domain using path-based routing (see [`HOSTING.md`](HOSTING.md)).
+
+### Sentura Dashboard Features (Enterprise-Only)
+
+1. **Employee Roster** — lifecycle management with status badges, health scores, and enterprise actions (create, clone, version, retire)
 2. **Employee Creator** — natural language interface for creating new employees (talks to Creator Agent)
 3. **Live Tuning** — modify any employee's personality, skills, rules, tools in real-time
-4. **Approval Queue** — pending HITL approvals with context and one-click approve/reject
-5. **Conversation View** — read any AI employee's conversations (with access control)
-6. **Integration Manager** — view and manage MCP servers, self-provisioned credentials
-7. **Cost Center** — LLM usage and cost tracking per employee, per department
-8. **Audit Trail** — searchable log of all AI employee actions
-9. **Health Monitor** — employee uptime, error rates, response latency
+4. **Approval Queue** — pending HITL approvals with escalation status, decision context, approve/reject
+5. **Integration Manager** — view and manage MCP servers, self-provisioned credentials
+6. **Cost Center** — LLM usage and cost tracking per employee, per department
+7. **Audit Trail** — searchable, filterable, exportable log of all AI employee actions
+8. **Orchestrator Dashboard** — Mode B multi-agent task decomposition and progress tracking
+9. **Knowledge Manager** — document upload, skill generation, cross-employee distribution
+10. **Testing** — pre-deployment scorecards, per-dimension scores, auto-tune history
+11. **Settings** — SSO config, RBAC roles, global approval policies, gateway connection
+
+### Deferred to OpenClaw Control UI
+
+These features are **not rebuilt** in the Sentura Dashboard. Users access them via external links in the sidebar:
+
+- Config Editor, Sessions & Chat, Debug Console, Logs, Cron Jobs, Skills Browser, Channel Status, Usage Stats
 
 ### Implementation
 

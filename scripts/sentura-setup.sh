@@ -162,9 +162,31 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 
 ok "Agent configuration applied."
 
-# --- Step 5: Install Sentura bootstrap hook ---
+# --- Step 5: Configure gateway for Sentura Dashboard ---
 
-log "Step 5: Installing sentura-bootstrap hook..."
+log "Step 5: Configuring gateway for Sentura Dashboard (controlUi.allowInsecureAuth)..."
+
+node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+if (!config.gateway) config.gateway = {};
+if (!config.gateway.controlUi) config.gateway.controlUi = {};
+if (config.gateway.controlUi.allowInsecureAuth !== true) {
+  config.gateway.controlUi.allowInsecureAuth = true;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Set gateway.controlUi.allowInsecureAuth = true');
+} else {
+  console.log('  gateway.controlUi.allowInsecureAuth already set');
+}
+"
+
+ok "Gateway configured for local dashboard access."
+
+# --- Step 6: Install Sentura bootstrap hook ---
+
+log "Step 6: Installing sentura-bootstrap hook..."
 
 HOOKS_DIR="$OPENCLAW_STATE/hooks"
 HOOK_SOURCE="$PROJECT_ROOT/sentura/hooks/sentura-bootstrap"
@@ -197,7 +219,7 @@ else
   warn "Hook source not found at $HOOK_SOURCE — skipping hook installation"
 fi
 
-# --- Step 6: Summary ---
+# --- Step 7: Summary ---
 
 echo ""
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

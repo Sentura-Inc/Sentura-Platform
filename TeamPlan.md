@@ -2,7 +2,7 @@
 
 > **Aligned with**: README.md (13 Sentura capabilities), OPENCLAW.md, ekg/ test enterprise
 >
-> **Last synced**: 2026-04-05
+> **Last synced**: 2026-04-06
 
 ## Team Roles
 
@@ -85,11 +85,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] Test manual creation of an AI employee by writing config + workspace files by hand
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Scaffold Sentura dashboard (Next.js 15 + Tailwind + shadcn/ui)
-- [ ] Build the Gateway WebSocket RPC client library (typed wrapper around OpenClaw protocol)
-- [ ] Create the app shell: sidebar navigation, auth placeholder, layout
-- [ ] Build the Employee Roster page (list all agents from `config.get` → `agents.entries`)
-- [ ] Build the basic session view (list sessions, show transcript)
+- [x] Scaffold Sentura dashboard (Next.js 15 + Tailwind + shadcn/ui)
+- [x] Build the Gateway WebSocket RPC client library (typed wrapper around OpenClaw protocol)
+- [x] Create the app shell: sidebar navigation, auth placeholder, layout
+- [x] Build the Employee Roster page (list all agents from `config.get` → `agents.list`)
+- [x] ~~Build the basic session view~~ → Removed: deferred to OpenClaw Control UI (hybrid approach)
+- [x] Revise dashboard to hybrid architecture: remove duplicate pages (sessions), add Control UI external links in sidebar, repurpose home/employees pages for enterprise focus
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Study OpenClaw's plugin SDK thoroughly (`openclaw/plugin-sdk/*`)
@@ -126,10 +127,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Write 5 more skill templates for common enterprise tasks
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Employee Creator chat UI (talks to Creator Agent via gateway)
-- [ ] Build the Employee Detail page (show SOUL.md, RULES.md, CONTEXT.md, skills, channel bindings, config)
-- [ ] Build the Session/Conversation viewer with tool call rendering
-- [ ] Build the Approval Queue page (list pending approvals, approve/reject)
+- [ ] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway)
+- [ ] Build the Employee Detail page (`/employees/[id]` — show SOUL.md, RULES.md, CONTEXT.md, skills, channel bindings, lifecycle actions)
+- [ ] ~~Build the Session/Conversation viewer~~ → Removed: deferred to OpenClaw Control UI (hybrid approach)
+- [ ] Build the Approval Queue page (`/approvals` — list pending approvals, approve/reject with decision context)
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build `sentura-rbac` extension: enforce role-based access to gateway RPC methods
@@ -154,7 +155,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build MCP server dynamic registration: add MCP server configs via `config.patch`
 - [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
-- [ ] Build deployment documentation for cloud and on-premise
+- [ ] Build deployment documentation for cloud and on-premise (see [`HOSTING.md`](HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Creator Agent Phase 3: Self-Provisioning pipeline
@@ -174,10 +175,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Write provisioning templates for 5 common SaaS services
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Live Tuning UI (chat with Tuning Agent, show before/after diffs)
-- [ ] Build the Integration Manager page (list MCP servers, status, credentials)
-- [ ] Build the Employee Editor (edit SOUL.md, RULES.md, CONTEXT.md, skills in the browser)
-- [ ] Add real-time updates: WebSocket events for new messages, approvals, config changes
+- [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
+- [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
+- [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
+- [ ] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI)
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build `sentura-provisioner` extension: coordinates self-provisioning workflows
@@ -241,11 +242,11 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Write reflection loop: Creator monitors new employee, auto-patches issues
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Orchestrator dashboard (task decomposition view, progress tracking)
-- [ ] Build the Knowledge Manager UI (upload documents, view generated skills, skill distribution)
-- [ ] **Build the Cost Center page** (per-employee, per-department LLM spend — backed by A's cost tracking)
-- [ ] Build the Health Monitor (employee uptime, error rates, response latency)
-- [ ] **Build the Test Results dashboard (capability #13)**: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history, link to test case details
+- [ ] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking)
+- [ ] Build the Knowledge Manager UI (`/knowledge` — upload documents, view generated skills, skill distribution)
+- [ ] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking)
+- [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
+- [ ] **Build the Test Results dashboard** (`/testing` — capability #13: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
 
 ### Person D — Extensions & Integrations Engineer
@@ -272,7 +273,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Complete multi-tenancy implementation**: tenant data segregation, cross-tenant protection
 - [ ] Build secret rotation automation (API keys, tokens)
 - [ ] Implement backup/restore for OpenClaw state directory
-- [ ] Build on-premise deployment documentation (air-gapped, no internet)
+- [ ] Build on-premise deployment documentation (air-gapped, no internet) — extend [`HOSTING.md`](HOSTING.md) with air-gap-specific instructions
 - [ ] Load testing: verify platform handles 20+ concurrent AI employees
 
 ### Person B — AI Employee & Skills Engineer
@@ -289,11 +290,11 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Implement full RBAC in dashboard (role-based views, permission enforcement per README §15)
-- [ ] Build the Audit Trail page (searchable, filterable, exportable)
-- [ ] Build the Settings page (provider config, channel config, global policies)
-- [ ] Build the Employee Template Library (browse, preview, deploy from template)
-- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect)
-- [ ] **Build Employee Lifecycle UI**: version history, clone, health score, retire
+- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable)
+- [ ] Build the Settings page (`/settings` — SSO config, RBAC roles, global approval policies, gateway connection)
+- [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`)
+- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per HOSTING.md)
+- [ ] **Build Employee Lifecycle UI** (in `/employees` and `/employees/[id]`): version history, clone, health score, retire
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Security audit: review all extensions for vulnerabilities
@@ -330,12 +331,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Write the employee onboarding skill (new employee introduces itself)
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] E2E test: all dashboard pages with real data
+- [ ] E2E test: all enterprise dashboard pages with real data (excludes Control UI pages)
 - [ ] UI polish: loading states, error handling, empty states, responsive design
 - [ ] Accessibility audit (keyboard nav, screen readers)
-- [ ] Build the onboarding wizard (first-time setup experience)
+- [ ] Build the onboarding wizard (first-time setup experience — includes Control UI URL configuration)
 - [ ] Dashboard performance optimization
 - [ ] E2E test: SSO login flow with test OIDC provider
+- [ ] Verify Control UI external links work across all deployment topologies (single-domain, two-subdomain, local dev)
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] E2E test: approval flows for all risk categories (including decision-context approvals)
@@ -353,7 +355,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 > **Goal**: Comprehensive documentation. Edge cases handled. Ready for beta.
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Write deployment guide (cloud, on-premise, hybrid)
+- [ ] Write deployment guide (cloud, on-premise, hybrid) — finalize [`HOSTING.md`](HOSTING.md) with step-by-step instructions for each target (VPS, VM, on-prem)
 - [ ] Write admin guide (configuration, monitoring, troubleshooting, multi-tenancy setup)
 - [ ] Handle edge cases: gateway restart with active sessions, provider failover
 - [ ] Handle edge cases: multi-tenant config conflicts, cost tracking during provider outages
@@ -417,7 +419,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Final dashboard polish and performance optimization
 - [ ] Cross-browser testing (Chrome, Firefox, Safari, Edge)
 - [ ] Prepare demo dashboard with GradSale sample data
-- [ ] Validate all 9 dashboard features from README §17
+- [ ] Validate all 11 enterprise dashboard features from README §17 (hybrid approach — excludes Control UI features)
+- [ ] Verify hybrid UI cross-links work in all deployment topologies
 
 ### Person D
 - [ ] Final security audit against README §15 security model
@@ -459,6 +462,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | OpenClaw single-tenant architecture limits | Namespace-level isolation first; full gateway-per-tenant if needed later |
 | Pre-deployment testing insufficient historical data | Fall back to mock task generation from schema + API docs; bundle role template test suites as baseline |
 | Auto-tune loop doesn't converge | Cap iterations; escalate to human review; store failure diagnostics for Creator Agent learning |
+| LLM prompt leakage in cloud deployments | Self-hosted LLMs for regulated customers; enterprise data agreements for cloud LLM providers. See HOSTING.md security analysis |
+| Credential store compromise on host | Disk encryption at rest; minimize per-employee MCP scope; secret rotation. See HOSTING.md platform-wide risks |
+| Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; RULES.md guardrails; network egress filtering on host. See HOSTING.md |
 
 ---
 
@@ -476,8 +482,9 @@ Every Sentura capability references specific README.md sections for requirements
 | Incubation pipeline | §3, §4 | 10 workspace files (8 OpenClaw + 2 Sentura), structured skills/ directory |
 | Enterprise orchestration | §12 | AI Project Manager, sessions_spawn + progress tracking, cross-employee coordination |
 | Multi-tenancy | §1, §15 | Tenant isolation, per-department namespacing, data segregation |
-| Enterprise authentication | §15, §17 | SAML/OIDC SSO for dashboard, gateway token auth underneath |
+| Enterprise authentication | §15, §17, HOSTING.md | SAML/OIDC SSO for dashboard, gateway auth modes (token, trusted-proxy, Tailscale) per hosting target |
 | Cost management | §11, §17 | Per-employee + per-department cost tracking, Cost Center dashboard page |
 | Knowledge ingestion pipeline | §6 | Knowledge Curator agent, document → SKILL.md → employee distribution |
 | Employee lifecycle management | §1 | Versioning, cloning, health scoring, rollback, retirement |
 | Pre-deployment testing & validation | §1, §4 | 5-phase incubation (Phase 4: Testing), 3 test case sources, 6 test dimensions, auto-tune loop, pass/fail thresholds |
+| Production hosting & security | HOSTING.md | Co-hosted topology, reverse proxy config, security risk analysis per hosting type (VPS/VM/on-prem), LLM data transit risks |

@@ -1,0 +1,23 @@
+"use client";
+
+import { Sidebar } from "@/components/sidebar";
+import { ConnectionStatus } from "@/components/connection-status";
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full">
+      <Sidebar />
+      <div className="flex flex-1 flex-col min-w-0">
+        {/* Top bar */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-6">
+          <div />
+          <ConnectionStatus />
+        </header>
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto bg-background">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}

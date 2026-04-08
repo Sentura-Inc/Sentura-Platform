@@ -108,7 +108,7 @@ Sentura is the enterprise management layer built on top of the running OpenClaw 
 | **Knowledge ingestion** | Documents → SKILL.md distribution | Planned |
 | **Employee lifecycle** | Versioning, cloning, health scoring, rollback | Planned |
 | **Pre-deployment testing** | Test employees against real/mock tasks before going live, auto-tune on failure | Planned |
-| **Admin Dashboard** | Next.js app with RBAC, approvals, monitoring | Planned |
+| **Admin Dashboard** | Next.js app with RBAC, approvals, monitoring | Scaffolded (Week 1) |
 | **Enterprise extensions** | sentura-approval, sentura-audit, sentura-rbac, sentura-provisioner | Planned |
 
 ### Development (once OpenClaw is running)
