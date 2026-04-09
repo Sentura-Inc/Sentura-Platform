@@ -39,7 +39,7 @@ Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise
 
 ### What Sentura Builds (That OpenClaw Does Not Have)
 
-OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 14 capabilities verified absent from the OpenClaw codebase:
+OpenClaw is a mature personal AI assistant platform. It provides the runtime, channels, providers, tools, config system, memory, and security primitives. Sentura builds the **enterprise management layer** on top — specifically these 17 capabilities verified absent from the OpenClaw codebase:
 
 | # | Sentura Builds | Why OpenClaw Doesn't Have It |
 |---|---------------|------------------------------|
@@ -48,15 +48,18 @@ OpenClaw is a mature personal AI assistant platform. It provides the runtime, ch
 | 3 | **Self-provisioning orchestration** — skills + approval workflows + error handling for autonomous service registration | OpenClaw has the browser tool (Playwright) but no built-in workflow for account registration or credential harvesting |
 | 4 | **Position-specific safety guardrails** — RULES.md, decision-context-aware approval, escalation chains | OpenClaw has generic tool denylists and binary agent-scoped exec approvals; no `RULES.md` in its workspace files |
 | 5 | **No-code employee creation** — natural language → working AI employee via Creator Agent | OpenClaw's `agents.create` takes structured config params; no NL creation flow exists |
-| 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura adds RULES.md, CONTEXT.md, and structured skills |
-| 7 | **Enterprise orchestration** — macro-objective decomposition, multi-employee task coordination | OpenClaw has basic subagent spawning with depth limits; no task decomposition or progress tracking |
+| 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, merge industry ontology, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura adds RULES.md, CONTEXT.md, `ekg/` directory, and structured skills |
+| 7 | **Enterprise orchestration + AI Manager EKG** — macro-objective decomposition, multi-employee coordination, capability abstraction, cross-domain conflict detection, reverse-injection training | OpenClaw has basic subagent spawning with depth limits; no task decomposition, progress tracking, or cross-agent knowledge aggregation |
 | 8 | **Multi-tenancy** — tenant isolation, per-department namespacing, data segregation | OpenClaw is single-tenant (one user, one gateway, one config) |
 | 9 | **Enterprise authentication** — SAML/OIDC/SSO for the dashboard | OpenClaw uses token + device pairing; no SSO |
 | 10 | **Cost management** — per-employee, per-department LLM spend tracking and attribution | OpenClaw has no per-agent cost tracking |
-| 11 | **Knowledge ingestion pipeline** — enterprise documents → SKILL.md distribution across employees | OpenClaw's memory is per-agent LanceDB; no document ingestion or cross-employee knowledge distribution |
-| 12 | **Employee lifecycle management** — versioning, cloning, health scoring, rollback, retirement | OpenClaw creates and runs agents; no lifecycle management |
-| 13 | **Pre-deployment testing & validation** — test employees against real/mock tasks before going live, auto-tune on failure | OpenClaw has no test harness, task simulation, or pre-deployment validation pipeline |
-| 14 | **Communication panel** — WhatsApp/Slack-style dashboard chat with 1:1 employee conversations and multi-agent group chat | OpenClaw's Control UI has a single-pane developer chat; no conversation list, group chat, or enterprise messaging UX |
+| 11 | **Enterprise Knowledge Graph (EKG)** — per-agent structured knowledge in 4 pillars (Org, Rules, Assets, Workflows) as JSON5 files, auto-indexed by OpenClaw's memory system | OpenClaw's memory is per-agent LanceDB with unstructured text chunks; no structured knowledge schema, no ontology, no pillar organization |
+| 12 | **Data Scavenger Agent** — unstructured document ingestion → 4-pillar classification → structured JSON5 output into agent `ekg/` directories | OpenClaw has no document ingestion agent, no structured output pipeline, no knowledge classification |
+| 13 | **Progressive knowledge accumulation** — industry ontology templates (Tier 1), Q&A-based Completion (Tier 2 gap-filling), Experience Links (Tier 3 tacit knowledge extraction) | OpenClaw's dreaming consolidates episodic memory; no industry templates, no gap detection, no tacit knowledge extraction |
+| 14 | **Employee lifecycle management** — versioning, cloning, health scoring, rollback, retirement | OpenClaw creates and runs agents; no lifecycle management |
+| 15 | **Pre-deployment testing & validation** — test employees against real/mock tasks before going live, auto-tune on failure | OpenClaw has no test harness, task simulation, or pre-deployment validation pipeline |
+| 16 | **Communication panel** — WhatsApp/Slack-style dashboard chat with 1:1 employee conversations and multi-agent group chat | OpenClaw's Control UI has a single-pane developer chat; no conversation list, group chat, or enterprise messaging UX |
+| 17 | **Cross-agent knowledge aggregation** — AI Manager aggregates capability tags, detects cross-domain rule conflicts, generates Global SOPs, reverse-injects training into employee agents | OpenClaw agents operate in isolated workspaces; no cross-agent knowledge sharing, no conflict detection, no top-down training |
 
 ### What OpenClaw Provides (That We Leverage As-Is)
 
@@ -639,88 +642,206 @@ have credentials for, and the task requires it.
 
 ---
 
-## 6. Enterprise Knowledge Integration
+## 6. Enterprise Knowledge Graph (EKG)
 
-### From EKG to Knowledge Skills
+### The Core Problem
 
-Instead of building a complex Enterprise Knowledge Graph engine from scratch, Sentura leverages OpenClaw's native capabilities to integrate enterprise knowledge:
+Data within most enterprises is extremely chaotic, often completely lacking a knowledge graph. Asking clients to organize this data themselves is cumbersome and unrealistic. A "one-step-to-perfection" approach is infeasible — progress can only be achieved through the gradual accumulation of knowledge.
 
-| Knowledge Source | OpenClaw Integration | How It Works |
-|-----------------|---------------------|--------------|
-| Documents (PDF, DOCX, etc.) | `pdf` tool + memory system | AI employee reads documents, stores key facts in memory |
-| Databases | MCP servers | Direct SQL/API access via MCP protocol |
-| APIs (CRM, ERP, HRIS) | MCP servers (self-provisioned) | Real-time data access through typed tool calls |
-| Internal wikis | `web_fetch` + `browser` tools | Crawl and index internal documentation |
-| Slack/Teams history | Channel plugins | Access conversation history for context |
-| File systems | `fs_*` tools (sandboxed) | Read enterprise files from shared drives |
+Sentura solves this with a **progressive, three-tiered knowledge architecture** where each AI employee possesses its own dedicated knowledge base, automatically constructed during incubation and continuously enriched during daily operations.
 
-### Knowledge Ingestion as a Skill
+### Three-Tiered Data Source Architecture
 
-Enterprise knowledge ingestion is handled by a dedicated **Knowledge Curator** employee (an OpenClaw agent):
+Each AI employee's knowledge is built progressively through three layers:
 
-```markdown
-# Knowledge Curator Skill
-
-## Purpose
-Ingest, organize, and maintain enterprise knowledge so that other AI employees
-can access it efficiently.
-
-## Procedure
-1. Receive knowledge source (URL, file path, API endpoint, or description)
-2. Crawl/read the source using appropriate tools
-3. Extract structured information (entities, relationships, procedures)
-4. Store in memory system with rich metadata tags
-5. Generate or update SKILL.md files for relevant AI employees
-6. Notify affected employees of new knowledge
-
-## Tools
-- `web_fetch` / `browser` — crawl web-based knowledge sources
-- `pdf` — extract from PDF documents
-- `fs_read` — read local files
-- MCP servers — query databases and APIs
-- `message` — notify other AI employees
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TIER 3: Autonomous Experience Extraction           [THE MOAT]  │
+│  Tacit knowledge from daily operations — "Experience Links"     │
+│  Confidence-scored, auto-promoted after repeated observation    │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 2: Client-Submitted Data                [DATA SOVEREIGNTY] │
+│  PDFs, contracts, manuals, Excel sheets, chat logs              │
+│  Processed by the Data Scavenger Agent → structured JSON5       │
+│  Gaps filled by Q&A-based Completion during actual work         │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 1: Industry Ontology Templates          [PROFESSIONALISM]  │
+│  Pre-built logical chains per industry vertical                 │
+│  Merged at incubation → instant expertise on day one            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Shared Knowledge via Skills
+**Tier 1 — Industry Ontology Templates** ensure "professionalism." From the very first day a client integrates Sentura, the AI employee can immediately identify whether a "liability for breach of contract" clause aligns with standard industry practices. This is not just entity recognition (the term "invoice") but a **logical ontology** — a chain like "Invoice → Deduction Voucher → Tax Rate → Financial Compliance." Pre-built templates live at `sentura/config/industry-ontologies/` and are merged into the employee's knowledge base during incubation.
 
-Enterprise knowledge is distributed to AI employees as **SKILL.md files** in their workspaces. This is more robust than a centralized knowledge graph because:
+**Tier 2 — Client-Submitted Data** ensures "data sovereignty." Clients do not understand what constitutes "EKG data." If asked to fill out forms, they give up. Instead, Sentura provides a reference checklist for knowledge assets. Clients simply upload relevant company materials — PDF manuals, historical contracts, Excel quotation sheets — and the **Data Scavenger Agent** automatically processes these unstructured documents into structured knowledge. After initial ingestion, a **Q&A-based Completion** mechanism kicks in: the agent proactively asks "I've reviewed your manual and noticed that the approver for Project A is Mr. Zhang, but the maximum reimbursement limit is not specified. Could you tell me what that limit is?" Through lightweight, unobtrusive interactions during actual work, clients complete knowledge customization without realizing they are doing so.
 
-1. **Each employee gets only relevant knowledge** — an AP clerk doesn't need HR policy details
-2. **Knowledge is versioned** — changes to skills are tracked and can be rolled back
-3. **Knowledge is testable** — skills can be validated by running test scenarios
-4. **Knowledge is human-readable** — any employee (human or AI) can read and verify skill files
+**Tier 3 — Autonomous Experience Extraction** ensures "irreplaceability." Whenever the agent completes a task, it can generate an **Experience Link** — a record of tacit knowledge gained. For example: "Regarding Category A urgent procurements, General Manager Zhang typically requires physical inspection of goods before authorizing payment." Such unwritten rules are rarely documented, but after handling three similar tasks, the agent autonomously identifies this pattern and stores it. Over time, the EKG system comes to understand the company's actual operations at a depth no single human possesses.
 
-### Enterprise Context Document
+### The 4 Pillars of Enterprise Knowledge
 
-Each AI employee receives a `CONTEXT.md` file with enterprise-specific information:
+The Data Scavenger Agent classifies all knowledge into four foundational ontologies — the structural backbone of every AI employee's knowledge base:
 
-```markdown
-# Enterprise Context — Acme Corp
+| Pillar | Core Question | Data Nodes | Relational Edges |
+|--------|--------------|------------|-----------------|
+| **1. Org & Identity** | "Who is who? Who reports to whom?" | Employees, departments, external contacts, system accounts | Reports to, belongs to, has approval authority for |
+| **2. Rules & Compliance** | "Where is the baseline? Where is the red line?" | Spending limits, legal clauses, attendance rules, compliance requirements | Constrained by, prerequisite, consequence of violation |
+| **3. Assets & Knowledge** | "What do we sell? What do we know?" | Product SKUs, price quotes, server IPs, historical contracts, FAQ pairs | Comprises, related to, equivalent to |
+| **4. Workflows & Action** | "How many steps to complete this task?" | Trigger conditions, execution steps, required tools (APIs), output formats | Next step, process in parallel, block and escalate to |
 
-## Company
-- Name: Acme Corporation
-- Industry: Manufacturing
-- Size: 2,500 employees
-- Headquarters: Chicago, IL
+### Per-Agent EKG Directory Structure
 
-## Organization Structure
-- CEO: Jane Smith
-- CFO: Bob Johnson (approves invoices > $50K)
-- VP Finance: Alice Chen (approves new vendors)
-- IT Director: Tom Davis (manages integrations)
+Instead of a separate graph database, each pillar maps to a directory under the agent's workspace with structured JSON5 files. OpenClaw's memory system **automatically indexes and vector-searches** these files as part of its standard workspace file scanning:
 
-## Key Systems
-- ERP: SAP S/4HANA (MCP: sap-erp)
-- CRM: Salesforce (MCP: salesforce)
-- HRIS: Workday (MCP: workday)
-- Ticketing: Zendesk (MCP: zendesk)
-- Communication: Slack (channel: slack), MS Teams (channel: msteams)
-
-## Policies
-- Invoice approval threshold: $10,000 (manager), $50,000 (CFO)
-- New vendor onboarding: requires Finance Manager approval
-- PII handling: never share outside approved systems
 ```
+~/.openclaw/workspace/{agent-id}/
+  ekg/                                  # Enterprise Knowledge Graph root
+  │
+  ├── org/                              # Pillar 1: Organizational & Identity
+  │   ├── org-chart.json5               # Departments, roles, reporting lines
+  │   ├── contacts.json5                # Key personnel with attributes
+  │   └── systems.json5                 # System accounts, access levels
+  │
+  ├── rules/                            # Pillar 2: Rules & Compliance
+  │   ├── financial-controls.json5      # Thresholds, approval chains
+  │   ├── compliance-policies.json5     # Regulatory requirements
+  │   └── operational-limits.json5      # Rate limits, boundaries
+  │
+  ├── assets/                           # Pillar 3: Assets & Knowledge
+  │   ├── products/                     # Product catalog, specs, pricing
+  │   ├── contracts/                    # Contract templates, historical references
+  │   └── faqs/                         # FAQ pairs, knowledge base entries
+  │
+  └── workflows/                        # Pillar 4: Workflows & Action
+      ├── sops/                         # Standard operating procedures
+      ├── experience-links/             # Tier 3: Auto-extracted tacit knowledge
+      └── escalation-chains.json5       # Who to escalate to, when, how
+```
+
+**Why JSON5 files instead of a graph DB:**
+- OpenClaw's memory system **indexes and vector-searches** these files automatically (workspace file scanning) — no custom query engine needed
+- JSON5 is **human-readable** and **version-controllable** — admins can review and edit knowledge directly
+- The Data Scavenger Agent can **write structured JSON5** using `fs_write` — no new infrastructure
+- Deployment remains **zero-dependency** — no Neo4j, no PostgreSQL, no Redis; works on a laptop or an air-gapped server
+
+Relational edges — the "soul" of the knowledge graph — are expressed as JSON5 references:
+
+```json5
+// ekg/org/org-chart.json5
+{
+  entities: [
+    { id: "zhang-san", type: "employee", name: "Zhang San", department: "sales", role: "manager" },
+    { id: "li-si", type: "employee", name: "Li Si", department: "sales", role: "rep" },
+  ],
+  relations: [
+    { from: "li-si", type: "reports_to", to: "zhang-san" },
+    { from: "zhang-san", type: "has_approval_authority", to: "purchase_orders", limit: "$50000" },
+  ],
+  meta: { source: "company_directory_2026.pdf", ingested: "2026-04-08", confidence: 1.0 }
+}
+```
+
+This is effectively **JSON-LD without the RDF overhead** — nodes and edges in a flat, queryable format that OpenClaw's memory system can chunk and vector-search. Before executing any action, an agent consults the relevant `ekg/` pillar — like "checking a dictionary" — to ensure it does not cross any boundaries.
+
+### Data Scavenger Agent
+
+The Data Scavenger is a specialized OpenClaw meta-agent with a single mission: convert unstructured input into structured `ekg/` files.
+
+**Processing pipeline:**
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ 1. EXTRACT   │     │ 2. CLASSIFY  │     │ 3. STRUCTURE │     │ 4. MERGE     │     │ 5. NOTIFY    │
+│              │     │              │     │              │     │              │     │              │
+│ Raw text via │────▶│ LLM-driven   │────▶│ JSON5 with   │────▶│ Additive     │────▶│ Affected     │
+│ pdf, browser,│     │ 4-pillar     │     │ entities,    │     │ merge into   │     │ agents get   │
+│ web_fetch    │     │ classification│     │ relations,   │     │ ekg/ files   │     │ notified     │
+│              │     │              │     │ provenance   │     │ (never       │     │              │
+└──────────────┘     └──────────────┘     └──────────────┘     │ destructive) │     └──────────────┘
+                                                               └──────────────┘
+```
+
+When a client uploads a "Company Directory," the Scavenger deconstructs entries — "Zhang San," "Li Si" — and populates `ekg/org/`. When a "Travel Expense Reimbursement Policy (2026 Edition)" is uploaded, the Scavenger extracts nodes like "High-speed rail: 2nd Class seat" and "Daily meal allowance: 200 RMB" and assigns them to `ekg/rules/`. When a product white paper arrives, the Scavenger packages "Product A" with its price and technical specifications into `ekg/assets/`.
+
+The Scavenger is **not a separate database system.** It writes files. OpenClaw's memory system indexes them. Agents search them via `memory_search`.
+
+### Q&A-Based Completion
+
+After initial ingestion, a cron-triggered skill reads the agent's `ekg/` directory, identifies missing required fields, and generates clarifying questions sent to the appropriate human via `message` (Slack/Teams) or queued for the next conversation:
+
+> "I've reviewed your procurement policy and noticed that the approver for Category A purchases is Director Wang, but the maximum single-purchase limit is not specified. Could you please tell me what that limit is?"
+
+Through such lightweight, unobtrusive interactions, clients complete the private customization of their EKG without even realizing they are doing so.
+
+### Experience Links (Tier 3)
+
+After each significant task completion, a post-task hook evaluates whether the agent observed a reusable pattern and generates an Experience Link:
+
+```json5
+// ekg/workflows/experience-links/procurement-category-a.json5
+{
+  id: "exp-2026-04-08-001",
+  pattern: "Category A urgent procurement",
+  observation: "GM Zhang requires physical inspection of goods before authorizing payment",
+  confidence: 0.85,
+  occurrences: 3,
+  firstSeen: "2026-03-15",
+  lastSeen: "2026-04-08",
+  context: "cross-departmental procurement involving warehouse + finance",
+  source: "autonomous_extraction"
+}
+```
+
+The `confidence` score increases with each repeated observation, using OpenClaw's existing short-term recall promotion mechanism (frequency, relevance, diversity, recency weights from `memory-core`). Only high-confidence experience links — above a configurable threshold — are promoted to permanent `ekg/` entries.
+
+Workflow-pillar knowledge typically crystallizes through this tier. If an agent observes that generating a PDF and applying an electronic seal is a prerequisite for issuing every contract, it automatically establishes a new SOP link in `ekg/workflows/sops/`.
+
+### Industry Ontology Templates
+
+Pre-built `ekg/` directory templates per industry vertical, stored at `sentura/config/industry-ontologies/`:
+
+```
+sentura/config/industry-ontologies/
+├── financial-services/
+│   ├── rules/financial-controls.json5      # Invoice → Voucher → Tax Rate → Compliance chains
+│   ├── rules/regulatory-compliance.json5   # SOX, AML, KYC standard requirements
+│   ├── assets/financial-terms.json5        # Industry terminology ontology
+│   └── workflows/standard-sops.json5       # Common financial workflows
+├── e-commerce/
+│   ├── rules/consumer-protection.json5
+│   ├── assets/product-catalog-schema.json5
+│   └── workflows/order-fulfillment.json5
+└── healthcare/
+    ├── rules/hipaa-compliance.json5
+    └── ...
+```
+
+During incubation (Phase 2 of the Creator Agent), the appropriate industry ontology is **merged** into the new employee's `ekg/` directory. This is the "from day one, the agent knows industry standards" effect — the palpable sense of "veteran expertise" is entirely supported by this foundational tier.
+
+### Relationship to Existing Workspace Files
+
+The `ekg/` directory **complements** — not replaces — the existing workspace files:
+
+| File | Purpose | Relationship to EKG |
+|------|---------|-------------------|
+| `SOUL.md` | Identity, personality | Unchanged — defines *who* the agent is |
+| `RULES.md` | Hard safety boundaries | Summary rules derived from `ekg/rules/` pillar; provides a human-readable constraint layer that overrides everything |
+| `CONTEXT.md` | Enterprise overview | High-level summary of `ekg/org/` pillar; the "executive brief" for quick reference |
+| `SKILL.md` files | Procedural knowledge | Procedures that *use* EKG data; reference `ekg/` pillars for specifics |
+| `ekg/` directory | Structured knowledge graph | Deep, structured, machine-queryable knowledge — the detailed backing store |
+
+### Knowledge Ingestion from All Sources
+
+| Knowledge Source | Integration | EKG Pillar(s) |
+|-----------------|-------------|---------------|
+| Company directory / HR exports | Data Scavenger → `ekg/org/` | Org & Identity |
+| Policy documents (PDF, DOCX) | Data Scavenger → `ekg/rules/` | Rules & Compliance |
+| Product catalogs, pricing sheets | Data Scavenger → `ekg/assets/` | Assets & Knowledge |
+| Historical contracts, templates | Data Scavenger → `ekg/assets/` | Assets & Knowledge |
+| Internal wikis | `web_fetch` + browser → Data Scavenger | All pillars |
+| Databases (CRM, ERP, HRIS) | MCP servers for real-time access | Live queries, not cached in EKG |
+| Slack/Teams history | Channel plugins for context | Dynamic memory, not EKG |
+| Daily task execution | Experience Link extraction | Workflows & Action |
+| Q&A-based Completion | Human answers during work | All pillars (filling gaps) |
 
 ---
 
@@ -1137,11 +1258,13 @@ Each AI employee has its own long-term memory powered by OpenClaw's two-extensio
 - QMD (Query-Memory-Decide) cycle for relevant recall
 - Dreaming/consolidation cron job (periodically reorganizes memories)
 - Memory scoring and relevance ranking
+- SQLite index with FTS5 full-text search + Float32 vector blobs
 
 **`memory-lancedb`** — Vector store:
 - LanceDB-based semantic search
 - Embedding generation for memory entries
 - Similarity search for contextual recall
+- `memory_recall` / `memory_store` / `memory_forget` tools available to agents
 
 ### Memory Configuration Per Employee
 
@@ -1149,14 +1272,11 @@ Each AI employee has its own long-term memory powered by OpenClaw's two-extensio
 {
   memory: {
     enabled: true,
-    // Each agent gets its own memory namespace
     namespace: "ap-clerk-finance",
-    // Dreaming schedule: consolidate memories nightly
     dreaming: {
       enabled: true,
       schedule: "0 2 * * *",  // 2 AM daily
     },
-    // What to remember
     formation: {
       conversationFacts: true,     // Key facts from conversations
       toolResults: true,           // Results of tool calls
@@ -1167,26 +1287,65 @@ Each AI employee has its own long-term memory powered by OpenClaw's two-extensio
 }
 ```
 
+### Three-Tier Memory Model
+
+Sentura's memory architecture combines three layers — each with a different persistence model, update frequency, and search characteristic:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ TIER 1: STATIC KNOWLEDGE (ekg/ + workspace files)                   │
+│                                                                     │
+│ ekg/org/          ekg/rules/       ekg/assets/      ekg/workflows/ │
+│ org-chart.json5   controls.json5   products/        sops/          │
+│ contacts.json5    compliance.json5 contracts/       experience-links│
+│                                    faqs/                            │
+│ SOUL.md   RULES.md   CONTEXT.md   SKILL.md files                  │
+│                                                                     │
+│ Characteristics: Structured, version-controlled, human-editable,   │
+│ auto-indexed by OpenClaw's workspace file scanner                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ TIER 2: DYNAMIC EPISODIC MEMORY (LanceDB vector store)              │
+│                                                                     │
+│ Conversations → facts extracted → embedded → stored in LanceDB      │
+│ Tool results, approval decisions, error patterns                    │
+│ Searched via memory_search (hybrid FTS + vector + temporal decay)   │
+│                                                                     │
+│ Characteristics: Automatic, continuous, forgettable, searchable     │
+├─────────────────────────────────────────────────────────────────────┤
+│ TIER 3: LIVE DATA (MCP server queries)                              │
+│                                                                     │
+│ CRM records, ERP transactions, support tickets, real-time state     │
+│ Queried on-demand via MCP tools — never cached in EKG               │
+│                                                                     │
+│ Characteristics: Always current, not stored, access-controlled      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### How EKG Integrates with OpenClaw's Memory System
+
+OpenClaw's workspace file scanner **automatically indexes** all files under the agent's workspace directory — including the `ekg/` subdirectory. This means:
+
+1. **Automatic chunking:** Each JSON5 file in `ekg/` is chunked and embedded into the SQLite + LanceDB vector index alongside SOUL.md, RULES.md, and SKILL.md files.
+2. **Hybrid search:** When an agent calls `memory_search` with a query like "who approves purchases over $50K?", the system runs both FTS (keyword match against JSON5 field names) and vector similarity (semantic match against embedded chunks) — returning the relevant `ekg/org/org-chart.json5` entries.
+3. **Structured + semantic:** Because `ekg/` files use consistent JSON5 schemas with explicit field names (`type: "reports_to"`, `limit: "$50000"`), FTS catches exact matches while vector search catches semantic queries that don't use those exact terms.
+
+### Dreaming Extensions for EKG
+
+OpenClaw's dreaming system operates in 3 phases — **light** (frequent, surface-level), **deep** (daily, thorough), and **REM** (weekly, creative consolidation). Sentura extends the dreaming cycle with EKG-specific behaviors:
+
+- **Experience Link extraction:** During the deep dreaming phase, the system reviews recent task completions, identifies repeated patterns, and generates candidate Experience Links with initial confidence scores.
+- **Confidence promotion:** The REM phase evaluates existing Experience Links against new evidence. Links that recur across multiple tasks see their `confidence` score increase. Links above the configurable promotion threshold are written to `ekg/workflows/experience-links/` as permanent knowledge.
+- **Gap detection:** The light dreaming phase scans `ekg/` files for missing required fields (null values, empty relations) and queues Q&A-based Completion questions for the next human interaction.
+
 ### Memory Use Cases
 
-| Use Case | How Memory Helps |
-|----------|-----------------|
-| **Invoice Processing** | Remembers vendor payment patterns, flags deviations |
-| **Customer Support** | Recalls previous interactions with the same customer |
-| **SDR Outreach** | Tracks which leads were contacted, their responses |
-| **HR Onboarding** | Remembers each new hire's onboarding progress |
-| **Compliance** | Accumulates regulatory knowledge from past reviews |
-
-### Workspace Files as Static Memory
-
-In addition to the dynamic LanceDB memory, each employee's workspace files serve as "static memory":
-
-- `SOUL.md` — permanent identity (rarely changes)
-- `CONTEXT.md` — enterprise context (updated by Knowledge Curator)
-- `SKILL.md` files — procedural knowledge (versioned and updatable)
-- `data/` directory — reference materials, templates, lookup tables
-
-This two-tier approach (static workspace files + dynamic vector memory) gives employees both reliable procedural knowledge and adaptive experiential learning.
+| Use Case | Static (EKG) | Dynamic (LanceDB) | Live (MCP) |
+|----------|-------------|-------------------|------------|
+| **Invoice Processing** | `ekg/rules/financial-controls.json5` — approval thresholds, compliance chains | Remembers vendor payment patterns, flags deviations | Real-time invoice data from ERP |
+| **Customer Support** | `ekg/assets/faqs/` — product FAQ pairs, known issue resolutions | Recalls previous interactions with the same customer | Live ticket status from Zendesk |
+| **SDR Outreach** | `ekg/org/contacts.json5` — key personnel, decision-makers | Tracks which leads were contacted, their responses | CRM pipeline data from Salesforce |
+| **Compliance** | `ekg/rules/compliance-policies.json5` — regulatory requirements, red lines | Accumulates regulatory knowledge from past reviews | Current regulation database queries |
+| **Cross-Dept Work** | `ekg/workflows/experience-links/` — tacit rules learned from operations | Remembers past collaboration outcomes | Live project status from PM tools |
 
 ---
 
@@ -1244,33 +1403,38 @@ The Sentura control plane dashboard provides:
 
 ### Mode B — AI Project Manager
 
-For complex tasks that span multiple AI employees, Sentura deploys an **AI Project Manager** — a special OpenClaw agent that decomposes work and coordinates across the workforce.
+For complex tasks that span multiple AI employees, Sentura deploys an **AI Project Manager (Orchestrator)** — a special OpenClaw agent that decomposes work, coordinates across the workforce, and maintains a **macro-level knowledge base** that aggregates intelligence from all subordinate AI employees.
 
 ### Orchestration via OpenClaw Subagents
 
 OpenClaw's subagent system (`sessions_spawn`, `sessions_send`, `sessions_yield`) provides the primitives for multi-agent coordination:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    AI PROJECT MANAGER                         │
-│   Receives macro-objective from human                        │
-│   Decomposes into tasks                                     │
-│   Assigns tasks to AI employees                             │
-│   Monitors progress                                         │
-│   Synthesizes results                                       │
-└────────────────┬───────────┬──────────────┬─────────────────┘
-                 │           │              │
-        ┌────────▼──┐ ┌─────▼─────┐ ┌──────▼──────┐
-        │ AP Clerk   │ │ CS Agent  │ │ SDR Agent   │
-        │ "Process   │ │ "Compile  │ │ "Identify   │
-        │  Q4 inv."  │ │  CSAT"    │ │  top leads" │
-        └────────────┘ └───────────┘ └─────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    AI MANAGER (ORCHESTRATOR)                      │
+│                                                                  │
+│   ekg/capabilities/    — knows what each employee CAN do        │
+│   ekg/conflicts/       — detected cross-domain contradictions   │
+│   ekg/insights/        — systemic patterns from operations      │
+│   ekg/global-sops/     — cross-departmental SOPs (boss-approved)│
+│                                                                  │
+│   Receives macro-objective ──▶ Decomposes into tasks            │
+│   Routes tasks by capability ──▶ Monitors progress              │
+│   Detects conflicts ──▶ Escalates to admin                      │
+│   Identifies patterns ──▶ Reverse-injects training              │
+└──────────┬───────────────┬──────────────────┬───────────────────┘
+           │               │                  │
+  ┌────────▼──┐   ┌───────▼──────┐   ┌───────▼──────┐
+  │ AP Clerk   │   │ Legal Agent  │   │ Sales Agent  │
+  │ ekg/rules/ │   │ ekg/rules/  │   │ ekg/assets/  │
+  │ ekg/assets/│   │ ekg/assets/ │   │ ekg/workflows│
+  └────────────┘   └──────────────┘   └──────────────┘
 ```
 
 ### Subagent Communication
 
 ```json5
-// AI Project Manager spawns a task to the AP Clerk
+// AI Manager spawns a task to the AP Clerk
 {
   tool: "sessions_send",
   args: {
@@ -1279,24 +1443,119 @@ OpenClaw's subagent system (`sessions_spawn`, `sessions_send`, `sessions_yield`)
   }
 }
 
-// AI Project Manager checks progress
+// AI Manager checks progress
 {
   tool: "sessions_history",
   args: {
     sessionKey: "ap-clerk-finance",
-    limit: 5  // Last 5 messages
+    limit: 5
   }
 }
 ```
 
+### AI Manager EKG — The Macro-Level Knowledge Base
+
+The Orchestrator's `ekg/` directory has a different structure from regular AI employees — focused on **aggregation and coordination** rather than individual domain knowledge:
+
+```
+~/.openclaw/workspace/orchestrator/
+  ekg/
+  ├── capabilities/                         # Mechanism 1: Capability Abstraction
+  │   ├── legal-specialist.json5            # { capabilities, inputSchema, outputSchema }
+  │   ├── finance-specialist.json5
+  │   └── sales-specialist.json5
+  ├── conflicts/                            # Mechanism 2: Cross-Domain Stitching
+  │   ├── shipping-policy-conflict.json5    # Detected conflict + resolution status
+  │   └── resolved/                         # Boss-confirmed resolutions → Global SOPs
+  ├── insights/                             # Mechanism 3: Top-Down Training
+  │   ├── contract-rejection-pattern.json5  # "80% of rejections lack penalty clause"
+  │   └── injected/                         # Directives pushed to employee agents
+  └── global-sops/                          # Cross-departmental SOPs
+      └── contract-approval-flow.json5
+```
+
+### Mechanism 1: Capability Abstraction
+
+The AI Manager does not need to know the specific formulas a Finance Specialist uses to calculate tax rates; it merely needs to know *what* the Finance Specialist can do and *what inputs* are required.
+
+When a new employee is incubated, the Creator Agent automatically extracts **Capability Tags** and **I/O Schemas** and writes them to the Orchestrator's `ekg/capabilities/`:
+
+```json5
+// ekg/capabilities/legal-specialist.json5
+{
+  agentId: "legal-specialist",
+  capabilities: [
+    { tag: "contract_risk_review", description: "Review contracts for legal risks and compliance issues" },
+    { tag: "regulatory_compliance", description: "Verify actions against applicable regulations" },
+  ],
+  inputSchema: { required: ["contract_text", "business_context"], optional: ["urgency_level"] },
+  outputSchema: { produces: ["risk_assessment_report", "compliance_checklist"] },
+  lastUpdated: "2026-04-08"
+}
+```
+
+This constructs the foundational "map" that enables the AI Manager to accurately route tasks: "Legal Specialist → Expertise: Reviewing Contract Risks → Input: Contract Text & Business Context → Output: Risk Assessment Report."
+
+### Mechanism 2: Cross-Domain Conflict Detection
+
+Knowledge possessed by individual specialists often exists in isolated silos. The Manager's responsibility is to bridge them.
+
+**Conflict scenario:** The Sales Specialist's `ekg/rules/` contains "Ship goods immediately after customer places an order." The Finance Specialist's `ekg/rules/` contains "Goods must not be shipped until full payment received."
+
+A **cron-triggered skill** on the Orchestrator:
+1. Reads all employee capability files and rule summaries
+2. Detects rule conflicts across departments (LLM reasoning over structured JSON5)
+3. Creates conflict entries requiring human resolution
+4. Escalates to the admin via the approval system: "There is a conflict between Sales and Finance regarding shipping protocols. Whose rules should take precedence, or is there a compromise?"
+5. Once resolved, writes a **Cross-Departmental Global SOP Link** — a directive that supersedes both individual departments' rules
+
+```json5
+// ekg/conflicts/resolved/shipping-policy.json5
+{
+  id: "conflict-2026-04-08-001",
+  departments: ["sales", "finance"],
+  description: "Sales policy requires immediate shipping; Finance requires payment first",
+  resolution: "Ship immediately for orders under $10K from verified customers; hold for payment above $10K or new customers",
+  resolvedBy: "admin@acme.com",
+  resolvedAt: "2026-04-08",
+  globalSopRef: "ekg/global-sops/shipping-conditions.json5"
+}
+```
+
+### Mechanism 3: Top-Down Training (Reverse Injection)
+
+This is where the AI Manager truly demonstrates its value as "management" — proactively identifying systemic issues and training employees.
+
+**Experience synthesis:** After orchestrating hundreds of tasks, the Manager accumulates workflow duration data and error-return records. A periodic analysis skill:
+1. Reviews task completion patterns across employees (via `sessions_history`)
+2. Identifies systemic issues — e.g., "80% of contracts returned by Legal to Sales were rejected because they lacked a penalty-for-breach clause"
+3. Generates an optimization directive
+4. **Reverse-injects** it by writing a new rule into the Sales Specialists' `ekg/rules/` or a new skill into their `skills/`:
+
+```json5
+// Injected into sales-specialist's ekg/rules/contract-drafting-rules.json5
+{
+  rule: "mandatory_breach_penalty_clause",
+  description: "All contracts must include a penalty-for-breach clause before submission to Legal",
+  source: "orchestrator_insight",
+  insight: "80% of Legal rejections in Q1 were due to missing breach penalty clauses",
+  injectedAt: "2026-04-08",
+  injectedBy: "orchestrator"
+}
+```
+
+When the AI Manager can proactively identify tasks and delegate training to subordinate employees, it evolves into a **"Digital VP of Business Operations"** — comprehending the big picture, routing tasks, and offering autonomous recommendations.
+
 ### Cross-Employee Knowledge Sharing
 
-AI employees can share information through:
+AI employees share information through:
 
 1. **Direct messaging** — `sessions_send` between agent sessions
 2. **Shared skills** — common skill files in a shared directory
 3. **Channel messages** — post updates to shared Slack/Teams channels
-4. **Memory** — the Project Manager can query any employee's memory (with permission)
+4. **Manager EKG** — the Orchestrator's `ekg/capabilities/` provides a global view of what every employee can do
+5. **Global SOPs** — the Orchestrator's `ekg/global-sops/` provides cross-departmental rules that override individual agent rules
+6. **Reverse injection** — the Manager pushes new rules and skills into employee workspaces based on systemic pattern analysis
 
 ---
 
@@ -1713,7 +1972,7 @@ Sentura-Platform/
 │   └── ...
 │
 ├── sentura/                     # Sentura control plane
-│   ├── agents/                  # Meta-agents (Creator, Tuner, Orchestrator)
+│   ├── agents/                  # Meta-agents
 │   │   ├── creator/
 │   │   │   ├── SOUL.md          # Creator Agent identity
 │   │   │   ├── skills/          # Incubation skills
@@ -1721,9 +1980,17 @@ Sentura-Platform/
 │   │   ├── tuner/
 │   │   │   ├── SOUL.md          # Tuning Agent identity
 │   │   │   └── skills/          # Configuration modification skills
-│   │   └── orchestrator/
-│   │       ├── SOUL.md          # Project Manager identity
-│   │       └── skills/          # Task decomposition, coordination
+│   │   ├── orchestrator/
+│   │   │   ├── SOUL.md          # AI Manager / Project Manager identity
+│   │   │   ├── skills/          # Task decomposition, coordination, training
+│   │   │   └── ekg/             # Manager-level EKG (see §12)
+│   │   │       ├── capabilities/    # Capability tags per employee
+│   │   │       ├── conflicts/       # Cross-domain conflict detection
+│   │   │       ├── insights/        # Systemic pattern analysis
+│   │   │       └── global-sops/     # Cross-departmental SOPs
+│   │   └── data-scavenger/
+│   │       ├── SOUL.md          # Data Scavenger Agent identity
+│   │       └── skills/          # Document ingestion, 4-pillar classification
 │   │
 │   ├── dashboard/               # Sentura Admin Dashboard
 │   │   ├── src/
@@ -1741,20 +2008,33 @@ Sentura-Platform/
 │   │   └── sentura-provisioner/ # Self-provisioning coordinator
 │   │
 │   ├── hooks/                   # Sentura OpenClaw hooks
-│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md into system prompt
+│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md + ekg/ into system prompt
 │   │       ├── HOOK.md          # Hook metadata (events, install info)
 │   │       └── handler.ts       # Bootstrap event handler
 │   │
 │   ├── skills/                  # Sentura bundled skills
 │   │   ├── self-provisioning/   # Service registration skill
 │   │   ├── knowledge-curation/  # Enterprise knowledge ingestion
+│   │   ├── qa-completion/       # Q&A-based Completion for EKG gap detection
+│   │   ├── experience-extraction/ # Experience Link post-task hook
 │   │   ├── compliance/          # Cross-industry compliance
 │   │   └── onboarding/          # New employee onboarding guide
 │   │
 │   └── config/                  # Default configurations
 │       ├── base.json5           # Sentura base config overlay
 │       ├── templates/           # Role-specific config templates
-│       └── policies/            # Default approval/security policies
+│       ├── policies/            # Default approval/security policies
+│       └── industry-ontologies/ # Pre-built EKG templates per industry (see §6)
+│           ├── financial-services/
+│           │   ├── rules/       # Compliance chains, financial controls
+│           │   ├── assets/      # Industry terminology ontology
+│           │   └── workflows/   # Standard financial SOPs
+│           ├── e-commerce/
+│           │   ├── rules/       # Consumer protection, return policies
+│           │   ├── assets/      # Product catalog schemas
+│           │   └── workflows/   # Order fulfillment SOPs
+│           └── healthcare/
+│               └── rules/       # HIPAA, clinical compliance
 │
 ├── workspaces/                  # AI Employee workspaces (created at runtime)
 │   ├── ap-clerk-finance/        # Example: Accounts Payable clerk
@@ -1763,7 +2043,12 @@ Sentura-Platform/
 │   │   ├── RULES.md
 │   │   ├── CONTEXT.md
 │   │   ├── TOOLS.md
-│   │   └── skills/
+│   │   ├── skills/
+│   │   └── ekg/                 # Per-agent Enterprise Knowledge Graph (see §6)
+│   │       ├── org/             # Pillar 1: Organizational & Identity
+│   │       ├── rules/           # Pillar 2: Rules & Compliance
+│   │       ├── assets/          # Pillar 3: Assets & Knowledge
+│   │       └── workflows/       # Pillar 4: Workflows & Action
 │   └── cs-agent-support/        # Example: Customer Support agent
 │       └── ...
 │

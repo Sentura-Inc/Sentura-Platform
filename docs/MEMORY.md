@@ -906,3 +906,57 @@ Deep investigation of OpenClaw's session, channel, binding, and multi-agent orch
 
 **Also fixed in this session:**
 - Dashboard `config.get` bug: `sentura/dashboard/src/lib/gateway/client.ts` `getConfig()` was not unwrapping the `{ hash, config }` snapshot wrapper from OpenClaw's `config.get` RPC, causing `getAgents()` to return empty. Fixed by extracting `snapshot.config` before returning.
+
+---
+
+### 2026-04-08 — Enterprise Knowledge Graph (EKG) Architecture Documentation
+
+**What was done:**
+
+Implemented the EKG architecture design into the project's source-of-truth documents (README.md and docs/TeamPlan.md). This was a documentation-only update — no implementation code was written. The goal was to lock in the EKG architecture before any team member begins building.
+
+**Architecture decisions documented:**
+
+1. **Hybrid EKG design:** Enterprise knowledge stored as structured JSON5 files in per-agent `ekg/` directories (4 pillars: org/, rules/, assets/, workflows/), auto-indexed by OpenClaw's workspace file scanner and searchable via hybrid FTS + vector search. No graph database required.
+2. **Three-tiered data source model:** Tier 1 (Industry Ontology Templates at `sentura/config/industry-ontologies/`), Tier 2 (Client data via Data Scavenger Agent + Q&A-based Completion), Tier 3 (Autonomous Experience Links extracted from daily operations).
+3. **Data Scavenger Agent:** New meta-agent at `sentura/agents/data-scavenger/` that processes unstructured documents → classifies into 4 pillars → writes structured JSON5 → additive merge only.
+4. **AI Manager EKG:** Orchestrator gets its own `ekg/` with capabilities/, conflicts/, insights/, global-sops/ directories. Three mechanisms: capability abstraction, cross-domain conflict detection, reverse-injection training.
+5. **Capability count increased from 14 to 17:** Added #11 (Enterprise Knowledge Graph), #12 (Data Scavenger Agent), #13 (Progressive knowledge accumulation), #17 (Cross-agent knowledge aggregation). Renumbered old #11-14 to #14-16.
+
+**Files modified:**
+
+- `README.md`:
+  - Section 1: Capability table expanded from 14 to 17 capabilities (added #11 EKG, #12 Data Scavenger, #13 Progressive accumulation, #17 Cross-agent aggregation; renumbered old #11-14 to #14-16)
+  - Section 6: Full rewrite from "From EKG to Knowledge Skills" → "Enterprise Knowledge Graph (EKG)" — 3-tier model, 4-pillar ontology, per-agent `ekg/` directory, Data Scavenger Agent, Q&A-based Completion, Experience Links, industry ontology templates, knowledge source ingestion table
+  - Section 10: Expanded memory architecture — added three-tier memory model (static EKG + dynamic LanceDB + live MCP), EKG-memory integration (auto-indexing, hybrid search), dreaming extensions for Experience Link extraction and gap detection
+  - Section 12: Expanded multi-agent orchestration — added AI Manager EKG directory structure, Mechanism 1 (capability abstraction), Mechanism 2 (cross-domain conflict detection), Mechanism 3 (reverse-injection training), updated cross-employee knowledge sharing list
+  - Section 19: Project structure updated — added `sentura/agents/data-scavenger/`, `sentura/config/industry-ontologies/`, `sentura/skills/qa-completion/`, `sentura/skills/experience-extraction/`, per-agent `ekg/` directory in workspaces, Orchestrator EKG subdirectories
+
+- `docs/TeamPlan.md`:
+  - Header: Updated from 13 to 17 capabilities, last synced date to 2026-04-08
+  - Capability Coverage Map: Expanded from 14 to 17 rows with new EKG capabilities and sprint week assignments
+  - Interface Contracts: Added 7 new contracts (EKG pillar JSON5 schema, Data Scavenger I/O, Experience Link format, Manager capability tag schema, cross-domain conflict resolution protocol, industry ontology template format, updated workspace convention)
+  - Week 2 Person A: Workspace creation now includes `ekg/` directory
+  - Week 2 Person B: Added EKG pillar JSON5 schema design task, 2 industry ontology template tasks, Creator Agent Phase 2 now creates `ekg/` and merges industry ontology
+  - Week 3 Person B: Added Data Scavenger Agent workspace build, Q&A Completion skill design, Experience Link extraction skill design
+  - Week 3 Person D: Added bootstrap hook extension to load `ekg/` files into agent context
+  - Week 4 Person B: Added Data Scavenger + Knowledge Curator integration tests, Experience Link implementation, Manager capability abstraction (Mechanism 1), pre-deployment test runner now includes `ekg/` files in auto-tune
+  - Week 4 Person C: Knowledge Manager UI now includes EKG upload/browse
+  - Week 5 Person B: Added Manager cross-domain conflict detection skill (Mechanism 2), reverse-injection training skill (Mechanism 3), 3rd industry ontology template (healthcare)
+  - Week 6 Person B: Added E2E tests for full EKG pipeline and Manager EKG aggregation
+  - Week 8 All: Updated demo scenarios from 3 to 5 (added EKG data flow demo and Manager training demo)
+  - Integration Checkpoints: Updated IC-2 through IC-8 to include EKG verification steps
+  - Risk Mitigation: Added 5 new EKG-specific risks (misclassification, false experience patterns, false conflict positives, ontology mismatch, JSON5 file growth)
+  - Capability-to-README Traceability: Updated all 17 capabilities with correct README section references
+  - All capability number references updated throughout (old #11-14 → new #14-16)
+
+- `docs/MEMORY.md` — This entry
+
+**What's left (implementation, not yet started):**
+- Design and implement the EKG pillar JSON5 schema (`sentura/config/ekg-schema.json5`)
+- Build industry ontology templates (financial-services, e-commerce, healthcare)
+- Build Data Scavenger Agent workspace and skills
+- Build Q&A-based Completion and Experience Link extraction skills
+- Extend bootstrap hook to load `ekg/` files
+- Build Manager EKG mechanisms (capability abstraction, conflict detection, reverse injection)
+- Dashboard UI for EKG browsing and document upload

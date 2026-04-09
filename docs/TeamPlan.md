@@ -1,8 +1,8 @@
 # Sentura Platform — 8-Week Team Sprint Plan
 
-> **Aligned with**: README.md (13 Sentura capabilities), docs/OPENCLAW.md, ekg/ test enterprise
+> **Aligned with**: README.md (17 Sentura capabilities), docs/OPENCLAW.md, ekg/ test enterprise
 >
-> **Last synced**: 2026-04-06
+> **Last synced**: 2026-04-08
 
 ## Team Roles
 
@@ -15,7 +15,7 @@
 
 ## Sentura Capability Coverage Map
 
-Each of the 14 capabilities from README.md Section 1 must have explicit sprint tasks:
+Each of the 17 capabilities from README.md Section 1 must have explicit sprint tasks:
 
 | # | Capability | Primary Owner | Sprint Weeks |
 |---|-----------|--------------|-------------|
@@ -24,15 +24,18 @@ Each of the 14 capabilities from README.md Section 1 must have explicit sprint t
 | 3 | Self-provisioning orchestration | B + D | 3, 4 |
 | 4 | Position-specific safety guardrails (RULES.md) | B + D | 1, 2, 3 |
 | 5 | No-code employee creation | B + C | 1, 2 |
-| 6 | Incubation pipeline | B + A | 2, 3 |
-| 7 | Enterprise orchestration | B + C | 4, 5 |
+| 6 | Incubation pipeline (+ industry ontology merge, ekg/ setup) | B + A | 2, 3, 4 |
+| 7 | Enterprise orchestration + AI Manager EKG | B + C | 4, 5 |
 | 8 | Multi-tenancy | A + D | 4, 5 |
 | 9 | Enterprise authentication (SSO) | A + C | 5, 6 |
 | 10 | Cost management | A + C | 4, 5 |
-| 11 | Knowledge ingestion pipeline | B | 4, 5 |
-| 12 | Employee lifecycle management | B + A + C | 5, 6 |
-| 13 | Pre-deployment testing & validation | B + D + C | 3, 4, 5 |
-| 14 | Communication panel (1:1 chat + group chat) | C + A + D | 3, 4 |
+| 11 | Enterprise Knowledge Graph (EKG) — per-agent 4-pillar structured knowledge | B + D | 2, 3, 4 |
+| 12 | Data Scavenger Agent — document ingestion → 4-pillar classification → JSON5 | B | 3, 4 |
+| 13 | Progressive knowledge accumulation — industry ontologies, Q&A Completion, Experience Links | B + D | 3, 4, 5 |
+| 14 | Employee lifecycle management | B + A + C | 5, 6 |
+| 15 | Pre-deployment testing & validation | B + D + C | 3, 4, 5 |
+| 16 | Communication panel (1:1 chat + group chat) | C + A + D | 3, 4 |
+| 17 | Cross-agent knowledge aggregation — Manager capability abstraction, conflict detection, reverse injection | B | 4, 5 |
 
 ## Test Documentation Policy
 
@@ -57,8 +60,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 |----------|-------|-----------|--------|
 | OpenClaw config schema (agents, channels, MCP) | A | B, C, D | JSON5 + Zod schemas (OpenClaw native) |
 | Gateway RPC API surface | A | C (dashboard), B (meta-agents) | WebSocket JSON-RPC (OpenClaw protocol) |
-| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8**: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md + **Sentura 2**: RULES.md, CONTEXT.md + skills/ directory |
-| Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + workspace files (all 10 files + skills) |
+| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8**: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md + **Sentura 2**: RULES.md, CONTEXT.md + skills/ directory + **EKG**: ekg/ directory (org/, rules/, assets/, workflows/) |
+| Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + workspace files (all 10 files + skills + ekg/ with industry ontology merge) |
 | Tuning Agent input/output contract | B | C (UI tuning panel) | NL tuning request → config.patch diff + workspace file edits |
 | Sentura extension plugin contract | D | B (agents use extensions), C (UI shows status) | `openclaw.plugin.json` manifest + `definePluginEntry` |
 | Approval workflow schema | D | B (agents trigger), C (UI approve/reject) | `exec.approval.*` + `plugin.approval.*` RPC + Sentura escalation policies |
@@ -70,6 +73,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Cost tracking event schema | A | C (Cost Center UI), D (audit) | Per-agent LLM call events with token counts and cost estimates |
 | Pre-deployment test harness contract | B | D (test data extraction via MCP), C (test results UI) | Test case format (input, expected outcome, scoring rubric), test run results schema, pass/fail thresholds |
 | Communication panel session contract | C + A | D (audit), B (meta-agent chat) | `sessions.create` with `agentId` → `sessionKey`; `chat.send` with `sessionKey`; group chat fan-out via `sessions.send`; group metadata store schema |
+| **EKG pillar JSON5 schema** | B | D (bootstrap hook), C (Knowledge Manager UI), A (workspace creation) | Entity/relation/attribute format per pillar; required fields: `id`, `type`, `name`; relation format: `{ from, type, to }`; provenance: `{ source, ingested, confidence }`; reference schema at `sentura/config/ekg-schema.json5` |
+| **Data Scavenger I/O contract** | B | C (upload UI), D (audit logging) | Input: document file (PDF/DOCX/Excel/image) + target agent ID; Output: structured JSON5 files written to target agent's `ekg/` directory; classification into 4 pillars; additive merge only; notification to affected agents |
+| **Experience Link format** | B | D (dreaming extensions), C (EKG browser UI) | JSON5 with fields: `id`, `pattern`, `observation`, `confidence` (0–1), `occurrences`, `firstSeen`, `lastSeen`, `context`, `source` ("autonomous_extraction"); stored at `ekg/workflows/experience-links/`; promotion threshold configurable per agent |
+| **Manager capability tag schema** | B | C (Orchestrator dashboard), D (audit) | JSON5 per employee: `agentId`, `capabilities[]` (tag + description), `inputSchema` (required + optional fields), `outputSchema` (produces), `lastUpdated`; stored at Orchestrator's `ekg/capabilities/{agent-id}.json5` |
+| **Cross-domain conflict resolution protocol** | B | D (approval integration), C (conflict resolution UI) | Conflict entry: `departments[]`, `description`, `conflicting_rules[]`; Resolution: escalated to admin via approval system; resolved entry includes `resolvedBy`, `resolvedAt`, `globalSopRef`; resolved conflicts move to `ekg/conflicts/resolved/` |
+| **Industry ontology template format** | B | A (workspace setup), C (template library UI) | Directory structure mirroring `ekg/` pillars under `sentura/config/industry-ontologies/{industry}/`; each file follows EKG pillar JSON5 schema; merged into agent `ekg/` at incubation Phase 2 |
 
 ---
 
@@ -124,10 +133,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: A human can create an AI employee through the Creator Agent. First enterprise MCP server built from ekg/ docs.
 >
-> **Capabilities covered**: #1 (data integration start), #2 (MCP generation start), #5 (Creator Agent), #6 (incubation pipeline)
+> **Capabilities covered**: #1 (data integration start), #2 (MCP generation start), #5 (Creator Agent), #6 (incubation pipeline), #11 (EKG schema design)
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/)
+- [ ] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/ + ekg/ directory structure)
 - [ ] Build a helper script/API that registers a new agent into OpenClaw config via `config.patch`
 - [ ] Test hot-reload: adding an agent via `config.patch` makes it immediately available
 - [ ] Configure MCP loopback server for tool protocol interop
@@ -139,9 +148,19 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Must generate RULES.md with position-specific guardrails (Sentura innovation, not in OpenClaw)
   - Must generate CONTEXT.md with enterprise context
   - Must wire MCP server references for required integrations
+  - Must create `ekg/` directory structure with 4 pillar subdirectories (org/, rules/, assets/, workflows/)
+  - Must merge appropriate industry ontology template into `ekg/` during incubation
 - [ ] Build Creator Agent Phase 4: Deploy (write workspace, `config.patch`, smoke test)
 - [ ] Test end-to-end: describe a role in NL → Creator Agent produces a working AI employee
 - [ ] Write 5 more skill templates for common enterprise tasks
+- [ ] **Design the EKG 4-pillar JSON5 schema (capability #11)**:
+  - Define the entity/relation/attribute format for each pillar (org, rules, assets, workflows)
+  - Define provenance tracking fields (source document, ingestion date, confidence score)
+  - Define the Experience Link JSON5 format (pattern, observation, confidence, occurrences)
+  - Document the schema in a reference file: `sentura/config/ekg-schema.json5`
+- [ ] **Build 2 industry ontology templates (capability #13 — Tier 1)**:
+  - `sentura/config/industry-ontologies/financial-services/` (compliance chains, financial controls, standard SOPs)
+  - `sentura/config/industry-ontologies/e-commerce/` (consumer protection, order fulfillment, product catalog schemas)
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway)
@@ -165,7 +184,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: AI employees can self-provision new tools with approval + error handling. Users can tune employees via NL.
 >
-> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement), #13 (test harness design), #14 (communication panel — 1:1 chat)
+> **Capabilities covered**: #1 (data integration continued), #2 (MCP generation tooling), #3 (self-provisioning), #4 (guardrails enforcement), #12 (Data Scavenger Agent), #13 (Q&A Completion + Experience Links design), #15 (test harness design), #16 (communication panel — 1:1 chat)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] Build secret store helpers: programmatic write/read of OpenClaw secrets
@@ -173,7 +192,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
 - [ ] Build deployment documentation for cloud and on-premise (see [`docs/HOSTING.md`](docs/HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
-- [ ] **Build session management helpers for Communication Panel (capability #14)**:
+- [ ] **Build session management helpers for Communication Panel (capability #16)**:
   - Helper to create dashboard sessions targeting specific agents (`sessions.create` with `agentId`)
   - Helper to list/filter dashboard sessions across all agents (`sessions.list` with dashboard key prefix filtering)
   - Extend gateway client with `createChatSession(agentId)`, `listChatSessions()`, `sendChatMessage(sessionKey, message)` typed wrappers
@@ -185,7 +204,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Error recovery (CAPTCHA, 2FA, rate limits → escalate to human with context)
   - Audit logging of every provisioning event
 - [ ] Test self-provisioning end-to-end: create employee → needs Zendesk → registers → configures
-- [ ] **Design the pre-deployment test harness (capability #13)**:
+- [ ] **Design the pre-deployment test harness (capability #15)**:
   - Define test case schema: input scenario, expected actions, expected outcome, scoring rubric
   - Build test case extractor: pull historical tasks from enterprise data layer via MCP tools
   - Build mock task generator: synthesize realistic scenarios from database schema + API capabilities when historical data is insufficient
@@ -194,13 +213,30 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Test Tuning Agent: "make the AP clerk more casual" → SOUL.md updated
 - [ ] Create the Orchestrator Agent workspace (Mode B: multi-agent coordination)
 - [ ] Write provisioning templates for 5 common SaaS services
+- [ ] **Build Data Scavenger Agent workspace (capability #12)**:
+  - Create `sentura/agents/data-scavenger/` with SOUL.md and skills/
+  - Build ingestion skill: accept uploaded documents (PDF, DOCX, Excel, images)
+  - Build classification skill: LLM-driven 4-pillar classification of extracted content
+  - Build structuring skill: convert classified content to JSON5 with entities, relations, provenance
+  - Build merge skill: additive merge into target agent's `ekg/` files (never destructive)
+  - Notification: alert affected agents that their knowledge base was updated
+- [ ] **Design Q&A-based Completion skill (capability #13 — Tier 2 gap-filling)**:
+  - Cron-triggered skill that reads agent's `ekg/` directory
+  - Identifies missing required fields (null values, empty relations, incomplete entities)
+  - Generates clarifying questions with context ("I noticed X is missing from Y")
+  - Delivers questions via `message` tool (Slack/Teams) or queues for next conversation
+  - Write skill: `sentura/skills/qa-completion/SKILL.md`
+- [ ] **Design Experience Link extraction skill (capability #13 — Tier 3)**:
+  - Post-task hook that evaluates completed tasks for reusable patterns
+  - Generates candidate Experience Links with initial confidence scores
+  - Write skill: `sentura/skills/experience-extraction/SKILL.md`
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
 - [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
 - [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
 - [ ] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI)
-- [ ] **Build 1:1 Chat Panel — Communication Panel MVP (capability #14)**:
+- [ ] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)**:
   - New `/chat` route with two-pane layout: conversation list (left) + chat thread (right)
   - Conversation list: all dashboard sessions grouped by employee, sorted by last activity
   - "New conversation" button: employee picker → `sessions.create` with selected `agentId`
@@ -220,11 +256,15 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Input: OpenAPI spec or markdown API docs (like ekg/*.md)
   - Output: MCP server TypeScript code with typed tool definitions
 - [ ] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools
-- [ ] **Build test data extraction tools for pre-deployment testing (capability #13)**:
+- [ ] **Build test data extraction tools for pre-deployment testing (capability #15)**:
   - MCP tool wrapper that queries enterprise data for historical task records (e.g., past support tickets, past invoices)
   - Output in standardized test case format (matching B's test harness schema)
   - Test with ekg/ GradSale: extract past dispute records and support threads as test cases
 - [ ] Test approval flow: AI employee triggers high-risk action → human approves on dashboard
+- [ ] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)**:
+  - Update `sentura/hooks/sentura-bootstrap/handler.ts` to scan `ekg/` directory at agent startup
+  - Inject EKG summary (pillar counts, key entities, rule count) into system prompt alongside RULES.md and CONTEXT.md
+  - Ensure `ekg/` files are included in OpenClaw's workspace file scanning for vector indexing
 
 ---
 
@@ -232,7 +272,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: Multi-tenancy foundation. Mode B orchestration working. Knowledge ingestion functional. Cost tracking starts.
 >
-> **Capabilities covered**: #7 (orchestration), #8 (multi-tenancy), #10 (cost tracking), #11 (knowledge pipeline), #13 (test runner implementation), #14 (communication panel — group chat)
+> **Capabilities covered**: #7 (orchestration + Manager EKG), #8 (multi-tenancy), #10 (cost tracking), #11 (EKG integration testing), #12 (Data Scavenger testing), #13 (Experience Links implementation), #15 (test runner implementation), #16 (communication panel — group chat), #17 (Manager capability abstraction)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] **Design and implement multi-tenancy model**:
@@ -254,18 +294,26 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Extends OpenClaw's basic `sessions_spawn` with structured task tracking
   - Progress monitoring via `sessions_history`
   - Dependency-aware task ordering
+  - Set up Orchestrator's `ekg/` directory structure (capabilities/, conflicts/, insights/, global-sops/)
 - [ ] Test Mode B: "Prepare Q4 report" → Orchestrator assigns subtasks to AP Clerk + CS Agent
-- [ ] **Build Knowledge Curator Agent**: enterprise knowledge ingestion pipeline
-  - Ingest documents (PDF, DOCX, wiki pages) using browser + PDF tools
-  - Extract structured information
-  - Generate/update SKILL.md files for target AI employees
-  - Distribute skills across employees (cross-employee knowledge — not in OpenClaw)
-  - Notify affected employees of new knowledge
-- [ ] Test knowledge flow: upload PDF → Knowledge Curator → SKILL.md → employee uses it
-- [ ] **Implement pre-deployment test runner (capability #13)**:
+- [ ] **Integrate Data Scavenger Agent with Knowledge Curator (capabilities #11, #12)**:
+  - Data Scavenger processes uploads → writes structured JSON5 to agent `ekg/` directories
+  - Knowledge Curator continues generating SKILL.md files from `ekg/` structured data
+  - Test: upload company directory PDF → Data Scavenger → `ekg/org/org-chart.json5` → agent can answer "who approves purchases?"
+  - Test: upload financial policy PDF → Data Scavenger → `ekg/rules/financial-controls.json5` → agent checks limits before acting
+- [ ] **Implement Experience Link extraction (capability #13 — Tier 3)**:
+  - Build post-task hook that evaluates completed tasks for reusable patterns
+  - Implement confidence scoring: frequency, relevance, diversity, recency weights
+  - Integrate with dreaming cycle: light phase detects gaps, deep phase extracts patterns, REM promotes high-confidence links
+  - Test: run agent through 3 similar procurement tasks → verify Experience Link auto-generated
+- [ ] **Build Manager capability abstraction (capability #17 — Mechanism 1)**:
+  - When Creator Agent incubates a new employee (Phase 5: Deploy), auto-extract Capability Tags and I/O Schemas
+  - Write capability metadata to Orchestrator's `ekg/capabilities/{agent-id}.json5`
+  - Test: create a Legal Specialist → verify `ekg/capabilities/legal-specialist.json5` created with correct capability tags
+- [ ] **Implement pre-deployment test runner (capability #15)**:
   - Run employee in sandbox mode against each test case
   - Score results across 6 dimensions: task completion, tool usage, safety compliance, escalation judgment, tone, error handling
-  - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, RULES.md, SOUL.md, CONTEXT.md, or tool config) → re-test
+  - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, RULES.md, SOUL.md, CONTEXT.md, ekg/ files, or tool config) → re-test
   - Cap iterations with human-review escalation if max retries exceeded
   - Test against ekg/ GradSale: create CS agent → run against historical dispute records → tune until all pass
 - [ ] Build incubation memory: Creator Agent remembers past creations, learns from failures
@@ -273,12 +321,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking)
-- [ ] Build the Knowledge Manager UI (`/knowledge` — upload documents, view generated skills, skill distribution)
+- [ ] Build the Knowledge Manager UI (`/knowledge` — upload documents to Data Scavenger, view generated skills, browse agent EKG pillar contents, skill distribution)
 - [ ] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking)
 - [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
-- [ ] **Build the Test Results dashboard** (`/testing` — capability #13: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
+- [ ] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
-- [ ] **Build Group Chat — Communication Panel Phase 2 (capability #14)**:
+- [ ] **Build Group Chat — Communication Panel Phase 2 (capability #16)**:
   - Group creation UI: select multiple AI employees + invite humans by name/role
   - Fan-out orchestration layer (Next.js API route): receives a human message → sends to N agent sessions via `sessions.send` → merges streaming responses into a unified thread with agent attribution
   - Group metadata store (Sentura-managed JSON/SQLite): group name, participant list, purpose, underlying session keys
@@ -289,7 +337,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build comprehensive audit logging (every action, every tool call, searchable)
 - [ ] Implement data classification (T0–T4 tiers) in audit extension
 - [ ] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping
-- [ ] **Integrate audit logging for Communication Panel conversations (capability #14)**:
+- [ ] **Integrate audit logging for Communication Panel conversations (capability #16)**:
   - Log all dashboard chat messages (human → agent, agent → human) as audit events
   - Log group chat creation, participant changes, and fan-out actions
   - Ensure chat audit events are queryable via the audit trail page
@@ -305,14 +353,14 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 > **Goal**: Enterprise-grade security. SSO integration. Complete RBAC. Employee lifecycle management.
 >
-> **Capabilities covered**: #8 (multi-tenancy complete), #9 (SSO), #12 (employee lifecycle), #13 (role template test suites)
+> **Capabilities covered**: #8 (multi-tenancy complete), #9 (SSO), #14 (employee lifecycle), #15 (role template test suites), #17 (Manager conflict detection + reverse injection)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] **Implement enterprise SSO integration** (SAML/OIDC for dashboard auth)
   - OpenClaw uses token + device pairing — Sentura adds SSO on top
 - [ ] **Complete multi-tenancy implementation**: tenant data segregation, cross-tenant protection
 - [ ] Build secret rotation automation (API keys, tokens)
-- [ ] Implement backup/restore for OpenClaw state directory
+- [ ] Implement backup/restore for OpenClaw state directory (including `ekg/` directories)
 - [ ] Build on-premise deployment documentation (air-gapped, no internet) — extend [`docs/HOSTING.md`](docs/HOSTING.md) with air-gap-specific instructions
 - [ ] Load testing: verify platform handles 20+ concurrent AI employees
 
@@ -327,6 +375,19 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Bundle role template test suites**: write 10 standard test cases per role template (AP Clerk, CS Agent, SDR, etc.)
 - [ ] Refine self-provisioning for 10+ common SaaS services
 - [ ] Test Creator Agent against GradSale ekg/ scenario: create a CS agent for GradSale → run pre-deployment tests → auto-tune → deploy
+- [ ] **Build Manager cross-domain conflict detection skill (capability #17 — Mechanism 2)**:
+  - Cron-triggered skill on the Orchestrator that reads all employee `ekg/rules/` summaries
+  - Detects rule conflicts across departments (LLM reasoning over structured JSON5)
+  - Creates conflict entries in `ekg/conflicts/` requiring human resolution
+  - Escalates to admin via approval system with conflict context
+  - On resolution: writes Global SOP link to `ekg/global-sops/`
+- [ ] **Build Manager reverse-injection training skill (capability #17 — Mechanism 3)**:
+  - Periodic analysis skill that reviews task completion patterns across employees (via `sessions_history`)
+  - Identifies systemic issues (e.g., high rejection rates, common errors)
+  - Generates optimization directives in `ekg/insights/`
+  - Reverse-injects new rules or skills into target employees' workspaces (`ekg/rules/` or `skills/`)
+  - Test: run 10 contract tasks → Manager detects "80% rejected for missing penalty clause" → injects rule into Sales agents
+- [ ] **Build 3rd industry ontology template**: `sentura/config/industry-ontologies/healthcare/` (HIPAA compliance, clinical workflows)
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Implement full RBAC in dashboard (role-based views, permission enforcement per README §15)
@@ -348,9 +409,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 6 — Polish & Integration Testing
 
-> **Goal**: All features integrated. End-to-end flows working reliably. All 14 capabilities functional.
+> **Goal**: All features integrated. End-to-end flows working reliably. All 17 capabilities functional.
 >
-> **Validation**: Test every capability against the ekg/ GradSale enterprise scenario (including pre-deployment testing pipeline)
+> **Validation**: Test every capability against the ekg/ GradSale enterprise scenario (including EKG pipeline and pre-deployment testing)
 
 ### Person A — Platform & OpenClaw Engineer
 - [ ] E2E test: full employee lifecycle (create → provision → work → tune → version → clone → retire)
@@ -364,15 +425,17 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] E2E test: Creator Agent creates employees for all 10 role templates
 - [ ] E2E test: self-provisioning works for all supported services (including error recovery)
 - [ ] E2E test: Tuning Agent handles diverse tuning requests
-- [ ] E2E test: Knowledge Curator ingests documents and distributes skills to employees
-- [ ] **E2E test: GradSale scenario end-to-end** (create CS agent from ekg/ docs → wire MCP → pre-deployment tests → auto-tune → deploy → handle support tickets)
+- [ ] E2E test: Knowledge Curator + Data Scavenger ingests documents → structured `ekg/` files + distributes skills to employees
+- [ ] **E2E test: Full EKG pipeline** (upload company docs → Data Scavenger → `ekg/` JSON5 files → agent uses structured knowledge → Q&A Completion detects gaps → Experience Links generated after repeated tasks)
+- [ ] **E2E test: Manager EKG aggregation** (incubate 3 employees → capability tags auto-extracted → conflict detection finds rule contradiction → admin resolves → Global SOP written → reverse injection trains employee)
+- [ ] **E2E test: GradSale scenario end-to-end** (create CS agent from ekg/ docs → merge e-commerce ontology → wire MCP → Data Scavenger ingests GradSale data → pre-deployment tests → auto-tune → deploy → handle support tickets)
 - [ ] **E2E test: Pre-deployment testing pipeline** (historical task extraction → test run → failure → auto-tune → re-test → pass → deploy)
 - [ ] Polish skill templates based on testing feedback
 - [ ] Write the employee onboarding skill (new employee introduces itself)
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] E2E test: all enterprise dashboard pages with real data (excludes Control UI pages)
-- [ ] **E2E test: Communication Panel (capability #14)**: 1:1 chat with 3+ employees, group chat with 2+ agents, message streaming, history persistence, conversation list accuracy
+- [ ] **E2E test: Communication Panel (capability #16)**: 1:1 chat with 3+ employees, group chat with 2+ agents, message streaming, history persistence, conversation list accuracy
 - [ ] UI polish: loading states, error handling, empty states, responsive design
 - [ ] Accessibility audit (keyboard nav, screen readers)
 - [ ] Build the onboarding wizard (first-time setup experience — includes Control UI URL configuration)
@@ -430,30 +493,33 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ## Week 8 — Beta Release & Stabilization
 
-> **Goal**: Beta-ready platform. All 14 capabilities stable. Documentation complete.
+> **Goal**: Beta-ready platform. All 17 capabilities stable. Documentation complete.
 
 ### All Team Members
-- [ ] Full regression testing against all 13 Sentura capabilities
+- [ ] Full regression testing against all 17 Sentura capabilities
 - [ ] Fix all critical and high-priority bugs
 - [ ] Review and merge all pending PRs
 - [ ] Final documentation review
 - [ ] Prepare demo scenarios using GradSale ekg/ enterprise:
-  - Demo 1: Create a CS agent for GradSale via natural language
-  - Demo 2: Self-provision GradSale API access, wire MCP tools, handle a support ticket
-  - Demo 3: Orchestrator assigns tasks across multiple GradSale employees
+  - Demo 1: Create a CS agent for GradSale via natural language (with e-commerce industry ontology merged)
+  - Demo 2: Upload GradSale company docs → Data Scavenger populates `ekg/` → agent uses structured knowledge
+  - Demo 3: Self-provision GradSale API access, wire MCP tools, handle a support ticket
+  - Demo 4: Orchestrator assigns tasks across multiple GradSale employees, detects cross-department conflict, generates Global SOP
+  - Demo 5: Manager identifies systemic pattern, reverse-injects training into employee agent
 - [ ] Record demo video
 - [ ] Tag beta release
 
 ### Person A
 - [ ] Final deployment pipeline validation (cloud + on-premise)
-- [ ] Write release notes covering all 14 capabilities
+- [ ] Write release notes covering all 17 capabilities
 - [ ] Set up monitoring and alerting for beta deployment
 - [ ] Validate multi-tenancy and cost tracking in production-like environment
 
 ### Person B
 - [ ] Final Creator Agent testing with diverse role descriptions
-- [ ] Validate all role templates work end-to-end
+- [ ] Validate all role templates work end-to-end (including `ekg/` setup and industry ontology merge)
 - [ ] Validate employee lifecycle (create → work → version → clone → retire)
+- [ ] Validate full EKG pipeline: Data Scavenger → Q&A Completion → Experience Links → Manager aggregation
 - [ ] Prepare beta feedback collection mechanism
 
 ### Person C
@@ -476,13 +542,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Checkpoint | Week | What Gets Tested | Capabilities Validated |
 |------------|------|-----------------|----------------------|
 | **IC-1** | End of Week 1 | OpenClaw gateway runs, channels connected, LLM responds | Foundation |
-| **IC-2** | End of Week 2 | Creator Agent produces a working AI employee; visible in dashboard; GradSale MCP server works | #1, #2, #5, #6 |
-| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees; test harness design complete; 1:1 Chat Panel functional | #3, #4, #13 (design), #14 (1:1 chat) |
-| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works; knowledge ingestion functional; cost tracking live; pre-deployment test runner working; group chat functional | #7, #8, #10, #11, #13, #14 (group chat) |
-| **IC-5** | End of Week 5 | SSO login works; RBAC enforced; employee lifecycle (version, clone, retire) functional; role template test suites bundled | #9, #12, #13 |
-| **IC-6** | End of Week 6 | All 14 capabilities tested E2E; GradSale scenario fully working (including pre-deployment test pipeline) | All 14 |
-| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 14 |
-| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise | All 14 |
+| **IC-2** | End of Week 2 | Creator Agent produces a working AI employee with `ekg/` directory; visible in dashboard; GradSale MCP server works; EKG pillar schema defined; 2 industry ontologies built | #1, #2, #5, #6, #11 (schema) |
+| **IC-3** | End of Week 3 | Self-provisioning works with approval + error handling; Tuning Agent modifies employees; Data Scavenger Agent built; Q&A Completion and Experience Link skills designed; test harness design complete; 1:1 Chat Panel functional; bootstrap hook loads `ekg/` | #3, #4, #11, #12, #13 (design), #15 (design), #16 (1:1 chat) |
+| **IC-4** | End of Week 4 | Multi-tenancy isolation works; orchestration works with Manager EKG; Data Scavenger ingests documents into `ekg/` JSON5; Experience Links generated; Manager capability abstraction works; cost tracking live; pre-deployment test runner working; group chat functional | #7, #8, #10, #11, #12, #13, #15, #16 (group chat), #17 (capability abstraction) |
+| **IC-5** | End of Week 5 | SSO login works; RBAC enforced; employee lifecycle functional; Manager conflict detection and reverse injection working; 3rd industry ontology built; role template test suites bundled | #9, #13, #14, #15, #17 (conflict + training) |
+| **IC-6** | End of Week 6 | All 17 capabilities tested E2E; GradSale scenario fully working (including full EKG pipeline, Manager aggregation, and pre-deployment test pipeline) | All 17 |
+| **IC-7** | End of Week 7 | Documentation complete; edge cases handled | All 17 |
+| **IC-8** | End of Week 8 | Beta release tagged; demo-ready with GradSale enterprise (5 demo scenarios) | All 17 |
 
 ---
 
@@ -506,6 +572,11 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | LLM prompt leakage in cloud deployments | Self-hosted LLMs for regulated customers; enterprise data agreements for cloud LLM providers. See docs/HOSTING.md security analysis |
 | Credential store compromise on host | Disk encryption at rest; minimize per-employee MCP scope; secret rotation. See docs/HOSTING.md platform-wide risks |
 | Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; RULES.md guardrails; network egress filtering on host. See docs/HOSTING.md |
+| Data Scavenger misclassifies knowledge into wrong EKG pillar | LLM-driven classification with confidence thresholds; low-confidence items flagged for human review; additive-only merges (never destructive) |
+| Experience Links generate false patterns from insufficient data | Minimum occurrence threshold (default: 3) before promotion; confidence scoring with decay; human review for high-impact experience links |
+| Manager conflict detection produces false positives | All conflicts require human resolution via approval system; never auto-resolve; confidence scoring on detected conflicts |
+| Industry ontology templates don't match client's actual domain | Templates are starting points, not constraints; Data Scavenger overwrites/extends with client-specific data; Q&A Completion fills gaps |
+| EKG JSON5 files grow too large for workspace scanning | File size monitoring; split large pillar files into sub-files (e.g., `org/dept-sales.json5`); archival policy for old experience links |
 
 ---
 
@@ -515,17 +586,21 @@ Every Sentura capability references specific README.md sections for requirements
 
 | Capability | README Section | Key Requirements |
 |-----------|---------------|-----------------|
-| Enterprise data integration | §6, §14 | 3-tier MCP strategy, data source table (structured/semi/unstructured/real-time) |
+| Enterprise data integration | §6, §14 | 3-tier MCP strategy, knowledge ingestion from all sources table |
 | Internal MCP server generation | §14 | API docs → MCP server code → config.patch pipeline |
 | Self-provisioning orchestration | §5 | 9-step pipeline, approval integration, error recovery, audit logging |
 | Position-specific safety guardrails | §9 | 5-layer safety architecture, RULES.md (Sentura innovation), decision-context approvals |
 | No-code employee creation | §4 | 4-phase incubation (Research → Design → Provision → Deploy), reflection loop |
-| Incubation pipeline | §3, §4 | 10 workspace files (8 OpenClaw + 2 Sentura), structured skills/ directory |
-| Enterprise orchestration | §12 | AI Project Manager, sessions_spawn + progress tracking, cross-employee coordination |
+| Incubation pipeline (+ EKG setup) | §3, §4, §6 | 10 workspace files + `ekg/` directory + industry ontology merge, structured skills/ directory |
+| Enterprise orchestration + Manager EKG | §12 | AI Manager with capability abstraction, conflict detection, reverse injection; sessions_spawn + progress tracking |
 | Multi-tenancy | §1, §15 | Tenant isolation, per-department namespacing, data segregation |
 | Enterprise authentication | §15, §17, docs/HOSTING.md | SAML/OIDC SSO for dashboard, gateway auth modes (token, trusted-proxy, Tailscale) per hosting target |
 | Cost management | §11, §17 | Per-employee + per-department cost tracking, Cost Center dashboard page |
-| Knowledge ingestion pipeline | §6 | Knowledge Curator agent, document → SKILL.md → employee distribution |
+| Enterprise Knowledge Graph (EKG) | §6 | 4-pillar ontology (Org, Rules, Assets, Workflows), per-agent `ekg/` directory, JSON5 format with entities/relations/provenance |
+| Data Scavenger Agent | §6 | 5-step pipeline (extract → classify → structure → merge → notify), 4-pillar classification, provenance tracking |
+| Progressive knowledge accumulation | §6, §10 | Industry ontology templates (Tier 1), Q&A-based Completion (Tier 2), Experience Links with confidence scoring (Tier 3), dreaming extensions |
 | Employee lifecycle management | §1 | Versioning, cloning, health scoring, rollback, retirement |
 | Pre-deployment testing & validation | §1, §4 | 5-phase incubation (Phase 4: Testing), 3 test case sources, 6 test dimensions, auto-tune loop, pass/fail thresholds |
+| Communication panel | §17 | 1:1 chat, group chat, message streaming, conversation persistence |
+| Cross-agent knowledge aggregation | §12 | Manager capability abstraction, cross-domain conflict detection, Global SOPs, reverse-injection training |
 | Production hosting & security | docs/HOSTING.md | Co-hosted topology, reverse proxy config, security risk analysis per hosting type (VPS/VM/on-prem), LLM data transit risks |
