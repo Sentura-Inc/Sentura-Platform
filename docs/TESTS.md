@@ -35,7 +35,7 @@ cd sentura/dashboard && pnpm install && pnpm build && pnpm lint
 
 ### Setup Script Verification (Person A)
 
-Requires a working OpenClaw install (see `SETUP.md`):
+Requires a working OpenClaw install (see `docs/SETUP.md`):
 
 ```bash
 cd openclaw && pnpm install && pnpm ui:build && pnpm build && pnpm openclaw onboard
@@ -85,7 +85,7 @@ cd .. && ./scripts/sentura-setup.sh
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
-| A4.1 | SETUP.md steps work | Follow every step in `SETUP.md` on a clean checkout | All commands succeed; final verification checklist passes |
+| A4.1 | docs/SETUP.md steps work | Follow every step in `docs/SETUP.md` on a clean checkout | All commands succeed; final verification checklist passes |
 | A4.2 | Gateway RPC doc accuracy | Test documented methods against live gateway | `config.get`, `agents.list`, `sessions.list`, `health` return expected shapes |
 | A4.3 | Monorepo scripts | `pnpm run build`, `pnpm test`, `pnpm lint` from root | Each script runs without error (or skips gracefully if no sub-packages define the script) |
 | A4.4 | pnpm workspaces | `pnpm -r list` from root | Lists `sentura/dashboard` and `sentura/extensions/*` packages |
@@ -317,7 +317,7 @@ These tests verify that deliverables from different team members work together c
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
-| X1.1 | Full setup flow | Follow SETUP.md end-to-end, then run `sentura-setup.sh` | Gateway running; meta-agents registered; dashboard starts |
+| X1.1 | Full setup flow | Follow docs/SETUP.md end-to-end, then run `sentura-setup.sh` | Gateway running; meta-agents registered; dashboard starts |
 | X1.2 | Meta-agents not in roster | After setup, load `/employees` in dashboard | `creator`, `tuner`, `orchestrator` NOT shown in the employee table |
 | X1.3 | GradSale agent in roster | Register `cs-agent-gradsale` via CLI, load `/employees` | Agent appears with correct name, model, tools |
 

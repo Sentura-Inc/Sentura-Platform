@@ -42,7 +42,7 @@
 - Created root `package.json` with monorepo scripts
 - Created `pnpm-workspace.yaml` for workspace packages
 - Updated `.gitignore` with Sentura-specific patterns
-- Marked all Person A Week 1 tasks as complete in `TeamPlan.md`
+- Marked all Person A Week 1 tasks as complete in `docs/TeamPlan.md`
 
 **Files created:**
 - `package.json` — root monorepo package config
@@ -56,7 +56,7 @@
 
 **Files modified:**
 - `.gitignore` — added Sentura runtime patterns
-- `TeamPlan.md` — marked Person A Week 1 tasks complete
+- `docs/TeamPlan.md` — marked Person A Week 1 tasks complete
 - `docs/MEMORY.md` — added this entry
 
 **Key decisions:**
@@ -88,10 +88,10 @@
 **What was done:**
 - Deep-scanned the entire `openclaw/` directory (86 extensions, 700+ source files, native apps, UI, docs)
 - Analyzed architecture: gateway server (Hono HTTP + WS JSON-RPC), agent tool system (pi-agent-core), plugin SDK (100+ sub-path exports), 22 messaging channels, 40+ AI providers
-- Wrote comprehensive `OPENCLAW.md` technical reference document (23 sections, ~700 lines)
+- Wrote comprehensive `docs/OPENCLAW.md` technical reference document (23 sections, ~700 lines)
 
 **Files created/modified:**
-- `OPENCLAW.md` — full technical reference document
+- `docs/OPENCLAW.md` — full technical reference document
 - `docs/MEMORY.md` — this file (created)
 
 **Key decisions:**
@@ -114,9 +114,9 @@
 Docker added unnecessary complexity for development: container networking, volume mounts, bind address conflicts, token synchronization between host and container, missing extension dependencies from build caching, and API key loading issues (`~/.openclaw/.env` not mounted correctly). Building from source and running locally handles all of this transparently — `pnpm openclaw onboard --install-daemon` configures the gateway, LLM provider, and API keys in one step, and `pnpm gateway:watch` provides auto-reload during development.
 
 **Files modified:**
-- `SETUP.md` — full rewrite for local install
+- `docs/SETUP.md` — full rewrite for local install
 - `README.md` — updated Deployment Options and Quick Start sections
-- `TeamPlan.md` — updated Person A tasks to reflect local setup
+- `docs/TeamPlan.md` — updated Person A tasks to reflect local setup
 - `.cursorrules` — updated tech stack table and rules for local-first dev
 - `docs/MEMORY.md` — this entry
 
@@ -130,7 +130,7 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 **What was done:**
 - Complete rewrite of `README.md` — pivoted from custom Python/FastAPI/LangGraph platform to OpenClaw-based architecture
 - Complete rewrite of `.cursorrules` — updated all coding standards, tech stack, and behavioral rules for OpenClaw/TypeScript
-- Complete rewrite of `TeamPlan.md` — new 8-week sprint plan for 4 people building on OpenClaw
+- Complete rewrite of `docs/TeamPlan.md` — new 8-week sprint plan for 4 people building on OpenClaw
 
 **Key architectural changes:**
 1. **Target customers**: All enterprises (was: 5 regulated verticals only)
@@ -146,7 +146,7 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 **Files created/modified:**
 - `README.md` — complete rewrite (new architecture, 20 sections)
 - `.cursorrules` — complete rewrite (TypeScript/OpenClaw standards)
-- `TeamPlan.md` — complete rewrite (new 8-week plan)
+- `docs/TeamPlan.md` — complete rewrite (new 8-week plan)
 - `docs/MEMORY.md` — updated with this entry
 
 **Key decisions:**
@@ -173,7 +173,7 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
   - **Section 5 (Self-Provisioning)**: Clarified self-provisioning is a Sentura-built system (skills + approval + error handling + audit), not just a browser prompt
   - **Section 9 (Safety)**: Marked each safety layer as [OPENCLAW] or [SENTURA]; clarified RULES.md does not exist in OpenClaw's workspace system
   - **Section 14 (Integration Layer)**: Added Enterprise MCP Strategy (3-tier approach); clarified OpenClaw has zero enterprise connectors and Sentura builds all of them
-- Updated SETUP.md with comprehensive Sentura layer description showing all 13 capabilities with status
+- Updated docs/SETUP.md with comprehensive Sentura layer description showing all 13 capabilities with status
 
 **Key findings from OpenClaw codebase analysis:**
 1. OpenClaw's default workspace files are defined in `openclaw/src/agents/workspace.ts`: AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, BOOTSTRAP, MEMORY — no RULES.md
@@ -185,7 +185,7 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 
 **Files modified:**
 - `README.md` — 5 sections updated with accurate OpenClaw/Sentura attribution
-- `SETUP.md` — Sentura layer section rewritten with capability inventory
+- `docs/SETUP.md` — Sentura layer section rewritten with capability inventory
 - `docs/MEMORY.md` — this entry
 
 **Nothing left incomplete.**
@@ -194,10 +194,10 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 
 ---
 
-## 2026-04-05 — TeamPlan.md Full Rewrite for 12-Capability Alignment
+## 2026-04-05 — docs/TeamPlan.md Full Rewrite for 12-Capability Alignment
 
 **What was done:**
-- Complete rewrite of `TeamPlan.md` to align with the updated README.md's 12 Sentura capabilities
+- Complete rewrite of `docs/TeamPlan.md` to align with the updated README.md's 12 Sentura capabilities
 - Every capability now has explicit sprint tasks and owner assignments
 
 **Major changes from previous plan:**
@@ -230,7 +230,7 @@ For development, always build OpenClaw from source (`cd openclaw && pnpm install
 10. **Updated Integration Checkpoints** to reference capability numbers
 
 **Files modified:**
-- `TeamPlan.md` — full rewrite
+- `docs/TeamPlan.md` — full rewrite
 - `docs/MEMORY.md` — this entry
 
 **Nothing left incomplete.**
@@ -254,7 +254,7 @@ Added a critical missing capability: pre-deployment testing of AI employees agai
 - Updated the incubation flow diagram to show the testing step
 - Updated incubation from "four phases" to "five phases"
 
-**TeamPlan.md:**
+**docs/TeamPlan.md:**
 - Updated all "12 capabilities" references to "13 capabilities"
 - Added #13 to Capability Coverage Map (Owner: B + D + C, Weeks: 3, 4, 5)
 - Added new interface contract: "Pre-deployment test harness contract"
@@ -269,13 +269,13 @@ Added a critical missing capability: pre-deployment testing of AI employees agai
 - Added 2 risk entries (insufficient historical data, auto-tune non-convergence)
 - Added capability-to-README traceability row
 
-**SETUP.md:**
+**docs/SETUP.md:**
 - Added "Pre-deployment testing" row to What Sentura Adds table
 
 **Files modified:**
 - `README.md` — capability table, Section 4 (5-phase incubation)
-- `TeamPlan.md` — capability map, contracts, weekly tasks, checkpoints, risks, traceability
-- `SETUP.md` — capability table
+- `docs/TeamPlan.md` — capability map, contracts, weekly tasks, checkpoints, risks, traceability
+- `docs/SETUP.md` — capability table
 - `docs/MEMORY.md` — this entry
 
 **Nothing left incomplete.**
@@ -351,7 +351,7 @@ All 7 Person B Week 1 tasks completed:
 - `workspaces/cs-agent-gradsale/{SOUL.md,RULES.md,CONTEXT.md,AGENTS.md,IDENTITY.md,TOOLS.md,HEARTBEAT.md,BOOTSTRAP.md,MEMORY.md,USER.md,config.json5,skills/support-triage/SKILL.md,skills/dispute-resolution/SKILL.md}`
 
 **Files modified:**
-- `TeamPlan.md` — marked all Person B Week 1 tasks as done
+- `docs/TeamPlan.md` — marked all Person B Week 1 tasks as done
 - `docs/MEMORY.md` — this entry
 
 **Key decisions:**
@@ -464,7 +464,7 @@ Source of truth: `openclaw/src/config/types.agents.ts` (AgentsConfig, AgentConfi
    - `sentura/agents/tuner/config.json5` — Tuner Agent config with correct schema
    - `sentura/agents/orchestrator/config.json5` — Orchestrator Agent config with correct schema
 
-4. **SETUP.md and README.md** updated with two-step setup flow:
+4. **docs/SETUP.md and README.md** updated with two-step setup flow:
    1. `cd openclaw && pnpm openclaw onboard` (OpenClaw itself)
    2. `./scripts/sentura-setup.sh` (Sentura meta-agents)
 
@@ -494,7 +494,7 @@ Source of truth: `openclaw/src/config/types.agents.ts` (AgentsConfig, AgentConfi
 - `sentura/agents/creator/skills/incubation/SKILL.md`
 - `sentura/config/templates/README.md`
 - `README.md`
-- `SETUP.md`
+- `docs/SETUP.md`
 - `docs/MEMORY.md` — this entry
 
 **Key architectural decisions:**
@@ -538,7 +538,7 @@ The hook is installed to `~/.openclaw/hooks/sentura-bootstrap/` by `scripts/sent
 **Files modified:**
 - `scripts/sentura-setup.sh` — added Step 5 (hook installation + config enablement)
 - `docs/workspace-convention.md` — documented system prompt assembly with hook details
-- `SETUP.md` — added hook installation to setup script description
+- `docs/SETUP.md` — added hook installation to setup script description
 - `README.md` — updated RULES.md section + added hooks to project structure
 - `docs/MEMORY.md` — this entry
 
@@ -618,7 +618,7 @@ All 5 Person C Week 1 tasks completed:
 - `.env.local.example` — environment variable template
 
 **Files modified:**
-- `TeamPlan.md` — marked all Person C Week 1 tasks as done
+- `docs/TeamPlan.md` — marked all Person C Week 1 tasks as done
 - `docs/MEMORY.md` — this entry
 
 **Key decisions:**
@@ -662,38 +662,38 @@ All 5 Person C Week 1 tasks completed:
 
 ---
 
-### 2026-04-06 — Created HOSTING.md Production Hosting Guide
+### 2026-04-06 — Created docs/HOSTING.md Production Hosting Guide
 
 **What was done:**
-- Created `HOSTING.md` in the project root as the canonical production hosting document
+- Created `docs/HOSTING.md` in the project root as the canonical production hosting document
 - Covers all three target environments: Cloud VPS, Virtual Machine, and customer on-premise servers
 - Documents the co-hosted topology (Dashboard + Gateway on the same machine behind a reverse proxy)
 - Describes three auth modes mapped to deployment types: Token Auth (VPS/VM), Trusted-Proxy (enterprise SSO), Tailscale (hybrid)
 - Includes host requirements, Nginx and Caddy reference configs, gateway config reference table, and deployment packaging strategy
 
 **Files created:**
-- `HOSTING.md` — Production hosting guide for all deployment targets
+- `docs/HOSTING.md` — Production hosting guide for all deployment targets
 
 ---
 
-### 2026-04-06 — Added Security Risk Analysis to HOSTING.md, Updated Cross-References
+### 2026-04-06 — Added Security Risk Analysis to docs/HOSTING.md, Updated Cross-References
 
 **What was done:**
-- Added comprehensive security and risk analysis section to `HOSTING.md` covering:
+- Added comprehensive security and risk analysis section to `docs/HOSTING.md` covering:
   - Per-hosting-type risk tables: Cloud VPS (moderate safety), VM/private cloud (high safety), on-premise (highest safety)
   - Platform-wide risks applicable to all hosting types: agent shell execution, browser automation exfiltration, credential store compromise, MCP server access, LLM prompt leakage, approval bypass
   - Security spectrum visualization (on-prem air-gapped > VM > VPS)
   - Recommended security posture table by customer profile (startup, mid-market, regulated enterprise, distributed team)
-- Updated `README.md` §15 (Security Model) and §16 (Deployment Options) with cross-references to `HOSTING.md`
-- Updated `TeamPlan.md`:
-  - Added `HOSTING.md` references to Week 3 (deployment docs), Week 5 (on-prem docs), and Week 7 (deployment guide) tasks
-  - Added `HOSTING.md` to Capability-to-README Traceability table (enterprise authentication row + new "Production hosting & security" row)
+- Updated `README.md` §15 (Security Model) and §16 (Deployment Options) with cross-references to `docs/HOSTING.md`
+- Updated `docs/TeamPlan.md`:
+  - Added `docs/HOSTING.md` references to Week 3 (deployment docs), Week 5 (on-prem docs), and Week 7 (deployment guide) tasks
+  - Added `docs/HOSTING.md` to Capability-to-README Traceability table (enterprise authentication row + new "Production hosting & security" row)
   - Added three new risks to Risk Mitigation table: LLM prompt leakage, credential store compromise, agent shell/browser exfiltration
 
 **Files modified:**
-- `HOSTING.md` — Added "Security & Risk Analysis" section with risk tables, mitigations, and customer profile recommendations
-- `README.md` — Added cross-references to `HOSTING.md` in §15 and §16
-- `TeamPlan.md` — Added `HOSTING.md` references to deployment tasks, traceability table, and risk mitigation table
+- `docs/HOSTING.md` — Added "Security & Risk Analysis" section with risk tables, mitigations, and customer profile recommendations
+- `README.md` — Added cross-references to `docs/HOSTING.md` in §15 and §16
+- `docs/TeamPlan.md` — Added `docs/HOSTING.md` references to deployment tasks, traceability table, and risk mitigation table
 - `docs/MEMORY.md` — This entry
 
 ### 2026-04-06 — Hybrid Dashboard Revision (Approach C)
@@ -704,7 +704,7 @@ Adopted a hybrid UI approach for the Sentura platform. Instead of rebuilding all
 - **Sentura Dashboard (Next.js)** — enterprise management features OpenClaw lacks: employee lifecycle, approvals, cost center, audit trail, integrations, orchestrator, knowledge manager, testing, settings, SSO
 - **OpenClaw Control UI (Lit, served by gateway)** — operational/developer tools already built: config editor, sessions & chat, logs, debug console, cron, skills browser, channel status, usage stats
 
-The Sentura Dashboard sidebar includes external links to the Control UI. In production, both UIs are served from a single domain using path-based routing (see `HOSTING.md`).
+The Sentura Dashboard sidebar includes external links to the Control UI. In production, both UIs are served from a single domain using path-based routing (see `docs/HOSTING.md`).
 
 **What was done:**
 - Deleted duplicate pages: `sentura/dashboard/src/app/sessions/page.tsx` and `sentura/dashboard/src/app/sessions/[key]/page.tsx`
@@ -712,9 +712,9 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 - Repurposed `sentura/dashboard/src/app/page.tsx` — removed Sessions stat card, added Pending Approvals count, added System Health link to Control UI, replaced "View Sessions" quick action with "Create Employee" placeholder
 - Repurposed `sentura/dashboard/src/app/employees/page.tsx` — removed raw config detail dialog, replaced with enterprise lifecycle table (Status column, Tune/Config actions, "Create Employee" button, external link to Control UI raw config)
 - Added `NEXT_PUBLIC_CONTROL_UI_URL` environment variable to `.env.local` and `.env.local.example`
-- Updated `HOSTING.md` — revised production topology to show hybrid UI architecture, replaced two-subdomain Nginx config with single-domain path-based routing as recommended approach, updated dashboard client configuration table with `NEXT_PUBLIC_CONTROL_UI_URL`
+- Updated `docs/HOSTING.md` — revised production topology to show hybrid UI architecture, replaced two-subdomain Nginx config with single-domain path-based routing as recommended approach, updated dashboard client configuration table with `NEXT_PUBLIC_CONTROL_UI_URL`
 - Updated `README.md` §17 — replaced "Dashboard Features" with "Hybrid UI Architecture" section documenting the responsibility split, listed 11 enterprise-only features, added "Deferred to OpenClaw Control UI" section
-- Updated `TeamPlan.md` — revised Person C tasks across Weeks 1–8: marked session-related tasks as removed/deferred, added hybrid architecture tasks, added route paths to task descriptions, updated Week 7-8 validation to reference 11 enterprise features
+- Updated `docs/TeamPlan.md` — revised Person C tasks across Weeks 1–8: marked session-related tasks as removed/deferred, added hybrid architecture tasks, added route paths to task descriptions, updated Week 7-8 validation to reference 11 enterprise features
 
 **Files modified:**
 - `sentura/dashboard/src/app/sessions/page.tsx` — deleted
@@ -724,9 +724,9 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 - `sentura/dashboard/src/app/employees/page.tsx` — repurposed for lifecycle management
 - `sentura/dashboard/.env.local` — added `NEXT_PUBLIC_CONTROL_UI_URL`
 - `sentura/dashboard/.env.local.example` — added `NEXT_PUBLIC_CONTROL_UI_URL`
-- `HOSTING.md` — updated topology, Nginx config, client config table
+- `docs/HOSTING.md` — updated topology, Nginx config, client config table
 - `README.md` — updated §17 with hybrid UI architecture
-- `TeamPlan.md` — revised Person C tasks Weeks 1–8
+- `docs/TeamPlan.md` — revised Person C tasks Weeks 1–8
 - `docs/MEMORY.md` — this entry
 
 **Key decisions:**
@@ -816,7 +816,7 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 - `sentura/config/exec-approvals-template.json`
 
 **Files modified:**
-- `TeamPlan.md` — Marked all Person D Week 1 tasks as done
+- `docs/TeamPlan.md` — Marked all Person D Week 1 tasks as done
 - `docs/MEMORY.md` — This entry
 
 **Key decisions:**
@@ -836,14 +836,14 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 - Studied OpenClaw's cross-platform approach: native Windows support via `scripts/install.ps1` (PowerShell), `schtasks.ts` daemon install, `USERPROFILE` home dir resolution; Linux via systemd; WSL2 detected via `/proc/version`
 - Created `scripts/sentura-setup.ps1` — full PowerShell port of the setup script for native Windows, matching all 7 steps from the bash version (workspace copy, agent registration, config patching, hook installation)
 - Hardened `scripts/sentura-setup.sh` — added platform detection (Linux/macOS/WSL2/MINGW), Node.js version check, WSL2 detection via `/proc/version`, and early exit with redirect to PowerShell for Windows Git Bash/MSYS users
-- Updated `SETUP.md` with cross-platform instructions: platform-specific prerequisite install commands (brew/apt/winget), parallel bash/PowerShell command blocks for all steps, state directory table by platform, Windows-specific troubleshooting (execution policy, long paths, WSL2 recommendation)
+- Updated `docs/SETUP.md` with cross-platform instructions: platform-specific prerequisite install commands (brew/apt/winget), parallel bash/PowerShell command blocks for all steps, state directory table by platform, Windows-specific troubleshooting (execution policy, long paths, WSL2 recommendation)
 
 **Files created:**
 - `scripts/sentura-setup.ps1`
 
 **Files modified:**
 - `scripts/sentura-setup.sh` — Added platform detection, Node.js version guard, WSL2 detection, MINGW/MSYS redirect
-- `SETUP.md` — Full cross-platform rewrite of prerequisites, OpenClaw setup, Sentura setup, troubleshooting
+- `docs/SETUP.md` — Full cross-platform rewrite of prerequisites, OpenClaw setup, Sentura setup, troubleshooting
 - `docs/MEMORY.md` — This entry
 
 **Key decisions:**
@@ -854,18 +854,18 @@ The Sentura Dashboard sidebar includes external links to the Control UI. In prod
 
 ---
 
-## 2026-04-08 — TESTS.md Policy Added to Project Rules
+## 2026-04-08 — docs/TESTS.md Policy Added to Project Rules
 
 **What was done:**
-- Added TESTS.md maintenance as a mandatory behavioral rule (rule 3) in `.cursorrules` — every agent must update `TESTS.md` when adding, changing, or removing testable deliverables
-- Added "Test Documentation Policy" section to `TeamPlan.md` (above Interface Contracts) with specific update guidelines
-- Added `TESTS.md` to `README.md` project structure tree and added a "Key Documentation" table in the Quick Start section with a bold callout about keeping TESTS.md updated
+- Added docs/TESTS.md maintenance as a mandatory behavioral rule (rule 3) in `.cursorrules` — every agent must update `docs/TESTS.md` when adding, changing, or removing testable deliverables
+- Added "Test Documentation Policy" section to `docs/TeamPlan.md` (above Interface Contracts) with specific update guidelines
+- Added `docs/TESTS.md` to `README.md` project structure tree and added a "Key Documentation" table in the Quick Start section with a bold callout about keeping docs/TESTS.md updated
 - Renumbered `.cursorrules` behavioral rules 4–19 → 5–20 to accommodate the new rule 3
-- Added `TESTS.md` to the document sync list in `.cursorrules` rule 4
+- Added `docs/TESTS.md` to the document sync list in `.cursorrules` rule 4
 
 **Files modified:**
-- `.cursorrules` — New rule 3 (TESTS.md policy); TESTS.md added to rule 4 sync list; rules 4–19 renumbered to 5–20
-- `TeamPlan.md` — New "Test Documentation Policy" section
+- `.cursorrules` — New rule 3 (docs/TESTS.md policy); docs/TESTS.md added to rule 4 sync list; rules 4–19 renumbered to 5–20
+- `docs/TeamPlan.md` — New "Test Documentation Policy" section
 - `README.md` — Project structure updated; Key Documentation table added
 - `docs/MEMORY.md` — This entry
 
@@ -901,7 +901,7 @@ Deep investigation of OpenClaw's session, channel, binding, and multi-agent orch
 
 **Files modified:**
 - `README.md` — Added "Sentura Communication Panel" subsection to Section 7 (Communication & Channels) with 1:1 chat design, group chat architecture, enterprise interaction strategy; updated capability count from 13 to 14; added capability #14 to the Sentura Builds table
-- `TeamPlan.md` — Updated capability coverage map (13→14 capabilities); added capability #14 row; added Week 3 tasks: Person A session management helpers, Person C 1:1 Chat Panel; added Week 4 tasks: Person C group chat, Person D audit integration for chat; updated integration checkpoints IC-3 and IC-4; added communication panel session contract to Interface Contracts; updated all "13 capabilities" references to "14"
+- `docs/TeamPlan.md` — Updated capability coverage map (13→14 capabilities); added capability #14 row; added Week 3 tasks: Person A session management helpers, Person C 1:1 Chat Panel; added Week 4 tasks: Person C group chat, Person D audit integration for chat; updated integration checkpoints IC-3 and IC-4; added communication panel session contract to Interface Contracts; updated all "13 capabilities" references to "14"
 - `docs/MEMORY.md` — This entry
 
 **Also fixed in this session:**

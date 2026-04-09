@@ -1,6 +1,6 @@
 # Sentura Platform — 8-Week Team Sprint Plan
 
-> **Aligned with**: README.md (13 Sentura capabilities), OPENCLAW.md, ekg/ test enterprise
+> **Aligned with**: README.md (13 Sentura capabilities), docs/OPENCLAW.md, ekg/ test enterprise
 >
 > **Last synced**: 2026-04-06
 
@@ -36,7 +36,7 @@ Each of the 14 capabilities from README.md Section 1 must have explicit sprint t
 
 ## Test Documentation Policy
 
-**`TESTS.md` is the single source of truth for what to test and how to verify it.** Every team member must update `TESTS.md` when they add, change, or remove testable deliverables:
+**`docs/TESTS.md` is the single source of truth for what to test and how to verify it.** Every team member must update `docs/TESTS.md` when they add, change, or remove testable deliverables:
 
 - Add test cases for new files, extensions, UI pages, scripts, configs, or skills under your Person section (A, B, C, or D).
 - Update existing test cases if behavior, file paths, schemas, or expected outputs change.
@@ -86,7 +86,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] Verify channels available (Slack + WebChat via OpenClaw's onboarding)
 - [x] Set up the project monorepo structure (`sentura/`, etc.)
 - [x] Document the OpenClaw Gateway RPC methods the team will use
-- [x] Write `SETUP.md` for local development setup
+- [x] Write `docs/SETUP.md` for local development setup
 - Note: OpenClaw builds from source and runs via `pnpm gateway:watch`. Docker is for production only.
 
 ### Person B — AI Employee & Skills Engineer
@@ -172,7 +172,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build MCP server dynamic registration: add MCP server configs via `config.patch`
 - [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
-- [ ] Build deployment documentation for cloud and on-premise (see [`HOSTING.md`](HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
+- [ ] Build deployment documentation for cloud and on-premise (see [`docs/HOSTING.md`](docs/HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
 - [ ] **Build session management helpers for Communication Panel (capability #14)**:
   - Helper to create dashboard sessions targeting specific agents (`sessions.create` with `agentId`)
   - Helper to list/filter dashboard sessions across all agents (`sessions.list` with dashboard key prefix filtering)
@@ -313,7 +313,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Complete multi-tenancy implementation**: tenant data segregation, cross-tenant protection
 - [ ] Build secret rotation automation (API keys, tokens)
 - [ ] Implement backup/restore for OpenClaw state directory
-- [ ] Build on-premise deployment documentation (air-gapped, no internet) — extend [`HOSTING.md`](HOSTING.md) with air-gap-specific instructions
+- [ ] Build on-premise deployment documentation (air-gapped, no internet) — extend [`docs/HOSTING.md`](docs/HOSTING.md) with air-gap-specific instructions
 - [ ] Load testing: verify platform handles 20+ concurrent AI employees
 
 ### Person B — AI Employee & Skills Engineer
@@ -333,7 +333,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable)
 - [ ] Build the Settings page (`/settings` — SSO config, RBAC roles, global approval policies, gateway connection)
 - [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`)
-- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per HOSTING.md)
+- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per docs/HOSTING.md)
 - [ ] **Build Employee Lifecycle UI** (in `/employees` and `/employees/[id]`): version history, clone, health score, retire
 
 ### Person D — Extensions & Integrations Engineer
@@ -396,7 +396,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 > **Goal**: Comprehensive documentation. Edge cases handled. Ready for beta.
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Write deployment guide (cloud, on-premise, hybrid) — finalize [`HOSTING.md`](HOSTING.md) with step-by-step instructions for each target (VPS, VM, on-prem)
+- [ ] Write deployment guide (cloud, on-premise, hybrid) — finalize [`docs/HOSTING.md`](docs/HOSTING.md) with step-by-step instructions for each target (VPS, VM, on-prem)
 - [ ] Write admin guide (configuration, monitoring, troubleshooting, multi-tenancy setup)
 - [ ] Handle edge cases: gateway restart with active sessions, provider failover
 - [ ] Handle edge cases: multi-tenant config conflicts, cost tracking during provider outages
@@ -503,9 +503,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | OpenClaw single-tenant architecture limits | Namespace-level isolation first; full gateway-per-tenant if needed later |
 | Pre-deployment testing insufficient historical data | Fall back to mock task generation from schema + API docs; bundle role template test suites as baseline |
 | Auto-tune loop doesn't converge | Cap iterations; escalate to human review; store failure diagnostics for Creator Agent learning |
-| LLM prompt leakage in cloud deployments | Self-hosted LLMs for regulated customers; enterprise data agreements for cloud LLM providers. See HOSTING.md security analysis |
-| Credential store compromise on host | Disk encryption at rest; minimize per-employee MCP scope; secret rotation. See HOSTING.md platform-wide risks |
-| Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; RULES.md guardrails; network egress filtering on host. See HOSTING.md |
+| LLM prompt leakage in cloud deployments | Self-hosted LLMs for regulated customers; enterprise data agreements for cloud LLM providers. See docs/HOSTING.md security analysis |
+| Credential store compromise on host | Disk encryption at rest; minimize per-employee MCP scope; secret rotation. See docs/HOSTING.md platform-wide risks |
+| Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; RULES.md guardrails; network egress filtering on host. See docs/HOSTING.md |
 
 ---
 
@@ -523,9 +523,9 @@ Every Sentura capability references specific README.md sections for requirements
 | Incubation pipeline | §3, §4 | 10 workspace files (8 OpenClaw + 2 Sentura), structured skills/ directory |
 | Enterprise orchestration | §12 | AI Project Manager, sessions_spawn + progress tracking, cross-employee coordination |
 | Multi-tenancy | §1, §15 | Tenant isolation, per-department namespacing, data segregation |
-| Enterprise authentication | §15, §17, HOSTING.md | SAML/OIDC SSO for dashboard, gateway auth modes (token, trusted-proxy, Tailscale) per hosting target |
+| Enterprise authentication | §15, §17, docs/HOSTING.md | SAML/OIDC SSO for dashboard, gateway auth modes (token, trusted-proxy, Tailscale) per hosting target |
 | Cost management | §11, §17 | Per-employee + per-department cost tracking, Cost Center dashboard page |
 | Knowledge ingestion pipeline | §6 | Knowledge Curator agent, document → SKILL.md → employee distribution |
 | Employee lifecycle management | §1 | Versioning, cloning, health scoring, rollback, retirement |
 | Pre-deployment testing & validation | §1, §4 | 5-phase incubation (Phase 4: Testing), 3 test case sources, 6 test dimensions, auto-tune loop, pass/fail thresholds |
-| Production hosting & security | HOSTING.md | Co-hosted topology, reverse proxy config, security risk analysis per hosting type (VPS/VM/on-prem), LLM data transit risks |
+| Production hosting & security | docs/HOSTING.md | Co-hosted topology, reverse proxy config, security risk analysis per hosting type (VPS/VM/on-prem), LLM data transit risks |

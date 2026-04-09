@@ -1460,7 +1460,7 @@ For advanced inter-agent communication, Sentura can leverage OpenClaw's `acpx` e
 
 ## 15. Security Model
 
-> **Production hosting security**: For a detailed risk analysis per hosting type (Cloud VPS, VM, on-premise) and platform-wide security risks specific to AI agent workloads, see [`HOSTING.md`](HOSTING.md#security--risk-analysis).
+> **Production hosting security**: For a detailed risk analysis per hosting type (Cloud VPS, VM, on-premise) and platform-wide security risks specific to AI agent workloads, see [`docs/HOSTING.md`](docs/HOSTING.md#security--risk-analysis).
 
 ### Defense in Depth
 
@@ -1511,7 +1511,7 @@ When AI employees communicate on external channels (Slack, Teams, WhatsApp):
 
 ## 16. Deployment Options
 
-> **Production hosting guide**: For complete production deployment architecture, reverse proxy configuration, authentication modes, host requirements, security risk analysis, and deployment packaging across all target environments (Cloud VPS, VM, on-premise), see [`HOSTING.md`](HOSTING.md).
+> **Production hosting guide**: For complete production deployment architecture, reverse proxy configuration, authentication modes, host requirements, security risk analysis, and deployment packaging across all target environments (Cloud VPS, VM, on-premise), see [`docs/HOSTING.md`](docs/HOSTING.md).
 
 ### Local Development (Default)
 
@@ -1552,7 +1552,7 @@ cd openclaw && pnpm gateway:watch
 
 ### Production (Docker)
 
-Docker deployment is available for production environments. See `openclaw/docker-setup.sh` and `openclaw/docker-compose.yml`. For the full production topology (co-hosted Dashboard + Gateway behind a reverse proxy), auth mode selection, Nginx/Caddy configs, and security considerations, see [`HOSTING.md`](HOSTING.md).
+Docker deployment is available for production environments. See `openclaw/docker-setup.sh` and `openclaw/docker-compose.yml`. For the full production topology (co-hosted Dashboard + Gateway behind a reverse proxy), auth mode selection, Nginx/Caddy configs, and security considerations, see [`docs/HOSTING.md`](docs/HOSTING.md).
 
 ### Hybrid Deployment
 
@@ -1620,7 +1620,7 @@ The Sentura platform uses a **hybrid UI approach** with two complementary fronte
 - **Sentura Dashboard** (Next.js) — enterprise management features that OpenClaw's Control UI does not provide
 - **OpenClaw Control UI** (Lit, served by gateway) — operational and developer tools already built into OpenClaw
 
-Both UIs connect to the same gateway via WebSocket RPC. The Sentura Dashboard sidebar includes external links to the Control UI for operational tasks. In production, both are served from a single domain using path-based routing (see [`HOSTING.md`](HOSTING.md)).
+Both UIs connect to the same gateway via WebSocket RPC. The Sentura Dashboard sidebar includes external links to the Control UI for operational tasks. In production, both are served from a single domain using path-based routing (see [`docs/HOSTING.md`](docs/HOSTING.md)).
 
 ### Sentura Dashboard Features (Enterprise-Only)
 
@@ -1773,11 +1773,14 @@ Sentura-Platform/
 ├── scripts/                     # Setup and utility scripts
 │   ├── sentura-setup.sh         # Sentura setup (macOS / Linux / WSL2)
 │   └── sentura-setup.ps1        # Sentura setup (Windows PowerShell)
+├── docs/
+│   ├── HOSTING.md                   # Production hosting guide
+│   ├── MEMORY.md                    # Recorded development history
+│   ├── SETUP.md                     # Local development setup guide
+│   ├── TeamPlan.md                  # 8-week sprint plan and task tracking
+│   ├── OPENCLAW.md                  # OpenClaw's technical documentation
+│   └── TESTS.md                     # Test documentation — what to test and how to verify
 ├── package.json                 # Root workspace
-├── TESTS.md                     # Test documentation — what to test and how to verify
-├── SETUP.md                     # Local development setup guide
-├── HOSTING.md                   # Production hosting guide
-├── TeamPlan.md                  # 8-week sprint plan and task tracking
 └── README.md                    # This file
 ```
 
@@ -1914,10 +1917,10 @@ cd ../sentura/dashboard && pnpm dev
 | Document | Purpose |
 |----------|---------|
 | [`README.md`](README.md) | Architecture and design (this file) |
-| [`SETUP.md`](SETUP.md) | Local development setup (cross-platform) |
-| [`TESTS.md`](TESTS.md) | Test documentation — what to test, how to verify, expected results |
-| [`TeamPlan.md`](TeamPlan.md) | 8-week sprint plan with per-person task breakdowns |
-| [`HOSTING.md`](HOSTING.md) | Production hosting, deployment topologies, security |
+| [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) |
+| [`docs/TESTS.md`](docs/TESTS.md) | Test documentation — what to test, how to verify, expected results |
+| [`docs/TeamPlan.md`](docs/TeamPlan.md) | 8-week sprint plan with per-person task breakdowns |
+| [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, deployment topologies, security |
 | [`docs/MEMORY.md`](docs/MEMORY.md) | Development session log — decisions, progress, context |
 
-> **All contributors must keep `TESTS.md` up to date.** When you add, change, or remove testable deliverables (files, extensions, UI pages, scripts, configs), update the corresponding test cases in `TESTS.md`. See `.cursorrules` rule 3 and `TeamPlan.md` "Test Documentation Policy" for details.
+> **All contributors must keep `docs/TESTS.md` up to date.** When you add, change, or remove testable deliverables (files, extensions, UI pages, scripts, configs), update the corresponding test cases in `docs/TESTS.md`. See `.cursorrules` rule 3 and `docs/TeamPlan.md` "Test Documentation Policy" for details.

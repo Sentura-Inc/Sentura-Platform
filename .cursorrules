@@ -4,13 +4,13 @@ You are an expert AI/ML engineer building the Sentura platform: an **enterprise 
 
 ## Project Context
 
-Read `README.md` at the start of every new chat to understand the full architecture. It is the single source of truth for all design decisions. Read `OPENCLAW.md` to understand OpenClaw's capabilities. The `openclaw/` directory contains the OpenClaw core runtime — scan its source when working on extensions or integrations.
+Read `README.md` at the start of every new chat to understand the full architecture. It is the single source of truth for all design decisions. Read `docs/OPENCLAW.md` to understand OpenClaw's capabilities. The `openclaw/` directory contains the OpenClaw core runtime — scan its source when working on extensions or integrations.
 
 The `Documents/` folder contains the original pitch deck and demo scenarios. Reference these when building features that relate to employee creation, agent behavior, or enterprise integration.
 
 The `ekg/` folder contains technical documentation for a reference enterprise (GradSale) — database schema, backend architecture, web API, admin API, and admin panel docs. Use these as the real-world test case when building enterprise integration features, MCP servers, or customer-facing agent scenarios.
 
-`TeamPlan.md` is the 8-week sprint plan with per-person task breakdowns and integration checkpoints. It is the single source of truth for what needs to be done, who owns it, and the current progress.
+`docs/TeamPlan.md` is the 8-week sprint plan with per-person task breakdowns and integration checkpoints. It is the single source of truth for what needs to be done, who owns it, and the current progress.
 
 ## Architecture & Project Structure
 
@@ -131,9 +131,9 @@ Do NOT substitute these without explicit approval:
 
 1. **Read the memory document first, write to it last.** At the START of every chat session, read `docs/MEMORY.md` to understand what previous sessions have accomplished. At the END, append a dated summary of what you did, which files you created/modified, key decisions, and anything left incomplete. If `docs/MEMORY.md` does not exist, create it with the header `# Sentura Development Memory`. Never delete previous entries — only append.
 
-2. **Update TeamPlan.md when tasks are completed.** After finishing any work that corresponds to a task in `TeamPlan.md`, mark that task as done by changing `- [ ]` to `- [x]`. If work reveals new tasks, add them under the appropriate week and person. If a task is blocked or deferred, add a note explaining why. `TeamPlan.md` must always reflect the true current state of the project.
+2. **Update docs/TeamPlan.md when tasks are completed.** After finishing any work that corresponds to a task in `docs/TeamPlan.md`, mark that task as done by changing `- [ ]` to `- [x]`. If work reveals new tasks, add them under the appropriate week and person. If a task is blocked or deferred, add a note explaining why. `docs/TeamPlan.md` must always reflect the true current state of the project.
 
-3. **Update TESTS.md when you add, change, or remove testable deliverables.** `TESTS.md` is the single source of truth for what to test and how to verify it. When your work produces new files, extensions, UI pages, scripts, configs, or modifies existing ones:
+3. **Update docs/TESTS.md when you add, change, or remove testable deliverables.** `docs/TESTS.md` is the single source of truth for what to test and how to verify it. When your work produces new files, extensions, UI pages, scripts, configs, or modifies existing ones:
    - Add test cases for new deliverables under the appropriate Person section (A, B, C, or D).
    - Update existing test cases if behavior, file paths, schemas, or expected outputs change.
    - Add cross-team integration tests under the "Cross-Team Integration Tests" section if your work affects multiple team members' deliverables.
@@ -144,10 +144,10 @@ Do NOT substitute these without explicit approval:
 
 4. **Keep all project documents in sync.** When your work changes the architecture, adds new features, or introduces new conventions:
    - Update `README.md` if the architecture, project structure, deployment steps, or technology stack changes.
-   - Update `OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
+   - Update `docs/OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
    - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
    - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
-   - Update `TESTS.md` with test cases for any new or modified deliverables (see rule 3).
+   - Update `docs/TESTS.md` with test cases for any new or modified deliverables (see rule 3).
    - Update `.cursorrules` (this file) if you establish new conventions, discover new pitfalls, or change the project structure.
 
 5. **Read before writing.** Always read relevant existing files before creating or modifying anything. Understand what exists.
