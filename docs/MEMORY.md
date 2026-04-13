@@ -960,3 +960,107 @@ Implemented the EKG architecture design into the project's source-of-truth docum
 - Extend bootstrap hook to load `ekg/` files
 - Build Manager EKG mechanisms (capability abstraction, conflict detection, reverse injection)
 - Dashboard UI for EKG browsing and document upload
+
+---
+
+## 2026-04-11 — OpenClaw Technical Analysis & Sentura Integration Evaluation Report
+
+**What was done:**
+- Wrote a comprehensive two-part technical report in `Report.md` (~800 lines):
+  - **Part I (16 sections):** Deep technical analysis of OpenClaw covering gateway server architecture (bootstrap chain, HTTP/WS layers, RPC method registration), agent system (tool factory, three-tier registration, execution pipeline, subagent system, context assembly), Plugin SDK & extension system (100+ sub-path exports, entry patterns, manifest schema, loading pipeline, `OpenClawPluginApi` registration surface, full 86-extension catalog), messaging channel architecture (end-to-end flow, channel plugin contract, Slack example), AI provider architecture (provider plugin contract, OpenAI example), configuration system (hot-patching via RPC, merge semantics, optimistic concurrency, schema composition), session & state management (state directory layout, session model, transcript persistence), security model (10+ layered security mechanisms, HTTP tool denylist, exec approval system), memory system (two-extension architecture, memory-core vs memory-lancedb, Host SDK, query/store lifecycle), cron scheduler, CLI/TUI/Web UI, deployment options, testing infrastructure (15+ Vitest configs), and dependency analysis with risk ratings.
+  - **Part II (6 sections):** Sentura integration evaluation covering integration strategy (zero OpenClaw core modifications), architectural alignment (14 capabilities leveraged as-is with quality scores), gap analysis (17 absent capabilities in 3 tiers), extension integration points (4 Sentura extensions, bootstrap hook, 3 meta-agents, dashboard integration), risk assessment (6 technical risks + 4 operational risks with mitigations), and recommendation/verdict (build on OpenClaw — saves ~18-24 months of equivalent effort).
+
+**Files created/modified:**
+- `Report.md` — comprehensive technical analysis and integration evaluation report
+
+**Key findings documented:**
+- OpenClaw's single-process architecture with flat RPC composition
+- pi-agent-core (single-maintainer) identified as highest supply-chain risk
+- Config system uses JSON Merge Patch with `mergeObjectArraysById` for arrays
+- Plugin SDK has 342 files across 100+ sub-path exports — mature extension surface
+- Memory system split across two independent extensions (memory-core + memory-lancedb) that can operate separately
+- Gateway WebSocket uses custom frame protocol (not JSON-RPC 2.0) with challenge-response handshake
+- Agent workspace bootstrap is hardcoded to 8 file names — Sentura bypasses via managed hook
+
+**Nothing left incomplete.**
+
+---
+
+## 2026-04-13 — Three Major Design Updates: RBAC Redesign, Per-User Memory Isolation, MCP Builder Agent
+
+**What was done:**
+
+Updated `README.md` and `docs/TeamPlan.md` with three major design features based on deep investigation of OpenClaw's memory, MCP, and RBAC subsystems.
+
+### 1. RBAC Redesigned: 5 Roles → 7 Roles
+
+Replaced the original 5-role model (`platform_admin`, `dept_admin`, `employee_owner`, `auditor`, `end_user`) with a 7-role model that separates supervision, knowledge management, and agent engineering:
+
+| New Role | Replaces | Purpose |
+|----------|----------|---------|
+| `platform_admin` | (unchanged) | Full platform access |
+| `manager` | (part of `dept_admin`) | Supervises AI employee actions, approves/rejects decisions |
+| `ekg_manager` | (part of `dept_admin`) | Controls Enterprise Knowledge Graph content + triggers MCP Builder |
+| `agent_manager` | `employee_owner` | Creates and tunes AI employees (config, skills, rules) |
+| `auditor` | (unchanged) | Read-only compliance view |
+| `end_user` | (unchanged) | Interacts with AI employees, identified by `userToken` |
+| `viewer` | (new) | Read-only dashboards for executives/stakeholders |
+
+Added scope model: SME-wide deployment vs per-department deployment vs multi-department.
+
+### 2. Per-User Memory Isolation
+
+**Critical finding**: OpenClaw's `memory-lancedb` extension is **shared by default** across all agents (single `memories` table with no `agentId` column at `~/.openclaw/memory/lancedb`). `memory-core` (SQLite) is naturally per-agent isolated.
+
+**Two-tier isolation design**:
+- **Tier 1 (Agent-level)**: Configure per-agent `dbPath` in `memory-lancedb` plugin config (`~/.openclaw/memory/{agentId}/lancedb`). No OpenClaw core changes — uses existing `api.resolvePath(cfg.dbPath)`.
+- **Tier 2 (User-level)**: Add `userToken` metadata field to LanceDB entries. Sentura memory extension wrapper filters on recall (user entries + global entries where `userToken` is null).
+
+**Dual MEMORY.md system**: General `MEMORY.md` at workspace root (shared) + `MEMORY_USER_{token}.md` per user in `memory/users/`. Bootstrap hook extended to inject both.
+
+**Dreaming extensions**: General promotion (cross-user patterns), personal promotion, privacy boundary.
+
+### 3. MCP Builder Agent
+
+Elevated the MCP generation CLI tool (Week 3 Person D) to a **meta-agent** at `sentura/agents/mcp-builder/`:
+- Input: OpenAPI specs, markdown API docs, database schemas, raw URLs
+- Output: TypeScript MCP server at `sentura/mcp-servers/{name}/` with `index.ts`, `tools/`, `package.json`, `config-snippet.json5`
+- Only `ekg_manager` role can trigger it
+- Agent can ask clarifying questions about API semantics
+
+**Files modified:**
+- `README.md`:
+  - Section 1: Updated capability #2 (MCP Builder Agent) and #8 (scope model)
+  - Section 3: Added per-user memory note to AI Employee table; updated workspace structure with `memory/users/`; added unified-identity/personalized-memory explanation
+  - Section 10: Added LanceDB shared-by-default note; added "Per-User Memory Isolation" subsection (problem, two-tier architecture diagram, 4 mechanisms, dreaming integration)
+  - Section 11: Updated observability access control table with 7 roles
+  - Section 14: Updated Sentura-generated MCP tier description; added "MCP Builder Agent" subsection with input/output/architecture/access control
+  - Section 15: Replaced 5-role RBAC with 7-role table, scope model, role rationale; added "User Token & Identity Isolation" subsection
+  - Section 17: Updated dashboard features list with role-based access annotations and added Communication Panel (#12)
+  - Section 19: Added `sentura/agents/mcp-builder/`, `sentura/mcp-servers/`, `memory/users/` to project structure; updated bootstrap hook description
+- `docs/TeamPlan.md`:
+  - Last synced date: 2026-04-13
+  - Capability Coverage Map: Updated #2 to include Person B
+  - Interface Contracts: Updated RBAC to 7-role model; updated workspace convention to include MEMORY_USER; updated MCP generation contract; added 3 new contracts (user token, per-user memory isolation, MCP Builder Agent I/O)
+  - Week 1 Person D: Updated RBAC design task to 7-role model
+  - Week 2 Person A: Added per-agent LanceDB `dbPath` isolation + user token infrastructure tasks
+  - Week 2 Person B: Added MCP Builder Agent workspace creation; Creator Agent must set `dbPath`
+  - Week 2 Person D: Updated RBAC extension for 7 roles
+  - Week 3 Person B: Added per-user memory isolation design task (dual MEMORY.md, dreaming extensions)
+  - Week 3 Person D: Expanded MCP generation CLI into MCP Builder Agent
+  - Week 4 Person A: Added LanceDB user-level metadata partitioning (Sentura memory extension wrapper)
+  - Week 4 Person C: Added user-aware session filtering in dashboard
+  - Week 5 Person C: Updated for 7-role RBAC
+  - Risk Mitigation: Added 4 new risks (user token leakage, memory partition bypass, LanceDB shared-store data leak, MCP Builder insecure code)
+- `docs/MEMORY.md` — this entry
+
+**Key architectural decisions:**
+1. Per-agent LanceDB isolation via `dbPath` config (no core change) is a prerequisite before user-level isolation
+2. `userToken` is the single identity primitive for session isolation, memory partitioning, and audit attribution
+3. MCP Builder is an agent (not a script) because API doc analysis requires LLM reasoning
+4. `ekg_manager` and `agent_manager` are intentionally separated — knowledge control and agent design are different security domains
+5. `viewer` role addresses the executive dashboard need without granting operational access
+
+**Nothing left incomplete.**
+
+**Known issues:** None introduced.

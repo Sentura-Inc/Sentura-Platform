@@ -2,7 +2,7 @@
 
 > **Aligned with**: README.md (17 Sentura capabilities), docs/OPENCLAW.md, ekg/ test enterprise
 >
-> **Last synced**: 2026-04-08
+> **Last synced**: 2026-04-13
 
 ## Team Roles
 
@@ -20,7 +20,7 @@ Each of the 17 capabilities from README.md Section 1 must have explicit sprint t
 | # | Capability | Primary Owner | Sprint Weeks |
 |---|-----------|--------------|-------------|
 | 1 | Enterprise data integration | D | 2, 3, 4 |
-| 2 | Internal MCP server generation | D | 2, 3 |
+| 2 | Internal MCP server generation (MCP Builder Agent) | B + D | 2, 3 |
 | 3 | Self-provisioning orchestration | B + D | 3, 4 |
 | 4 | Position-specific safety guardrails (RULES.md) | B + D | 1, 2, 3 |
 | 5 | No-code employee creation | B + C | 1, 2 |
@@ -60,15 +60,15 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 |----------|-------|-----------|--------|
 | OpenClaw config schema (agents, channels, MCP) | A | B, C, D | JSON5 + Zod schemas (OpenClaw native) |
 | Gateway RPC API surface | A | C (dashboard), B (meta-agents) | WebSocket JSON-RPC (OpenClaw protocol) |
-| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8**: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md + **Sentura 2**: RULES.md, CONTEXT.md + skills/ directory + **EKG**: ekg/ directory (org/, rules/, assets/, workflows/) |
+| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8**: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md + **Sentura 3**: RULES.md, CONTEXT.md, memory/users/MEMORY_USER_{token}.md + skills/ directory + **EKG**: ekg/ directory (org/, rules/, assets/, workflows/) |
 | Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + workspace files (all 10 files + skills + ekg/ with industry ontology merge) |
 | Tuning Agent input/output contract | B | C (UI tuning panel) | NL tuning request → config.patch diff + workspace file edits |
 | Sentura extension plugin contract | D | B (agents use extensions), C (UI shows status) | `openclaw.plugin.json` manifest + `definePluginEntry` |
 | Approval workflow schema | D | B (agents trigger), C (UI approve/reject) | `exec.approval.*` + `plugin.approval.*` RPC + Sentura escalation policies |
-| RBAC role definitions | D | C (UI access control), A (gateway auth) | Role → permissions mapping (5 roles from README §15) |
+| RBAC role definitions (7-role model) | D | C (UI access control), A (gateway auth) | Role → permissions mapping (7 roles from README §15): `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`. Scope model: SME-wide or per-department. Replaces old 5-role model (`dept_admin` and `employee_owner` removed). |
 | Dashboard ↔ Gateway communication | C + A | C | WebSocket client wrapper with typed RPC calls |
 | Self-provisioning skill interface | B | D (extension support) | Skill + browser tool + secrets store + approval + error recovery flow |
-| Enterprise MCP generation contract | D | B (Creator Agent wires MCP), A (infra) | API docs (ekg/) → MCP server code → config.patch |
+| Enterprise MCP generation contract | D + B | B (Creator Agent wires MCP), A (infra), C (MCP Builder UI) | API docs (ekg/) → MCP Builder Agent → TypeScript MCP server at `sentura/mcp-servers/{name}/` → `config.patch`. See also: MCP Builder Agent I/O contract. |
 | Multi-tenancy model | A | D (extensions), C (dashboard) | Tenant isolation strategy, namespace convention |
 | Cost tracking event schema | A | C (Cost Center UI), D (audit) | Per-agent LLM call events with token counts and cost estimates |
 | Pre-deployment test harness contract | B | D (test data extraction via MCP), C (test results UI) | Test case format (input, expected outcome, scoring rubric), test run results schema, pass/fail thresholds |
@@ -79,6 +79,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | **Manager capability tag schema** | B | C (Orchestrator dashboard), D (audit) | JSON5 per employee: `agentId`, `capabilities[]` (tag + description), `inputSchema` (required + optional fields), `outputSchema` (produces), `lastUpdated`; stored at Orchestrator's `ekg/capabilities/{agent-id}.json5` |
 | **Cross-domain conflict resolution protocol** | B | D (approval integration), C (conflict resolution UI) | Conflict entry: `departments[]`, `description`, `conflicting_rules[]`; Resolution: escalated to admin via approval system; resolved entry includes `resolvedBy`, `resolvedAt`, `globalSopRef`; resolved conflicts move to `ekg/conflicts/resolved/` |
 | **Industry ontology template format** | B | A (workspace setup), C (template library UI) | Directory structure mirroring `ekg/` pillars under `sentura/config/industry-ontologies/{industry}/`; each file follows EKG pillar JSON5 schema; merged into agent `ekg/` at incubation Phase 2 |
+| **User token contract** | A + D | B (session context), C (user-aware UI) | UUID `userToken` assigned at user creation, stored in `sentura-rbac` user store. Attached to every WebSocket connection. Session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. All LLM/tool/approval traces tagged with `userToken` for audit attribution. `sessions.list` filterable by `userToken`. |
+| **Per-user memory isolation contract** | A + B | C (session filtering), D (audit) | Two-tier isolation: (1) Agent-level — per-agent LanceDB `dbPath` at `~/.openclaw/memory/{agentId}/lancedb`; (2) User-level — `userToken` metadata on LanceDB entries, filtered on recall (user entries + global entries where `userToken` is null). Dual MEMORY.md: general `MEMORY.md` at workspace root + `memory/users/MEMORY_USER_{token}.md` per user. `sentura-bootstrap` hook injects both. Dreaming system extended: general promotion (cross-user patterns → MEMORY.md), personal promotion (user-specific → MEMORY_USER_{token}.md), privacy boundary (no user PII in general memory). |
+| **MCP Builder Agent I/O contract** | B + D | C (MCP Builder UI), A (infra) | Input: API documentation (OpenAPI/Swagger JSON/YAML, markdown API docs, database schema docs, raw URL for web scraping). Trigger: `ekg_manager` role via dashboard Knowledge Manager page. Output: TypeScript MCP server project at `sentura/mcp-servers/{name}/` containing `index.ts`, `tools/`, `package.json`, `config-snippet.json5`. Agent can ask clarifying questions to EKG Manager. Agent Manager wires generated servers to agents via `config.patch`. |
 
 ---
 
@@ -123,7 +126,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] Scaffold Sentura extension boilerplate: `sentura/extensions/sentura-audit/`
 - [x] Build `sentura-audit` extension: logs all tool calls, approvals, config changes to structured output
 - [x] Study OpenClaw's approval system (`exec.approval.*`, `plugin.approval.*`)
-- [x] Design the RBAC model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User)
+- [x] ~~Design the RBAC model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User)~~ → Redesigned: **7-role model** (`platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`). Removed `dept_admin` and `employee_owner`; added `manager` (supervision), `ekg_manager` (knowledge control), `agent_manager` (agent design), `viewer` (read-only dashboards). Scope model: SME-wide or per-department.
+- [x] Update `sentura/extensions/sentura-rbac/DESIGN.md` with the 7-role model, scope model, and permission tables
 - [x] Write initial approval policy configs (which tools need approval, escalation rules)
 - [x] Study the `ekg/` GradSale API docs (api-admin.md, api-web.md, database.md) for enterprise MCP generation prep
 
@@ -136,11 +140,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 > **Capabilities covered**: #1 (data integration start), #2 (MCP generation start), #5 (Creator Agent), #6 (incubation pipeline), #11 (EKG schema design)
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/ + ekg/ directory structure)
+- [ ] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/ + ekg/ directory structure + `memory/users/` directory)
 - [ ] Build a helper script/API that registers a new agent into OpenClaw config via `config.patch`
 - [ ] Test hot-reload: adding an agent via `config.patch` makes it immediately available
 - [ ] Configure MCP loopback server for tool protocol interop
 - [ ] Set up channel binding helpers (programmatically bind agent → channel/peer)
+- [ ] **Implement per-agent LanceDB isolation convention**: configure `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config. Update `sentura-setup.sh` to set `dbPath` for meta-agents. Verify each agent's vector store is isolated.
+- [ ] **Implement user token infrastructure**: assign `userToken` (UUID) at user creation in `sentura-rbac` user store. Attach `userToken` to WebSocket connections. Define session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. Add `userToken` to all trace/audit events.
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Creator Agent Phase 1: Research & Discovery (web search, clarifying questions)
@@ -150,6 +156,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Must wire MCP server references for required integrations
   - Must create `ekg/` directory structure with 4 pillar subdirectories (org/, rules/, assets/, workflows/)
   - Must merge appropriate industry ontology template into `ekg/` during incubation
+  - **Must set `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb`** in per-agent plugin config for vector store isolation
 - [ ] Build Creator Agent Phase 4: Deploy (write workspace, `config.patch`, smoke test)
 - [ ] Test end-to-end: describe a role in NL → Creator Agent produces a working AI employee
 - [ ] Write 5 more skill templates for common enterprise tasks
@@ -161,6 +168,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Build 2 industry ontology templates (capability #13 — Tier 1)**:
   - `sentura/config/industry-ontologies/financial-services/` (compliance chains, financial controls, standard SOPs)
   - `sentura/config/industry-ontologies/e-commerce/` (consumer protection, order fulfillment, product catalog schemas)
+- [ ] **Create MCP Builder Agent workspace**: `sentura/agents/mcp-builder/` with SOUL.md and skills/ (API analysis skill, MCP server generation skill, code output skill). Agent takes API docs as input and produces TypeScript MCP server projects at `sentura/mcp-servers/{name}/`.
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway)
@@ -169,8 +177,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build the Approval Queue page (`/approvals` — list pending approvals, approve/reject with decision context)
 
 ### Person D — Extensions & Integrations Engineer
-- [ ] Build `sentura-rbac` extension: enforce role-based access to gateway RPC methods
-- [ ] Implement RBAC middleware: check permissions before every RPC call
+- [ ] Build `sentura-rbac` extension with **7-role model**: `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`. Implement scope model (SME-wide or per-department). Include `userToken` in user store.
+- [ ] Implement RBAC middleware: check permissions before every RPC call (role-based, using new 7-role definitions)
 - [ ] **Build first enterprise MCP server from ekg/ GradSale API docs** (Tier 2: Sentura-generated)
   - Wrap GradSale admin API endpoints (disputes, users, support threads, transactions) as MCP tools
   - Wrap GradSale web API endpoints (auth, listings, messages) as MCP tools
@@ -230,6 +238,11 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Post-task hook that evaluates completed tasks for reusable patterns
   - Generates candidate Experience Links with initial confidence scores
   - Write skill: `sentura/skills/experience-extraction/SKILL.md`
+- [ ] **Design per-user memory isolation (workspace layer)**:
+  - Implement dual MEMORY.md system: general `MEMORY.md` (workspace root) + `MEMORY_USER_{token}.md` files in `memory/users/`
+  - Extend `sentura-bootstrap` hook to inject current user's `MEMORY_USER_{token}.md` alongside general `MEMORY.md` into system prompt
+  - Extend dreaming system: general promotion (cross-user patterns → `MEMORY.md`), personal promotion (user-specific → `MEMORY_USER_{token}.md`), privacy boundary (no user PII in general memory)
+  - Test: two users interact with same AI employee → verify memories are isolated, general patterns are promoted
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
@@ -252,9 +265,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Build `sentura-approval` extension: enhanced HITL with escalation + timeout + decision-context
   - Extends OpenClaw's binary exec.approval into context-aware approval (e.g., "approve if refund < $500")
   - Configurable escalation chains and timeout policies
-- [ ] **Build MCP generation CLI tool**: takes enterprise API docs → generates MCP server scaffold
-  - Input: OpenAPI spec or markdown API docs (like ekg/*.md)
-  - Output: MCP server TypeScript code with typed tool definitions
+- [ ] **Expand MCP generation into MCP Builder Agent** (replaces standalone CLI tool):
+  - Wire B's MCP Builder Agent workspace (`sentura/agents/mcp-builder/`) with API analysis + code generation skills
+  - Input: OpenAPI/Swagger specs (JSON/YAML), markdown API docs (like ekg/*.md), database schema docs, or raw URL
+  - Output: TypeScript MCP server project at `sentura/mcp-servers/{name}/` with `index.ts`, `tools/`, `package.json`, `config-snippet.json5`
+  - Agent can ask clarifying questions to `ekg_manager` who triggers it
+  - Access control: only `ekg_manager` role can trigger the MCP Builder Agent via dashboard
 - [ ] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools
 - [ ] **Build test data extraction tools for pre-deployment testing (capability #15)**:
   - MCP tool wrapper that queries enterprise data for historical task records (e.g., past support tickets, past invoices)
@@ -280,6 +296,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
   - Per-department agent namespacing (e.g., `finance/ap-clerk`, `support/cs-agent`)
   - Workspace directory isolation per tenant
   - Config namespace separation
+- [ ] **Build LanceDB user-level metadata partitioning** (Sentura memory extension wrapper):
+  - Extend LanceDB memory entry schema with `userToken` metadata field
+  - On `autoCapture`: inject `userToken` from session context into memory entries
+  - On `autoRecall` / `memory_search`: filter by `userToken` (return user entries + global entries where `userToken` is null)
+  - Implement as a Sentura memory extension that wraps `memory-lancedb` hooks (no OpenClaw core modification)
+  - Test: two users interact with same agent → recall returns only own memories + global memories
 - [ ] **Build cost tracking backend**:
   - Intercept LLM calls via extension hook → capture token counts, model, latency
   - Per-agent cost attribution (OpenClaw has no per-agent cost tracking)
@@ -326,6 +348,12 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
 - [ ] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
+- [ ] **Implement user-aware session filtering in dashboard**:
+  - Filter `sessions.list` by `userToken` — each user sees only their own conversations
+  - `manager` and `platform_admin` roles can view all sessions (filtered by scope)
+  - `auditor` sees all sessions (read-only)
+  - `viewer` sees aggregate metrics only (no session-level access)
+  - Chat panel and session views respect `userToken` isolation
 - [ ] **Build Group Chat — Communication Panel Phase 2 (capability #16)**:
   - Group creation UI: select multiple AI employees + invite humans by name/role
   - Fan-out orchestration layer (Next.js API route): receives a human message → sends to N agent sessions via `sessions.send` → merges streaming responses into a unified thread with agent attribution
@@ -390,9 +418,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Build 3rd industry ontology template**: `sentura/config/industry-ontologies/healthcare/` (HIPAA compliance, clinical workflows)
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Implement full RBAC in dashboard (role-based views, permission enforcement per README §15)
-- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable)
-- [ ] Build the Settings page (`/settings` — SSO config, RBAC roles, global approval policies, gateway connection)
+- [ ] Implement full 7-role RBAC in dashboard (role-based views, permission enforcement per README §15 — `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`)
+- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable, tagged with `userToken` for attribution)
+- [ ] Build the Settings page (`/settings` — SSO config, 7-role RBAC management, scope model, global approval policies, gateway connection)
 - [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`)
 - [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per docs/HOSTING.md)
 - [ ] **Build Employee Lifecycle UI** (in `/employees` and `/employees/[id]`): version history, clone, health score, retire
@@ -577,6 +605,10 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Manager conflict detection produces false positives | All conflicts require human resolution via approval system; never auto-resolve; confidence scoring on detected conflicts |
 | Industry ontology templates don't match client's actual domain | Templates are starting points, not constraints; Data Scavenger overwrites/extends with client-specific data; Q&A Completion fills gaps |
 | EKG JSON5 files grow too large for workspace scanning | File size monitoring; split large pillar files into sub-files (e.g., `org/dept-sales.json5`); archival policy for old experience links |
+| **User token leakage across sessions** | `userToken` never stored in conversation history or workspace files; propagated only in session context and WebSocket metadata; audit log attribution uses hashed tokens for external exports |
+| **Memory partition bypass (user sees other user's memories)** | `userToken` filter applied at the Sentura memory extension wrapper level; unit tests verify isolation; `memory_search` always adds `userToken` filter before LanceDB query; global memories (null `userToken`) reviewed by dreaming system to prevent PII leakage |
+| **LanceDB shared-store data leak between agents** | Per-agent `dbPath` configured at agent creation; `sentura-setup.sh` validates all agents have unique `dbPath`; startup health check verifies no agents share a LanceDB directory |
+| **MCP Builder generates insecure code** | Generated MCP server code reviewed by `ekg_manager` before deployment; auth credentials always reference `$secret` store, never hardcoded; generated code scanned by security scanner extension; sandboxed test run before wiring to production agents |
 
 ---
 

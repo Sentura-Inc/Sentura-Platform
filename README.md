@@ -44,13 +44,13 @@ OpenClaw is a mature personal AI assistant platform. It provides the runtime, ch
 | # | Sentura Builds | Why OpenClaw Doesn't Have It |
 |---|---------------|------------------------------|
 | 1 | **Enterprise data integration** — CRM, ERP, contact center, database connectors built during onboarding | OpenClaw has zero enterprise connectors (no Salesforce, SAP, Zendesk, etc.) — only messaging channels and AI providers |
-| 2 | **Internal MCP server generation** — organize enterprise API endpoints into MCP tools and wire them to employees | OpenClaw's `mcp.servers` config is manual JSON5; no auto-discovery or API-to-MCP generation |
+| 2 | **Internal MCP server generation** — an MCP Builder Agent that takes API documentation (OpenAPI specs, markdown docs, database schemas) as input and generates OpenClaw-compatible MCP servers with typed tool definitions | OpenClaw's `mcp.servers` config is manual JSON5; no auto-discovery, API analysis, or API-to-MCP generation |
 | 3 | **Self-provisioning orchestration** — skills + approval workflows + error handling for autonomous service registration | OpenClaw has the browser tool (Playwright) but no built-in workflow for account registration or credential harvesting |
 | 4 | **Position-specific safety guardrails** — RULES.md, decision-context-aware approval, escalation chains | OpenClaw has generic tool denylists and binary agent-scoped exec approvals; no `RULES.md` in its workspace files |
 | 5 | **No-code employee creation** — natural language → working AI employee via Creator Agent | OpenClaw's `agents.create` takes structured config params; no NL creation flow exists |
 | 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, merge industry ontology, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura adds RULES.md, CONTEXT.md, `ekg/` directory, and structured skills |
 | 7 | **Enterprise orchestration + AI Manager EKG** — macro-objective decomposition, multi-employee coordination, capability abstraction, cross-domain conflict detection, reverse-injection training | OpenClaw has basic subagent spawning with depth limits; no task decomposition, progress tracking, or cross-agent knowledge aggregation |
-| 8 | **Multi-tenancy** — tenant isolation, per-department namespacing, data segregation | OpenClaw is single-tenant (one user, one gateway, one config) |
+| 8 | **Multi-tenancy & scope model** — platform scope can be an entire SME or a single department in a large enterprise; tenant isolation, user-level namespacing, data segregation | OpenClaw is single-tenant (one user, one gateway, one config) |
 | 9 | **Enterprise authentication** — SAML/OIDC/SSO for the dashboard | OpenClaw uses token + device pairing; no SSO |
 | 10 | **Cost management** — per-employee, per-department LLM spend tracking and attribution | OpenClaw has no per-agent cost tracking |
 | 11 | **Enterprise Knowledge Graph (EKG)** — per-agent structured knowledge in 4 pillars (Org, Rules, Assets, Workflows) as JSON5 files, auto-indexed by OpenClaw's memory system | OpenClaw's memory is per-agent LanceDB with unstructured text chunks; no structured knowledge schema, no ontology, no pillar organization |
@@ -190,7 +190,7 @@ An AI employee is an **OpenClaw agent configuration** — a bundle of:
 | **Tools** | OpenClaw tools + MCP servers + plugin tools | What the employee can do (browse, search, file I/O, APIs) |
 | **Channels** | Channel bindings (`bindings` config) | Where the employee communicates (Slack, Teams, etc.) |
 | **Model** | Provider + model config | Which LLM powers the employee's reasoning |
-| **Memory** | OpenClaw memory system (LanceDB) | Long-term recall of conversations and facts |
+| **Memory** | OpenClaw memory system (LanceDB) | Long-term recall of conversations and facts; **per-user isolated** so each human gets personalized memory while core identity stays unified |
 | **Guardrails** | Approval workflows + tool policies | Safety boundaries and HITL triggers |
 | **Schedule** | Cron jobs | Recurring tasks the employee performs autonomously |
 | **Integrations** | MCP servers + self-provisioned API keys | External systems the employee connects to |
@@ -260,11 +260,17 @@ workspaces/ap-clerk-finance/
 │   │   └── SKILL.md
 │   └── compliance-checks/
 │       └── SKILL.md
+├── memory/              # Per-user memory isolation
+│   └── users/           # One MEMORY_USER file per human user
+│       ├── MEMORY_USER_{tokenA}.md
+│       └── MEMORY_USER_{tokenB}.md
 ├── mcp-servers/         # Self-provisioned MCP server configs
 └── data/                # Working data (templates, references)
 ```
 
-> **Important distinction**: OpenClaw's `AGENTS.md` defines multi-agent routing rules; `SOUL.md` defines personality; `TOOLS.md` documents available tools; `IDENTITY.md` provides agent identity; `USER.md` captures user context; `HEARTBEAT.md` gives cron-invoked instructions; `BOOTSTRAP.md` provides initial setup instructions; `MEMORY.md` serves as a scratchpad. **Sentura adds `RULES.md`** (hard safety boundaries per position — this file does not exist in OpenClaw's workspace system) **and `CONTEXT.md`** (enterprise-specific context like org structure, policies, system inventory).
+> **Important distinction**: OpenClaw's `AGENTS.md` defines multi-agent routing rules; `SOUL.md` defines personality; `TOOLS.md` documents available tools; `IDENTITY.md` provides agent identity; `USER.md` captures user context; `HEARTBEAT.md` gives cron-invoked instructions; `BOOTSTRAP.md` provides initial setup instructions; `MEMORY.md` serves as a general scratchpad. **Sentura adds `RULES.md`** (hard safety boundaries per position — this file does not exist in OpenClaw's workspace system), **`CONTEXT.md`** (enterprise-specific context like org structure, policies, system inventory), **and `memory/users/MEMORY_USER_{token}.md`** files (per-user personalized memory — preferences, habits, and context specific to each human user).
+>
+> **Unified identity, personalized memory**: All workspace files that define *who* the agent is (SOUL.md, AGENTS.md, RULES.md, CONTEXT.md, skills/, ekg/) are shared across all users — every human interacts with the same AI employee identity. However, episodic memory (LanceDB entries) and personal notes (`MEMORY_USER_{token}.md`) are **per-user isolated**. This mirrors how a real human employee has the same personality and knowledge with everyone but remembers different conversations with different colleagues.
 
 ### SOUL.md — Employee Identity
 
@@ -1123,25 +1129,25 @@ Sentura implements safety at every level, combining OpenClaw's built-in security
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Layer 1: SKILL-LEVEL GUARDRAILS              [SENTURA]  │
-│  Each SKILL.md has a ## Safety section with hard rules    │
+│  Each SKILL.md has a ## Safety section with hard rules   │
 │  "NEVER approve payment without matching PO > $10K"      │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 2: TOOL POLICIES                       [OPENCLAW] │
-│  Tool allowlists/denylists per agent config               │
-│  DEFAULT_GATEWAY_HTTP_TOOL_DENY blocks dangerous tools    │
+│  Tool allowlists/denylists per agent config              │
+│  DEFAULT_GATEWAY_HTTP_TOOL_DENY blocks dangerous tools   │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 3: APPROVAL WORKFLOWS           [OPENCLAW+SENTURA]│
-│  OpenClaw: binary exec.approval per agent ID              │
-│  Sentura: decision-context approvals, escalation, timeout │
+│  OpenClaw: binary exec.approval per agent ID             │
+│  Sentura: decision-context approvals, escalation, timeout│
 ├──────────────────────────────────────────────────────────┤
 │  Layer 4: RULES.md HARD BOUNDARIES            [SENTURA]  │
-│  Per-employee rules that override everything else         │
-│  This file does NOT exist in OpenClaw's workspace system  │
+│  Per-employee rules that override everything else        │
+│  This file does NOT exist in OpenClaw's workspace system │
 │  "You may NEVER share customer PII outside the CRM"      │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 5: PLATFORM-LEVEL POLICIES             [SENTURA]  │
-│  Sentura-wide policies enforced across all employees      │
-│  Data classification, retention, audit, RBAC, multi-tenant│
+│  Sentura-wide policies enforced across all employees     │
+│  Data classification, retention, audit, RBAC,multi-tenant│
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -1265,6 +1271,7 @@ Each AI employee has its own long-term memory powered by OpenClaw's two-extensio
 - Embedding generation for memory entries
 - Similarity search for contextual recall
 - `memory_recall` / `memory_store` / `memory_forget` tools available to agents
+- **Note**: Shared across all agents by default (single `memories` table with no `agentId` column). Sentura configures per-agent `dbPath` to isolate each AI employee's vector store (see [Per-User Memory Isolation](#per-user-memory-isolation))
 
 ### Memory Configuration Per Employee
 
@@ -1295,14 +1302,14 @@ Sentura's memory architecture combines three layers — each with a different pe
 ┌─────────────────────────────────────────────────────────────────────┐
 │ TIER 1: STATIC KNOWLEDGE (ekg/ + workspace files)                   │
 │                                                                     │
-│ ekg/org/          ekg/rules/       ekg/assets/      ekg/workflows/ │
-│ org-chart.json5   controls.json5   products/        sops/          │
+│ ekg/org/          ekg/rules/       ekg/assets/      ekg/workflows/  │
+│ org-chart.json5   controls.json5   products/        sops/           │
 │ contacts.json5    compliance.json5 contracts/       experience-links│
 │                                    faqs/                            │
-│ SOUL.md   RULES.md   CONTEXT.md   SKILL.md files                  │
+│ SOUL.md   RULES.md   CONTEXT.md   SKILL.md files                    │
 │                                                                     │
-│ Characteristics: Structured, version-controlled, human-editable,   │
-│ auto-indexed by OpenClaw's workspace file scanner                  │
+│ Characteristics: Structured, version-controlled, human-editable,    │
+│ auto-indexed by OpenClaw's workspace file scanner                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │ TIER 2: DYNAMIC EPISODIC MEMORY (LanceDB vector store)              │
 │                                                                     │
@@ -1336,6 +1343,81 @@ OpenClaw's dreaming system operates in 3 phases — **light** (frequent, surface
 - **Experience Link extraction:** During the deep dreaming phase, the system reviews recent task completions, identifies repeated patterns, and generates candidate Experience Links with initial confidence scores.
 - **Confidence promotion:** The REM phase evaluates existing Experience Links against new evidence. Links that recur across multiple tasks see their `confidence` score increase. Links above the configurable promotion threshold are written to `ekg/workflows/experience-links/` as permanent knowledge.
 - **Gap detection:** The light dreaming phase scans `ekg/` files for missing required fields (null values, empty relations) and queues Q&A-based Completion questions for the next human interaction.
+
+### Per-User Memory Isolation
+
+Sentura extends OpenClaw's single-user memory system with **two-tier isolation** to support enterprise multi-user scenarios where many humans interact with the same AI employee.
+
+#### The Problem
+
+OpenClaw has two independent memory layers with different isolation behaviors:
+- **`memory-core`** (SQLite index + FTS + vector blobs) — **naturally per-agent isolated**. The manager instance is keyed by agent ID, so each agent automatically gets its own SQLite index.
+- **`memory-lancedb`** (LanceDB vector store) — **shared by default** across all agents. The table schema has no `agentId` column; all agents write to the same `memories` table at `~/.openclaw/memory/lancedb` unless separate `dbPath` values are configured per agent.
+
+Neither layer has any concept of a "user" — when multiple humans interact with the same agent, their memories are interleaved.
+
+#### Architecture: Two-Tier Isolation (Agent + User)
+
+```
+  TIER 1: AGENT-LEVEL ISOLATION (each AI employee gets its own vector store)
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                                                                         │
+  │  AP Clerk (dbPath: ~/.openclaw/memory/ap-clerk/)                        │
+  │  ┌─────────────────────────────────────────────────────────────────┐    │
+  │  │  SHARED (unified per AI employee)                               │    │
+  │  │  SOUL.md  AGENTS.md  RULES.md  CONTEXT.md  IDENTITY.md         │    │
+  │  │  TOOLS.md  BOOTSTRAP.md  ekg/  skills/                         │    │
+  │  │  MEMORY.md (general, no PII)                                    │    │
+  │  └─────────────────────────────────────────────────────────────────┘    │
+  │                                                                         │
+  │  TIER 2: USER-LEVEL ISOLATION (within each agent's vector store)       │
+  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+  │  │ User A       │  │ User B       │  │ User C       │                  │
+  │  │              │  │              │  │              │                  │
+  │  │ Sessions:    │  │ Sessions:    │  │ Sessions:    │                  │
+  │  │  sess-A-001  │  │  sess-B-001  │  │  sess-C-001  │                  │
+  │  │              │  │              │  │              │                  │
+  │  │ LanceDB:     │  │ LanceDB:     │  │ LanceDB:     │                  │
+  │  │  userToken   │  │  userToken   │  │  userToken   │                  │
+  │  │  filter      │  │  filter      │  │  filter      │                  │
+  │  │              │  │              │  │              │                  │
+  │  │ MEMORY_A.md  │  │ MEMORY_B.md  │  │ MEMORY_C.md  │                  │
+  │  └──────────────┘  └──────────────┘  └──────────────┘                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Mechanism 0: Agent-Level LanceDB Isolation (Prerequisite)
+
+Each AI employee gets its own LanceDB vector store by configuring per-agent `dbPath` in the `memory-lancedb` plugin config. During agent creation (Creator Agent Phase 2), `memory-lancedb.dbPath` is set to `~/.openclaw/memory/{agentId}/lancedb`. The `sentura-setup.sh` script sets the same convention for meta-agents. This requires no OpenClaw core changes — `memory-lancedb` already supports per-config `dbPath` via `api.resolvePath(cfg.dbPath)`. `memory-core` already isolates by agent automatically, so no change is needed there.
+
+#### Mechanism 1: User Token System
+
+Each platform user gets a `userToken` (UUID) assigned at account creation (stored in the `sentura-rbac` user store). The token is attached to every WebSocket connection and propagated into session context. Session keys include the user token: `agent:<agentId>:user:<userToken>:<sessionId>`. This ensures sessions are naturally partitioned — `sessions.list` filtered by user token returns only that user's conversations.
+
+#### Mechanism 2: LanceDB User-Level Metadata Partitioning
+
+Within each agent's isolated LanceDB store, entries are further partitioned by user. The memory entry schema is extended with a `userToken` metadata field:
+
+- When `autoCapture` stores a memory from a conversation, the `userToken` from the session context is added to the entry
+- When `autoRecall` or `memory_search` runs, the query is **filtered** by `userToken` to return only memories from that user's interactions **plus** global memories (entries where `userToken` is null)
+- Memories without a `userToken` (system-generated, dreaming outputs, EKG entries) are **global** and visible to all users of that agent
+- Implemented via a Sentura memory extension that wraps `memory-lancedb` hooks, not by modifying OpenClaw core
+
+The combined result: Agent A's LanceDB only contains Agent A's memories (Mechanism 0), and within that, User X only sees User X's personal memories + Agent A's global memories (Mechanism 2).
+
+#### Mechanism 3: Dual MEMORY.md System
+
+- **MEMORY.md** (general): Exists at the workspace root. Contains general, recurring observations that apply to all users. Updated by the dreaming system. Examples: "Invoices over $10K always require CFO approval", "The accounting system is slow on month-end close days."
+- **MEMORY_USER_{token}.md** (per-user): Stored in `memory/users/` under the workspace. Contains personal memories specific to one user's interaction history. Examples: "User prefers concise responses", "User's team handles APAC region accounts", "User asked me to always CC finance@acme.com on approvals."
+
+The `sentura-bootstrap` hook (which already injects RULES.md and CONTEXT.md) is extended to also inject the current user's `MEMORY_USER_{token}.md` alongside the general `MEMORY.md`, giving each user a personalized experience while keeping the agent's core identity unified.
+
+#### Dreaming Integration for Per-User Memory
+
+The dreaming system is extended for user-aware consolidation:
+- **General promotion**: Patterns observed across multiple users are promoted to general `MEMORY.md` (e.g., "3 different users asked about the same policy — this is important general knowledge")
+- **Personal promotion**: Patterns specific to one user stay in their `MEMORY_USER_{token}.md`
+- **Privacy boundary**: Per-user memories are never leaked into general memory if they contain user-specific context
 
 ### Memory Use Cases
 
@@ -1393,9 +1475,12 @@ The Sentura control plane dashboard provides:
 | Role | Can See |
 |------|---------|
 | **Platform Admin** | Everything — all employees, all departments, raw traces |
-| **Department Manager** | Their department's employees only, redacted PII in traces |
-| **Employee Owner** | Their specific AI employees only |
-| **Auditor** | Read-only access to audit logs and compliance traces |
+| **Manager** | All employees in their scope — task execution traces, performance metrics, approval histories |
+| **EKG Manager** | Knowledge ingestion traces, Data Scavenger outputs, MCP Builder logs |
+| **Agent Manager** | Their assigned AI employees — configuration changes, skill deployments, tool execution traces |
+| **Auditor** | Read-only access to audit logs, compliance traces, and cost reports across all employees |
+| **End User** | Own session history only (filtered by `userToken`) |
+| **Viewer** | Read-only dashboards — aggregate metrics, cost reports, employee status (no session-level traces) |
 
 ---
 
@@ -1411,23 +1496,23 @@ OpenClaw's subagent system (`sessions_spawn`, `sessions_send`, `sessions_yield`)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    AI MANAGER (ORCHESTRATOR)                      │
-│                                                                  │
+│                    AI MANAGER (ORCHESTRATOR)                    │
+│                                                                 │
 │   ekg/capabilities/    — knows what each employee CAN do        │
 │   ekg/conflicts/       — detected cross-domain contradictions   │
 │   ekg/insights/        — systemic patterns from operations      │
 │   ekg/global-sops/     — cross-departmental SOPs (boss-approved)│
-│                                                                  │
+│                                                                 │
 │   Receives macro-objective ──▶ Decomposes into tasks            │
 │   Routes tasks by capability ──▶ Monitors progress              │
 │   Detects conflicts ──▶ Escalates to admin                      │
 │   Identifies patterns ──▶ Reverse-injects training              │
 └──────────┬───────────────┬──────────────────┬───────────────────┘
            │               │                  │
-  ┌────────▼──┐   ┌───────▼──────┐   ┌───────▼──────┐
+  ┌────────▼───┐   ┌───────▼──────┐   ┌───────▼──────┐
   │ AP Clerk   │   │ Legal Agent  │   │ Sales Agent  │
-  │ ekg/rules/ │   │ ekg/rules/  │   │ ekg/assets/  │
-  │ ekg/assets/│   │ ekg/assets/ │   │ ekg/workflows│
+  │ ekg/rules/ │   │ ekg/rules/   │   │ ekg/assets/  │
+  │ ekg/assets/│   │ ekg/assets/  │   │ ekg/workflows│
   └────────────┘   └──────────────┘   └──────────────┘
 ```
 
@@ -1621,7 +1706,7 @@ Sentura's integration approach has three tiers:
 | Tier | Source | Example |
 |------|--------|---------|
 | **Open-source MCP servers** | npm packages (`@mcp-servers/*`, community) | Salesforce, Jira, PostgreSQL, Slack |
-| **Sentura-generated MCP servers** | Auto-generated from enterprise API docs during onboarding | Custom REST APIs, internal microservices |
+| **Sentura-generated MCP servers** | Generated by the **MCP Builder Agent** from enterprise API docs (OpenAPI specs, markdown docs, database schemas) | Custom REST APIs, internal microservices |
 | **Self-provisioned MCP configs** | AI employee uses browser to obtain credentials, then configures MCP | SaaS tools with API key setup flows |
 
 For enterprises with internal REST APIs (like the GradSale example in `ekg/`), Sentura builds custom MCP servers that wrap those endpoints as typed tools — this is a core onboarding deliverable, not something OpenClaw handles.
@@ -1708,6 +1793,56 @@ The enterprise data integration during onboarding covers:
 | **Unstructured** (PDFs, wikis, Confluence, SharePoint) | Browser + PDF tools → SKILL.md distribution | Ingest, extract, convert to skills and memory entries |
 | **Real-time** (CRM events, ticket updates, Slack messages) | Channel extensions + MCP servers with SSE | Configure event listeners and routing rules |
 
+### MCP Builder Agent
+
+The MCP Builder is a **Sentura meta-agent** (not just a CLI tool) that takes API documentation as input and produces a working, OpenClaw-compatible MCP server as output. The EKG Manager triggers it through the dashboard.
+
+**Input sources:**
+
+| Source Type | Format | Example |
+|-------------|--------|---------|
+| OpenAPI/Swagger specs | JSON or YAML | `openapi.json`, `swagger.yaml` |
+| Markdown API documentation | Markdown with endpoint descriptions | `ekg/api-web.md`, `ekg/api-admin.md` |
+| Database schema documentation | Markdown or SQL DDL | `ekg/database.md` |
+| Raw URL | URL to an API docs page (agent uses `web_fetch`/`browser` to scrape) | `https://api.example.com/docs` |
+
+**Output:** A TypeScript MCP server project stored at `sentura/mcp-servers/{name}/`:
+
+```
+sentura/mcp-servers/gradsale-api/
+├── index.ts                  # MCP server entry point using @modelcontextprotocol/sdk
+├── tools/                    # Individual tool definitions with Zod input schemas
+│   ├── users.ts
+│   ├── orders.ts
+│   └── products.ts
+├── package.json              # Dependencies
+└── config-snippet.json5      # config.patch fragment to register this server in OpenClaw
+```
+
+**Why an agent instead of a script:**
+- API docs come in wildly different formats — LLM reasoning is needed to understand them
+- Endpoint grouping into tools requires semantic understanding
+- Auth pattern detection requires analyzing examples and headers
+- Error handling and retry logic generation benefits from LLM code generation
+- The agent can ask the EKG Manager clarifying questions ("I see a `/users/{id}` endpoint — should this be read-only or should I also generate create/update/delete tools?")
+
+**Architecture flow:**
+
+```
+EKG Manager uploads API docs via dashboard
+  → MCP Builder Agent analyzes docs
+    → Extracts endpoints, parameters, auth requirements
+    → Groups endpoints into logical tool categories
+    → Generates TypeScript MCP server code
+    → Generates tool definitions with Zod input schemas
+    → Generates config-snippet.json5 for registration
+    → Writes output to sentura/mcp-servers/{name}/
+  → EKG Manager reviews generated server
+  → Agent Manager wires MCP server to relevant AI employees via config.patch
+```
+
+**Access control:** Only the `ekg_manager` role can trigger the MCP Builder, since it involves importing external API definitions into the platform's knowledge/tool layer.
+
 ### The ACP Extension
 
 For advanced inter-agent communication, Sentura can leverage OpenClaw's `acpx` extension (Agent Client Protocol), which provides:
@@ -1739,13 +1874,36 @@ Sentura inherits OpenClaw's security layers and adds enterprise-grade controls:
 
 ### Role-Based Access Control
 
-| Role | Permissions |
-|------|------------|
-| **Platform Admin** | Full access: create/delete employees, manage providers, view all traces |
-| **Department Admin** | Manage employees in their department, view department traces |
-| **Employee Owner** | Configure and tune their assigned AI employees |
-| **Auditor** | Read-only access to audit logs, compliance reports |
-| **End User** | Interact with AI employees via channels, request approvals |
+Sentura uses a **7-role model** designed around the principle that supervision, knowledge management, and agent engineering are fundamentally different jobs. The old `dept_admin` and `employee_owner` roles are replaced with three targeted roles (`manager`, `ekg_manager`, `agent_manager`) that match real enterprise org structures.
+
+**Scope model**: The platform's scope is determined by deployment context:
+- **SME deployment**: roles apply to the whole organization
+- **Department deployment**: roles apply within a single department boundary
+- **Multi-department**: `platform_admin` spans all departments; other roles are assigned per department
+
+| Role | Description | Resource Scope |
+|------|-------------|----------------|
+| **Platform Admin** | Full platform access. Manages deployment, LLM providers, system config, user accounts. Exists in both SME and department-scoped deployments. | All resources |
+| **Manager** | Supervises all AI employee actions. Reviews task execution, approves/rejects high-risk decisions, monitors performance and compliance. The "boss" who watches agents work. | All agents in their scope (whole SME or department) |
+| **EKG Manager** | The only role that can upload, construct, and update the Enterprise Knowledge Graph. Controls what knowledge enters the system. Cannot create or tune agents. Also the only role that can trigger the MCP Builder Agent to generate internal MCP servers from API documentation. | EKG resources: `ekg/` uploads, Data Scavenger triggers, industry ontology selection, knowledge review/approval, MCP Builder |
+| **Agent Manager** | Creates and tunes AI employees. Designs agent personalities (SOUL.md), skills, rules (RULES.md), context (CONTEXT.md), tool allowlists, channel bindings, and MCP wiring. Cannot modify EKG content. | Agent config: SOUL.md, RULES.md, CONTEXT.md, skills/, tool allowlists, channel bindings, MCP wiring |
+| **Auditor** | Read-only compliance view across all resources. Can view audit logs, compliance reports, approval histories, and cost attribution. | All resources (read-only) |
+| **End User** | Normal users who interact with AI employees through channels and dashboard chat. Basic task requests, conversations, approval triggers. Each user is identified by a `userToken` that isolates their session history and personalized memory. | Own sessions, own approval requests |
+| **Viewer** | Read-only access to dashboards and reports without agent interaction. Designed for executives and stakeholders who need visibility without operational access. | Read-only: dashboards, cost reports, employee status |
+
+**Why 7 roles instead of the original 5:**
+- `manager` separates the "supervisor" concern from technical agent/knowledge management
+- `ekg_manager` enforces a critical security boundary — only authorized personnel can change what an AI employee "knows," preventing unauthorized knowledge injection that could alter agent behavior
+- `agent_manager` separates agent design from knowledge management, reflecting real enterprise org structures where the person who configures a chatbot is not the same person who manages the company's knowledge base
+- `viewer` addresses the common enterprise need for read-only dashboards (executives, stakeholders)
+
+### User Token & Identity Isolation
+
+Every platform user is assigned a **`userToken`** (UUID) at account creation, stored in the `sentura-rbac` user store. This token serves as the identity primitive for:
+
+- **Session isolation**: Session keys include the user token (`agent:<agentId>:user:<userToken>:<sessionId>`), ensuring each user's conversation history is private
+- **Memory partitioning**: LanceDB memory entries carry a `userToken` metadata field, so an agent's recall only returns the current user's memories plus global memories
+- **Audit attribution**: Every action (LLM call, tool execution, approval event) is tagged with the `userToken` for compliance tracing
 
 ### Data Classification
 
@@ -1883,17 +2041,18 @@ Both UIs connect to the same gateway via WebSocket RPC. The Sentura Dashboard si
 
 ### Sentura Dashboard Features (Enterprise-Only)
 
-1. **Employee Roster** — lifecycle management with status badges, health scores, and enterprise actions (create, clone, version, retire)
-2. **Employee Creator** — natural language interface for creating new employees (talks to Creator Agent)
-3. **Live Tuning** — modify any employee's personality, skills, rules, tools in real-time
-4. **Approval Queue** — pending HITL approvals with escalation status, decision context, approve/reject
-5. **Integration Manager** — view and manage MCP servers, self-provisioned credentials
-6. **Cost Center** — LLM usage and cost tracking per employee, per department
-7. **Audit Trail** — searchable, filterable, exportable log of all AI employee actions
-8. **Orchestrator Dashboard** — Mode B multi-agent task decomposition and progress tracking
-9. **Knowledge Manager** — document upload, skill generation, cross-employee distribution
-10. **Testing** — pre-deployment scorecards, per-dimension scores, auto-tune history
-11. **Settings** — SSO config, RBAC roles, global approval policies, gateway connection
+1. **Employee Roster** — lifecycle management with status badges, health scores, and enterprise actions (create, clone, version, retire). Visible to `manager`, `agent_manager`, `platform_admin`; read-only for `viewer` and `auditor`
+2. **Employee Creator** — natural language interface for creating new employees (talks to Creator Agent). Requires `agent_manager` or `platform_admin` role
+3. **Live Tuning** — modify any employee's personality, skills, rules, tools in real-time. Requires `agent_manager` or `platform_admin` role
+4. **Approval Queue** — pending HITL approvals with escalation status, decision context, approve/reject. Visible to `manager` and `platform_admin`
+5. **Integration Manager** — view and manage MCP servers, self-provisioned credentials. `agent_manager` manages wiring; `ekg_manager` manages MCP Builder
+6. **Cost Center** — LLM usage and cost tracking per employee, per scope. Read-only for `viewer` and `auditor`
+7. **Audit Trail** — searchable, filterable, exportable log of all AI employee actions. `auditor` and `platform_admin`
+8. **Orchestrator Dashboard** — Mode B multi-agent task decomposition and progress tracking. Visible to `manager` and `platform_admin`
+9. **Knowledge Manager** — document upload, EKG curation, MCP Builder trigger, skill generation, cross-employee distribution. Requires `ekg_manager` role
+10. **Testing** — pre-deployment scorecards, per-dimension scores, auto-tune history. `agent_manager` and `platform_admin`
+11. **Settings** — SSO config, 7-role RBAC management, scope model (SME vs department), global approval policies, gateway connection. Requires `platform_admin`
+12. **Communication Panel** — user-aware session list filtered by `userToken`; 1:1 employee conversations and multi-agent group chat. Available to `end_user`, `manager`, and `agent_manager`
 
 ### Deferred to OpenClaw Control UI
 
@@ -1988,9 +2147,19 @@ Sentura-Platform/
 │   │   │       ├── conflicts/       # Cross-domain conflict detection
 │   │   │       ├── insights/        # Systemic pattern analysis
 │   │   │       └── global-sops/     # Cross-departmental SOPs
-│   │   └── data-scavenger/
-│   │       ├── SOUL.md          # Data Scavenger Agent identity
-│   │       └── skills/          # Document ingestion, 4-pillar classification
+│   │   ├── data-scavenger/
+│   │   │   ├── SOUL.md          # Data Scavenger Agent identity
+│   │   │   └── skills/          # Document ingestion, 4-pillar classification
+│   │   └── mcp-builder/
+│   │       ├── SOUL.md          # MCP Builder Agent identity
+│   │       └── skills/          # API analysis, MCP server generation
+│   │
+│   ├── mcp-servers/             # Generated MCP servers (output of MCP Builder Agent)
+│   │   └── {name}/             # One directory per generated server
+│   │       ├── index.ts         # MCP server entry point
+│   │       ├── tools/           # Individual tool definitions
+│   │       ├── package.json     # Dependencies
+│   │       └── config-snippet.json5  # config.patch fragment
 │   │
 │   ├── dashboard/               # Sentura Admin Dashboard
 │   │   ├── src/
@@ -2008,7 +2177,7 @@ Sentura-Platform/
 │   │   └── sentura-provisioner/ # Self-provisioning coordinator
 │   │
 │   ├── hooks/                   # Sentura OpenClaw hooks
-│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md + ekg/ into system prompt
+│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md + ekg/ + MEMORY_USER_{token}.md into system prompt
 │   │       ├── HOOK.md          # Hook metadata (events, install info)
 │   │       └── handler.ts       # Bootstrap event handler
 │   │
@@ -2044,6 +2213,8 @@ Sentura-Platform/
 │   │   ├── CONTEXT.md
 │   │   ├── TOOLS.md
 │   │   ├── skills/
+│   │   ├── memory/              # Per-user memory isolation
+│   │   │   └── users/           # MEMORY_USER_{token}.md files
 │   │   └── ekg/                 # Per-agent Enterprise Knowledge Graph (see §6)
 │   │       ├── org/             # Pillar 1: Organizational & Identity
 │   │       ├── rules/           # Pillar 2: Rules & Compliance
