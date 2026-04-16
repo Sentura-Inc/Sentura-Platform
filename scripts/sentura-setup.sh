@@ -117,8 +117,12 @@ register_agent() {
 
   log "Registering agent: $agent_id"
 
-  # Check if agent already exists
-  if openclaw_cli agents list --json 2>/dev/null | grep -q "\"id\":\"$agent_id\"" 2>/dev/null; then
+  # Check if agent already exists in the config file directly
+  if node -e "
+    const config = JSON.parse(require('fs').readFileSync('$OPENCLAW_CONFIG', 'utf8'));
+    const found = (config.agents?.list || []).some(a => a.id === '$agent_id');
+    process.exit(found ? 0 : 1);
+  " 2>/dev/null; then
     warn "  Agent '$agent_id' already registered (skipping)"
     return 0
   fi
@@ -152,6 +156,19 @@ for agent in "${META_AGENTS[@]}"; do
   fi
 done
 
+# Ensure Sentura-specific directories exist in every meta-agent workspace
+# (the copy_workspace helper only copies what's in source; these are runtime dirs)
+log "Ensuring Sentura workspace directories (ekg/, memory/users/)..."
+for agent in "${META_AGENTS[@]}"; do
+  target="$WORKSPACE_BASE/$agent"
+  if [[ -d "$target" ]]; then
+    mkdir -p "$target/ekg/org" "$target/ekg/rules" "$target/ekg/assets" \
+             "$target/ekg/workflows/experience-links" "$target/memory/users" \
+             "$target/skills"
+  fi
+done
+ok "Sentura workspace directories ensured."
+
 # --- Step 3: Register meta-agents ---
 
 log "Step 3: Registering meta-agents with OpenClaw..."
@@ -168,9 +185,21 @@ done
 
 log "Step 4: Applying Sentura agent configuration..."
 
-# Set agents.defaults.workspace via CLI (this path works reliably)
-openclaw_cli config set "agents.defaults.workspace" --value "~/.openclaw/workspace" \
-  2>&1 | while IFS= read -r line; do echo "  $line"; done || true
+# Set agents.defaults.workspace via direct config file patch
+node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+if (!config.agents) config.agents = {};
+if (!config.agents.defaults) config.agents.defaults = {};
+if (config.agents.defaults.workspace !== '~/.openclaw/workspace') {
+  config.agents.defaults.workspace = '~/.openclaw/workspace';
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Set agents.defaults.workspace = ~/.openclaw/workspace');
+} else {
+  console.log('  agents.defaults.workspace already set');
+}
+"
 
 # Apply per-agent tool overrides by patching the config JSON directly.
 # The CLI's `config set` doesn't support array-element addressing like
@@ -198,9 +227,37 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 
 ok "Agent configuration applied."
 
-# --- Step 5: Configure gateway for Sentura Dashboard ---
+# --- Step 5: Configure per-agent LanceDB memory isolation ---
 
-log "Step 5: Configuring gateway for Sentura Dashboard (controlUi.allowInsecureAuth)..."
+log "Step 5: Configuring per-agent LanceDB memory isolation..."
+
+node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+let updated = 0;
+for (const agent of (config.agents?.list || [])) {
+  if (!agent.params) agent.params = {};
+  if (!agent.params.memoryDbPath) {
+    agent.params.memoryDbPath = '~/.openclaw/memory/' + agent.id + '/lancedb';
+    updated++;
+  }
+}
+
+if (updated > 0) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Set per-agent memoryDbPath for ' + updated + ' agent(s)');
+} else {
+  console.log('  All agents already have memoryDbPath configured');
+}
+"
+
+ok "Per-agent LanceDB isolation configured."
+
+# --- Step 6: Configure gateway for Sentura Dashboard ---
+
+log "Step 6: Configuring gateway for Sentura Dashboard (controlUi.allowInsecureAuth)..."
 
 node -e "
 const fs = require('fs');
@@ -220,9 +277,9 @@ if (config.gateway.controlUi.allowInsecureAuth !== true) {
 
 ok "Gateway configured for local dashboard access."
 
-# --- Step 6: Install Sentura bootstrap hook ---
+# --- Step 7: Install Sentura bootstrap hook ---
 
-log "Step 6: Installing sentura-bootstrap hook..."
+log "Step 7: Installing sentura-bootstrap hook..."
 
 HOOKS_DIR="$OPENCLAW_STATE/hooks"
 HOOK_SOURCE="$PROJECT_ROOT/sentura/hooks/sentura-bootstrap"
@@ -255,7 +312,7 @@ else
   warn "Hook source not found at $HOOK_SOURCE — skipping hook installation"
 fi
 
-# --- Step 7: Summary ---
+# --- Step 8: Summary ---
 
 echo ""
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

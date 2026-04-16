@@ -1,0 +1,22 @@
+{
+  "name": "@sentura/lib",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./workspace": "./workspace.ts",
+    "./agent-registration": "./agent-registration.ts",
+    "./channel-bindings": "./channel-bindings.ts",
+    "./memory-isolation": "./memory-isolation.ts",
+    "./user-token": "./user-token.ts",
+    "./mcp-loopback": "./mcp-loopback.ts"
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

@@ -140,13 +140,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 > **Capabilities covered**: #1 (data integration start), #2 (MCP generation start), #5 (Creator Agent), #6 (incubation pipeline), #11 (EKG schema design)
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/ + ekg/ directory structure + `memory/users/` directory)
-- [ ] Build a helper script/API that registers a new agent into OpenClaw config via `config.patch`
-- [ ] Test hot-reload: adding an agent via `config.patch` makes it immediately available
-- [ ] Configure MCP loopback server for tool protocol interop
-- [ ] Set up channel binding helpers (programmatically bind agent → channel/peer)
-- [ ] **Implement per-agent LanceDB isolation convention**: configure `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config. Update `sentura-setup.sh` to set `dbPath` for meta-agents. Verify each agent's vector store is isolated.
-- [ ] **Implement user token infrastructure**: assign `userToken` (UUID) at user creation in `sentura-rbac` user store. Attach `userToken` to WebSocket connections. Define session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. Add `userToken` to all trace/audit events.
+- [x] Implement automated workspace directory creation (create dirs, write all 10 template files + skills/ + ekg/ directory structure + `memory/users/` directory)
+- [x] Build a helper script/API that registers a new agent into OpenClaw config via `config.patch`
+- [x] Test hot-reload: adding an agent via `config.patch` makes it immediately available
+- [x] Configure MCP loopback server for tool protocol interop
+- [x] Set up channel binding helpers (programmatically bind agent → channel/peer)
+- [x] **Implement per-agent LanceDB isolation convention**: configure `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config. Update `sentura-setup.sh` to set `dbPath` for meta-agents. Verify each agent's vector store is isolated.
+- [x] **Implement user token infrastructure**: assign `userToken` (UUID) at user creation in `sentura-rbac` user store. Attach `userToken` to WebSocket connections. Define session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. Add `userToken` to all trace/audit events.
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Creator Agent Phase 1: Research & Discovery (web search, clarifying questions)

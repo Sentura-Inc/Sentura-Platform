@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import path from "node:path";
 import { definePluginEntry, resolveOpenClawDir, type OpenClawPluginApi } from "./api.js";
 import { Authorizer } from "./src/authorizer.js";
@@ -17,7 +18,7 @@ function resolveConfig(pluginConfig: Record<string, unknown>): RbacConfig {
 export default definePluginEntry({
   id: "sentura-rbac",
   name: "Sentura RBAC",
-  description: "Enterprise role-based access control with five-role permission model.",
+  description: "Enterprise role-based access control with seven-role permission model and user token identity.",
   register(api: OpenClawPluginApi) {
     const config = resolveConfig(api.pluginConfig ?? {});
     const store = new RbacStore(config.dataDir);
@@ -73,7 +74,7 @@ export default definePluginEntry({
       },
     });
 
-    // --- Gateway RPC: Upsert user ---
+    // --- Gateway RPC: Upsert user (auto-assigns userToken on creation) ---
     api.registerGatewayMethod({
       method: "sentura.rbac.users.upsert",
       handler: async (params) => {
@@ -88,6 +89,7 @@ export default definePluginEntry({
           email: userData.email,
           name: userData.name ?? userData.email,
           role: userData.role ?? existing?.role ?? config.defaultRole,
+          userToken: existing?.userToken ?? crypto.randomUUID(),
           departmentIds: userData.departmentIds ?? existing?.departmentIds ?? [],
           ownedEmployeeIds: userData.ownedEmployeeIds ?? existing?.ownedEmployeeIds ?? [],
           createdAt: existing?.createdAt ?? now,
@@ -96,6 +98,17 @@ export default definePluginEntry({
         };
         await store.upsertUser(user);
         return { user };
+      },
+    });
+
+    // --- Gateway RPC: Resolve user by token (for WebSocket auth) ---
+    api.registerGatewayMethod({
+      method: "sentura.rbac.users.resolveByToken",
+      handler: async (params) => {
+        const userToken = params?.userToken as string;
+        if (!userToken) return { error: "userToken required" };
+        const user = await store.getUserByToken(userToken);
+        return user ? { user } : { error: "User not found for token" };
       },
     });
 

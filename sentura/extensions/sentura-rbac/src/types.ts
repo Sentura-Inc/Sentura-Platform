@@ -1,9 +1,11 @@
 export const SENTURA_ROLES = [
   "platform_admin",
-  "dept_admin",
-  "employee_owner",
+  "manager",
+  "ekg_manager",
+  "agent_manager",
   "auditor",
   "end_user",
+  "viewer",
 ] as const;
 
 export type SenturaRole = (typeof SENTURA_ROLES)[number];
@@ -33,6 +35,7 @@ export interface SenturaUser {
   email: string;
   name: string;
   role: SenturaRole;
+  userToken: string;
   departmentIds: string[];
   ownedEmployeeIds: string[];
   createdAt: string;

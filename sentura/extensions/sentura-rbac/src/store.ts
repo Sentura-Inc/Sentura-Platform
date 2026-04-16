@@ -39,6 +39,14 @@ export class RbacStore {
     return Array.from(this.users.values());
   }
 
+  async getUserByToken(userToken: string): Promise<SenturaUser | undefined> {
+    await this.ensureLoaded();
+    for (const user of this.users.values()) {
+      if (user.userToken === userToken) return user;
+    }
+    return undefined;
+  }
+
   async listUsersByDepartment(departmentId: string): Promise<SenturaUser[]> {
     await this.ensureLoaded();
     const dept = this.departments.get(departmentId);
@@ -112,11 +120,15 @@ export class RbacStore {
     const user = this.users.get(userId);
     if (!user) return [];
 
-    if (user.role === "platform_admin" || user.role === "auditor") {
+    if (user.role === "platform_admin" || user.role === "auditor" || user.role === "ekg_manager") {
       return "all";
     }
 
-    if (user.role === "dept_admin") {
+    if (user.role === "viewer") {
+      return "all";
+    }
+
+    if (user.role === "manager") {
       const departments = await this.getDepartmentsForUser(userId);
       const ids = new Set<string>();
       for (const dept of departments) {
@@ -126,7 +138,7 @@ export class RbacStore {
       return Array.from(ids);
     }
 
-    if (user.role === "employee_owner") {
+    if (user.role === "agent_manager") {
       return [...user.ownedEmployeeIds];
     }
 

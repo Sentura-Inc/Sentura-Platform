@@ -1,8 +1,8 @@
-# Sentura Platform — Week 1 Test Documentation
+# Sentura Platform — Test Documentation
 
-> **Scope**: All deliverables from Week 1 across all four team members.
+> **Scope**: All deliverables from Weeks 1–2 across all four team members.
 >
-> **Last updated**: 2026-04-08
+> **Last updated**: 2026-04-15
 
 ---
 
@@ -81,14 +81,111 @@ cd .. && ./scripts/sentura-setup.sh
 | A3.4 | Empty files skipped | Create RULES.md with only whitespace content | File is not appended to bootstrapFiles (whitespace-only = absent) |
 | A3.5 | Non-bootstrap events ignored | Other hook events fire during normal operation | Hook returns without modification; no errors in gateway logs |
 
-### A4. Documentation Accuracy
+### A4. Week 2 — Workspace Creation Library (`sentura/lib/workspace.ts`)
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
-| A4.1 | docs/SETUP.md steps work | Follow every step in `docs/SETUP.md` on a clean checkout | All commands succeed; final verification checklist passes |
-| A4.2 | Gateway RPC doc accuracy | Test documented methods against live gateway | `config.get`, `agents.list`, `sessions.list`, `health` return expected shapes |
-| A4.3 | Monorepo scripts | `pnpm run build`, `pnpm test`, `pnpm lint` from root | Each script runs without error (or skips gracefully if no sub-packages define the script) |
-| A4.4 | pnpm workspaces | `pnpm -r list` from root | Lists `sentura/dashboard` and `sentura/extensions/*` packages |
+| A4.1 | createWorkspace creates all dirs | Call `createWorkspace({ agentId: "test-agent" })` | Creates workspace dir, skills/, ekg/{org,rules,assets,workflows,workflows/experience-links}/, memory/users/ |
+| A4.2 | All 10 workspace files created | Call `createWorkspace()` then list files | AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md, RULES.md, CONTEXT.md all exist |
+| A4.3 | Template files used when provided | Call `createWorkspace({ templateDir: "sentura/config/templates/cs-agent" })` | Files come from template, not defaults |
+| A4.4 | Existing files not overwritten | Create SOUL.md manually, call `createWorkspace()` | Pre-existing SOUL.md content preserved |
+| A4.5 | Industry ontology merge | Call with `industryOntologyDir` pointing to e-commerce ontology | EKG pillar files from ontology copied into agent's ekg/ |
+
+### A5. Week 2 — Agent Registration (`sentura/lib/agent-registration.ts`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A5.1 | buildAgentPatch output | Call `buildAgentPatch()` with full registration | Returns valid JSON with `agents.list[]` array, bindings, mcp.servers |
+| A5.2 | registerAgentOnDisk adds agent | Call `registerAgentOnDisk()` | Agent appears in config.agents.list |
+| A5.3 | registerAgentOnDisk deduplicates | Call twice with same agentId | Agent appears only once; second call updates existing |
+| A5.4 | isAgentRegistered check | Register agent then check | Returns true for registered, false for unregistered |
+| A5.5 | buildGatewayToolCall format | Call `buildGatewayToolCall()` | Returns { tool: "gateway", action: "config.patch", params: { raw: "...", note: "..." } } |
+| A5.6 | buildMemoryDbPath format | Call `buildMemoryDbPath("test-agent")` | Returns `~/.openclaw/memory/test-agent/lancedb` |
+
+### A6. Week 2 — Hot-Reload Verification (`scripts/test-hot-reload.sh`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A6.1 | Script runs cleanly | `./scripts/test-hot-reload.sh` | Exit code 0; all 6 steps pass; cleanup removes test agent |
+| A6.2 | Workspace structure correct | Script step 4 | All workspace files and ekg/ + memory/users/ dirs verified |
+| A6.3 | Memory isolation verified | Script step 5 | Agent has unique memoryDbPath in params |
+
+### A7. Week 2 — MCP Loopback Configuration (`scripts/configure-mcp-loopback.sh`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A7.1 | Script configures loopback | `./scripts/configure-mcp-loopback.sh` | Exit code 0; `mcp.servers.openclaw-loopback` in config |
+| A7.2 | Idempotent | Run twice | Second run detects existing config; no duplicates |
+
+### A8. Week 2 — Channel Binding Helpers (`sentura/lib/channel-bindings.ts`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A8.1 | createWebchatBinding | Call function | Returns correct binding with `channel: "webchat"`, `peer: { kind: "dm", id: "*" }` |
+| A8.2 | createSlackChannelBinding | Call function | Correct Slack channel binding with peer kind "channel" |
+| A8.3 | createDiscordBinding | Call with guildId and roles | Includes guildId and roles in match |
+| A8.4 | addBindingsOnDisk deduplicates | Add same binding twice | Only one copy in config |
+| A8.5 | removeAgentBindingsOnDisk | Remove bindings for agent | All bindings for that agentId removed; others preserved |
+
+### A9. Week 2 — Per-Agent LanceDB Isolation (`sentura/lib/memory-isolation.ts`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A9.1 | agentMemoryDbPath format | Call with agent ID | Returns `~/.openclaw/memory/{agentId}/lancedb` |
+| A9.2 | applyMemoryIsolationOnDisk | Call on config with 3 agents | All 3 agents get unique memoryDbPath in params |
+| A9.3 | validateMemoryIsolation | Call after isolation applied | All agents in `isolated` array; `shared` array empty |
+| A9.4 | Setup script sets dbPath | Run `sentura-setup.sh` | Meta-agents have memoryDbPath set in config |
+
+### A10. Week 2 — User Token Infrastructure (`sentura/lib/user-token.ts`)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A10.1 | generateUserToken format | Call function | Returns valid UUID v4 |
+| A10.2 | buildSessionKey format | Call with agentId and userToken | Returns `agent:{agentId}:user:{userToken}:{sessionId}` |
+| A10.3 | parseSessionKey roundtrip | Build then parse | All components (agentId, userToken, sessionId) correctly extracted |
+| A10.4 | isUserSession check | Build key, check with correct/wrong token | Returns true for matching token, false for different |
+| A10.5 | hashUserToken deterministic | Hash same token twice | Same 16-char hex output both times |
+| A10.6 | userMemoryFilePath format | Call with workspace dir and token | Returns `{workspaceDir}/memory/users/MEMORY_USER_{token}.md` |
+| A10.7 | ensureUserMemoryFile creates | Call function | File and directory created if not exists |
+
+### A11. Week 2 — RBAC 7-Role Model Update
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A11.1 | 7 roles defined | Read `sentura/extensions/sentura-rbac/src/roles.ts` | `ROLE_DEFINITIONS` has exactly 7 entries |
+| A11.2 | Role IDs correct | Check role IDs | `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer` |
+| A11.3 | userToken in SenturaUser | Read `src/types.ts` | `SenturaUser` interface includes `userToken: string` |
+| A11.4 | getUserByToken works | Read `src/store.ts` | `getUserByToken()` method exists and searches by userToken |
+| A11.5 | Upsert auto-assigns token | Read `index.ts` upsert handler | New users get `crypto.randomUUID()` userToken; existing users keep their token |
+| A11.6 | resolveByToken RPC | Read `index.ts` | `sentura.rbac.users.resolveByToken` method registered |
+| A11.7 | Bootstrap hook injects user memory | Read bootstrap handler.ts | Extracts userToken from session key, injects MEMORY_USER_{token}.md |
+
+### A12. Documentation Accuracy
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A12.1 | docs/SETUP.md steps work | Follow every step in `docs/SETUP.md` on a clean checkout | All commands succeed; final verification checklist passes |
+| A12.2 | Gateway RPC doc accuracy | Test documented methods against live gateway | `config.get`, `agents.list`, `sessions.list`, `health` return expected shapes |
+| A12.3 | Monorepo scripts | `pnpm run build`, `pnpm test`, `pnpm lint` from root | Each script runs without error (or skips gracefully if no sub-packages define the script) |
+| A12.4 | pnpm workspaces | `pnpm -r list` from root | Lists `sentura/dashboard` and `sentura/extensions/*` packages |
+
+### A13. Week 2 — Gateway Integration Tests (`scripts/test-gateway-integration.ts`)
+
+Run: `npx tsx scripts/test-gateway-integration.ts` (requires gateway running at localhost:18789)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A13.1 | Gateway handshake | WebSocket challenge-response with TUI client identity | Connection succeeds; no origin or scope errors |
+| A13.2 | config.get reads live config | RPC `config.get` | Returns config object + hash; agents.list is an array |
+| A13.3 | Meta-agents registered | Parse agents from config.get | creator, tuner, orchestrator all present |
+| A13.4 | Memory isolation live | Check memoryDbPath for each meta-agent | Each has unique path containing agent ID |
+| A13.5 | config.patch registers agent | RPC `config.patch` with baseHash | Temp agent appears in subsequent config.get |
+| A13.6 | config.patch fields correct | Read temp agent config after patch | name, memoryDbPath, sandbox.mode all match |
+| A13.7 | Temp agent cleanup | Remove test agent from config file | Agent count decreases by 1 |
+| A13.8 | Bootstrap hook config | Check hooks.internal.entries in live config | sentura-bootstrap exists and is enabled |
+| A13.9 | Workspace RULES.md present | Verify RULES.md in each meta-agent workspace | All 3 workspaces have RULES.md |
+| A13.10 | Workspace CONTEXT.md present | Verify CONTEXT.md in each meta-agent workspace | All 3 workspaces have CONTEXT.md |
+| A13.11 | HTTP health endpoint | GET /health | Returns 200 with status field |
 
 ---
 
@@ -365,13 +462,13 @@ Tester: ____
 Gateway version: ____
 Node version: ____
 
-Person A: __ / 19 passed
+Person A: __ / 74 passed
 Person B: __ / 24 passed
 Person C: __ / 33 passed
 Person D: __ / 31 passed (22 automated + 9 manual)
 Cross-team: __ / 13 passed
 
-Total: __ / 120
+Total: __ / 175
 
 Notes:
 - ...

@@ -2,7 +2,7 @@ import { getRoleDefinition } from "./roles.js";
 import { RbacStore } from "./store.js";
 import type { AuthorizationResult, PermissionScope, SenturaRole, SenturaUser } from "./types.js";
 
-type MethodAction = "read" | "write" | "create" | "delete" | "resolve" | "configure" | "export" | "query";
+type MethodAction = "read" | "write" | "create" | "update" | "delete" | "resolve" | "configure" | "export" | "query";
 
 interface MethodPolicy {
   resource: string;
@@ -71,9 +71,23 @@ const METHOD_POLICIES: Record<string, MethodPolicy> = {
   "sentura.audit.stats": { resource: "audit", action: "read" },
   "sentura.rbac.roles.list": { resource: "users", action: "read" },
   "sentura.rbac.users.list": { resource: "users", action: "read" },
+  "sentura.rbac.users.get": { resource: "users", action: "read" },
+  "sentura.rbac.users.create": { resource: "users", action: "create" },
+  "sentura.rbac.users.update": { resource: "users", action: "write" },
+  "sentura.rbac.users.delete": { resource: "users", action: "delete" },
   "sentura.rbac.users.assign": { resource: "users", action: "write" },
+  "sentura.rbac.departments.list": { resource: "departments", action: "read" },
+  "sentura.rbac.departments.create": { resource: "departments", action: "create" },
+  "sentura.rbac.departments.update": { resource: "departments", action: "write" },
+  "sentura.rbac.departments.delete": { resource: "departments", action: "delete" },
   "sentura.rbac.policies.get": { resource: "approvals", action: "read" },
   "sentura.rbac.policies.set": { resource: "approvals", action: "configure" },
+  "sentura.ekg.browse": { resource: "ekg", action: "read" },
+  "sentura.ekg.upload": { resource: "ekg", action: "write" },
+  "sentura.ekg.delete": { resource: "ekg", action: "delete" },
+  "sentura.mcp.list": { resource: "mcp", action: "read" },
+  "sentura.mcp.build": { resource: "mcp", action: "create" },
+  "sentura.mcp.configure": { resource: "mcp", action: "write" },
 };
 
 export class Authorizer {
@@ -99,8 +113,9 @@ export class Authorizer {
 
     const policy = METHOD_POLICIES[method];
     if (!policy) {
-      // Unclassified methods: allow for admin-scoped roles, deny for others
-      if (user.role === "dept_admin") return { allowed: true, filteredScope: "department" };
+      if (user.role === "manager" || user.role === "ekg_manager") {
+        return { allowed: true, filteredScope: "department" };
+      }
       return { allowed: false, reason: `Method ${method} has no RBAC policy` };
     }
 

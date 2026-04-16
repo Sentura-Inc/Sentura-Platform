@@ -1,10 +1,14 @@
 /**
  * Sentura Bootstrap Hook
  *
- * Injects RULES.md and CONTEXT.md into the agent system prompt.
- * OpenClaw natively loads 8 workspace files; Sentura adds these two
- * enterprise-specific files via the hook pipeline so they appear in
- * the system prompt without modifying OpenClaw core.
+ * Injects Sentura-specific files into the agent system prompt:
+ *   1. RULES.md — position-specific safety guardrails (Sentura innovation)
+ *   2. CONTEXT.md — enterprise context
+ *   3. MEMORY_USER_{token}.md — user-specific memory (if userToken in session context)
+ *
+ * OpenClaw natively loads 8 workspace files; Sentura adds these enterprise-specific
+ * files via the hook pipeline so they appear in the system prompt without modifying
+ * OpenClaw core.
  */
 
 import fs from "node:fs";
@@ -26,6 +30,8 @@ type BootstrapFile = {
 type BootstrapContext = {
   workspaceDir: string;
   bootstrapFiles: BootstrapFile[];
+  sessionKey?: string;
+  agentId?: string;
 };
 
 const SENTURA_FILES = ["RULES.md", "CONTEXT.md"] as const;
@@ -46,6 +52,12 @@ function readFileIfExists(filePath: string): string | null {
   }
 }
 
+function extractUserTokenFromSessionKey(sessionKey: string | undefined): string | null {
+  if (!sessionKey) return null;
+  const match = sessionKey.match(/^agent:[^:]+:user:([^:]+):/);
+  return match ? match[1] : null;
+}
+
 const senturaBootstrapHook: HookHandler = async (event) => {
   if (!isBootstrapEvent(event)) {
     return;
@@ -64,6 +76,20 @@ const senturaBootstrapHook: HookHandler = async (event) => {
         name: fileName,
         path: filePath,
         content,
+        missing: false,
+      });
+    }
+  }
+
+  const userToken = extractUserTokenFromSessionKey(context.sessionKey);
+  if (userToken) {
+    const userMemoryPath = path.join(workspaceDir, "memory", "users", `MEMORY_USER_${userToken}.md`);
+    const userMemoryContent = readFileIfExists(userMemoryPath);
+    if (userMemoryContent !== null && userMemoryContent.trim().length > 0) {
+      extraFiles.push({
+        name: `MEMORY_USER_${userToken}.md`,
+        path: userMemoryPath,
+        content: userMemoryContent,
         missing: false,
       });
     }
