@@ -1,0 +1,51 @@
+// E-Commerce — Fraud Detection Triggers
+{
+  schemaVersion: "1.0",
+  pillar: "rules",
+  domain: "fraud-detection",
+  entities: [
+    {
+      id: "entity:rule:velocity-anomaly",
+      type: "rule",
+      name: "Flag accounts with > 3 orders in 15 minutes for manual review",
+      attributes: { severity: "hard", action: "hold-fulfillment" },
+    },
+    {
+      id: "entity:rule:mismatched-shipping-billing",
+      type: "rule",
+      name: "Flag orders where shipping country differs from billing country for high-value SKUs",
+      attributes: { threshold_order_value: 200, severity: "soft" },
+    },
+    {
+      id: "entity:rule:bin-country-mismatch",
+      type: "rule",
+      name: "Hold orders where card BIN country differs from shipping and IP geolocation",
+      attributes: { severity: "hard" },
+    },
+    {
+      id: "entity:rule:freight-forwarder-block",
+      type: "rule",
+      name: "Block/manual-review orders shipping to known freight-forwarder addresses for high-risk SKUs",
+      attributes: { severity: "soft" },
+    },
+    {
+      id: "entity:rule:excessive-chargeback-ratio",
+      type: "rule",
+      name: "Flag for review if customer has > 2 lifetime chargebacks or chargeback ratio > 1%",
+      attributes: { severity: "hard" },
+    },
+  ],
+  relations: [
+    { from: "entity:rule:velocity-anomaly", type: "escalates-to", to: "entity:role:fraud-analyst" },
+    { from: "entity:rule:mismatched-shipping-billing", type: "escalates-to", to: "entity:role:fraud-analyst" },
+    { from: "entity:rule:bin-country-mismatch", type: "escalates-to", to: "entity:role:fraud-analyst" },
+    { from: "entity:rule:freight-forwarder-block", type: "escalates-to", to: "entity:role:fraud-analyst" },
+    { from: "entity:rule:excessive-chargeback-ratio", type: "escalates-to", to: "entity:role:trust-safety" },
+  ],
+  provenance: {
+    source: "industry-ontology:e-commerce",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.88,
+  },
+}

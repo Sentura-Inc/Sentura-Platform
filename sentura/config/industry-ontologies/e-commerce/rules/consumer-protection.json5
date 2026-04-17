@@ -1,0 +1,108 @@
+// E-Commerce — Consumer Protection & Return/Refund Rules
+{
+  schemaVersion: "1.0",
+  pillar: "rules",
+  domain: "consumer-protection",
+  entities: [
+    {
+      id: "entity:rule:return-window",
+      type: "rule",
+      name: "Accept returns within {return_window_days} days of delivery",
+      attributes: {
+        window_days: "{return_window_days}",
+        severity: "hard",
+        rationale: "Published return policy; FTC expects merchants to honor stated terms",
+      },
+    },
+    {
+      id: "entity:rule:auto-refund-cap",
+      type: "rule",
+      name: "Auto-refund up to {max_auto_refund} {reporting_currency}; above requires supervisor approval",
+      attributes: {
+        threshold: "{max_auto_refund}",
+        currency: "{reporting_currency}",
+        severity: "hard",
+      },
+    },
+    {
+      id: "entity:rule:order-modify-window",
+      type: "rule",
+      name: "Order can be modified or cancelled only before fulfillment cutoff ({fulfillment_cutoff})",
+      attributes: {
+        severity: "hard",
+        exceptions: ["customer-service-override-with-supervisor"],
+      },
+    },
+    {
+      id: "entity:rule:duplicate-refund-block",
+      type: "rule",
+      name: "Never issue refund if original order already fully refunded",
+      attributes: {
+        severity: "hard",
+        rationale: "Prevent double-refund fraud and accounting errors",
+      },
+    },
+    {
+      id: "entity:rule:chargeback-response-deadline",
+      type: "rule",
+      name: "Respond to chargeback disputes within 7 business days",
+      attributes: {
+        severity: "hard",
+        rationale: "Card-network dispute windows (Visa/MC ~20 days, merchant best practice = 7d internal)",
+      },
+    },
+    {
+      id: "entity:rule:ftc-mail-order-rule",
+      type: "rule",
+      name: "Ship within 30 days or notify customer of delay and offer refund (FTC Mail Order Rule)",
+      attributes: {
+        severity: "hard",
+        framework: "16 CFR Part 435",
+      },
+    },
+    {
+      id: "entity:rule:auto-renew-disclosure",
+      type: "rule",
+      name: "Subscriptions: explicit consent + disclosure of terms + easy cancellation (ROSCA + state laws)",
+      attributes: {
+        severity: "hard",
+        framework: "ROSCA 15 USC 8401-8405, CA ARL",
+        applies_to: ["subscription-products"],
+      },
+    },
+    {
+      id: "entity:rule:pii-scope",
+      type: "rule",
+      name: "Customer PII (full address, phone, DOB, payment details) must not leave T2+ channels",
+      attributes: {
+        severity: "hard",
+        dataClass: "T2",
+        framework: "CCPA / CPRA / GDPR / state privacy laws",
+      },
+    },
+    {
+      id: "entity:rule:marketplace-map-policy",
+      type: "rule",
+      name: "Respect Minimum Advertised Price (MAP) policies on listings",
+      attributes: {
+        severity: "hard",
+        applies_to: ["amazon", "walmart-marketplace", "third-party-listings"],
+      },
+    },
+  ],
+  relations: [
+    { from: "entity:rule:return-window", type: "escalates-to", to: "entity:role:cx-lead" },
+    { from: "entity:rule:auto-refund-cap", type: "escalates-to", to: "entity:role:cx-lead" },
+    { from: "entity:rule:duplicate-refund-block", type: "escalates-to", to: "entity:role:cx-lead" },
+    { from: "entity:rule:chargeback-response-deadline", type: "escalates-to", to: "entity:role:trust-safety" },
+    { from: "entity:rule:ftc-mail-order-rule", type: "escalates-to", to: "entity:role:legal-counsel" },
+    { from: "entity:rule:auto-renew-disclosure", type: "escalates-to", to: "entity:role:legal-counsel" },
+    { from: "entity:rule:pii-scope", type: "escalates-to", to: "entity:role:legal-counsel" },
+  ],
+  provenance: {
+    source: "industry-ontology:e-commerce",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.92,
+  },
+}

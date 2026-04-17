@@ -98,9 +98,19 @@ export function buildAgentPatch(registration: FullAgentRegistration): string {
   }
 
   if (memoryLanceDbPath) {
+    // OpenClaw plugin config lives under `plugins.entries[<id>].config`.
+    // NOTE: memory-lancedb exposes a single global `dbPath` — true per-agent
+    // isolation would require collection-level filtering by agentId, not
+    // separate dbPaths. We still stamp the per-agent path here so the
+    // Creator Agent's last-deployed employee owns the current path; see
+    // docs/MEMORY.md for the tracked follow-up.
     patch.plugins = {
-      "memory-lancedb": {
-        dbPath: memoryLanceDbPath,
+      entries: {
+        "memory-lancedb": {
+          config: {
+            dbPath: memoryLanceDbPath,
+          },
+        },
       },
     };
   }

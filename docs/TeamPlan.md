@@ -149,26 +149,27 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] **Implement user token infrastructure**: assign `userToken` (UUID) at user creation in `sentura-rbac` user store. Attach `userToken` to WebSocket connections. Define session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. Add `userToken` to all trace/audit events.
 
 ### Person B — AI Employee & Skills Engineer
-- [ ] Build Creator Agent Phase 1: Research & Discovery (web search, clarifying questions)
-- [ ] Build Creator Agent Phase 2: Design (generate agent config, all 10 workspace files, skills)
-  - Must generate RULES.md with position-specific guardrails (Sentura innovation, not in OpenClaw)
-  - Must generate CONTEXT.md with enterprise context
-  - Must wire MCP server references for required integrations
-  - Must create `ekg/` directory structure with 4 pillar subdirectories (org/, rules/, assets/, workflows/)
-  - Must merge appropriate industry ontology template into `ekg/` during incubation
-  - **Must set `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb`** in per-agent plugin config for vector store isolation
-- [ ] Build Creator Agent Phase 4: Deploy (write workspace, `config.patch`, smoke test)
-- [ ] Test end-to-end: describe a role in NL → Creator Agent produces a working AI employee
-- [ ] Write 5 more skill templates for common enterprise tasks
-- [ ] **Design the EKG 4-pillar JSON5 schema (capability #11)**:
-  - Define the entity/relation/attribute format for each pillar (org, rules, assets, workflows)
-  - Define provenance tracking fields (source document, ingestion date, confidence score)
-  - Define the Experience Link JSON5 format (pattern, observation, confidence, occurrences)
-  - Document the schema in a reference file: `sentura/config/ekg-schema.json5`
-- [ ] **Build 2 industry ontology templates (capability #13 — Tier 1)**:
-  - `sentura/config/industry-ontologies/financial-services/` (compliance chains, financial controls, standard SOPs)
-  - `sentura/config/industry-ontologies/e-commerce/` (consumer protection, order fulfillment, product catalog schemas)
-- [ ] **Create MCP Builder Agent workspace**: `sentura/agents/mcp-builder/` with SOUL.md and skills/ (API analysis skill, MCP server generation skill, code output skill). Agent takes API docs as input and produces TypeScript MCP server projects at `sentura/mcp-servers/{name}/`.
+- [x] Build Creator Agent Phase 1: Research & Discovery (web search, clarifying questions) — `sentura/agents/creator/skills/research-and-discovery/SKILL.md`
+- [x] Build Creator Agent Phase 2: Design (generate agent config, all 10 workspace files, skills) — `sentura/agents/creator/skills/employee-design/SKILL.md`
+  - [x] Generates RULES.md with position-specific guardrails (Sentura innovation, not in OpenClaw)
+  - [x] Generates CONTEXT.md with enterprise context
+  - [x] Wires MCP server references for required integrations
+  - [x] Creates `ekg/` directory structure with 4 pillar subdirectories (org/, rules/, assets/, workflows/)
+  - [x] Merges appropriate industry ontology template into `ekg/` during incubation
+  - [x] Sets `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config for vector store isolation
+- [x] Build Creator Agent Phase 4: Deploy (write workspace, `config.patch`, smoke test) — `sentura/agents/creator/skills/employee-deployment/SKILL.md`
+- [x] Test Creator helpers offline — `scripts/test-creator-helpers.ts` (49/49 pass; helper-level validation, not true LLM E2E)
+- [ ] Test end-to-end: NL → real LLM Creator run → working AI employee (stub: `scripts/test-creator-e2e-live.ts`, requires `SENTURA_LLM_E2E=1` and provider creds)
+- [x] Write 5 more skill templates for common enterprise tasks — `sentura/config/templates/_common/skills/` (meeting-notes, document-summarization, escalation-handling, status-update, knowledge-base-lookup)
+- [x] **Design the EKG 4-pillar JSON5 schema (capability #11)**:
+  - [x] Defined entity/relation/attribute format for each pillar (org, rules, assets, workflows)
+  - [x] Defined provenance tracking fields (source document, ingestion date, confidence score)
+  - [x] Defined Experience Link JSON5 format (pattern, observation, confidence, occurrences)
+  - [x] Documented schema at `sentura/config/ekg-schema.json5`
+- [x] **Build 2 industry ontology templates (capability #13 — Tier 1)**:
+  - [x] `sentura/config/industry-ontologies/financial-services/` (SOX, AML/KYC, PCI, approval chains, standard SOPs)
+  - [x] `sentura/config/industry-ontologies/e-commerce/` (consumer protection, fraud detection, order fulfillment, RMA/refund/chargeback)
+- [x] **Create MCP Builder Agent workspace**: `sentura/agents/mcp-builder/` with full 10-file workspace and 4 skills (api-analysis, mcp-generation, smoke-test, register-server). Agent takes API docs as input and produces TypeScript MCP server projects at `sentura/mcp-servers/{name}/`.
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway)

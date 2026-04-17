@@ -18,6 +18,18 @@ Each directory contains a complete role template that the Creator Agent uses as 
 | CS Agent | `cs-agent/` | Customer support ticket triage and resolution |
 | SDR | `sdr/` | Sales development prospecting and outreach |
 
+## Common Skills Library
+
+`_common/skills/` contains cross-cutting skills that any role can use. The Creator Agent copies the relevant skill files into the employee's workspace during Phase 2 (Design), then customizes placeholders.
+
+| Common Skill | Directory | Description |
+|--------------|-----------|-------------|
+| Meeting Notes | `_common/skills/meeting-notes/` | Summarize meetings, extract action items |
+| Document Summarization | `_common/skills/document-summarization/` | TL;DR long docs with citations and risk flags |
+| Escalation Handling | `_common/skills/escalation-handling/` | Detect and route human handoffs |
+| Status Update | `_common/skills/status-update/` | Compose daily / weekly / incident updates |
+| Knowledge Base Lookup | `_common/skills/knowledge-base-lookup/` | Authoritative KB search before answering |
+
 ## Placeholder Convention
 
 Templates use `{placeholder_name}` for values that must be customized per deployment:

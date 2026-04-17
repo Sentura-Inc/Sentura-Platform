@@ -2,7 +2,7 @@
 
 > **Scope**: All deliverables from Weeks 1–2 across all four team members.
 >
-> **Last updated**: 2026-04-15
+> **Last updated**: 2026-04-16 (B11 scope note + B13 stub added; misleading "E2E" claims corrected to "helper validation"; memory-isolation claim softened to design intent)
 
 ---
 
@@ -248,6 +248,326 @@ Run: `npx tsx scripts/test-gateway-integration.ts` (requires gateway running at 
 | B5.4 | MCP server references | Read config.json5 | Contains `mcp.servers` for `gradsale-admin` and `gradsale-web`; secrets use env var references (`$secret.`) |
 | B5.5 | Config schema correct | Read config.json5 | Uses `agents.list[]` format; no `workspace` field; denies `exec`, `gateway`, `browser` |
 
+### B6. Creator Agent Phase Skills (Week 2)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B6.1 | Phase 1 skill exists | `ls sentura/agents/creator/skills/research-and-discovery/SKILL.md` | Non-empty; has sections When to Use, Procedure (7+ steps), Tools Needed, Safety |
+| B6.2 | Phase 1 covers clarifying Qs | Read skill | Contains numbered clarifying questions list; industry classification step; memory search step |
+| B6.3 | Phase 2 skill exists | `ls sentura/agents/creator/skills/employee-design/SKILL.md` | Non-empty; produces a design bundle with config, bindings, MCP refs, workspace files, EKG, pluginConfig |
+| B6.4 | Phase 2 enforces isolation | Grep skill for `memory-lancedb` and `dbPath` | Mandates per-agent `memory-lancedb.dbPath` in plugin config |
+| B6.5 | Phase 2 enforces RULES/CONTEXT | Read skill | Step 7 generates both RULES.md and CONTEXT.md with explicit categories and minimum 3 rules per category |
+| B6.6 | Phase 4 skill exists | `ls sentura/agents/creator/skills/employee-deployment/SKILL.md` | Non-empty; covers preconditions, workspace write, plugin config, config.patch, smoke test, rollback |
+| B6.7 | Phase 4 enforces smoke test | Grep skill | Includes smoke test step with session spawn + validation + rollback on failure |
+| B6.8 | Phase 4 includes audit | Grep skill for `sentura.audit` | Includes `agent.deployed` audit log entry with caller userToken |
+
+### B7. EKG Schema (Week 2)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B7.1 | Schema reference exists | `ls sentura/config/ekg-schema.json5` | File present and non-empty |
+| B7.2 | 4 pillars documented | Grep schema | Documents org/, rules/, assets/, workflows/ pillars |
+| B7.3 | Experience Link format | Grep schema | Includes pattern, observation, confidence, occurrences fields |
+| B7.4 | Provenance fields | Grep schema | Includes source document, ingestion date, confidence score |
+| B7.5 | Industry Ontology format | Grep schema | Documents merge semantics and template format |
+
+### B8. Industry Ontologies (Week 2)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B8.1 | Financial-services template | `ls sentura/config/industry-ontologies/financial-services/{org,rules,assets,workflows}/` | All 4 pillars populated with JSON5 files + README.md |
+| B8.2 | Financial-services rules | Read `rules/financial-controls.json5` + `rules/compliance.json5` | Includes SOX, AML/KYC, PCI-DSS, 3-way match, payment thresholds |
+| B8.3 | E-commerce template | `ls sentura/config/industry-ontologies/e-commerce/{org,rules,assets,workflows}/` | All 4 pillars populated with JSON5 files + README.md |
+| B8.4 | E-commerce rules | Read `rules/consumer-protection.json5` + `rules/fraud-detection.json5` | Includes return/refund, chargeback, MAP, velocity checks |
+
+### B9. MCP Builder Agent (Week 2)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B9.1 | Workspace complete | `ls sentura/agents/mcp-builder/` | Contains config.json5 + all 10 workspace files (AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, BOOTSTRAP, MEMORY, RULES, CONTEXT) |
+| B9.2 | Four skills present | `ls sentura/agents/mcp-builder/skills/*/SKILL.md` | api-analysis, mcp-generation, smoke-test, register-server |
+| B9.3 | Config schema correct | Read config.json5 | `agents.list[]`; `sandbox.mode = "non-main"`; `tools.profile = "coding"` with explicit gateway/web/browser allow |
+| B9.4 | SOUL identity | Read SOUL.md | Name "Smith"; mission of generating MCP servers from API docs |
+| B9.5 | RULES prohibitions | Read RULES.md | NEVER embed secrets; NEVER destructive ops without approval; ALWAYS RBAC verify |
+
+### B10. Common Skill Library (Week 2)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B10.1 | Library directory | `ls sentura/config/templates/_common/skills/` | 5 skill directories: meeting-notes, document-summarization, escalation-handling, status-update, knowledge-base-lookup |
+| B10.2 | Each has SKILL.md | `find sentura/config/templates/_common/skills -name SKILL.md` | 5 files, all non-empty |
+| B10.3 | Skill format | Read each SKILL.md | Contains When to Use, Procedure (numbered), Tools Needed, Safety sections |
+| B10.4 | Library README | Read `sentura/config/templates/_common/README.md` | Lists all 5 skills; documents placeholder convention |
+| B10.5 | Templates README updated | Read `sentura/config/templates/README.md` | References `_common/` library and the 5 common skills |
+
+### B11. Creator Agent Helper Validation (Week 2)
+
+> **Scope note:** This suite validates the *deterministic helper functions*
+> (`sentura/lib/workspace.ts`, `sentura/lib/agent-registration.ts`,
+> `sentura/lib/channel-bindings.ts`) with a hard-coded brief and design
+> bundle. It is **NOT** a true LLM end-to-end test — no LLM is invoked and
+> the Creator Agent's `SKILL.md` files are not executed. For a real
+> LLM-driven Creator run, see the `B13. Creator Agent TRUE E2E` stub below.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B11.1 | Helpers script runs | `npx tsx scripts/test-creator-helpers.ts` | Exits 0; reports 49/49 passed |
+| B11.2 | 10 workspace files produced | Inspect output | All 10 files created in temp workspace |
+| B11.3 | EKG pillars created | Inspect output | org/, rules/, assets/, workflows/, workflows/experience-links/ all present |
+| B11.4 | Industry ontology merged | Inspect output | roles.json5, financial-controls.json5, systems.json5, sops.json5 present in ekg/ |
+| B11.5 | Skills copied | Inspect output | invoice-processing and vendor-management skills in skills/ |
+| B11.6 | config.patch shape | Inspect output | Uses `agents.list[]`; has bindings, mcp.servers, plugins.entries."memory-lancedb".config.dbPath; uses `$secret.` references |
+| B11.7 | Per-agent memory `dbPath` *emitted in patch* | Inspect output | `dbPath === "~/.openclaw/memory/{agentId}/lancedb"`. **Design-intent only** — the live `memory-lancedb` plugin currently treats `dbPath` as a single global setting; per-agent isolation today is collection-level (via `agentId` filtering), not per-file. |
+
+### B13. Creator Agent TRUE E2E — Live LLM (Week 2, STUB)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| B13.0 | Gate behaviour | `npx tsx scripts/test-creator-e2e-live.ts` (no env) | Prints "Skipped: SENTURA_LLM_E2E != 1" and exits 0 |
+| B13.1 | Live Creator run (opt-in) | `SENTURA_LLM_E2E=1 npx tsx scripts/test-creator-e2e-live.ts` | Sends NL brief to `creator` agent; polls `config.get` for up to 5 min; passes if a new agent appears. Requires running gateway + provider creds. |
+
+This test is **not run by default** and is not counted in the passing
+total. It is the forward-looking harness for validating that the
+Creator Agent actually works as an LLM-driven agent end-to-end.
+
+#### B6–B11 Detailed Run Commands & Expected Outputs
+
+All commands assume repo root (`/Users/henry/Desktop/Sentura-Platform`) and
+Node 22+. No gateway required for B6–B11; these are purely structural /
+offline tests.
+
+**One-shot driver that covers B6.1–B11.7 (49 assertions):**
+
+```bash
+npx tsx scripts/test-creator-helpers.ts
+```
+
+Expected final output:
+
+```
+[SECTION] Summary
+  Passed: 49
+  Failed: 0
+  Total:  49
+
+[OK] All Creator Agent end-to-end tests passed.
+```
+
+Exit code `0` on full pass; non-zero otherwise.
+
+**B6 — Per-skill quick checks:**
+
+```bash
+# B6.1 / B6.3 / B6.6 — all three phase skills present & non-trivial
+wc -l sentura/agents/creator/skills/{research-and-discovery,employee-design,employee-deployment}/SKILL.md
+# Expected: each file > 80 lines; none empty.
+
+# B6.2 — clarifying Qs + memory-search procedure in Phase 1
+rg -n "clarifying|memory.search|industry" sentura/agents/creator/skills/research-and-discovery/SKILL.md | head -20
+
+# B6.4 — Phase 2 enforces per-agent memory isolation
+rg -n "memory-lancedb|dbPath" sentura/agents/creator/skills/employee-design/SKILL.md
+# Expected: at least one hit referencing `memory-lancedb.dbPath` with a per-agent template.
+
+# B6.5 — Phase 2 generates RULES + CONTEXT
+rg -n "RULES\.md|CONTEXT\.md" sentura/agents/creator/skills/employee-design/SKILL.md
+
+# B6.7 — smoke test + rollback in Phase 4
+rg -n "smoke.test|rollback|sessions.create" sentura/agents/creator/skills/employee-deployment/SKILL.md
+
+# B6.8 — audit trail written on deploy
+rg -n "sentura\.audit|agent\.deployed" sentura/agents/creator/skills/employee-deployment/SKILL.md
+```
+
+**B7 — EKG schema documentation:**
+
+```bash
+# B7.1 — file present
+ls -l sentura/config/ekg-schema.json5
+
+# B7.2 — all 4 pillars documented
+rg -n "^//.*(org|rules|assets|workflows)/" sentura/config/ekg-schema.json5
+
+# B7.3 — Experience Link fields
+rg -n "pattern|observation|confidence|occurrences" sentura/config/ekg-schema.json5 | head
+
+# B7.4 — provenance fields
+rg -n "source|ingested|confidence" sentura/config/ekg-schema.json5
+
+# B7.5 — industry ontology merge semantics documented
+rg -n -i "ontology|merge|template" sentura/config/ekg-schema.json5
+```
+
+Note: `ekg-schema.json5` is documentation-only (all comments, no JSON body),
+so `json5.parse` legitimately rejects it — don't pipe it into `json5`.
+
+**B8 — Industry ontology templates:**
+
+```bash
+# B8.1 / B8.3 — both templates fully populated
+find sentura/config/industry-ontologies -name '*.json5' | sort
+# Expected: at least 11 files across financial-services/ and e-commerce/,
+# covering org/, rules/, assets/, workflows/ in each.
+
+# B8.2 — financial-services rule coverage
+rg -n -i "SOX|AML|KYC|PCI|three.way|payment.threshold" \
+  sentura/config/industry-ontologies/financial-services/rules/
+
+# B8.4 — e-commerce rule coverage
+rg -n -i "return|refund|chargeback|MAP|velocity" \
+  sentura/config/industry-ontologies/e-commerce/rules/
+```
+
+**B9 — MCP Builder Agent workspace:**
+
+```bash
+# B9.1 — all 10 workspace files + config
+ls sentura/agents/mcp-builder/
+# Expected entries (order may vary):
+#   AGENTS.md BOOTSTRAP.md CONTEXT.md HEARTBEAT.md IDENTITY.md
+#   MEMORY.md RULES.md SOUL.md TOOLS.md USER.md
+#   config.json5 skills/
+
+# B9.2 — 4 skills
+ls sentura/agents/mcp-builder/skills/
+# Expected: api-analysis/ mcp-generation/ smoke-test/ register-server/
+
+# B9.3 — config schema invariants
+rg -n 'agents:|sandbox|profile|"coding"' sentura/agents/mcp-builder/config.json5
+
+# B9.4 — SOUL identity
+rg -n -i "name|smith|mission|mcp" sentura/agents/mcp-builder/SOUL.md | head
+
+# B9.5 — rules prohibitions
+rg -n -i "NEVER|secret|destructive|RBAC|approval" sentura/agents/mcp-builder/RULES.md
+```
+
+**B10 — Common skill library:**
+
+```bash
+# B10.1 — 5 skill directories
+ls sentura/config/templates/_common/skills/
+# Expected: meeting-notes/ document-summarization/ escalation-handling/
+#           status-update/ knowledge-base-lookup/
+
+# B10.2 — each has SKILL.md
+find sentura/config/templates/_common/skills -name SKILL.md
+# Expected: 5 paths, all > 0 bytes.
+
+# B10.3 — standard sections in each SKILL.md
+for f in sentura/config/templates/_common/skills/*/SKILL.md; do
+  echo "=== $f ==="
+  rg -n "^## (When to Use|Procedure|Tools Needed|Safety)" "$f"
+done
+# Expected: each file shows all four headers.
+
+# B10.4 / B10.5 — libraries referenced in both READMEs
+rg -n "_common|meeting-notes|knowledge-base-lookup" \
+  sentura/config/templates/README.md sentura/config/templates/_common/README.md
+```
+
+**B11 — Creator helper validation (offline, NOT a true LLM E2E):**
+
+`scripts/test-creator-helpers.ts` simulates the Creator Agent's Phase 1/2/4
+by calling the deterministic helpers (`workspace.ts`, `agent-registration.ts`,
+`channel-bindings.ts`) with a hard-coded brief + design bundle. It writes
+the generated workspace + patch body into a temp directory so nothing leaks
+into `~/.openclaw/`. **No LLM is invoked** and the Creator's `SKILL.md`
+files are not executed. Key assertions:
+
+| Section | What the helper run proves |
+|---------|----------------------------|
+| B11.1 | Script exits 0, reports `49 / 49 passed` |
+| B11.2 | Every one of the 10 workspace files is written (AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, BOOTSTRAP, MEMORY, RULES, CONTEXT) |
+| B11.3 | EKG directory contains `org/`, `rules/`, `assets/`, `workflows/`, `workflows/experience-links/` |
+| B11.4 | Financial-services ontology files (`roles.json5`, `financial-controls.json5`, `systems.json5`, `sops.json5`) merged in |
+| B11.5 | `skills/invoice-processing/SKILL.md` + `skills/vendor-management/SKILL.md` copied from `ap-clerk` template |
+| B11.6 | Generated `config.patch` body uses `agents.list[]` (array), includes `bindings[]`, `mcp.servers`, and every secret is a `$secret.` reference |
+| B11.7 | `plugins.entries["memory-lancedb"].config.dbPath === "~/.openclaw/memory/ap-clerk-acme/lancedb"` — per-agent path **shape** emitted by `buildAgentPatch`. The live `memory-lancedb` plugin does not currently honour per-agent dbPaths at runtime (see scope note on B11). |
+
+To diff the generated patch body against a known-good snapshot (optional):
+
+```bash
+npx tsx scripts/test-creator-helpers.ts | rg -A 2 "config\.patch preview"
+```
+
+For the forward-looking live LLM harness (gated, not run by default), see
+**B13. Creator Agent TRUE E2E** above.
+
+### B12. Live Gateway Integration (Week 2)
+
+Validates Person B's Week 2 deliverables against a **running OpenClaw gateway**
+end-to-end: workspace generation, `config.patch` RPC acceptance, `config.get`
+read-back, and cleanup. Requires gateway at `ws://localhost:18789`.
+
+**Prereqs**:
+
+```bash
+cd openclaw && pnpm gateway:watch   # terminal 1 — leave running
+# wait for "ready (N plugins, ...s)"
+```
+
+**Run**:
+
+```bash
+npx tsx scripts/test-week2-b-gateway.ts   # terminal 2
+```
+
+**Expected output**: `77 passed / 77 total` (exit 0). Script self-cleans — the
+test agent and its workspace are removed whether tests pass or fail.
+
+| # | Test | What the script verifies |
+|---|------|--------------------------|
+| B12.1 | Gateway token discoverable | `~/.openclaw/config.json` has `gateway.controlUi.token` |
+| B12.2 | WebSocket handshake succeeds | `connect.challenge` → `connect` RPC resolves with protocol v3 |
+| B12.3 | Creator Agent live-registered | `config.get → agents.list[]` contains `creator` agent |
+| B12.4 | Creator Agent config intact | `creator` entry has `parameters.memoryDbPath` set to per-agent template |
+| B12.5 | Workspace materialized on disk | All 10 files (AGENTS/SOUL/TOOLS/IDENTITY/USER/HEARTBEAT/BOOTSTRAP/MEMORY/RULES/CONTEXT.md) exist in `~/.openclaw/workspace/<test-agent-id>/` |
+| B12.6 | EKG pillars created | `ekg/{org,rules,assets,workflows}/` directories exist in workspace |
+| B12.7 | `memory/users/` created | Per-user sub-memory directory exists |
+| B12.8 | Industry ontology merged | `ekg/rules/financial-controls.json5` copied from `sentura/config/industry-ontologies/financial-services/` |
+| B12.9 | RULES.md has guardrails | Non-empty and contains `NEVER`/`ALWAYS` clauses |
+| B12.10 | Per-agent dbPath format | `buildMemoryDbPath(id)` returns `~/.openclaw/memory/<id>/lancedb` |
+| B12.11 | No inline secrets in patch | Patch JSON body contains `$secret.` references, never raw tokens |
+| B12.12 | `config.patch` accepted by live gateway | RPC resolves OK; new agent count = previous + 1 |
+| B12.13 | Reconnect after mcp.servers restart | Gateway restarts in-process (`[reload] config change requires gateway restart`); client reconnects cleanly after ~6s |
+| B12.14 | Agent visible in `config.get` | New agent appears in `agents.list[]` post-restart |
+| B12.15 | Sandbox enforced | Live agent has `sandbox.mode = "non-main"` |
+| B12.16 | Tool denylist honored | `tools.deny` contains `"exec"` and `"gateway"` |
+| B12.17 | MCP server registered | `mcp.servers["netsuite-test"]` present in live config |
+| B12.18 | MCP env wired | Live MCP server's `env.NETSUITE_TOKEN` key present (value resolved from secret store at read time) |
+| B12.19 | Slack binding registered | `bindings[]` contains entry matching `{agentId, match.channel: "slack"}` |
+| B12.20 | Clean removal | After cleanup, test agent removed from `agents.list[]`; test workspace directory deleted |
+
+**Known limitations of this live test**:
+
+1. **`memory-lancedb` not patched live.** The plugin's Zod schema requires a
+   configured `embedding.apiKey` and the dev gateway here has embeddings
+   disabled. The per-agent `dbPath` invariant is verified at the *shape* level
+   offline (B12.10, B11.7). The live `config.patch` deliberately omits the
+   `plugins.entries["memory-lancedb"]` subsection.
+
+2. **Per-agent memory isolation is design intent, not runtime reality.**
+   OpenClaw's `memory-lancedb` plugin currently treats `dbPath` as a single
+   *global* setting — every agent shares one LanceDB file, and isolation is
+   enforced at the collection level by filtering on `agentId`. The per-agent
+   `dbPath` emitted by the Creator's `config.patch` is a forward-looking
+   invariant that will become authoritative once the plugin supports
+   per-agent paths.
+
+3. **No LLM is driving the Creator Agent here.** B12 validates that the
+   config.patch body Person B's helpers produce is accepted by a live
+   gateway. It does not test whether an actual LLM running the Creator
+   Agent would produce the same patch. See `B13. Creator Agent TRUE E2E`
+   for the forward-looking live-LLM harness.
+
+4. **`netsuite-test` MCP server is a placeholder.** The script registers
+   `mcp.servers["netsuite-test"]` with `command: "npx"`,
+   `args: ["@sentura/mcp-netsuite"]` — that npm package does not exist yet.
+   Config validation accepts it because `mcp.servers` does not try to
+   spawn processes at validation time. Actual MCP server packages are the
+   MCP Builder Agent's (Smith's) deliverable.
+
 ---
 
 ## Person C — Frontend & Dashboard Engineer
@@ -463,12 +783,12 @@ Gateway version: ____
 Node version: ____
 
 Person A: __ / 74 passed
-Person B: __ / 24 passed
+Person B: __ / 85 passed   (65 + 20 new B12 live-gateway cases)
 Person C: __ / 33 passed
 Person D: __ / 31 passed (22 automated + 9 manual)
 Cross-team: __ / 13 passed
 
-Total: __ / 175
+Total: __ / 195
 
 Notes:
 - ...

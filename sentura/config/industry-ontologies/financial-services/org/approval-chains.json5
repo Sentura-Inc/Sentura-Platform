@@ -1,0 +1,42 @@
+// Financial Services — Segregation of Duties & Approval Chains
+//
+// Models who can approve what, at what threshold. Referenced by
+// `rules/financial-controls.json5` for enforcement.
+{
+  schemaVersion: "1.0",
+  pillar: "org",
+  domain: "approval-chains",
+  entities: [
+    { id: "entity:action:payment-initiate", type: "restricted-action", name: "Initiate outbound payment" },
+    { id: "entity:action:payment-release", type: "restricted-action", name: "Release outbound payment" },
+    { id: "entity:action:journal-post", type: "restricted-action", name: "Post manual journal entry" },
+    { id: "entity:action:vendor-add", type: "restricted-action", name: "Add new vendor to master" },
+    { id: "entity:action:customer-credit-limit-change", type: "restricted-action", name: "Change customer credit limit" },
+    { id: "entity:action:period-reopen", type: "restricted-action", name: "Reopen closed accounting period" },
+    { id: "entity:action:sar-file", type: "restricted-action", name: "File Suspicious Activity Report" },
+  ],
+  relations: [
+    // Payments must have initiator != approver (segregation of duties)
+    { from: "entity:role:ap-clerk", type: "can-initiate", to: "entity:action:payment-initiate" },
+    {
+      from: "entity:role:controller", type: "approves", to: "entity:action:payment-release",
+      attributes: { threshold_below: "{max_auto_payment}", currency: "{reporting_currency}" },
+    },
+    {
+      from: "entity:role:cfo", type: "approves", to: "entity:action:payment-release",
+      attributes: { threshold_above: "{max_auto_payment}", currency: "{reporting_currency}" },
+    },
+    { from: "entity:role:senior-accountant", type: "approves", to: "entity:action:journal-post", attributes: { threshold_below: 10000 } },
+    { from: "entity:role:controller", type: "approves", to: "entity:action:journal-post", attributes: { threshold_above: 10000 } },
+    { from: "entity:role:controller", type: "approves", to: "entity:action:vendor-add" },
+    { from: "entity:role:cfo", type: "approves", to: "entity:action:period-reopen" },
+    { from: "entity:role:bsa-officer", type: "approves", to: "entity:action:sar-file" },
+  ],
+  provenance: {
+    source: "industry-ontology:financial-services",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.9,
+    notes: "SOX-aligned segregation of duties. Customize thresholds per {company_name} policy.",
+  },
+}

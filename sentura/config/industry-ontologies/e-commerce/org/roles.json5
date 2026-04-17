@@ -1,0 +1,44 @@
+// E-Commerce — Standard Roles & Reporting Chains
+{
+  schemaVersion: "1.0",
+  pillar: "org",
+  domain: "roles",
+  entities: [
+    { id: "entity:role:cx-lead", type: "role", name: "Customer Experience Lead" },
+    { id: "entity:role:cx-tier1", type: "role", name: "Customer Support Tier 1" },
+    { id: "entity:role:cx-tier2", type: "role", name: "Customer Support Tier 2 (Escalations)" },
+    { id: "entity:role:ops-manager", type: "role", name: "Operations Manager" },
+    { id: "entity:role:fulfillment-coordinator", type: "role", name: "Fulfillment Coordinator" },
+    { id: "entity:role:returns-specialist", type: "role", name: "Returns Specialist" },
+    { id: "entity:role:merchandiser", type: "role", name: "Merchandiser / Catalog Manager" },
+    { id: "entity:role:trust-safety", type: "role", name: "Trust & Safety Analyst" },
+    { id: "entity:role:fraud-analyst", type: "role", name: "Fraud Analyst" },
+    { id: "entity:role:marketing-lead", type: "role", name: "Marketing Lead" },
+    { id: "entity:role:legal-counsel", type: "role", name: "Legal Counsel" },
+
+    { id: "entity:dept:customer-support", type: "department", name: "Customer Support" },
+    { id: "entity:dept:operations", type: "department", name: "Operations" },
+    { id: "entity:dept:trust-safety", type: "department", name: "Trust & Safety" },
+    { id: "entity:dept:merchandising", type: "department", name: "Merchandising" },
+    { id: "entity:dept:marketing", type: "department", name: "Marketing" },
+  ],
+  relations: [
+    { from: "entity:role:cx-tier1", type: "reports-to", to: "entity:role:cx-lead" },
+    { from: "entity:role:cx-tier2", type: "reports-to", to: "entity:role:cx-lead" },
+    { from: "entity:role:returns-specialist", type: "reports-to", to: "entity:role:ops-manager" },
+    { from: "entity:role:fulfillment-coordinator", type: "reports-to", to: "entity:role:ops-manager" },
+    { from: "entity:role:fraud-analyst", type: "reports-to", to: "entity:role:trust-safety" },
+
+    { from: "entity:role:cx-tier1", type: "member-of", to: "entity:dept:customer-support" },
+    { from: "entity:role:cx-tier2", type: "member-of", to: "entity:dept:customer-support" },
+    { from: "entity:role:cx-lead", type: "member-of", to: "entity:dept:customer-support" },
+    { from: "entity:role:returns-specialist", type: "member-of", to: "entity:dept:operations" },
+    { from: "entity:role:merchandiser", type: "member-of", to: "entity:dept:merchandising" },
+  ],
+  provenance: {
+    source: "industry-ontology:e-commerce",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.92,
+  },
+}

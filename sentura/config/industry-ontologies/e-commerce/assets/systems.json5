@@ -1,0 +1,26 @@
+// E-Commerce — Standard Systems
+{
+  schemaVersion: "1.0",
+  pillar: "assets",
+  domain: "systems",
+  entities: [
+    { id: "entity:system:storefront", type: "system", name: "Storefront / Commerce Platform", attributes: { examples: ["Shopify", "Magento", "WooCommerce", "BigCommerce", "SFCC / Demandware", "custom"] } },
+    { id: "entity:system:payment-processor", type: "system", name: "Payment Processor", attributes: { examples: ["Stripe", "Braintree", "Adyen", "PayPal", "Square"] } },
+    { id: "entity:system:cs-platform", type: "system", name: "Customer Support Platform", attributes: { examples: ["Zendesk", "Gorgias", "Intercom", "Freshdesk", "Front", "Help Scout"] } },
+    { id: "entity:system:oms", type: "system", name: "Order Management System", attributes: { examples: ["Shopify Plus OMS", "NetSuite OMS", "Manhattan Active", "Brightpearl"] } },
+    { id: "entity:system:wms-3pl", type: "system", name: "Warehouse Management / 3PL", attributes: { examples: ["ShipStation", "ShipHero", "Amazon FBA", "Deliverr", "ShipBob"] } },
+    { id: "entity:system:erp", type: "system", name: "ERP / Accounting", attributes: { examples: ["NetSuite", "QuickBooks", "Xero"] } },
+    { id: "entity:system:pim", type: "system", name: "Product Information Management", attributes: { examples: ["Akeneo", "Salsify", "Plytix"] } },
+    { id: "entity:system:email-marketing", type: "system", name: "Email / SMS Marketing", attributes: { examples: ["Klaviyo", "Mailchimp", "Braze", "Attentive", "Postscript"] } },
+    { id: "entity:system:analytics", type: "system", name: "Analytics", attributes: { examples: ["Google Analytics 4", "Amplitude", "Mixpanel", "Lookerstudio"] } },
+    { id: "entity:system:fraud-screening", type: "system", name: "Fraud Screening", attributes: { examples: ["Signifyd", "Riskified", "Kount", "Stripe Radar"] } },
+    { id: "entity:system:marketplace", type: "system", name: "Marketplaces", attributes: { examples: ["Amazon Seller Central", "eBay", "Walmart Marketplace", "Etsy", "Target Plus"] } },
+  ],
+  relations: [],
+  provenance: {
+    source: "industry-ontology:e-commerce",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.9,
+  },
+}

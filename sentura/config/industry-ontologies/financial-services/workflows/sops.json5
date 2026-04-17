@@ -1,0 +1,108 @@
+// Financial Services — Standard Operating Procedures
+{
+  schemaVersion: "1.0",
+  pillar: "workflows",
+  domain: "sops",
+  entities: [
+    {
+      id: "entity:procedure:ap-invoice-intake",
+      type: "procedure",
+      name: "Accounts Payable — Invoice Intake & 3-Way Match",
+      attributes: {
+        ownerRole: "entity:role:ap-clerk",
+        steps: [
+          "1. Receive invoice via email/portal/upload.",
+          "2. Extract header fields (vendor, invoice #, date, amount, PO ref).",
+          "3. Deduplicate: search last 30 days for same vendor + invoice #.",
+          "4. 3-way match: invoice vs PO vs receiving report.",
+          "5. If mismatch > tolerance → route to requester for approval.",
+          "6. Screen vendor against OFAC SDN list (mandatory).",
+          "7. Post to GL in 'pending payment' state.",
+          "8. Below {max_auto_payment} → auto-approve for release.",
+          "9. At or above {max_auto_payment} → route to CFO.",
+          "10. Log all actions to audit trail.",
+        ],
+      },
+    },
+    {
+      id: "entity:procedure:wire-transfer",
+      type: "procedure",
+      name: "Outbound Wire Transfer — Dual Approval",
+      attributes: {
+        ownerRole: "entity:role:treasurer",
+        steps: [
+          "1. Validate beneficiary details (callback verification required for first-time wires).",
+          "2. OFAC screen beneficiary + beneficiary bank.",
+          "3. Initiator submits wire request (role != releaser).",
+          "4. Controller reviews for business purpose + GL coding.",
+          "5. Above {max_auto_payment} → CFO co-signs.",
+          "6. Release through bank portal / SWIFT.",
+          "7. Confirmation receipt attached to GL entry.",
+          "8. Monthly reconciliation vs bank statement.",
+        ],
+      },
+    },
+    {
+      id: "entity:procedure:customer-cdd",
+      type: "procedure",
+      name: "Customer Due Diligence (CDD) — Account Opening",
+      attributes: {
+        ownerRole: "entity:role:compliance-analyst",
+        steps: [
+          "1. Collect identifying information (legal name, DOB/formation, ID, address).",
+          "2. For entities: identify beneficial owners ≥ 25% ownership.",
+          "3. Verify via government ID + utility bill or equivalent.",
+          "4. Screen against OFAC SDN + adverse media.",
+          "5. Assign customer risk rating (low/medium/high).",
+          "6. For high-risk: Enhanced Due Diligence (EDD) with senior approval.",
+          "7. Set transaction monitoring thresholds by risk tier.",
+          "8. Re-review on risk-appropriate cadence (annually for high-risk).",
+        ],
+      },
+    },
+    {
+      id: "entity:procedure:sar-filing",
+      type: "procedure",
+      name: "Suspicious Activity Report (SAR) Filing",
+      attributes: {
+        ownerRole: "entity:role:bsa-officer",
+        steps: [
+          "1. Receive alert from transaction monitoring or manual referral.",
+          "2. Investigate: pull transaction history, KYC file, prior alerts.",
+          "3. Document investigation narrative (who, what, when, where, why).",
+          "4. Determine if SAR filing is warranted (management discretion).",
+          "5. If yes: file via FinCEN BSA E-Filing within 30 days of initial detection.",
+          "6. If suspect not identified: extend to 60 days.",
+          "7. NEVER tip off the subject (disclosure prohibited under 31 USC 5318(g)(2)).",
+          "8. Maintain SAR + supporting documentation for 5 years.",
+        ],
+      },
+    },
+    {
+      id: "entity:procedure:month-end-close",
+      type: "procedure",
+      name: "Month-End Close",
+      attributes: {
+        ownerRole: "entity:role:controller",
+        steps: [
+          "1. Freeze accruals cut-off at {month_end_day} end-of-day.",
+          "2. Run sub-ledger → GL reconciliations (AP, AR, inventory, fixed assets, payroll).",
+          "3. Record standard recurring entries (depreciation, prepaid amortization, payroll accrual).",
+          "4. Review variance vs prior period + budget.",
+          "5. Intercompany eliminations (if consolidated).",
+          "6. Controller reviews and locks sub-ledgers.",
+          "7. Generate trial balance + financial statements.",
+          "8. CFO signs off; period locked.",
+          "9. Any post-close entries require CFO approval (rule: entity:rule:month-end-cutoff).",
+        ],
+      },
+    },
+  ],
+  relations: [],
+  provenance: {
+    source: "industry-ontology:financial-services",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.9,
+  },
+}

@@ -1,0 +1,43 @@
+// Financial Services — Standard Systems & Data Sources
+//
+// Reference catalog. Specific instances (versions, endpoints, credentials)
+// are customized at incubation time by replacing `{placeholders}`.
+{
+  schemaVersion: "1.0",
+  pillar: "assets",
+  domain: "systems",
+  entities: [
+    // Core ERP / GL
+    { id: "entity:system:erp-generic", type: "system", name: "ERP / General Ledger", attributes: { category: "core-finance", examples: ["NetSuite", "Oracle ERP Cloud", "SAP S/4HANA", "Sage Intacct", "Microsoft Dynamics 365 Finance"] } },
+
+    // AP/AR Automation
+    { id: "entity:system:ap-automation", type: "system", name: "Accounts Payable Automation", attributes: { category: "ap", examples: ["Bill.com", "Tipalti", "AvidXchange", "Stampli", "Coupa"] } },
+    { id: "entity:system:ar-automation", type: "system", name: "Accounts Receivable / Collections", attributes: { category: "ar", examples: ["HighRadius", "BlackLine AR", "Versapay"] } },
+
+    // Banking / Payment Rails
+    { id: "entity:system:ach-rail", type: "system", name: "ACH Payment Rail", attributes: { category: "payment", regulator: "NACHA" } },
+    { id: "entity:system:wire-rail", type: "system", name: "Wire Transfer (FedWire / SWIFT)", attributes: { category: "payment" } },
+    { id: "entity:system:rtp-rail", type: "system", name: "Real-Time Payments (RTP / FedNow)", attributes: { category: "payment" } },
+    { id: "entity:system:bank-aggregator", type: "system", name: "Bank Data Aggregator", attributes: { category: "banking", examples: ["Plaid", "Yodlee", "Finicity"] } },
+
+    // Compliance / Risk
+    { id: "entity:system:sanctions-screening", type: "system", name: "Sanctions Screening (OFAC, EU, UN)", attributes: { category: "compliance", examples: ["Refinitiv World-Check", "LexisNexis Bridger", "ComplyAdvantage"] } },
+    { id: "entity:system:aml-monitoring", type: "system", name: "AML Transaction Monitoring", attributes: { category: "compliance", examples: ["Actimize", "FICO Falcon", "Unit21", "Hummingbird"] } },
+    { id: "entity:system:credit-bureau", type: "system", name: "Credit Bureau Reports", attributes: { category: "risk", examples: ["Experian", "Equifax", "TransUnion", "Dun & Bradstreet"] } },
+
+    // Close & Reporting
+    { id: "entity:system:close-management", type: "system", name: "Financial Close Management", attributes: { category: "close", examples: ["BlackLine", "FloQast", "Trintech"] } },
+    { id: "entity:system:fpa", type: "system", name: "FP&A / Planning", attributes: { category: "reporting", examples: ["Anaplan", "Workday Adaptive", "Pigment", "Vena"] } },
+
+    // Document / Evidence
+    { id: "entity:system:doc-management", type: "system", name: "Document Management", attributes: { category: "evidence", examples: ["SharePoint", "Google Drive", "Box"] } },
+  ],
+  relations: [],
+  provenance: {
+    source: "industry-ontology:financial-services",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.88,
+    notes: "Swap to concrete {company_name} system instances during incubation.",
+  },
+}

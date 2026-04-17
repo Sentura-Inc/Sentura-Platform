@@ -1,0 +1,442 @@
+// Sentura Enterprise Knowledge Graph (EKG) — 4-Pillar JSON5 Schema
+//
+// This file is the reference schema for structured enterprise knowledge stored
+// in each agent's workspace `ekg/` directory. It is NOT loaded at runtime — it
+// exists to document the agreed format for Data Scavenger output, industry
+// ontology templates, and Experience Link extraction.
+//
+// See README.md §6 (Enterprise Knowledge Graph) for the architectural rationale.
+//
+// ============================================================================
+// Directory Convention
+// ============================================================================
+//
+// Each agent's workspace contains:
+//
+//   {workspace}/
+//   └── ekg/
+//       ├── org/                     # Pillar 1: Organization
+//       │   ├── org-chart.json5
+//       │   ├── departments.json5
+//       │   ├── key-personnel.json5
+//       │   └── approval-chains.json5
+//       ├── rules/                   # Pillar 2: Rules & Policies
+//       │   ├── financial-controls.json5
+//       │   ├── data-handling.json5
+//       │   ├── compliance.json5
+//       │   └── escalation-policies.json5
+//       ├── assets/                  # Pillar 3: Systems, Data, Tools
+//       │   ├── systems.json5
+//       │   ├── data-sources.json5
+//       │   ├── mcp-servers.json5
+//       │   └── credentials.json5    # references only; never secrets
+//       └── workflows/               # Pillar 4: Procedures, SOPs, Experience
+//           ├── procedures.json5
+//           ├── sops.json5
+//           ├── decision-trees.json5
+//           └── experience-links/    # Tier 3 — autonomously extracted
+//               └── *.json5
+//
+// Orchestrator (Manager) agents also have:
+//   ekg/capabilities/{agent-id}.json5   # auto-extracted capability tags
+//   ekg/conflicts/pending/*.json5       # awaiting human resolution
+//   ekg/conflicts/resolved/*.json5      # resolved + Global SOP linked
+//   ekg/insights/*.json5                # reverse-injection training directives
+//   ekg/global-sops/*.json5             # cross-department standard SOPs
+//
+// ============================================================================
+// Common Types (Referenced by All Pillars)
+// ============================================================================
+//
+// Every top-level JSON5 file follows this envelope:
+//
+//   {
+//     schemaVersion: "1.0",
+//     pillar: "org" | "rules" | "assets" | "workflows",
+//     domain: "<sub-pillar>",           // e.g., "org-chart", "financial-controls"
+//     entities: [ /* Entity[] */ ],
+//     relations: [ /* Relation[] */ ],
+//     provenance: { /* Provenance */ }, // file-level default provenance
+//     lastUpdated: "2026-04-16T00:00:00Z",
+//   }
+//
+// --- Entity ---------------------------------------------------------------
+//
+// Required: id, type, name
+// Optional: attributes, tags, provenance (overrides file-level)
+//
+//   {
+//     id: "entity:dept:finance",      // stable unique ID (slug-scoped)
+//     type: "department",             // entity kind (pillar-specific vocab)
+//     name: "Finance Department",
+//     attributes: {
+//       headcount: 12,
+//       location: "HQ Floor 3",
+//     },
+//     tags: ["internal", "reporting-chain"],
+//     provenance: {
+//       source: "company-handbook.pdf",
+//       ingested: "2026-04-15T14:22:00Z",
+//       ingestedBy: "data-scavenger",
+//       confidence: 0.92,
+//     },
+//   }
+//
+// --- Relation -------------------------------------------------------------
+//
+// Required: from, type, to
+// Optional: attributes, provenance
+//
+//   {
+//     from: "entity:person:cfo-jane",
+//     type: "approves",                // relation verb (pillar-specific vocab)
+//     to: "entity:action:payment-above-5k",
+//     attributes: {
+//       threshold: 5000,
+//       currency: "USD",
+//     },
+//     provenance: {
+//       source: "finance-policy-v3.pdf",
+//       ingested: "2026-04-14T09:30:00Z",
+//       ingestedBy: "data-scavenger",
+//       confidence: 0.88,
+//     },
+//   }
+//
+// --- Provenance -----------------------------------------------------------
+//
+// Required: source, ingested
+// Optional: ingestedBy, confidence, reviewedBy, reviewedAt, notes
+//
+//   {
+//     source: "file:company-handbook.pdf" | "url:https://..." | "verbal:admin-jane" | "autonomous_extraction",
+//     ingested: "ISO-8601 timestamp",
+//     ingestedBy: "data-scavenger" | "creator" | "manual" | "experience-extractor",
+//     confidence: 0.0..1.0,             // LLM classification confidence (0-1)
+//     reviewedBy: "platform-admin@company.com",  // optional human review
+//     reviewedAt: "ISO-8601",
+//     notes: "Reviewed and verified correct",
+//   }
+//
+// ============================================================================
+// Pillar 1 — Organization (ekg/org/)
+// ============================================================================
+//
+// Models the enterprise structure: departments, reporting lines, key personnel,
+// approval chains, geographic locations, cost centers.
+//
+// Entity types:
+//   - department        (team, unit, business group)
+//   - person            (employees with decision authority)
+//   - role              (titles: "CFO", "AP Clerk", "Compliance Officer")
+//   - location          (office, region, country)
+//   - cost-center       (budgetary grouping)
+//   - external-party    (vendor, partner, regulator)
+//
+// Relation types:
+//   - reports-to        (person -> person or role -> role)
+//   - member-of         (person -> department)
+//   - holds             (person -> role)
+//   - approves          (person/role -> action entity in rules)
+//   - located-at        (department -> location)
+//   - owns-budget       (cost-center -> department)
+//
+// Example file: ekg/org/org-chart.json5
+//
+//   {
+//     schemaVersion: "1.0",
+//     pillar: "org",
+//     domain: "org-chart",
+//     entities: [
+//       { id: "entity:role:cfo", type: "role", name: "Chief Financial Officer" },
+//       { id: "entity:role:controller", type: "role", name: "Controller" },
+//       { id: "entity:role:ap-clerk", type: "role", name: "Accounts Payable Clerk" },
+//       { id: "entity:person:jane-doe", type: "person", name: "Jane Doe", attributes: { email: "jane@co.com" } },
+//     ],
+//     relations: [
+//       { from: "entity:role:ap-clerk", type: "reports-to", to: "entity:role:controller" },
+//       { from: "entity:role:controller", type: "reports-to", to: "entity:role:cfo" },
+//       { from: "entity:person:jane-doe", type: "holds", to: "entity:role:cfo" },
+//     ],
+//   }
+//
+// ============================================================================
+// Pillar 2 — Rules & Policies (ekg/rules/)
+// ============================================================================
+//
+// Models the hard constraints: financial approval thresholds, compliance
+// requirements, data classification rules, escalation policies. Content in
+// this pillar is cross-referenced by the RULES.md file for hard enforcement.
+//
+// Entity types:
+//   - rule              (a single enforceable constraint)
+//   - policy            (a group of related rules)
+//   - threshold         (numeric limit: e.g., "$5,000")
+//   - restricted-action (action requiring approval or prohibited outright)
+//   - data-class        (T0-T4 classification)
+//
+// Relation types:
+//   - governs           (policy -> action or person)
+//   - requires-approval (action -> role/person)
+//   - restricted-to     (action -> data-class)
+//   - escalates-to      (rule -> role/person)
+//   - supersedes        (rule -> rule)
+//
+// Example file: ekg/rules/financial-controls.json5
+//
+//   {
+//     schemaVersion: "1.0",
+//     pillar: "rules",
+//     domain: "financial-controls",
+//     entities: [
+//       {
+//         id: "entity:rule:payment-approval-5k",
+//         type: "rule",
+//         name: "Payments above $5,000 require CFO approval",
+//         attributes: { threshold: 5000, currency: "USD", severity: "hard" },
+//       },
+//       {
+//         id: "entity:rule:duplicate-invoice-block",
+//         type: "rule",
+//         name: "Block duplicate invoices within 30 days",
+//         attributes: { window_days: 30, severity: "hard" },
+//       },
+//     ],
+//     relations: [
+//       {
+//         from: "entity:rule:payment-approval-5k",
+//         type: "escalates-to",
+//         to: "entity:role:cfo",
+//       },
+//     ],
+//   }
+//
+// ============================================================================
+// Pillar 3 — Assets (ekg/assets/)
+// ============================================================================
+//
+// Models the tools, systems, data sources, and MCP servers available to the
+// agent. This pillar is used to answer "what can this agent access?" and to
+// wire up MCP server references during Creator Agent Phase 3.
+//
+// Entity types:
+//   - system            (internal app: ERP, CRM, ticketing)
+//   - data-source       (database, data warehouse, spreadsheet)
+//   - mcp-server        (OpenClaw-registered MCP server)
+//   - credential-ref    (secret store reference, NEVER the secret itself)
+//   - api-endpoint      (external REST/GraphQL endpoint)
+//   - document-repo     (knowledge base, SharePoint, Drive)
+//
+// Relation types:
+//   - exposed-via       (system -> mcp-server)
+//   - reads-from        (mcp-server -> data-source)
+//   - authenticates-with (mcp-server -> credential-ref)
+//   - belongs-to        (system -> department)
+//
+// Example file: ekg/assets/mcp-servers.json5
+//
+//   {
+//     schemaVersion: "1.0",
+//     pillar: "assets",
+//     domain: "mcp-servers",
+//     entities: [
+//       {
+//         id: "entity:mcp:gradsale-admin",
+//         type: "mcp-server",
+//         name: "GradSale Admin API",
+//         attributes: {
+//           transport: "stdio",
+//           command: "node",
+//           args: ["sentura/mcp-servers/gradsale-admin/dist/index.js"],
+//           scope: "admin",
+//           dataClass: "T3",
+//         },
+//       },
+//     ],
+//     relations: [
+//       {
+//         from: "entity:mcp:gradsale-admin",
+//         type: "authenticates-with",
+//         to: "entity:credential-ref:gradsale_admin_token",
+//       },
+//     ],
+//   }
+//
+// ============================================================================
+// Pillar 4 — Workflows (ekg/workflows/)
+// ============================================================================
+//
+// Models the procedural knowledge: SOPs, decision trees, standard workflows,
+// and autonomously extracted Experience Links.
+//
+// Entity types:
+//   - procedure         (a named multi-step process)
+//   - step              (a single step in a procedure)
+//   - decision-point    (a branch condition)
+//   - outcome           (terminal state)
+//   - experience-link   (pattern learned from observation — see Tier 3 below)
+//
+// Relation types:
+//   - has-step          (procedure -> step)
+//   - next              (step -> step, with optional condition attribute)
+//   - branches-at       (procedure -> decision-point)
+//   - results-in        (decision-point -> outcome, with `when` attribute)
+//   - triggers          (outcome -> procedure)
+//   - refines           (experience-link -> procedure)
+//
+// Example file: ekg/workflows/sops.json5
+//
+//   {
+//     schemaVersion: "1.0",
+//     pillar: "workflows",
+//     domain: "sops",
+//     entities: [
+//       {
+//         id: "entity:procedure:ap-invoice-intake",
+//         type: "procedure",
+//         name: "Accounts Payable — Invoice Intake",
+//         attributes: {
+//           ownerRole: "ap-clerk",
+//           averageDurationMinutes: 8,
+//         },
+//       },
+//     ],
+//     relations: [],
+//   }
+//
+// ============================================================================
+// Experience Link Format (Capability #13 — Tier 3)
+// ============================================================================
+//
+// Experience Links are autonomously extracted patterns from the agent's task
+// history. They are created by the `experience-extraction` skill during the
+// dreaming cycle (deep phase) and promoted when confidence thresholds are met.
+//
+// File path: ekg/workflows/experience-links/{id}.json5
+//
+// Required fields: id, pattern, observation, confidence, occurrences,
+//                  firstSeen, lastSeen, context, source
+//
+//   {
+//     id: "exp:refund-under-50-auto-approve",
+//     pattern: "When refund amount < $50 AND customer tier == 'premium', auto-approve without CFO escalation.",
+//     observation: "Observed 23 cases where this flow completed without incident across 6 months.",
+//     confidence: 0.87,           // decays over time unless reinforced
+//     occurrences: 23,             // how many times this pattern was reinforced
+//     firstSeen: "2025-10-12T14:20:00Z",
+//     lastSeen: "2026-04-08T11:42:00Z",
+//     context: {
+//       role: "cs-agent",
+//       department: "customer-support",
+//       relatedRules: ["entity:rule:refund-approval-thresholds"],
+//     },
+//     source: "autonomous_extraction",
+//     promotionStatus: "candidate" | "promoted" | "retired",
+//     // Optional:
+//     reviewedBy: "platform-admin@company.com",
+//     reviewedAt: "2026-04-10T09:00:00Z",
+//   }
+//
+// Promotion thresholds (defaults, configurable per agent):
+//   - minOccurrences: 3
+//   - minConfidence: 0.7
+//   - minAgeHours: 48  (prevent promoting a burst of identical events)
+//
+// Confidence decay: 5% per 30 days without reinforcement, floor at 0.1.
+//
+// ============================================================================
+// Manager Capability Tag Schema (Capability #17 — Mechanism 1)
+// ============================================================================
+//
+// Stored on the Orchestrator at ekg/capabilities/{agent-id}.json5. Auto-written
+// by Creator Agent Phase 5 (Deploy) when a new employee is incubated.
+//
+//   {
+//     schemaVersion: "1.0",
+//     agentId: "cs-agent-gradsale",
+//     capabilities: [
+//       { tag: "dispute-resolution", description: "Resolve e-commerce buyer-seller disputes" },
+//       { tag: "refund-processing", description: "Process customer refunds up to $500" },
+//     ],
+//     inputSchema: {
+//       required: ["disputeId"],
+//       optional: ["priority", "customerTier"],
+//     },
+//     outputSchema: {
+//       produces: ["resolution", "refundAmount", "auditNote"],
+//     },
+//     lastUpdated: "2026-04-16T00:00:00Z",
+//   }
+//
+// ============================================================================
+// Cross-Domain Conflict Resolution Protocol (Capability #17 — Mechanism 2)
+// ============================================================================
+//
+// Conflict entries are created by the Orchestrator's cross-domain conflict
+// detection skill. Pending conflicts require human resolution via the approval
+// system. Resolved conflicts produce a Global SOP.
+//
+// Path: ekg/conflicts/pending/{id}.json5
+//
+//   {
+//     id: "conflict:2026-04-16-refund-vs-revenue-rec",
+//     detectedAt: "2026-04-16T10:15:00Z",
+//     departments: ["customer-support", "finance"],
+//     description: "Customer Support auto-refunds under $50; Finance requires CFO sign-off on any refund after month-end close.",
+//     conflicting_rules: [
+//       { agentId: "cs-agent", rule: "entity:rule:auto-refund-under-50" },
+//       { agentId: "ap-clerk", rule: "entity:rule:post-close-refund-approval" },
+//     ],
+//     severity: "medium",           // low | medium | high
+//     proposedResolution: "Post-close auto-refunds capped at $25; remainder escalates to CFO.",
+//     escalatedTo: "entity:role:cfo",
+//   }
+//
+// After resolution (moved to ekg/conflicts/resolved/):
+//   {
+//     ...original fields...,
+//     resolvedBy: "platform-admin@company.com",
+//     resolvedAt: "2026-04-17T14:22:00Z",
+//     globalSopRef: "entity:procedure:post-close-refund-handling",
+//   }
+//
+// ============================================================================
+// Industry Ontology Template Format
+// ============================================================================
+//
+// Industry ontology templates live at:
+//   sentura/config/industry-ontologies/{industry}/
+//
+// The directory structure mirrors the agent `ekg/` layout (org/, rules/,
+// assets/, workflows/). Each file follows the pillar schema above.
+//
+// Template files use `{placeholder}` convention for values that are customized
+// at incubation time (e.g., `{company_name}`, `{compliance_contact}`).
+//
+// Creator Agent Phase 2 merges the selected industry ontology into the new
+// agent's `ekg/` directory, preserving any existing files (additive merge).
+//
+// ============================================================================
+// Merge Semantics
+// ============================================================================
+//
+// 1. Additive only — NEVER delete existing entities or relations.
+// 2. Entity deduplication — match on `id`. If same id exists with different
+//    attributes, the newer provenance wins, but all sources are recorded in
+//    `provenance.previousSources: [...]`.
+//
+// 3. Relation deduplication — match on `from + type + to` tuple. Duplicates
+//    are collapsed; attributes are merged (newer wins on conflict).
+//
+// 4. Low-confidence items (confidence < 0.5) are flagged for human review and
+//    stored in a sibling `_review/` subdirectory until reviewed.
+//
+// ============================================================================
+// File Size & Splitting
+// ============================================================================
+//
+// Any single JSON5 file that exceeds 256 KB should be split by sub-domain:
+//   org/org-chart.json5           -> org/org-chart-sales.json5, org/org-chart-eng.json5
+//
+// The `sentura-bootstrap` hook scans the full `ekg/` tree regardless of file
+// count; splitting improves git diff readability and hot-reload performance.

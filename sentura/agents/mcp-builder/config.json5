@@ -1,0 +1,35 @@
+// Sentura MCP Builder Agent ("Smith") — Agent Configuration
+//
+// This config is applied by scripts/sentura-setup.sh during platform setup.
+// The MCP Builder Agent analyzes external API documentation and produces
+// TypeScript Model Context Protocol (MCP) server projects.
+//
+// It is a SENSITIVE meta-agent — it has full `coding` profile + `gateway`
+// access and writes to the sentura/mcp-servers/ directory. Only users with
+// the `ekg_manager` or higher role should trigger this agent.
+{
+  agents: {
+    list: [
+      {
+        id: "mcp-builder",
+        name: "Smith",
+        model: "openai/gpt-4o",
+        skills: ["~/.openclaw/workspace/mcp-builder/skills/*"],
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "coding",
+          alsoAllow: [
+            "gateway",
+            "sessions_send",
+            "sessions_spawn",
+            "web_search",
+            "web_fetch",
+            "browser",
+            "pdf",
+          ],
+        },
+      }
+    ]
+  },
+}

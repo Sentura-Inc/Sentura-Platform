@@ -1,0 +1,86 @@
+// Financial Services — Financial Controls
+//
+// Hard rules that govern payment approvals, journal entries, and duplicate
+// detection. Enforced by Creator Agent RULES.md generation for any role with
+// payment or accounting capabilities.
+{
+  schemaVersion: "1.0",
+  pillar: "rules",
+  domain: "financial-controls",
+  entities: [
+    {
+      id: "entity:rule:payment-approval-threshold",
+      type: "rule",
+      name: "Payments above {max_auto_payment} {reporting_currency} require CFO approval",
+      attributes: {
+        threshold: "{max_auto_payment}",
+        currency: "{reporting_currency}",
+        severity: "hard",
+        rationale: "SOX § 404 internal controls over financial reporting",
+      },
+    },
+    {
+      id: "entity:rule:duplicate-invoice-block",
+      type: "rule",
+      name: "Block duplicate invoices detected within 30 days",
+      attributes: {
+        window_days: 30,
+        match_keys: ["vendor_id", "invoice_number", "amount"],
+        severity: "hard",
+        rationale: "Prevent double-payment; standard AP control",
+      },
+    },
+    {
+      id: "entity:rule:vendor-onboarding-kyb",
+      type: "rule",
+      name: "New vendors require W-9 / W-8BEN and bank verification before first payment",
+      attributes: {
+        severity: "hard",
+        rationale: "IRS 1099 reporting + bank detail fraud prevention",
+      },
+    },
+    {
+      id: "entity:rule:ofac-screening",
+      type: "rule",
+      name: "Screen all counterparties against OFAC SDN list before payment release",
+      attributes: {
+        severity: "hard",
+        rationale: "31 CFR § 501 — OFAC sanctions compliance",
+      },
+    },
+    {
+      id: "entity:rule:month-end-cutoff",
+      type: "rule",
+      name: "No journal entries or payments in closed periods without CFO approval",
+      attributes: {
+        close_day: "{month_end_day}",
+        severity: "hard",
+        rationale: "Period-end financial statement integrity",
+      },
+    },
+    {
+      id: "entity:rule:three-way-match",
+      type: "rule",
+      name: "Invoices require 3-way match (PO, receipt, invoice) before payment",
+      attributes: {
+        exceptions: ["recurring-utilities", "rent", "corporate-services-prepaid"],
+        severity: "hard",
+        rationale: "Standard AP control — prevents unauthorized purchases",
+      },
+    },
+  ],
+  relations: [
+    { from: "entity:rule:payment-approval-threshold", type: "escalates-to", to: "entity:role:cfo" },
+    { from: "entity:rule:duplicate-invoice-block", type: "escalates-to", to: "entity:role:controller" },
+    { from: "entity:rule:vendor-onboarding-kyb", type: "escalates-to", to: "entity:role:controller" },
+    { from: "entity:rule:ofac-screening", type: "escalates-to", to: "entity:role:bsa-officer" },
+    { from: "entity:rule:month-end-cutoff", type: "escalates-to", to: "entity:role:cfo" },
+    { from: "entity:rule:three-way-match", type: "escalates-to", to: "entity:role:controller" },
+  ],
+  provenance: {
+    source: "industry-ontology:financial-services",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.92,
+  },
+}

@@ -1,0 +1,94 @@
+// Financial Services — Compliance Rules (AML, KYC, SOX, GLBA, PCI)
+{
+  schemaVersion: "1.0",
+  pillar: "rules",
+  domain: "compliance",
+  entities: [
+    {
+      id: "entity:rule:aml-transaction-monitoring",
+      type: "rule",
+      name: "Monitor all transactions for AML red flags (structuring, velocity, unusual counterparty)",
+      attributes: {
+        severity: "hard",
+        framework: "BSA/AML",
+        triggers: ["structured_transactions_under_10k", "velocity_spike_3x_baseline", "high_risk_country_counterparty"],
+      },
+    },
+    {
+      id: "entity:rule:ctr-filing",
+      type: "rule",
+      name: "File Currency Transaction Report (CTR) for cash transactions > $10,000",
+      attributes: {
+        threshold: 10000,
+        filingDeadlineDays: 15,
+        severity: "hard",
+        framework: "BSA 31 CFR 1010.311",
+      },
+    },
+    {
+      id: "entity:rule:sar-filing-timeline",
+      type: "rule",
+      name: "File SAR within 30 calendar days of initial detection (60 if no suspect identified)",
+      attributes: {
+        severity: "hard",
+        framework: "BSA 31 CFR 1020.320",
+      },
+    },
+    {
+      id: "entity:rule:kyc-cdd",
+      type: "rule",
+      name: "Complete Customer Due Diligence (CDD) before account opening",
+      attributes: {
+        severity: "hard",
+        framework: "FinCEN CDD Rule",
+        required_fields: ["legal_name", "dob_or_formation_date", "id_number", "address", "beneficial_owners_25pct"],
+      },
+    },
+    {
+      id: "entity:rule:sox-audit-trail",
+      type: "rule",
+      name: "Preserve immutable audit trail of all financial-impact actions for 7 years",
+      attributes: {
+        retention_years: 7,
+        severity: "hard",
+        framework: "SOX § 302, 404, 802",
+      },
+    },
+    {
+      id: "entity:rule:glba-customer-data",
+      type: "rule",
+      name: "Non-public customer financial information (NPI) must not leave T2+ channels",
+      attributes: {
+        severity: "hard",
+        framework: "Gramm-Leach-Bliley Act",
+        dataClass: "T2",
+      },
+    },
+    {
+      id: "entity:rule:pci-scope-containment",
+      type: "rule",
+      name: "Cardholder Data (PAN, CVV, track data) must never enter non-PCI-scoped systems",
+      attributes: {
+        severity: "hard",
+        framework: "PCI-DSS v4.0",
+        dataClass: "T3",
+      },
+    },
+  ],
+  relations: [
+    { from: "entity:rule:aml-transaction-monitoring", type: "escalates-to", to: "entity:role:bsa-officer" },
+    { from: "entity:rule:ctr-filing", type: "escalates-to", to: "entity:role:bsa-officer" },
+    { from: "entity:rule:sar-filing-timeline", type: "escalates-to", to: "entity:role:bsa-officer" },
+    { from: "entity:rule:kyc-cdd", type: "escalates-to", to: "entity:role:compliance-analyst" },
+    { from: "entity:rule:sox-audit-trail", type: "escalates-to", to: "entity:role:internal-auditor" },
+    { from: "entity:rule:glba-customer-data", type: "escalates-to", to: "entity:role:cco" },
+    { from: "entity:rule:pci-scope-containment", type: "escalates-to", to: "entity:role:cco" },
+  ],
+  provenance: {
+    source: "industry-ontology:financial-services",
+    ingested: "2026-04-16T00:00:00Z",
+    ingestedBy: "creator",
+    confidence: 0.95,
+    notes: "US-centric compliance frameworks. Add GDPR / DORA / PSD2 for EU operations.",
+  },
+}
