@@ -1,0 +1,67 @@
+// Remy billing support agent patch
+// Assumes gateway-level Stripe and Zendesk integrations already exist.
+// Assumes knowledge files will be uploaded into ~/.openclaw/workspace/billing-support-remy/knowledge/
+{
+  ops: [
+    {
+      op: "append",
+      path: "agents.list",
+      value: {
+        id: "billing-support-remy",
+        name: "Remy",
+        model: "openai/gpt-5.4",
+        skills: ["~/.openclaw/workspace/billing-support-remy/skills/*"],
+        thinkingDefault: "minimal",
+        reasoningDefault: "off",
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main", workspaceAccess: "rw" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["message"],
+          deny: [
+            "exec",
+            "gateway",
+            "browser",
+            "web_search",
+            "web_fetch",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "subagents"
+          ]
+        },
+        params: {
+          signOff: "— Sentura Billing Support",
+          requiredMcpServers: ["stripe", "zendesk"],
+          knowledgePaths: [
+            "knowledge/refund-policy.md",
+            "knowledge/billing-faq.md",
+            "knowledge/plan-pricing-catalog.md",
+            "knowledge/terms-of-service.md"
+          ],
+          escalationSlackChannel: "#billing-escalations",
+          zendeskEscalationGroup: "Billing Lead group"
+        }
+      }
+    },
+    {
+      op: "append",
+      path: "bindings",
+      value: {
+        agentId: "billing-support-remy",
+        comment: "Sentura dashboard billing web chat",
+        match: { channel: "webchat", peer: { kind: "direct", id: "*" } }
+      }
+    },
+    {
+      op: "append",
+      path: "bindings",
+      value: {
+        agentId: "billing-support-remy",
+        comment: "Sentura billing support email",
+        match: { channel: "email", peer: { kind: "direct", id: "*" } }
+      }
+    }
+  ]
+}
