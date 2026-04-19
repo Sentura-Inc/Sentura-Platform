@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when building MCP servers against GradSale, ingesting enterprise knowledge, or writing ekg/ skills. The GradSale docs are the canonical test enterprise per `.cursorrules` rule 17.
+
 # GradSale Database — Technical Documentation
 
 ## Overview

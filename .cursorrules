@@ -4,7 +4,7 @@
 >
 > Sentura uses **exactly the 8 OpenClaw-native workspace files** — no `RULES.md`, no `CONTEXT.md`, ever. Hard safety boundaries live inside each agent's `AGENTS.md` under `## Hard Rules (must not override)`, and enterprise context lives inside `BOOTSTRAP.md` under `## Enterprise Context`. The only runtime hook extension is per-user memory (`memory/users/MEMORY_USER_{token}.md`).
 >
-> If you see `RULES.md` / `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md`, treat those entries as **historical audit log only** (MEMORY.md is append-only). They describe an earlier design that has been fully removed from code, templates, tests, runtime workspaces, and documentation. Do NOT use them as a guide for current or future work.
+> If you see `RULES.md` / `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md` or in any file under `docs/memory/`, treat those entries as **historical audit log only** (the memory subsystem is append-only). They describe an earlier design that has been fully removed from code, templates, tests, runtime workspaces, and documentation. Do NOT use them as a guide for current or future work.
 >
 > Concretely, you MUST NOT:
 > - Create a file named `RULES.md` or `CONTEXT.md` anywhere in `sentura/`, `workspaces/`, `~/.openclaw/workspace/`, templates, test fixtures, or agent-facing prose.
@@ -17,13 +17,25 @@ You are an expert AI/ML engineer building the Sentura platform: an **enterprise 
 
 ## Project Context
 
-Read `README.md` at the start of every new chat to understand the full architecture. It is the single source of truth for all design decisions. Read `docs/OPENCLAW.md` to understand OpenClaw's capabilities. The `openclaw/` directory contains the OpenClaw core runtime — scan its source when working on extensions or integrations.
+**Mandatory reads at the start of every new chat** (these are loaded into context by default — keep them lean):
 
-The `Documents/` folder contains the original pitch deck and demo scenarios. Reference these when building features that relate to employee creation, agent behavior, or enterprise integration.
+1. `README.md` — slim architectural overview, 17 capabilities table, tech stack, project structure, quick links.
+2. `docs/MEMORY.md` — development memory **matrix / table of contents** (policy preamble + Current Ground Truth + one row per session linking to a detail file under `docs/memory/`). This stays small on purpose; the session prose lives in per-person / per-week files below.
+3. `docs/TeamPlan.md` — 8-week sprint plan, per-person task breakdowns and integration checkpoints. Single source of truth for what needs to be done, who owns it, and current progress.
+4. `docs/TESTS.md` — test matrix (one row per deliverable). Single source of truth for what to test.
 
-The `ekg/` folder contains technical documentation for a reference enterprise (GradSale) — database schema, backend architecture, web API, admin API, and admin panel docs. Use these as the real-world test case when building enterprise integration features, MCP servers, or customer-facing agent scenarios.
+**Reference docs — read on demand only** (these are condensed, linked, or too long to auto-ingest):
 
-`docs/TeamPlan.md` is the 8-week sprint plan with per-person task breakdowns and integration checkpoints. It is the single source of truth for what needs to be done, who owns it, and the current progress.
+- `docs/DESIGN.md` — deep design chapters (data architecture, capabilities #1–#17, workspace architecture, security, etc.). Read when designing or modifying a specific capability or subsystem.
+- `docs/OPENCLAW.md` — OpenClaw runtime reference. Read when working on extensions, gateway RPC, plugin SDK, channels, providers, memory, approvals, or hooks.
+- `docs/memory/person-{a,b,c,d}/week-{N}.md` — per-owner, per-week session detail (full prose, diffs, verification steps). Read only the specific row you need from the `docs/MEMORY.md` matrix.
+- `docs/memory/shared/*.md` — cross-cutting sessions (architecture pivots, workspace convention changes, multi-round bug hunts like `creator-deployment-rounds-1-14.md`). Same rule — open from the matrix, not pre-emptively.
+- `docs/tests/tests-person-{a,b,c,d}.md`, `docs/tests/tests-cross-team.md` — detailed test cases (methods, assertions). Read when implementing or debugging a specific test row.
+- `ekg/database.md`, `ekg/backend.md`, `ekg/web.md`, `ekg/admin-panel.md`, `ekg/api-admin.md`, `ekg/api-web.md` — GradSale reference enterprise docs. Read when building MCP servers or enterprise integration scenarios.
+- `Documents/Demo.md` — original pitch deck and demo scenarios. Read when building features that relate to Mode A/Mode B demo flows, employee creation UI, or enterprise integration scenes.
+- `openclaw/` source — scan only when writing or debugging a specific extension or integration; never read linearly.
+
+On-demand files carry a `> **On-demand reference — not read by default.**` banner at the top. Honor it — do not load them into context unless the current task requires them.
 
 ## Architecture & Project Structure
 
@@ -142,7 +154,15 @@ Do NOT substitute these without explicit approval:
 
 ## Behavioral Rules for Every Chat
 
-1. **Read the memory document first, write to it last.** At the START of every chat session, read `docs/MEMORY.md` to understand what previous sessions have accomplished. At the END, append a dated summary of what you did, which files you created/modified, key decisions, and anything left incomplete. If `docs/MEMORY.md` does not exist, create it with the header `# Sentura Development Memory`. Never delete previous entries — only append.
+1. **Read the memory matrix first, write to it last.** The memory subsystem is split in two on purpose: the matrix is cheap to skim (mandatory); the detail files hold the prose (on-demand).
+
+   - **Start of chat — read.** Read `docs/MEMORY.md` (the matrix). Find rows whose `Session` description overlaps your task. Open the linked detail file under `docs/memory/person-{a,b,c,d}/week-{N}.md` or `docs/memory/shared/*.md` **only** when you actually need the prose, diffs, or verification steps for that session. Do not pre-load the whole `docs/memory/` tree.
+   - **End of chat — write (both places, never just one).**
+     - (a) Add a new row to the Session Matrix in `docs/MEMORY.md` with `Date | Owner | Session | Detail file`. Owner is `A`, `B`, `C`, `D`, or `shared`. Pick the Week header (Week 1 / Week 2 / …) that matches `docs/TeamPlan.md`; create a new Week header if you're the first to log work in that sprint week.
+     - (b) Append a dated section (`## {YYYY-MM-DD} — {Session title}`) to the matching detail file: `docs/memory/person-{you}/week-{N}.md` for single-owner work, or a file under `docs/memory/shared/` for cross-cutting work (architecture pivots, workspace convention changes, multi-round bug hunts spanning multiple owners). If the detail file doesn't exist yet (e.g. starting a new sprint week or a new shared topic), create it with the standard header: the on-demand banner, a title (`# Person {X} — {area} — Week {N}` or `# {Shared topic}`), a one-paragraph description, and a "Sessions in this file" TOC table. Also update the TOC table in-place as new sessions land.
+     - (c) If the session changes policy (workspace convention, Hard Rules wording, RBAC model, deployment invariants), update the `## Current Ground Truth` block at the top of `docs/MEMORY.md` — this block is the only place in the matrix where older facts may be rewritten.
+   - **Bootstrap.** If `docs/MEMORY.md` does not exist, recreate it as a matrix with: policy preamble, `## Current Ground Truth (YYYY-MM-DD)`, `## Session Matrix` (grouped by Week), and `## Session Summaries (meta)` for reorg/compression logs. If a `docs/memory/` subdirectory is missing, create it before writing the detail file.
+   - **Preservation (non-negotiable).** Never delete previous session facts. Summaries are OK in the matrix row, but every session date, decision, file path, and fix must remain traceable **from the matrix row into the detail file**. When condensing older entries (e.g. consolidating a series of bug-fix rounds), preserve round numbers, root causes, and fixes verbatim — only narrative and commentary may be dropped. Treat any `RULES.md` / `CONTEXT.md` mention inside `docs/memory/**` as historical audit log only (see the banner at the top of this file).
 
 2. **Update docs/TeamPlan.md when tasks are completed.** After finishing any work that corresponds to a task in `docs/TeamPlan.md`, mark that task as done by changing `- [ ]` to `- [x]`. If work reveals new tasks, add them under the appropriate week and person. If a task is blocked or deferred, add a note explaining why. `docs/TeamPlan.md` must always reflect the true current state of the project.
 
@@ -156,12 +176,14 @@ Do NOT substitute these without explicit approval:
    - Never remove test cases for existing functionality — only add, update, or mark as superseded.
 
 4. **Keep all project documents in sync.** When your work changes the architecture, adds new features, or introduces new conventions:
-   - Update `README.md` if the architecture, project structure, deployment steps, or technology stack changes.
-   - Update `docs/OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
-   - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
-   - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
-   - Update `docs/TESTS.md` with test cases for any new or modified deliverables (see rule 3).
-   - Update `.cursorrules` (this file) if you establish new conventions, discover new pitfalls, or change the project structure.
+ - Update `README.md` if the high-level architecture, project structure, deployment steps, or technology stack summary changes. Keep it slim — push deep chapters into `docs/DESIGN.md`.
+ - Update `docs/DESIGN.md` when you add or modify a capability, data flow, or subsystem that needs detailed treatment.
+ - Update `docs/OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
+ - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
+ - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
+ - Update `docs/TESTS.md` (the matrix) **and** the matching `docs/tests/tests-person-*.md` detail file with test cases for any new or modified deliverables (see rule 3).
+ - Update `docs/MEMORY.md` (the matrix) **and** the matching `docs/memory/person-*/week-*.md` or `docs/memory/shared/*.md` detail file with a dated session entry (see rule 1). These two steps are paired — never update only the matrix or only the detail file.
+ - Update `.cursorrules` (this file) if you establish new conventions, discover new pitfalls, or change the project structure. When you change the doc-hub layout (add a new mandatory doc, move/rename a reference doc, change where session prose lives), update both the "Mandatory reads" and "Reference docs — read on demand only" lists at the top of this file, and reflect the change in the `README.md` "Key Documentation" table.
 
 5. **Read before writing.** Always read relevant existing files before creating or modifying anything. Understand what exists.
 
@@ -202,6 +224,8 @@ Do NOT substitute these without explicit approval:
 - Agent workspace files (8 native OpenClaw files, all uppercase): `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`.
 - Config files: `kebab-case.json5` or `kebab-case.yaml`.
 - OpenClaw extensions: one folder per extension under `sentura/extensions/<name>/` with `openclaw.plugin.json` manifest.
+- Memory detail files: `docs/memory/person-{a,b,c,d}/week-{N}.md` (one file per owner per sprint week) and `docs/memory/shared/{kebab-case-topic}.md` (one file per cross-cutting topic, optionally dated — e.g. `workspace-collapse-2026-04-17.md`, `creator-deployment-rounds-1-14.md`). Every memory detail file starts with an `> **On-demand reference — not read by default.**` banner and a back-link to `docs/MEMORY.md`.
+- Test detail files: `docs/tests/tests-person-{a,b,c,d}.md` + `docs/tests/tests-cross-team.md` (same on-demand banner convention; linked from `docs/TESTS.md` matrix rows).
 
 ## Common Pitfalls to Avoid
 

@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when working on OpenClaw internals: extensions, gateway RPC, plugin SDK, channels, providers, memory, approvals, or hooks. Core agent loop is read by Sentura code via stable `openclaw/plugin-sdk/*` APIs only.
+
 # OpenClaw — Technical Reference Document
 
 > **Version analyzed:** `2026.4.4` (package.json)

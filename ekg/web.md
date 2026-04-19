@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when working on GradSale's customer-facing web app or mapping web user journeys for agent skills.
+
 # GradSale Web Application — Technical Documentation
 
 ## Overview

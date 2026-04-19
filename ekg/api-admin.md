@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when generating admin-side MCP tools for GradSale or auditing admin API behavior.
+
 # GradSale Admin Panel — API Reference
 
 ## Overview

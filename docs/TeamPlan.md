@@ -8,7 +8,7 @@
 >
 > Sentura agent workspaces use **exactly the 8 OpenClaw-native files** — no `RULES.md`, no `CONTEXT.md`, ever. Hard safety boundaries live inside each agent's `AGENTS.md` under `## Hard Rules (must not override)`, and enterprise context lives inside `BOOTSTRAP.md` under `## Enterprise Context`. The only runtime hook extension is per-user memory (`memory/users/MEMORY_USER_{token}.md`).
 >
-> If you see `RULES.md` or `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md`, treat those entries as **historical audit log only**. `MEMORY.md` is append-only: earlier entries describe a design that was fully removed from code, templates, tests, runtime workspaces, and documentation. They are kept for provenance, not as specification. Do NOT use them as a guide for current or future tasks.
+> If you see `RULES.md` or `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md` or in any file under `docs/memory/`, treat those entries as **historical audit log only**. The memory subsystem (matrix in `docs/MEMORY.md` + per-owner/per-week detail files under `docs/memory/person-*/week-*.md` + cross-cutting files under `docs/memory/shared/`) is append-only: earlier entries describe a design that was fully removed from code, templates, tests, runtime workspaces, and documentation. They are kept for provenance, not as specification. Do NOT use them as a guide for current or future tasks.
 >
 > Concretely, when picking up any task below you MUST NOT:
 > - Add a file named `RULES.md` or `CONTEXT.md` anywhere in `sentura/`, `workspaces/`, `~/.openclaw/workspace/`, templates, tests, or scripts.
@@ -98,50 +98,118 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 
 ---
 
-## Week 1 — Foundation & OpenClaw Setup
+## Week 1 — Foundation & OpenClaw Setup — **COMPLETE (A/B/C/D)**
 
-> **Goal**: OpenClaw running as the core runtime. Everyone has a working local environment. Shared conventions established.
->
-> **Capabilities covered**: #4 (guardrails design), #5 (Creator Agent start), #6 (workspace convention)
+> **Goal**: OpenClaw runtime up. Working local envs for everyone. Shared conventions.
+> **Capabilities covered**: #4 (guardrails design), #5 (Creator start), #6 (workspace convention)
+> **Status**: Fully complete for all four people (audited 2026-04-20).
 
-### Person A — Platform & OpenClaw Engineer
-- [x] Build OpenClaw from source (`cd openclaw && pnpm install && pnpm ui:build && pnpm build`)
-- [x] Run `pnpm openclaw onboard` — configure gateway, LLM provider, API keys
-- [x] Verify LLM providers work (cloud API keys via `~/.openclaw/.env`, local via Ollama)
-- [x] Verify channels available (Slack + WebChat via OpenClaw's onboarding)
-- [x] Set up the project monorepo structure (`sentura/`, etc.)
-- [x] Document the OpenClaw Gateway RPC methods the team will use
-- [x] Write `docs/SETUP.md` for local development setup
-- Note: OpenClaw builds from source and runs via `pnpm gateway:watch`. Docker is for production only.
+| Person | Deliverable | Artifact(s) |
+|---|---|---|
+| A | Build OpenClaw from source + onboard + verify LLM/channels | `openclaw/` built; `~/.openclaw/.env`; `~/.openclaw/openclaw.json` |
+| A | Monorepo structure for Sentura control plane | `sentura/agents/`, `sentura/extensions/`, `sentura/skills/`, `sentura/config/`, `sentura/hooks/` |
+| A | Document Gateway RPC surface for team | `docs/OPENCLAW.md` (reference) + interface contracts table in this file |
+| A | Local dev setup guide (cross-platform) | `docs/SETUP.md`; rule: dev = `pnpm gateway:watch`, prod = OpenClaw's Docker only |
+| B | Creator (Forge) agent workspace — full 8-file set + skills | `sentura/agents/creator/{AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md, skills/, config.json5}` |
+| B | 8-file workspace convention documented (+ Sentura additions: `skills/`, `ekg/`, `memory/users/`) | `AGENTS.md § Hard Rules`, `BOOTSTRAP.md § Enterprise Context`; **never** `RULES.md`/`CONTEXT.md` |
+| B | Role templates (AP Clerk, CS Agent, SDR) | `sentura/config/templates/` |
+| B | Self-provisioning + knowledge-curation skills | `sentura/skills/self-provisioning/SKILL.md`, `sentura/skills/knowledge-curation/SKILL.md` |
+| B | Manual employee creation dry-run (config + workspace by hand) | Validated 8-file convention works end-to-end |
+| C | Next.js 15 dashboard scaffold + Tailwind + shadcn/ui | `sentura/dashboard/` |
+| C | Typed WebSocket Gateway RPC client | `sentura/dashboard/lib/openclaw-client.ts` |
+| C | App shell + Employee Roster page (`config.get` → `agents.list`) | `sentura/dashboard/app/employees/` |
+| C | Hybrid architecture pivot: session views deferred to Control UI; dashboard links out; home/employees repurposed for enterprise focus | Removes duplicated panes |
+| D | Study plugin SDK; scaffold + ship `sentura-audit` extension | `sentura/extensions/sentura-audit/` logs tool calls, approvals, config changes |
+| D | Study `exec.approval.*` / `plugin.approval.*` systems | Feeds Week 2 approval flows |
+| D | **7-role RBAC model** (replaces old 5-role) | Roles: `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`. Scope: SME-wide or per-department. Design at `sentura/extensions/sentura-rbac/DESIGN.md` |
+| D | Initial approval policy configs | Which tools need approval + escalation rules |
+| D | Study `ekg/` GradSale API docs for Week 2 MCP generation | `ekg/api-admin.md`, `ekg/api-web.md`, `ekg/database.md` |
 
-### Person B — AI Employee & Skills Engineer
-- [x] Create the Creator Agent workspace: `sentura/agents/creator/` with SOUL.md, AGENTS.md, skills/
-- [x] Write the first version of the Creator Agent's system prompt
-- [x] Design the agent workspace file convention documenting the 8-file native structure (plus Sentura-added skills/, ekg/, memory/users/ subdirectories):
-  - OpenClaw 8: AGENTS.md (Sentura adds `## Hard Rules` section — position-specific safety), SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md (Sentura adds `## Enterprise Context` section), MEMORY.md
-  - Sentura additions outside the 8 native files: skills/ directory (structured SKILL.md files per capability), ekg/ directory, memory/users/ directory
-- [x] Create 3 role templates: `sentura/config/templates/` (AP Clerk, CS Agent, SDR)
-- [x] Write the `self-provisioning` skill: `sentura/skills/self-provisioning/SKILL.md`
-- [x] Write the `knowledge-curation` skill: `sentura/skills/knowledge-curation/SKILL.md`
-- [x] Test manual creation of an AI employee by writing config + workspace files by hand
+---
 
-### Person C — Frontend & Dashboard Engineer
-- [x] Scaffold Sentura dashboard (Next.js 15 + Tailwind + shadcn/ui)
-- [x] Build the Gateway WebSocket RPC client library (typed wrapper around OpenClaw protocol)
-- [x] Create the app shell: sidebar navigation, auth placeholder, layout
-- [x] Build the Employee Roster page (list all agents from `config.get` → `agents.list`)
-- [x] ~~Build the basic session view~~ → Removed: deferred to OpenClaw Control UI (hybrid approach)
-- [x] Revise dashboard to hybrid architecture: remove duplicate pages (sessions), add Control UI external links in sidebar, repurpose home/employees pages for enterprise focus
+## Week 2 — AI Employee Creation & Enterprise Integration Foundation — **COMPLETE (A/B/C), Person D in progress**
 
-### Person D — Extensions & Integrations Engineer
-- [x] Study OpenClaw's plugin SDK thoroughly (`openclaw/plugin-sdk/*`)
-- [x] Scaffold Sentura extension boilerplate: `sentura/extensions/sentura-audit/`
-- [x] Build `sentura-audit` extension: logs all tool calls, approvals, config changes to structured output
-- [x] Study OpenClaw's approval system (`exec.approval.*`, `plugin.approval.*`)
-- [x] ~~Design the RBAC model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User)~~ → Redesigned: **7-role model** (`platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`). Removed `dept_admin` and `employee_owner`; added `manager` (supervision), `ekg_manager` (knowledge control), `agent_manager` (agent design), `viewer` (read-only dashboards). Scope model: SME-wide or per-department.
-- [x] Update `sentura/extensions/sentura-rbac/DESIGN.md` with the 7-role model, scope model, and permission tables
-- [x] Write initial approval policy configs (which tools need approval, escalation rules)
-- [x] Study the `ekg/` GradSale API docs (api-admin.md, api-web.md, database.md) for enterprise MCP generation prep
+> **Goal**: A human can create an AI employee via Forge (Creator); first enterprise MCP server built from `ekg/`.
+> **Capabilities covered**: #1 (data integration start), #2 (MCP generation start), #5, #6, #11 (EKG schema)
+> **Status**: Persons A, B, C complete (Week 2 audit 2026-04-20). Person D's RBAC + first GradSale MCP server still pending.
+> **Headline result (2026-04-19)**: Forge live E2E passed — brief "Create Penny (AP clerk, >£5000 escalate)" → new agent `penny-ap` deployed in ~110s with the £5000 rule embedded in `AGENTS.md § Hard Rules` (see `scripts/test-creator-e2e-live.ts`, MEMORY.md).
+
+### Person A — Platform & OpenClaw — COMPLETE
+
+| Deliverable | Artifact(s) |
+|---|---|
+| Automated workspace creation (8 natives + `skills/` + `ekg/` 4-pillar tree + `memory/users/`) | `scripts/sentura-setup.sh`, `scripts/sentura-setup.ps1` |
+| Agent registration helper via `config.patch` | Tested hot-reload: adding an agent makes it immediately available |
+| MCP loopback server for tool protocol interop | Configured in live `~/.openclaw/openclaw.json` |
+| Channel binding helper (programmatic agent→channel/peer) | Used by Creator deployment skill |
+| **Per-agent LanceDB isolation** | `memory-lancedb.dbPath = ~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config; applied to meta-agents by setup script |
+| **User token infrastructure** | UUID `userToken` attached at user creation + WebSocket bind; session key `agent:<id>:user:<token>:<sid>`; all traces tagged |
+| **Sandbox seeding defect fix** | New hook `sentura/hooks/sentura-sandbox-seed/` runs on `agent:bootstrap`: full mirror of `skills/`, union-copy of `memory/` + `ekg/`, copies missing `config.json5`/`MEMORY.md`, overwrites stub `BOOTSTRAP.md`; symlink/hardlink escape hardening. Removed stale `skills:` path-glob filter from creator/tuner/orchestrator configs. Setup script auto-installs + scrubs stale globs. Repair tool: `scripts/repair-sandbox-seeding.ts`. Validated via `scripts/test-week2.ts` Part 11 (9 cases). |
+| **Deployment-pipeline extension** (fixes `fs_write` → read-only sandbox path error) | New `sentura/extensions/sentura-agents/` exposes `sentura.agents.{writeSubfile,readSubfile,deleteSubfile,listSubfiles}` gateway RPCs + `sentura_agents_manage` agent tool. `safeJoin` blocks `..`/absolute/symlink; `NATIVE_WORKSPACE_FILES` forces native files through `agents.files.set`; 5 MiB default per-file cap. |
+| Setup-script extension wiring (Step 7a) | Scans `sentura/extensions/` for `sentura-agents`, `sentura-rbac`, `sentura-audit`, `sentura-approval`, `sentura-provisioner`; patches `~/.openclaw/openclaw.json` `plugins.load.paths` + `plugins.entries`. Validated via `scripts/test-week2.ts` Part 12 (22 cases). |
+
+### Person B — AI Employee & Skills — COMPLETE
+
+| Deliverable | Artifact(s) |
+|---|---|
+| Creator Phase 1: Research & Discovery skill | `sentura/agents/creator/skills/research-and-discovery/SKILL.md` |
+| Creator Phase 2: Design skill (agent config + 8 natives + skills + `ekg/` 4-pillar + `memory-lancedb.dbPath`) | `sentura/agents/creator/skills/employee-design/SKILL.md` — generates `AGENTS.md § Hard Rules`, `BOOTSTRAP.md § Enterprise Context`, wires MCP refs, merges industry ontology |
+| Creator Phase 4: Deploy skill (RPC-first, **not** `fs_write`) | `sentura/agents/creator/skills/employee-deployment/SKILL.md`: uses `agents.create` → `agents.files.set` → `sentura.agents.writeSubfile` → `config.patch`. `fs_write`/`fs_read` reserved for sandbox-local scratch only. Tool allowlist grants `sentura_agents_manage`, `sentura_rbac_manage`, `sentura_audit_query`. |
+| Offline helper tests | `scripts/test-creator-helpers.ts` (49/49 pass) |
+| **Live E2E test** | `scripts/test-creator-e2e-live.ts` — **PASSED 2026-04-19** with `openai/gpt-5.4`: NL brief → Forge Phase 1–4 → `penny-ap` in config (~110s) → 8-file workspace with £5000 Hard Rule |
+| 5 common skill templates | `sentura/config/templates/_common/skills/` (meeting-notes, document-summarization, escalation-handling, status-update, knowledge-base-lookup) |
+| **EKG 4-pillar JSON5 schema** (cap #11) | `sentura/config/ekg-schema.json5` — entity/relation/attribute format per pillar (org/rules/assets/workflows), provenance (`source`, `ingested`, `confidence`), Experience Link format (`pattern`, `observation`, `confidence`, `occurrences`) |
+| **2 industry ontologies** (cap #13 Tier 1) | `sentura/config/industry-ontologies/financial-services/` (SOX, AML/KYC, PCI, approval chains) + `e-commerce/` (consumer protection, fraud, RMA/refund/chargeback) |
+| **MCP Builder meta-agent workspace** | `sentura/agents/mcp-builder/` — 8 natives + 4 skills (api-analysis, mcp-generation, smoke-test, register-server). Round 14 repair: `openai/gpt-4o` → `openai/gpt-5.4`; removed broken path-glob `skills:` filter; applied Creator-parity `tools.deny = [sessions_spawn, subagents, sessions_yield]`. Tests: `docs/tests/tests-person-b.md` B9.6 + B9.7. **Workspace scaffolded; not yet deployed.** |
+
+#### Creator Deployment Bug-Fix Rounds 1–14 (2026-04-17 → 2026-04-20) — consolidated
+
+Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E passes". Root cause + fix per round:
+
+| # | Root cause | Fix |
+|---|---|---|
+| 1 | Creator sandbox empty — skills/`BOOTSTRAP.md`/`memory/`/`config.json5` never copied | `sentura-setup.sh` re-seeds `~/.openclaw/workspace/creator/` from `sentura/agents/creator/` every run |
+| 2 | Sandbox seeding copied natives only | New `sentura-sandbox-seed` hook mirrors `skills/` + union-copies `memory/`, `ekg/`, `config.json5`, `MEMORY.md`, stub `BOOTSTRAP.md` |
+| 3 | `employee-deployment` skill used `fs_write` on a read-only sandbox path | New `sentura-agents` extension + `sentura_agents_manage` tool; skill rewritten around gateway RPCs |
+| 4 | Creator's `AGENTS.md § Hard Rules` + `TOOLS.md` + `BOOTSTRAP.md` still ordered `fs_write` (override beats skill) | Hard Rules rewritten to forbid `fs_write`/`apply_patch` on `/workspace/.openclaw/workspace/...`; `TOOLS.md` promotes `sentura_agents_manage`; `BOOTSTRAP.md` boot-check updated |
+| 5 | `coding` profile still surfaced `write`/`edit`/`apply_patch` — prompt alone couldn't stop the LLM | `config.json5 tools.deny = ["write","edit","apply_patch"]`; `sentura-setup.sh` re-applies every run |
+| 6 | `gateway`/`cron`/`nodes` are owner-only; unset `commands.ownerAllowFrom` made webchat non-owner; Forge's `alsoAllow: ["gateway"]` stripped silently | `commands.ownerAllowFrom = ["*"]` live + in setup script |
+| 7 | `tools.exec.host` defaulted to `"auto"` which rejects `host:"gateway"` when sandbox available → Forge self-probe failed → LLM collapsed it into "gateway tool is missing" | `tools.exec.host = "gateway"` live + setup script (guarded to preserve operator overrides) |
+| 8 | Sandbox bind seeded once via `fs.writeFile(..., {flag:"wx"})`; host edits never reached running agent (workspace 18706B / sandbox 18053B mismatch observed) | `sandbox = { mode: "non-main", workspaceAccess: "rw" }` — host `~/.openclaw/workspace/creator/` bind-mounted live at `/workspace`; safe because `tools.deny` strips built-in fs mutators |
+| 9 | Residual non-owner path leaked through one session flow | Owner scope hardening + sandbox cleanup |
+| 10 | `openai/gpt-5.3-codex` hallucinated `sessions_spawn({task:"noop", runTimeoutSeconds:1})` → 1000ms embedded-run timeout, empty-workspace subagent returned `"noop"` | Added `sessions_spawn`, `subagents`, `sessions_yield` to `tools.deny` (only block-path since `coding` profile ships them); `AGENTS.md` "Tool Availability" scrubbed; 9 test cases in `docs/tests/tests-person-b.md § B6.7` |
+| 11 | Same stale-sandbox root cause as #8, confirmed via mtime audit | `workspaceAccess: "rw"` shipped with doc block explaining seed-once semantics; `"ro"` rejected (adds second mount at `SANDBOX_AGENT_WORKSPACE_MOUNT`, not `/workspace`) |
+| 12 | Similar stale-bundle residue on deeper paths | Setup-script cleanup of stale `agent-creator-*` sandbox dirs |
+| 13 | Final live E2E blocker: model pinning | Pinned `openai/gpt-5.4`; Penny E2E passed in ~110s on 2026-04-19 |
+| 14 | MCP Builder `config.json5` had invalid `openai/gpt-4o` + path-glob `skills:` filter (OpenClaw expects skill **names**); Round-10 noop loop risk on first deploy | Model → `openai/gpt-5.4`; removed `skills:` filter (auto-discovery works); mirrored Creator's `tools.deny`. Week 2 audit PASS for A/B/C |
+
+**Invariants emerging from these rounds (must be preserved):**
+
+1. The Creator (and any agent that deploys other agents) uses only the gateway RPC chain: `sentura_agents_manage { create_agent → write }` → `gateway.config.patch`. Never `fs_write`/`edit`/`apply_patch`/`write` on another agent's workspace.
+2. Meta-agent `tools.deny` always includes `["write","edit","apply_patch","exec","sessions_spawn","subagents","sessions_yield"]`.
+3. Meta-agent `sandbox = { mode: "non-main", workspaceAccess: "rw" }` so host workspace edits hit the running agent.
+4. Gateway config always sets `commands.ownerAllowFrom = ["*"]` (or explicit operator list) **and** `tools.exec.host = "gateway"`.
+5. `agents.list[].skills` in `config.json5` is a **skill-name** filter, not a path glob. Omit it to auto-discover `skills/*/SKILL.md`.
+6. Sandbox seeding is done by the `sentura-sandbox-seed` hook — never rely on OpenClaw's built-in `ensureSandboxWorkspace` to copy `skills/`/`memory/`/`ekg/`/`config.json5`.
+
+### Person C — Frontend & Dashboard — COMPLETE
+
+| Deliverable | Artifact(s) |
+|---|---|
+| Employee Creator chat UI (`/create`) — streaming via `sessions.create` + `chat.send` + `chat` events (`state: "delta"`/`"final"`) | `sentura/dashboard/app/create/` |
+| Employee Detail page (`/employees/[id]`) — 8 natives view, channel bindings, lifecycle actions | `agents.files.get` allow-list aware; non-allowlisted files link to Control UI's config editor; Lifecycle: Refresh / Tune (W3) / Edit in Control UI / Retire via `agents.delete` |
+| Approval Queue page (`/approvals`) | Seeds from `exec.approval.list` + `plugin.approval.list`; subscribes to `*.approval.requested`/`*.approval.resolved`; Approve-once / Always-allow / Deny w/ reason; requires `operator.approvals` scope |
+| Session/Conversation viewer | **Removed** — deferred to OpenClaw Control UI (hybrid) |
+
+### Person D — Extensions & Integrations — IN PROGRESS
+
+| Deliverable | Status |
+|---|---|
+| `sentura-rbac` extension with 7-role model + scope (SME-wide / per-dept) + `userToken` in user store | **Pending** |
+| RBAC middleware — per-RPC permission check | **Pending** |
+| First enterprise MCP server from `ekg/` GradSale docs (Tier 2: Sentura-generated) — wrap admin + web API endpoints via `@modelcontextprotocol/sdk` | **Pending** |
+| MCP integration test — AI employee uses GradSale tools in conversation | **Pending** |
+| Document the API-docs → MCP-server → `config.patch` pattern | **Pending** |
 
 ---
 

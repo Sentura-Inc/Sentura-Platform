@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when working on GradSale's admin panel or building admin-side agent workflows.
+
 # GradSale Admin Panel — Technical Documentation
 
 ## Overview

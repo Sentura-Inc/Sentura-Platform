@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when modifying GradSale's NestJS backend or designing MCP servers that call into it.
+
 # GradSale Backend — Technical Documentation
 
 ## Overview

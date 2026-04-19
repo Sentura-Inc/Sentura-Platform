@@ -1,3 +1,5 @@
+> **On-demand reference — not read by default.** Consult when generating storefront/web MCP tools for GradSale or testing customer-facing workflows.
+
 # GradSale Web Application — API Reference
 
 ## Overview

@@ -3,6 +3,8 @@ Visit [www.DeepL.com/pro](https://www.deepl.com/pro?cta=edit-document)
 for more information.](media/image.png){width="11.691297025371828in"
 height="0.8829790026246719in"}
 
+> **On-demand reference — not read by default.** Consult when building demo scenarios (Mode A / Mode B), employee-creation flows, or UI mocks that need to match the original pitch. Treat as spec for demo surface, not for core platform design.
+
 ## Demo: Final Update Notes 3.12.2026
 
 **1. Change Log**
