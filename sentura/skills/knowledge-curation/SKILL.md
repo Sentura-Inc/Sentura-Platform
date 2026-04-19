@@ -23,8 +23,8 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
    | Type | Action |
    |------|--------|
    | Procedural (how to do X) | Generate/update SKILL.md files |
-   | Contextual (org structure, policies) | Update CONTEXT.md |
-   | Safety-critical (new rules, compliance) | Update RULES.md (requires admin approval) |
+   | Contextual (org structure, policies) | Update the `## Enterprise Context` section inside `BOOTSTRAP.md` |
+   | Safety-critical (new rules, compliance) | Update the `## Hard Rules (must not override)` section inside `AGENTS.md` (requires admin approval) |
    | Reference (lookup data, templates) | Store in workspace data/ directory |
 
 ### Step 2: Extract Information
@@ -56,12 +56,12 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
    - List the tools needed for each step
    - Identify safety constraints
 
-2. **For contextual knowledge** → update CONTEXT.md:
-   - Identify which section to update (Company, Org Structure, Systems, Policies)
+2. **For contextual knowledge** → update `BOOTSTRAP.md § Enterprise Context`:
+   - Identify which sub-section to update (Company, Org Structure, Systems, Policies)
    - Preserve existing content, add new information
    - Flag conflicts with existing context (e.g., changed org structure)
 
-3. **For safety-critical knowledge** → draft RULES.md updates:
+3. **For safety-critical knowledge** → draft updates to `AGENTS.md § Hard Rules (must not override)`:
    - Convert policy changes into NEVER/ALWAYS rules
    - Flag for admin approval before applying
 
@@ -80,15 +80,15 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
 2. For each affected employee, determine the update type:
    - New skill file → add to skills/ directory
    - Updated skill → modify existing SKILL.md
-   - Context change → update CONTEXT.md
-   - New rule → update RULES.md (requires approval)
+   - Context change → update `BOOTSTRAP.md § Enterprise Context`
+   - New rule → update `AGENTS.md § Hard Rules` (requires approval)
 
 ### Step 5: Distribute Knowledge
 
 1. For each affected employee workspace:
    - Write new/updated files using `fs_write`
    - Verify file was written correctly
-   - If RULES.md was modified → submit for admin approval
+   - If the `## Hard Rules` section of `AGENTS.md` was modified → submit for admin approval
 
 2. Notify affected employees (via `sessions_send` if they have active sessions):
    - What knowledge was added/updated
@@ -105,14 +105,14 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
 1. For each affected employee, verify:
    - The skill/context file exists in their workspace
    - The file content matches the intended update
-   - No conflicts with existing RULES.md
+   - No conflicts with existing `AGENTS.md § Hard Rules`
 
 2. Log the knowledge distribution event:
    - Source (URL, file, description)
    - Knowledge type (procedural, contextual, safety, reference)
    - Affected employees (list)
    - Files modified (list with before/after summary)
-   - Approval status (if RULES.md was modified)
+   - Approval status (if the `## Hard Rules` section of `AGENTS.md` was modified)
 
 ## Tools Needed
 
@@ -125,7 +125,7 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
 
 ## Safety
 
-- NEVER modify RULES.md without admin approval
+- NEVER modify the `## Hard Rules` section of `AGENTS.md` without admin approval
 - NEVER delete existing skills — only add or update (preserve history)
 - NEVER distribute unverified information as fact — flag uncertain content for human review
 - NEVER include credentials or secrets in knowledge files

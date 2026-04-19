@@ -35,10 +35,15 @@ import {
 } from "../sentura/lib/user-token.ts";
 import { ROLE_DEFINITIONS, getRoleDefinition, getOperatorScopesForRole } from "../sentura/extensions/sentura-rbac/src/roles.ts";
 import handler from "../sentura/hooks/sentura-bootstrap/handler.ts";
+import sandboxSeedHandler from "../sentura/hooks/sentura-sandbox-seed/handler.ts";
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let passed = 0;
 let failed = 0;
@@ -71,7 +76,7 @@ async function testWorkspace() {
 
   const expectedFiles = [
     "AGENTS.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md",
-    "HEARTBEAT.md", "BOOTSTRAP.md", "MEMORY.md", "RULES.md", "CONTEXT.md",
+    "HEARTBEAT.md", "BOOTSTRAP.md", "MEMORY.md",
   ];
   for (const f of expectedFiles) {
     const exists = await fs.access(path.join(result.workspaceDir, f)).then(() => true).catch(() => false);
@@ -96,8 +101,8 @@ async function testWorkspace() {
 
   // listWorkspaceFiles
   const files = await listWorkspaceFiles("test-agent", tmpBase);
-  check("listWorkspaceFiles includes RULES.md", files.includes("RULES.md"));
-  check("listWorkspaceFiles includes CONTEXT.md", files.includes("CONTEXT.md"));
+  check("listWorkspaceFiles includes AGENTS.md", files.includes("AGENTS.md"));
+  check("listWorkspaceFiles includes BOOTSTRAP.md", files.includes("BOOTSTRAP.md"));
 
   await fs.rm(tmpBase, { recursive: true });
 }
@@ -290,8 +295,6 @@ async function testBootstrapHook() {
 
   const tmpWs = path.join(os.tmpdir(), "test-hook-" + Date.now());
   await fs.mkdir(path.join(tmpWs, "memory", "users"), { recursive: true });
-  await fs.writeFile(path.join(tmpWs, "RULES.md"), "# No sharing secrets");
-  await fs.writeFile(path.join(tmpWs, "CONTEXT.md"), "# GradSale context");
 
   const userToken = "abc-def-123";
   await fs.writeFile(
@@ -299,12 +302,11 @@ async function testBootstrapHook() {
     "# User memory\nPrefers concise answers.",
   );
 
-  // Test 1: Static file injection
+  // Test 1: No session key → no injection (hook only acts on per-user memory)
   const ctx1: Record<string, unknown> = { workspaceDir: tmpWs, bootstrapFiles: [] };
   await handler({ type: "agent", action: "bootstrap", context: ctx1 });
   const bf1 = ctx1.bootstrapFiles as any[];
-  check("Injects RULES.md", bf1.some((f: any) => f.name === "RULES.md"));
-  check("Injects CONTEXT.md", bf1.some((f: any) => f.name === "CONTEXT.md"));
+  check("No injection without session user token", bf1.length === 0);
 
   // Test 2: User memory injection
   const ctx2: Record<string, unknown> = {
@@ -342,6 +344,256 @@ async function testBootstrapHook() {
   await fs.rm(emptyWs, { recursive: true });
 }
 
+// ─── Part 11: Sandbox Seed Hook ───
+
+async function testSandboxSeedHook() {
+  section("Part 11: Sandbox Seed Hook");
+
+  const openclawHome = path.join(os.tmpdir(), "sentura-seed-test-" + Date.now());
+  const prevHome = process.env.OPENCLAW_HOME;
+  process.env.OPENCLAW_HOME = openclawHome;
+
+  try {
+    const hostDir = path.join(openclawHome, "workspace", "creator");
+    const sandboxDir = path.join(openclawHome, "sandboxes", "agent-creator-abcd1234");
+    await fs.mkdir(path.join(hostDir, "skills", "agent-config-schema"), { recursive: true });
+    await fs.mkdir(path.join(hostDir, "memory", "users"), { recursive: true });
+    await fs.mkdir(path.join(hostDir, "ekg", "org"), { recursive: true });
+    await fs.mkdir(sandboxDir, { recursive: true });
+
+    const customBootstrap = "# Custom Sentura BOOTSTRAP.md\n\n".padEnd(2200, "x");
+    await fs.writeFile(path.join(hostDir, "BOOTSTRAP.md"), customBootstrap);
+    await fs.writeFile(path.join(sandboxDir, "BOOTSTRAP.md"), "default 700-byte stub".padEnd(700));
+    await fs.writeFile(
+      path.join(hostDir, "skills", "agent-config-schema", "SKILL.md"),
+      "# Agent Config Schema skill",
+    );
+    await fs.writeFile(path.join(hostDir, "MEMORY.md"), "# host memory\n");
+    await fs.writeFile(path.join(hostDir, "config.json5"), "{ id: 'creator' }\n");
+    await fs.writeFile(
+      path.join(hostDir, "memory", "users", "MEMORY_USER_seed-test.md"),
+      "# seed test user memory\n",
+    );
+    await fs.writeFile(path.join(hostDir, "ekg", "org", "org.md"), "# org\n");
+
+    await sandboxSeedHandler({
+      type: "agent",
+      action: "bootstrap",
+      context: { workspaceDir: sandboxDir, bootstrapFiles: [], agentId: "creator" },
+    });
+
+    const seededSkillMd = path.join(sandboxDir, "skills", "agent-config-schema", "SKILL.md");
+    check("skills/ mirrored from host into sandbox", await fileExists(seededSkillMd));
+
+    const seededBootstrap = await fs.readFile(path.join(sandboxDir, "BOOTSTRAP.md"), "utf-8");
+    check(
+      "custom BOOTSTRAP.md replaces 700-byte stub when host is substantially larger",
+      seededBootstrap.length >= 1500 && seededBootstrap.startsWith("# Custom Sentura"),
+    );
+
+    check(
+      "MEMORY.md union-copied when sandbox is missing it",
+      await fileExists(path.join(sandboxDir, "MEMORY.md")),
+    );
+    check(
+      "config.json5 union-copied when sandbox is missing it",
+      await fileExists(path.join(sandboxDir, "config.json5")),
+    );
+    check(
+      "memory/users/MEMORY_USER_*.md union-copied into sandbox",
+      await fileExists(path.join(sandboxDir, "memory", "users", "MEMORY_USER_seed-test.md")),
+    );
+    check(
+      "ekg/ subtree mirrored into sandbox",
+      await fileExists(path.join(sandboxDir, "ekg", "org", "org.md")),
+    );
+
+    const existingBytes = "EXISTING AGENT-OWNED MEMORY — DO NOT OVERWRITE";
+    await fs.writeFile(path.join(sandboxDir, "MEMORY.md"), existingBytes);
+    await sandboxSeedHandler({
+      type: "agent",
+      action: "bootstrap",
+      context: { workspaceDir: sandboxDir, bootstrapFiles: [], agentId: "creator" },
+    });
+    const preservedMemory = await fs.readFile(path.join(sandboxDir, "MEMORY.md"), "utf-8");
+    check(
+      "union-copy preserves sandbox-owned MEMORY.md on subsequent boots",
+      preservedMemory === existingBytes,
+    );
+
+    const hostOnlyDir = path.join(openclawHome, "workspace", "creator");
+    const bf: unknown[] = [];
+    await sandboxSeedHandler({
+      type: "agent",
+      action: "bootstrap",
+      context: { workspaceDir: hostOnlyDir, bootstrapFiles: bf, agentId: "creator" },
+    });
+    check("no-op when workspaceDir is the host workspace (not a sandbox)", bf.length === 0);
+
+    const sandboxWithoutAgentId = path.join(openclawHome, "sandboxes", "agent-unknown-ffff0000");
+    await fs.mkdir(sandboxWithoutAgentId, { recursive: true });
+    await sandboxSeedHandler({
+      type: "agent",
+      action: "bootstrap",
+      context: { workspaceDir: sandboxWithoutAgentId, bootstrapFiles: [] },
+    });
+    check(
+      "unknown agent sandbox is left alone (no host workspace to sync from)",
+      !(await fileExists(path.join(sandboxWithoutAgentId, "skills"))),
+    );
+  } finally {
+    if (prevHome === undefined) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = prevHome;
+    }
+    await fs.rm(openclawHome, { recursive: true, force: true });
+  }
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Part 12: sentura-agents extension + deployment pipeline wiring ───
+//
+// These tests guard the employee-deployment repair described in
+// docs/MEMORY.md. They verify that:
+//   (a) the sentura-agents extension exists on disk with a valid manifest,
+//       package.json, and index.ts,
+//   (b) the rewritten employee-deployment skill no longer instructs the
+//       Creator to use fs_write for the new employee's workspace,
+//   (c) the Creator's config.json5 allows the sentura_agents_manage tool,
+//   (d) scripts/sentura-setup.sh wires the Sentura extensions into the
+//       OpenClaw config via plugins.load.paths + plugins.entries.
+async function testSenturaAgentsExtension() {
+  section("Sentura Agents Extension (deployment pipeline repair)");
+
+  const projectRoot = path.resolve(__dirname, "..");
+  const extDir = path.join(projectRoot, "sentura", "extensions", "sentura-agents");
+
+  check("sentura-agents directory exists", await fileExists(extDir));
+  check(
+    "sentura-agents/openclaw.plugin.json exists",
+    await fileExists(path.join(extDir, "openclaw.plugin.json")),
+  );
+  check(
+    "sentura-agents/package.json exists",
+    await fileExists(path.join(extDir, "package.json")),
+  );
+  check(
+    "sentura-agents/index.ts exists",
+    await fileExists(path.join(extDir, "index.ts")),
+  );
+  check(
+    "sentura-agents/src/paths.ts exists",
+    await fileExists(path.join(extDir, "src", "paths.ts")),
+  );
+  check(
+    "sentura-agents/src/fs-ops.ts exists",
+    await fileExists(path.join(extDir, "src", "fs-ops.ts")),
+  );
+
+  const manifestRaw = await fs.readFile(path.join(extDir, "openclaw.plugin.json"), "utf8");
+  const manifest = JSON.parse(manifestRaw) as {
+    id?: string;
+    contracts?: { tools?: string[] };
+    enabledByDefault?: boolean;
+  };
+  check("sentura-agents manifest id === 'sentura-agents'", manifest.id === "sentura-agents");
+  check(
+    "sentura-agents manifest declares 'sentura_agents_manage' tool",
+    Array.isArray(manifest.contracts?.tools) && manifest.contracts!.tools!.includes("sentura_agents_manage"),
+  );
+  check("sentura-agents manifest enabledByDefault === true", manifest.enabledByDefault === true);
+
+  const indexSrc = await fs.readFile(path.join(extDir, "index.ts"), "utf8");
+  check(
+    "index.ts registers sentura.agents.writeSubfile gateway method",
+    indexSrc.includes('"sentura.agents.writeSubfile"'),
+  );
+  check(
+    "index.ts registers sentura.agents.readSubfile gateway method",
+    indexSrc.includes('"sentura.agents.readSubfile"'),
+  );
+  check(
+    "index.ts registers sentura.agents.deleteSubfile gateway method",
+    indexSrc.includes('"sentura.agents.deleteSubfile"'),
+  );
+  check(
+    "index.ts registers sentura.agents.listSubfiles gateway method",
+    indexSrc.includes('"sentura.agents.listSubfiles"'),
+  );
+  check(
+    'index.ts registers "sentura_agents_manage" tool',
+    indexSrc.includes('"sentura_agents_manage"'),
+  );
+
+  const skillPath = path.join(
+    projectRoot,
+    "sentura",
+    "agents",
+    "creator",
+    "skills",
+    "employee-deployment",
+    "SKILL.md",
+  );
+  const skill = await fs.readFile(skillPath, "utf8");
+  check(
+    "employee-deployment SKILL.md prefers agents.files.set for native files",
+    skill.includes('"agents.files.set"') || skill.includes("gateway.call(\"agents.files.set\""),
+  );
+  check(
+    "employee-deployment SKILL.md uses sentura.agents.writeSubfile for subfiles",
+    skill.includes("sentura.agents.writeSubfile"),
+  );
+  check(
+    "employee-deployment SKILL.md calls out the fs_write sandbox restriction",
+    /NEVER use `fs_write` to create an employee workspace/i.test(skill)
+    || /NEVER use `fs_write` to create or modify an employee's workspace/i.test(skill),
+  );
+  // The old skill used "Use `fs_write` for each file." — that exact phrasing
+  // must be gone. (We still tolerate the word fs_write elsewhere because the
+  // skill is allowed to explain WHY it is forbidden.)
+  check(
+    "employee-deployment SKILL.md no longer instructs 'Use fs_write for each file'",
+    !skill.includes("Use `fs_write` for each file"),
+  );
+
+  const creatorConfigPath = path.join(
+    projectRoot,
+    "sentura",
+    "agents",
+    "creator",
+    "config.json5",
+  );
+  const creatorConfig = await fs.readFile(creatorConfigPath, "utf8");
+  check(
+    "creator config.json5 allows sentura_agents_manage",
+    creatorConfig.includes("sentura_agents_manage"),
+  );
+
+  const setupPath = path.join(projectRoot, "scripts", "sentura-setup.sh");
+  const setup = await fs.readFile(setupPath, "utf8");
+  check(
+    "sentura-setup.sh references plugins.load.paths",
+    setup.includes("plugins.load.paths") || setup.includes("config.plugins.load"),
+  );
+  check(
+    "sentura-setup.sh patches plugins.entries for Sentura extensions",
+    setup.includes("config.plugins.entries") && setup.includes("sentura-agents"),
+  );
+  check(
+    "sentura-setup.sh wires at least sentura-agents, sentura-rbac, sentura-audit",
+    setup.includes("sentura-agents") && setup.includes("sentura-rbac") && setup.includes("sentura-audit"),
+  );
+}
+
 // ─── Run All ───
 
 async function main() {
@@ -356,6 +608,8 @@ async function main() {
   await testUserToken();
   testRbac();
   await testBootstrapHook();
+  await testSandboxSeedHook();
+  await testSenturaAgentsExtension();
 
   console.log(`\n\x1b[1m━━━ Results ━━━\x1b[0m`);
   console.log(`  \x1b[32m${passed} passed\x1b[0m`);

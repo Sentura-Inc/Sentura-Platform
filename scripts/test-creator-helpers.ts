@@ -220,11 +220,11 @@ async function validate(brief: DiscoveryBrief, design: DesignBundle, deploy: Awa
 
   section("Phase 4 — Workspace on disk");
   const wsDir = deploy.workspaceResult.workspaceDir;
-  const required10 = [
+  const required8 = [
     "AGENTS.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md",
-    "HEARTBEAT.md", "BOOTSTRAP.md", "MEMORY.md", "RULES.md", "CONTEXT.md",
+    "HEARTBEAT.md", "BOOTSTRAP.md", "MEMORY.md",
   ];
-  for (const f of required10) {
+  for (const f of required8) {
     check(`Workspace has ${f}`, await exists(path.join(wsDir, f)));
   }
 
@@ -235,12 +235,14 @@ async function validate(brief: DiscoveryBrief, design: DesignBundle, deploy: Awa
 
   check("memory/users/ exists", await exists(path.join(wsDir, "memory", "users")));
 
-  section("Phase 4 — RULES.md and CONTEXT.md content");
-  const rules = await fs.readFile(path.join(wsDir, "RULES.md"), "utf-8");
-  const context = await fs.readFile(path.join(wsDir, "CONTEXT.md"), "utf-8");
-  check("RULES.md is non-empty", rules.trim().length > 0);
-  check("RULES.md includes NEVER or ALWAYS", /NEVER|ALWAYS/.test(rules));
-  check("CONTEXT.md is non-empty", context.trim().length > 0);
+  section("Phase 4 — AGENTS.md Hard Rules + BOOTSTRAP.md Enterprise Context");
+  const agentsFile = await fs.readFile(path.join(wsDir, "AGENTS.md"), "utf-8");
+  const bootstrap = await fs.readFile(path.join(wsDir, "BOOTSTRAP.md"), "utf-8");
+  check("AGENTS.md is non-empty", agentsFile.trim().length > 0);
+  check("AGENTS.md includes Hard Rules section", /##\s+Hard Rules/i.test(agentsFile));
+  check("AGENTS.md Hard Rules use NEVER or ALWAYS", /NEVER|ALWAYS/.test(agentsFile));
+  check("BOOTSTRAP.md is non-empty", bootstrap.trim().length > 0);
+  check("BOOTSTRAP.md includes Enterprise Context section", /##\s+Enterprise Context/i.test(bootstrap));
 
   section("Phase 4 — Template skills copied");
   const skills = await listWorkspaceFiles(brief.roleSlug, workspaceBase);

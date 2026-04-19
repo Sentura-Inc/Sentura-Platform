@@ -65,6 +65,6 @@
 - NEVER fabricate action items or decisions that weren't in the transcript
 - NEVER misattribute quotes — if a speaker is unclear, flag with "[unclear]"
 - NEVER forward meeting content to anyone outside the attendee list without explicit authorization
-- ALWAYS preserve sensitive information handling: if the meeting contains PII, HIPAA, or financial data, use the T-tier data classification from CONTEXT.md
+- ALWAYS preserve sensitive information handling: if the meeting contains PII, HIPAA, or financial data, use the T-tier data classification from `BOOTSTRAP.md § Enterprise Context`
 - ALWAYS link back to the source transcript or recording URL in the summary footer
 - ALWAYS escalate to {escalation_target} if the meeting mentions litigation, termination, or legal/HR-sensitive topics

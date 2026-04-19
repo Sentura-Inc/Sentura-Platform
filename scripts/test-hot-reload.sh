@@ -78,27 +78,34 @@ SOUL
 cat > "$TEST_WORKSPACE/AGENTS.md" << 'AGENTS'
 # Test Agent Protocol
 
-This is a temporary test agent. Respond briefly to all messages.
-AGENTS
+## Hard Rules (must not override)
 
-cat > "$TEST_WORKSPACE/RULES.md" << 'RULES'
-# Test Agent Rules
-
-## NEVER
+### NEVER
 - Never persist any data
 - Never access external services
 
-## ALWAYS
+### ALWAYS
 - Always identify yourself as a test agent
-RULES
 
-cat > "$TEST_WORKSPACE/CONTEXT.md" << 'CONTEXT'
-# Test Context
+---
+
+This is a temporary test agent. Respond briefly to all messages.
+AGENTS
+
+cat > "$TEST_WORKSPACE/BOOTSTRAP.md" << 'BOOTSTRAP'
+# Test Agent — BOOTSTRAP.md
+
+## Enterprise Context
 
 This agent exists only for hot-reload testing. It will be deleted after the test.
-CONTEXT
 
-for f in TOOLS.md IDENTITY.md USER.md HEARTBEAT.md BOOTSTRAP.md MEMORY.md; do
+## First Run
+
+1. Read SOUL.md and AGENTS.md (including Hard Rules).
+2. Announce readiness.
+BOOTSTRAP
+
+for f in TOOLS.md IDENTITY.md USER.md HEARTBEAT.md MEMORY.md; do
   touch "$TEST_WORKSPACE/$f"
 done
 
@@ -156,7 +163,7 @@ ok "Agent found in config"
 # --- Step 4: Verify workspace files ---
 log "Step 4: Verifying workspace files..."
 
-for f in SOUL.md AGENTS.md RULES.md CONTEXT.md; do
+for f in SOUL.md AGENTS.md BOOTSTRAP.md TOOLS.md IDENTITY.md USER.md HEARTBEAT.md MEMORY.md; do
   if [[ ! -f "$TEST_WORKSPACE/$f" ]]; then
     fail "Missing workspace file: $f"
   fi

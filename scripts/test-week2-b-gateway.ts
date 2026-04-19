@@ -287,8 +287,8 @@ async function main() {
     /memory-lancedb/.test(designSkill) && /dbPath/.test(designSkill),
   );
   check(
-    "employee-design skill generates RULES.md and CONTEXT.md",
-    /RULES\.md/.test(designSkill) && /CONTEXT\.md/.test(designSkill),
+    "employee-design skill references AGENTS.md Hard Rules and BOOTSTRAP.md Enterprise Context",
+    /Hard Rules/i.test(designSkill) && /Enterprise Context/i.test(designSkill),
   );
 
   const deploySkill = await fs.readFile(
@@ -307,7 +307,7 @@ async function main() {
   // ─── B_OFFLINE_2: MCP Builder Agent workspace ───
   section("B_OFFLINE_2 — MCP Builder Agent workspace complete");
   const mcpBuilderDir = path.join(REPO_ROOT, "sentura/agents/mcp-builder");
-  const required10 = [
+  const required8 = [
     "AGENTS.md",
     "SOUL.md",
     "TOOLS.md",
@@ -316,10 +316,8 @@ async function main() {
     "HEARTBEAT.md",
     "BOOTSTRAP.md",
     "MEMORY.md",
-    "RULES.md",
-    "CONTEXT.md",
   ];
-  for (const f of required10) {
+  for (const f of required8) {
     check(`mcp-builder has ${f}`, await exists(path.join(mcpBuilderDir, f)));
   }
   check("mcp-builder has config.json5", await exists(path.join(mcpBuilderDir, "config.json5")));
@@ -546,7 +544,7 @@ async function main() {
     });
 
     // Verify workspace shape on disk.
-    for (const f of required10) {
+    for (const f of required8) {
       check(
         `Live workspace has ${f}`,
         await exists(path.join(testWorkspaceDir, f)),
@@ -563,8 +561,16 @@ async function main() {
       await exists(path.join(testWorkspaceDir, "ekg/rules/financial-controls.json5")),
     );
 
-    const rulesBody = await fs.readFile(path.join(testWorkspaceDir, "RULES.md"), "utf-8");
-    check("RULES.md non-empty + contains NEVER/ALWAYS", rulesBody.length > 0 && /NEVER|ALWAYS/.test(rulesBody));
+    const agentsBody = await fs.readFile(path.join(testWorkspaceDir, "AGENTS.md"), "utf-8");
+    check(
+      "AGENTS.md contains Hard Rules + NEVER/ALWAYS",
+      /##\s+Hard Rules/i.test(agentsBody) && /NEVER|ALWAYS/.test(agentsBody),
+    );
+    const bootstrapBody = await fs.readFile(path.join(testWorkspaceDir, "BOOTSTRAP.md"), "utf-8");
+    check(
+      "BOOTSTRAP.md contains Enterprise Context",
+      /##\s+Enterprise Context/i.test(bootstrapBody),
+    );
 
     // Build and apply the config.patch live.
     // Assert the Creator Agent's design-intent per-agent dbPath without

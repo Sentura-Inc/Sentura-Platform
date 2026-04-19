@@ -29,58 +29,61 @@ export default definePluginEntry({
     });
 
     // --- Gateway RPC: List role definitions ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.roles.list",
-      handler: async () => {
-        return { roles: ROLE_DEFINITIONS };
-      },
+    api.registerGatewayMethod("sentura.rbac.roles.list", async ({ respond }) => {
+      respond(true, { roles: ROLE_DEFINITIONS });
     });
 
     // --- Gateway RPC: List users ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.users.list",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.users.list", async ({ params, respond }) => {
+      try {
         const departmentId = params?.departmentId as string | undefined;
         const users = departmentId
           ? await store.listUsersByDepartment(departmentId)
           : await store.listUsers();
-        return { users, count: users.length };
-      },
+        respond(true, { users, count: users.length });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Get user ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.users.get",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.users.get", async ({ params, respond }) => {
+      try {
         const userId = params?.userId as string;
         const user = await store.getUser(userId);
-        return user ? { user } : { error: "User not found" };
-      },
+        respond(true, user ? { user } : { user: null });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Assign role ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.users.assign",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.users.assign", async ({ params, respond }) => {
+      try {
         const userId = params?.userId as string;
         const role = params?.role as SenturaRole;
         if (!userId || !role) {
-          return { error: "userId and role are required" };
+          respond(false, undefined, { code: "BAD_REQUEST", message: "userId and role are required" });
+          return;
         }
         const success = await store.assignRole(userId, role);
-        return success
-          ? { success: true, operatorScopes: getOperatorScopesForRole(role) }
-          : { error: "User not found" };
-      },
+        if (success) {
+          respond(true, { success: true, operatorScopes: getOperatorScopesForRole(role) });
+        } else {
+          respond(false, undefined, { code: "NOT_FOUND", message: "User not found" });
+        }
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Upsert user (auto-assigns userToken on creation) ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.users.upsert",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.users.upsert", async ({ params, respond }) => {
+      try {
         const userData = params as unknown as Partial<SenturaUser>;
         if (!userData?.id || !userData?.email) {
-          return { error: "id and email are required" };
+          respond(false, undefined, { code: "BAD_REQUEST", message: "id and email are required" });
+          return;
         }
         const now = new Date().toISOString();
         const existing = await store.getUser(userData.id);
@@ -97,52 +100,70 @@ export default definePluginEntry({
           metadata: userData.metadata ?? existing?.metadata ?? {},
         };
         await store.upsertUser(user);
-        return { user };
-      },
+        respond(true, { user });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Resolve user by token (for WebSocket auth) ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.users.resolveByToken",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.users.resolveByToken", async ({ params, respond }) => {
+      try {
         const userToken = params?.userToken as string;
-        if (!userToken) return { error: "userToken required" };
+        if (!userToken) {
+          respond(false, undefined, { code: "BAD_REQUEST", message: "userToken required" });
+          return;
+        }
         const user = await store.getUserByToken(userToken);
-        return user ? { user } : { error: "User not found for token" };
-      },
+        if (user) {
+          respond(true, { user });
+        } else {
+          respond(false, undefined, { code: "NOT_FOUND", message: "User not found for token" });
+        }
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: List departments ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.departments.list",
-      handler: async () => {
+    api.registerGatewayMethod("sentura.rbac.departments.list", async ({ respond }) => {
+      try {
         const departments = await store.listDepartments();
-        return { departments, count: departments.length };
-      },
+        respond(true, { departments, count: departments.length });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Authorize check (for dashboard pre-flight) ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.authorize",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.authorize", async ({ params, respond }) => {
+      try {
         const userId = params?.userId as string;
         const method = params?.method as string;
         if (!userId || !method) {
-          return { allowed: false, reason: "userId and method are required" };
+          respond(true, { allowed: false, reason: "userId and method are required" });
+          return;
         }
-        return authorizer.authorize(userId, method);
-      },
+        const result = await authorizer.authorize(userId, method);
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Gateway RPC: Resolve visible employees for a user ---
-    api.registerGatewayMethod({
-      method: "sentura.rbac.scope.employees",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.rbac.scope.employees", async ({ params, respond }) => {
+      try {
         const userId = params?.userId as string;
-        if (!userId) return { error: "userId required" };
+        if (!userId) {
+          respond(false, undefined, { code: "BAD_REQUEST", message: "userId required" });
+          return;
+        }
         const ids = await authorizer.resolveVisibleEmployeeIds(userId);
-        return { employeeIds: ids };
-      },
+        respond(true, { employeeIds: ids });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Register the agent-facing tool ---

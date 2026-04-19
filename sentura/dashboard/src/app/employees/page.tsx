@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAgents } from "@/lib/gateway";
 import type { AgentConfig } from "@/lib/gateway";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +67,7 @@ function EmployeeTableSkeleton() {
 }
 
 export default function EmployeesPage() {
+  const router = useRouter();
   const { data: agents, loading, error, refetch } = useAgents();
   const [search, setSearch] = useState("");
 
@@ -109,10 +112,13 @@ export default function EmployeesPage() {
             />
             Refresh
           </Button>
-          <Button size="sm" disabled>
+          <Link
+            href="/create"
+            className={buttonVariants({ size: "sm" })}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Create Employee
-          </Button>
+          </Link>
         </div>
       </div>
 
@@ -188,7 +194,11 @@ export default function EmployeesPage() {
                 {filtered.map((agent) => {
                   const status = inferStatus(agent);
                   return (
-                    <TableRow key={agent.id} className="cursor-pointer">
+                    <TableRow
+                      key={agent.id}
+                      className="cursor-pointer hover:bg-accent/40"
+                      onClick={() => router.push(`/employees/${agent.id}`)}
+                    >
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">

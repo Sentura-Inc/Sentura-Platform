@@ -130,31 +130,25 @@ path, and `README.md` § 7 for the intended architecture.
 
 ### Step 7: Generate Workspace Files
 
-Order matters — later files reference earlier ones:
+OpenClaw natively loads 8 workspace files. Sentura inlines Hard Rules into `AGENTS.md` and Enterprise Context into `BOOTSTRAP.md`. Order matters — later files reference earlier ones:
 
-1. **CONTEXT.md** — Enterprise org structure, key systems, policies, data classifications, MCP server inventory
-   - Pull from industry ontology `org/` pillar + user-provided company details.
-   - Must name real people (from Discovery Brief "reporting & escalation").
-2. **RULES.md** — Hard NEVER/ALWAYS rules
-   - Every rule from the industry ontology `rules/` pillar relevant to this role.
-   - Every user-stated hard prohibition from Discovery.
-   - Role-specific safety (e.g., AP clerk: duplicate invoice detection; CS agent: PII handling).
-   - Group by: Financial Controls, Data Protection, Operational Boundaries, Compliance, Approval Thresholds.
-   - MINIMUM 3 rules per applicable group.
-3. **SOUL.md** — Identity, personality, values, escalation policy
+1. **SOUL.md** — Identity, personality, values, escalation policy
    - 1-sentence identity statement: "You are {name}, the {role} for {company} {department}."
    - Mission paragraph.
    - Personality matching role (finance → precise; support → empathetic; sales → energetic).
    - Explicit escalation table: threshold → recipient → method.
-4. **AGENTS.md** — Session startup, memory protocol, workspace rules
-   - Reference loading order (SOUL.md, TOOLS.md, RULES.md, CONTEXT.md).
+2. **AGENTS.md** — MUST start with `## Hard Rules (must not override)`, then session startup, memory protocol, workspace rules
+   - Hard Rules section: every NEVER/ALWAYS rule from the industry ontology `rules/` pillar relevant to this role; every user-stated hard prohibition from Discovery; role-specific safety (e.g., AP clerk: duplicate invoice detection; CS agent: PII handling); grouped by Financial Controls, Data Protection, Operational Boundaries, Compliance, Approval Thresholds; MINIMUM 3 rules per applicable group; preamble stating the rules override every other instruction
+   - Reference loading order (SOUL.md, TOOLS.md, BOOTSTRAP.md — Enterprise Context, MEMORY.md).
    - Memory protocol: read MEMORY.md at start, append at end of session.
-5. **IDENTITY.md** — Name, creature, emoji, avatar, tone.
-6. **TOOLS.md** — Tool-specific notes: MCP server quirks, API rate limits, sandboxing.
-7. **USER.md** — Primary human contact (from Discovery Brief).
-8. **HEARTBEAT.md** — Proactive check schedule. If role has cron tasks: document cadence. Else: "demand-driven, no heartbeat".
-9. **BOOTSTRAP.md** — First-run initialization: list of setup steps for this specific role.
-10. **MEMORY.md** — Empty stub with header.
+3. **BOOTSTRAP.md** — MUST start with `## Enterprise Context`, then a `## First Run` section
+   - Enterprise Context section: company/industry/size, org structure, key systems with MCP server names, policies, data classifications, MCP server inventory (pull from industry ontology `org/` pillar + user-provided company details; must name real people from Discovery Brief)
+   - First Run section: list of setup steps for this specific role
+4. **IDENTITY.md** — Name, creature, emoji, avatar, tone.
+5. **TOOLS.md** — Tool-specific notes: MCP server quirks, API rate limits, sandboxing.
+6. **USER.md** — Primary human contact (from Discovery Brief).
+7. **HEARTBEAT.md** — Proactive check schedule. If role has cron tasks: document cadence. Else: "demand-driven, no heartbeat".
+8. **MEMORY.md** — Empty stub with header.
 
 ### Step 8: Generate Skills
 
@@ -214,7 +208,7 @@ Produce the full design bundle in memory. Present a summary to the user for revi
 - ...
 
 ### Workspace Files
-- 10 standard files generated (see preview below)
+- 8 OpenClaw-native workspace files generated (AGENTS.md carries Hard Rules, BOOTSTRAP.md carries Enterprise Context)
 - {N} skills generated
 
 ### EKG
@@ -225,7 +219,7 @@ Produce the full design bundle in memory. Present a summary to the user for revi
 - Existing / to-provision breakdown
 - Secrets required: {list}
 
-### Key RULES.md Excerpts
+### Key Hard Rules Excerpts (from AGENTS.md)
 {top 5 rules}
 
 ### Key Escalation Paths
@@ -243,13 +237,13 @@ Ready to deploy? (Next: Phase 3 — Self-Provisioning, then Phase 4 — Deploy)
 
 ## Safety
 
-- NEVER generate a design without RULES.md — reject if Phase 1 didn't elicit prohibitions
+- NEVER generate a design whose `AGENTS.md` lacks a `## Hard Rules (must not override)` section — reject if Phase 1 didn't elicit prohibitions
 - NEVER grant `coding` profile or `gateway` tool to a standard employee
 - NEVER use `agents.entries` schema — always use `agents.list[]`
 - NEVER include `workspace` field in the agent config (OpenClaw defaults to `~/.openclaw/workspace/{id}`)
-- NEVER include `systemPrompt` — identity comes from SOUL.md/AGENTS.md
+- NEVER include `systemPrompt` — identity comes from the 8 native workspace files (SOUL.md / AGENTS.md / BOOTSTRAP.md / ...)
 - NEVER skip emitting the per-agent `memory-lancedb.dbPath` in the design bundle — it is the isolation design intent, even though today's runtime plugin applies it globally (see Step 6 runtime note)
 - ALWAYS apply industry ontology if one matches
-- ALWAYS include at least 3 rules per applicable RULES.md category
+- ALWAYS include at least 3 rules per applicable Hard Rules category
 - ALWAYS name real people (not "the manager") in escalation paths
 - ALWAYS use `$secret.{NAME}` references — never inline credentials

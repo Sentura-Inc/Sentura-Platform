@@ -29,7 +29,7 @@ When you need to write a personalized outreach message (email, LinkedIn message,
    - Is it under 100 words? (Short messages get higher response rates)
    - Does it lead with value, not features?
    - Does it have a clear, single CTA?
-   - Does it comply with RULES.md? (no false claims, no deception, opt-out included)
+   - Does it comply with `AGENTS.md § Hard Rules`? (no false claims, no deception, opt-out included)
 
 5. **Send via email MCP or messaging tool**
 

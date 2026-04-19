@@ -6,21 +6,141 @@
 // The Creator Agent is a meta-agent that creates new AI employees.
 // It needs elevated tool access:
 //   - "gateway" tool for config.patch (register new agents)
-//   - "coding" profile for fs_write (create workspace files)
+//   - "sentura_agents_manage" to materialize new employee workspaces on
+//     the host filesystem (the ONLY correct way; fs_write cannot reach
+//     /workspace/.openclaw/workspace/<agent>/... because the sandbox
+//     mount is read-only in non-main mode)
 //   - "sessions_send"/"sessions_spawn" for inter-agent communication
 {
   agents: {
+    // `defaults.sandbox.sessionToolsVisibility: "all"` relaxes OpenClaw's
+    // default `spawned` clamp (openclaw/src/agents/tools/sessions-access.ts:45).
+    // Without this, a sandboxed agent (Forge) running in a dashboard-spawned
+    // session key `agent:creator:dashboard:<uuid>` is flagged with
+    // `restrictToSpawned: true`, which blocks every call that resolves a
+    // session key Forge did not itself spawn — producing the
+    // "Session not visible from this sandboxed agent session" error seen in
+    // terminals/11.txt on 2026-04-18 when Forge tried to verify the
+    // freshly-deployed billing-support-rep session. Setting the clamp to
+    // "all" lets the existing `tools.sessions.visibility` + `tools.agentToAgent`
+    // rules govern cross-session access instead of a blanket sandbox veto.
+    defaults: {
+      sandbox: {
+        sessionToolsVisibility: "all",
+      },
+    },
     list: [
       {
         id: "creator",
         name: "Forge",
-        model: "openai/gpt-4o",
-        skills: ["~/.openclaw/workspace/creator/skills/*"],
+        // Model selection notes:
+        //   • `openai/gpt-5.3-codex` is ONLY available under provider id
+        //     `openai-codex` (OAuth) — see openclaw/extensions/openai/
+        //     openai-codex-provider.ts:67. Pairing it with provider `openai`
+        //     (plain OPENAI_API_KEY auth) fails with "Unknown model".
+        //   • API-key-backed `openai` provider supports: gpt-5.4, gpt-5.4-pro,
+        //     gpt-5.4-mini, gpt-5.4-nano, gpt-5.2.
+        //   • We pick `gpt-5.4` as the Person-B E2E default. If/when the
+        //     operator pairs OpenAI Codex OAuth, this can move to
+        //     `openai-codex/gpt-5.3-codex` for better agentic tool-call
+        //     compliance (round 10 finding).
+        model: "openai/gpt-5.4",
+        // NOTE: do NOT set `skills` here. In OpenClaw, `agents.list[].skills` is
+        // a NAME filter (array of skill names), not a path glob. Leaving it
+        // unset means "all workspace skills" — which is what we want: every
+        // SKILL.md under `workspace/creator/skills/*/` is auto-discovered by
+        // OpenClaw's skill loader (and synced into the sandbox by the
+        // `sentura-sandbox-seed` hook).
         runtime: { type: "embedded" },
-        sandbox: { mode: "non-main" },
+        // workspaceAccess: "rw" is REQUIRED for Forge (not optional). Without it,
+        // OpenClaw's sandbox context (openclaw/src/agents/sandbox/context.ts:47)
+        // bind-mounts /workspace from a SEPARATE host dir at
+        // `~/.openclaw/sandboxes/agent-creator-<hash>/`, which is seeded from
+        // `~/.openclaw/workspace/creator/` ONCE — using fs.writeFile with
+        // {flag:"wx"} (openclaw/src/agents/sandbox/workspace.ts:17-59). That
+        // function ONLY writes when the destination is missing; it never
+        // refreshes on mtime change. So any later edit to AGENTS.md, TOOLS.md,
+        // BOOTSTRAP.md, or SOUL.md on the host is invisible to the in-container
+        // LLM until the sandbox dir is manually deleted.
+        //
+        // Observed failure mode (2026-04-18, round 10): we updated AGENTS.md to
+        // remove `sessions_spawn`/`exec` from the advertised tool list, but
+        // Forge kept hallucinating `sessions_spawn({task:"noop"})` because the
+        // sandbox's 20:43 AGENTS.md still promised those tools — the workspace
+        // 22:32 copy never reached the container. `workspaceAccess: "rw"` fixes
+        // this permanently: `/workspace` becomes a live bind mount to
+        // `~/.openclaw/workspace/creator/`, so Forge always reads the current
+        // AGENTS.md/TOOLS.md/BOOTSTRAP.md.
+        //
+        // Safety posture: "rw" means the in-container agent CAN write to
+        // `/workspace/*` (= `~/.openclaw/workspace/creator/*`). We accept this
+        // because (a) Forge is already in `tools.deny` for `write`, `edit`,
+        // `apply_patch`, and `exec`, so the built-in filesystem tools are
+        // removed from its schema; (b) the only filesystem tool it has is
+        // `sentura_agents_manage`, which writes to other agents' workspaces,
+        // not its own; (c) `non-main` sandbox still isolates Forge from the
+        // host repo. Net write surface is the creator workspace itself, which
+        // is acceptable for a creator agent.
+        sandbox: { mode: "non-main", workspaceAccess: "rw" },
         tools: {
           profile: "coding",
-          alsoAllow: ["gateway", "sessions_send", "sessions_spawn", "web_search", "web_fetch", "browser", "pdf", "canvas"],
+          // `sentura_agents_manage` is the agent-facing tool exposed by the
+          // `sentura-agents` extension; it writes skills/, ekg/, and
+          // memory/users/ files on the HOST filesystem, which is how the
+          // employee-deployment skill materializes a new employee's workspace.
+          //
+          // `sentura_rbac_manage` and `sentura_audit_query` give Forge read
+          // access to RBAC and audit data during pre-flight checks and
+          // rollback diagnosis.
+          // `sessions_send` stays so Forge can notify other sessions if needed.
+          // `sessions_spawn`, `subagents`, `sessions_yield` are NOT listed here
+          // because we want to fully DENY them (see `deny` below). Listing them
+          // in `alsoAllow` would have no effect anyway — the `coding` profile's
+          // allowlist already ships with all three (see
+          // openclaw/src/agents/tool-catalog.ts:168-191 & :320-322). The
+          // `coding` profile is the source of these tools in Forge's toolkit;
+          // `alsoAllow` is purely additive.
+          alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch", "browser", "pdf", "canvas", "sentura_agents_manage", "sentura_rbac_manage", "sentura_audit_query"],
+          // HARD DENY: the "coding" profile ships several tools Forge MUST NOT
+          // use for new-employee deployment. `deny` takes precedence over
+          // `allow`/`alsoAllow`/profile — see openclaw/src/agents/tool-policy.ts.
+          //
+          //   - write/edit/apply_patch: the sandbox mount of
+          //     /workspace/.openclaw/workspace/<agent>/* is read-only, and
+          //     prior runs showed the LLM defaulting to `write` over
+          //     `sentura_agents_manage`.
+          //   - exec: when the sandbox workdir is unavailable, `exec` falls
+          //     back to the host repo (Sentura-Platform/openclaw), letting
+          //     the LLM `python3 -c` / `bash -c` files straight onto disk at
+          //     arbitrary paths (e.g. Sentura-Platform/workspaces/) and then
+          //     `git commit` them — bypassing `sentura_agents_manage` +
+          //     `config.patch` entirely. Observed on 2026-04-18: Forge wrote
+          //     files to the repo's workspaces/ dir, committed them, and
+          //     called it done. The agent was never registered in
+          //     `agents.list`. Denying `exec` closes this escape hatch.
+          //   - sessions_spawn / subagents / sessions_yield: the `coding`
+          //     profile's allowlist ships `sessions_spawn` + `subagents` +
+          //     `sessions_yield` (tool-catalog.ts line 168-191, profiles:
+          //     ["coding"]). Forge does NOT need to delegate new-employee
+          //     deployment to a subagent — `sentura_agents_manage` writes
+          //     host files directly and `gateway` registers the agent via
+          //     `config.patch` from the main session. When gpt-5.3-codex
+          //     hallucinated `sessions_spawn({ task: "noop",
+          //     runTimeoutSeconds: 1 })`, openclaw's subagent-spawn path
+          //     passed the 1 straight through, producing a 1000ms embedded
+          //     run timeout and the empty "noop" reply observed in
+          //     terminals/11.txt on 2026-04-18. Additionally, spawned
+          //     subagents bootstrap in an empty workspace (no SOUL.md),
+          //     so the `Read from ./SOUL.md failed` log follows. Denying
+          //     these three tools outright closes the entire failure mode
+          //     and forces Forge to complete the deploy in a single
+          //     session using `sentura_agents_manage` + `gateway`.
+          //
+          // Forge still has `read` for introspection and `sentura_*` +
+          // `gateway` for host-filesystem writes and config mutation. It
+          // does not need shell access or subagent delegation for any
+          // workflow.
+          deny: ["write", "edit", "apply_patch", "exec", "sessions_spawn", "subagents", "sessions_yield"],
         },
       }
     ]
@@ -33,4 +153,49 @@
       match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
     }
   ],
+
+  // Cross-session visibility + agent-to-agent routing.
+  //
+  // `tools.sessions.visibility: "all"` lets Forge resolve session keys that
+  // belong to other agents (e.g. the new billing-support-rep's main session)
+  // so it can verify a fresh deploy booted correctly.
+  //
+  // `tools.agentToAgent.enabled + allow: ["*"]` re-opens A2A routing which is
+  // off by default. Combined with visibility=all, this is what enables a
+  // creator-style meta-agent to inspect other agents' sessions. The
+  // allowlist is `*` because Forge is a privileged meta-agent and already
+  // gated by owner-only tools (`gateway`) + `sentura_agents_manage` for any
+  // write operations.
+  tools: {
+    sessions: { visibility: "all" },
+    agentToAgent: { enabled: true, allow: ["*"] },
+  },
+
+  // Re-enable OpenClaw's device-pair plugin (bundled, off by default in our
+  // current config).  Without it, the Control UI (and the Sentura Dashboard
+  // once wired up) cannot request admin scopes — the WebSocket handshake
+  // calls clearUnboundScopes() in
+  // openclaw/src/gateway/server/ws-connection/message-handler.ts, which
+  // strips operator.admin from the connection. That made `senderIsOwner`
+  // resolve to false for Forge's dashboard session, which in turn caused
+  // `applyOwnerOnlyToolPolicy` to remove `gateway` from Forge's tool
+  // schema and emit the
+  //   "tools.profile (coding) allowlist contains unknown entries (gateway)"
+  // warning seen in terminals/11.txt on 2026-04-18.
+  //
+  // After this change, pair the Control UI with:
+  //
+  //   openclaw devices pair --scope operator.admin --scope operator.read \
+  //     --scope operator.write --scope operator.approvals
+  //
+  // Then open the /pair URL in the Control UI browser tab to complete the
+  // handshake. The setup code is single-use.
+  plugins: {
+    entries: {
+      "device-pair": {
+        enabled: true,
+        config: { publicUrl: "http://localhost:18789" },
+      },
+    },
+  },
 }

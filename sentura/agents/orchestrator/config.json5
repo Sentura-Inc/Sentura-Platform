@@ -10,7 +10,8 @@
         id: "orchestrator",
         name: "Conductor",
         model: "openai/gpt-4o",
-        skills: ["~/.openclaw/workspace/orchestrator/skills/*"],
+        // NOTE: `skills` is a name filter, not a path glob. Omit it to load
+        // every SKILL.md under `workspace/orchestrator/skills/*/`.
         runtime: { type: "embedded" },
         sandbox: { mode: "non-main" },
         tools: {

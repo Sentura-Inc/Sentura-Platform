@@ -1,7 +1,7 @@
 // Financial Services — Financial Controls
 //
 // Hard rules that govern payment approvals, journal entries, and duplicate
-// detection. Enforced by Creator Agent RULES.md generation for any role with
+// detection. Enforced by Creator Agent generating the `## Hard Rules (must not override)` section inside `AGENTS.md` for any role with
 // payment or accounting capabilities.
 {
   schemaVersion: "1.0",

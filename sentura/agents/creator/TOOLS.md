@@ -4,11 +4,14 @@
 
 | Tool | Usage |
 |------|-------|
-| `gateway` | Register new agents via `config.patch` action (owner-only) |
+| `gateway` | Register new agents via `config.patch` action (owner-only). The agent-callable `gateway` enum does NOT include `agents.create` or `agents.files.set` — use `sentura_agents_manage` instead. |
+| `sentura_agents_manage` | **Primary workspace tool.** Create the new employee's workspace directory and write all 8 native files + skills via `{ action: "create_agent" \| "write" \| "read" \| "list" \| "delete", agentId, relPath, content }`. This is the ONLY correct way to materialize a new employee's files on the host filesystem — `fs_write` cannot reach `/workspace/.openclaw/workspace/<agent>/...` because that mount is read-only in your sandbox. |
+| `sentura_rbac_manage` | Enforce role-based access control on platform operations (Sentura extension). |
+| `sentura_audit_query` | Query the Sentura audit log (Sentura extension). |
 | `web_search` | Research best practices for roles, find integration documentation |
 | `web_fetch` | Read API docs, service documentation, pricing pages |
 | `browser` | Explore enterprise systems, self-provisioning workflows |
-| `fs_read` / `fs_write` | Read/write workspace files for new employees |
+| `fs_read` / `fs_write` | Scratch files inside your OWN sandbox ONLY (e.g. `/workspace/tmp/*`). NEVER for new employee workspace files — use `sentura_agents_manage` for that. |
 | `sessions_history` | Learn from existing employee configurations and performance |
 | `sessions_send` | Communicate with other meta-agents (Tuner, Orchestrator) |
 | `pdf` | Read enterprise documentation in PDF format |

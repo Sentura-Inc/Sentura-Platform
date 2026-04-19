@@ -143,7 +143,7 @@ Both scripts perform the same steps:
 3. Register each meta-agent with the OpenClaw gateway via the CLI
 4. Apply tool permissions (Creator gets `gateway` access, etc.)
 5. Configure the gateway for dashboard access
-6. Install the `sentura-bootstrap` hook — this injects RULES.md and CONTEXT.md into every agent's system prompt
+6. Install the `sentura-bootstrap` hook — this injects per-user memory (`memory/users/MEMORY_USER_{token}.md`) into the system prompt for sessions bound to a user token. Hard Rules and Enterprise Context are **not** hook-injected; they live natively inside `AGENTS.md` and `BOOTSTRAP.md`, which the runtime already loads at top priority.
 
 Both scripts are idempotent — safe to re-run if agents are added later.
 
@@ -176,7 +176,7 @@ Sentura is the enterprise management layer built on top of the running OpenClaw 
 | **NL configuration** | Tuner Agent (`sentura/agents/tuner/`) | Planned |
 | **Multi-agent orchestration** | Orchestrator Agent (`sentura/agents/orchestrator/`) | Planned |
 | **Enterprise MCP generation** | Build/wire internal API tools for employees | Planned |
-| **Position-specific guardrails** | RULES.md files, decision-context approvals | Planned |
+| **Position-specific guardrails** | `## Hard Rules` section inside each employee's `AGENTS.md`, decision-context approvals | Planned |
 | **Self-provisioning pipeline** | Skills + approval + error handling for service registration | Planned |
 | **Multi-tenancy** | Tenant isolation, department namespacing | Planned |
 | **Enterprise SSO** | SAML/OIDC integration for dashboard | Planned |

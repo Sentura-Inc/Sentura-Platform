@@ -1,0 +1,35 @@
+{
+  "id": "sentura-agents",
+  "name": "Sentura Agents",
+  "description": "Host-side workspace management for AI employees. Exposes gateway RPCs for writing, reading, listing, and deleting files inside an employee's workspace subdirectories (skills/, ekg/, memory/users/) that OpenClaw's built-in agents.files.* RPCs do not cover. Used by the Creator agent's employee-deployment skill to materialize a designed employee entirely from inside its sandbox.",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": ["sentura_agents_manage"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workspaceRoot": {
+        "type": "string",
+        "description": "Root directory where employee workspaces live. Defaults to ~/.openclaw/workspace/"
+      },
+      "allowedPrefixes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["skills/", "ekg/", "memory/users/"],
+        "description": "Relative-path prefixes an agent is allowed to write under. Paths outside these prefixes are rejected. The eight OpenClaw-native files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) are always rejected here and must go through agents.files.set."
+      },
+      "maxFileBytes": {
+        "type": "integer",
+        "default": 524288,
+        "description": "Maximum bytes a single subfile write may carry. Default 512 KiB."
+      },
+      "maxPathDepth": {
+        "type": "integer",
+        "default": 4,
+        "description": "Maximum number of path segments allowed in a relative path (defense in depth against deep-nesting attacks)."
+      }
+    }
+  }
+}

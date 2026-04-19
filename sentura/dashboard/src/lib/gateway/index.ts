@@ -10,9 +10,13 @@ export {
 } from "./hooks";
 export type {
   AgentConfig,
+  AgentFileContent,
+  AgentFileEntry,
   ApprovalRequest,
   BindingConfig,
+  ChatEventPayload,
   ConnectParams,
+  ContentBlock,
   EventFrame,
   GatewayClientOptions,
   GatewayEvent,
@@ -22,6 +26,7 @@ export type {
   RequestFrame,
   ResponseFrame,
   RpcError,
+  SessionCreateResult,
   SessionSummary,
   TranscriptMessage,
 } from "./types";

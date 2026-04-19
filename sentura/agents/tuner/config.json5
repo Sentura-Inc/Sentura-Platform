@@ -10,7 +10,8 @@
         id: "tuner",
         name: "Refine",
         model: "openai/gpt-4o",
-        skills: ["~/.openclaw/workspace/tuner/skills/*"],
+        // NOTE: `skills` is a name filter, not a path glob. Omit it to load
+        // every SKILL.md under `workspace/tuner/skills/*/`.
         runtime: { type: "embedded" },
         sandbox: { mode: "non-main" },
         tools: {

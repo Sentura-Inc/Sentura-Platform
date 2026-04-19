@@ -1041,7 +1041,7 @@ Sentura's architecture places it as a **control plane layer** operating inside a
 2. **Skills** — SKILL.md files in agent workspaces
 3. **Hooks** — managed hooks in `~/.openclaw/hooks/`
 4. **Config patches** — via the `config.patch` RPC
-5. **Workspace files** — SOUL.md, RULES.md, CONTEXT.md, etc.
+5. **Workspace files** — the 8 native OpenClaw files (AGENTS.md with `§ Hard Rules`, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md with `§ Enterprise Context`, MEMORY.md), plus Sentura-specific `skills/`, `ekg/`, and `memory/users/` subdirectories
 6. **Dashboard** — separate Next.js app connecting via Gateway WebSocket
 
 ---
@@ -1092,7 +1092,7 @@ The following capabilities have been verified absent from the OpenClaw codebase 
 | 1 | **Enterprise data integration** | Zero enterprise connectors (no CRM, ERP, HRIS) | Build MCP servers from enterprise API docs |
 | 2 | **Internal MCP server generation** | `mcp.servers` is manual JSON5 only | CLI tool + Data Scavenger Agent auto-generation |
 | 3 | **Self-provisioning orchestration** | Browser tool exists but no registration workflow | Structured skills + approval chain + error recovery |
-| 4 | **Position-specific safety guardrails** | Generic tool denylists, no `RULES.md` | Bootstrap hook injects RULES.md + CONTEXT.md |
+| 4 | **Position-specific safety guardrails** | Generic tool denylists; no role-scoped "hard rules" section | Add a `## Hard Rules (must not override)` section inside each agent's `AGENTS.md` (native file, top prompt priority) |
 | 5 | **No-code employee creation** | `agents.create` takes structured params only | Creator Agent meta-agent with NL → config pipeline |
 | 6 | **Incubation pipeline** | 8 generic workspace files | 5-phase pipeline: research → configure → provision → test → deploy |
 | 8 | **Multi-tenancy** | Single-tenant (one user, one gateway, one config) | Tenant isolation via namespaced agents + RBAC extension |
@@ -1121,7 +1121,7 @@ The following capabilities have been verified absent from the OpenClaw codebase 
 
 **Agent config schema difference:** OpenClaw uses `agents.list[]` (array with `id` field), not `agents.entries.{id}` (object map). Identity comes from workspace SOUL.md/AGENTS.md, not a `systemPrompt` field. Tool access uses `tools.profile` + `tools.alsoAllow` / `tools.deny`, not `tools.allowlist`. Bindings and MCP servers are top-level config, not nested in agent entries.
 
-**Workspace bootstrap limitation:** OpenClaw hardcodes 8 valid bootstrap file names in `VALID_BOOTSTRAP_NAMES`. Sentura's RULES.md and CONTEXT.md are injected via a managed hook that directly manipulates `context.bootstrapFiles`, bypassing this filter.
+**Workspace bootstrap:** OpenClaw hardcodes 8 valid bootstrap file names in `VALID_BOOTSTRAP_NAMES`. As of 2026-04-17 Sentura aligns with this contract exactly: position-specific hard rules live in a `## Hard Rules (must not override)` section inside `AGENTS.md`, and enterprise context lives in a `## Enterprise Context` section inside `BOOTSTRAP.md` — both native files, so both sit at the top of the prompt priority order. The `sentura-bootstrap` managed hook is narrowed to injecting per-user memory (`memory/users/MEMORY_USER_{token}.md`) for sessions that carry a resolvable `userToken`.
 
 ---
 
@@ -1138,10 +1138,12 @@ The following capabilities have been verified absent from the OpenClaw codebase 
 
 ### Bootstrap Hook
 
-The `sentura-bootstrap` hook (`sentura/hooks/sentura-bootstrap/`) listens for `agent:bootstrap` events and:
-1. Reads `RULES.md` and `CONTEXT.md` from the agent's workspace directory
-2. Appends them directly to `context.bootstrapFiles`
-3. Silently skips missing files (safe for non-Sentura agents)
+The `sentura-bootstrap` hook (`sentura/hooks/sentura-bootstrap/`) listens for `agent:bootstrap` events and, when the session carries a resolvable `userToken`:
+1. Reads `memory/users/MEMORY_USER_{token}.md` from the agent's workspace directory
+2. Appends it to `context.bootstrapFiles` as additional per-user memory
+3. Silently skips missing / empty files (safe for agents without per-user memory)
+
+Hard Rules and Enterprise Context are **not** hook-injected — they live natively inside `AGENTS.md` and `BOOTSTRAP.md` respectively, so OpenClaw's system prompt assembler loads them at top priority.
 
 Installed to `~/.openclaw/hooks/sentura-bootstrap/` and enabled via `hooks.internal.entries.sentura-bootstrap` in config.
 
@@ -1190,7 +1192,7 @@ The Sentura Dashboard (Next.js) connects to OpenClaw exclusively through the Gat
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | **Self-provisioning failures** | Medium | Structured error recovery in skills (CAPTCHA detection, 2FA handling, rate limit backoff); human escalation path |
-| **LLM prompt leakage** | High | RULES.md + tool denylists prevent agents from exposing system prompts; T0-T4 data classification enforced |
+| **LLM prompt leakage** | High | The `## Hard Rules` section inside `AGENTS.md` + tool denylists prevent agents from exposing system prompts; T0-T4 data classification enforced |
 | **Browser automation exfiltration** | Medium | Sandbox mode; approval required for new account creation; audit logging of all browser actions |
 | **Credential store compromise** | High | OpenClaw's encrypted secret store; never store credentials in workspace files or conversation history |
 

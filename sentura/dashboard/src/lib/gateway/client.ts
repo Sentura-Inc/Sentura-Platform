@@ -1,6 +1,9 @@
 import type {
   AgentConfig,
+  AgentFileContent,
+  AgentFileEntry,
   ApprovalRequest,
+  BindingConfig,
   ConnectParams,
   EventFrame,
   GatewayClientOptions,
@@ -11,6 +14,7 @@ import type {
   RequestFrame,
   ResponseFrame,
   RpcError,
+  SessionCreateResult,
   SessionSummary,
   TranscriptMessage,
 } from "./types";
@@ -21,6 +25,12 @@ type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecti
 const PROTOCOL_VERSION = 3;
 const SENTURA_VERSION = "0.1.0";
 const REQUEST_TIMEOUT_MS = 30_000;
+
+function generateIdempotencyKey(): string {
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID();
+  return `idem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
@@ -161,7 +171,12 @@ export class GatewayClient {
       },
       caps: [],
       role: "operator",
-      scopes: ["operator.read", "operator.write", "operator.admin"],
+      scopes: [
+        "operator.read",
+        "operator.write",
+        "operator.admin",
+        "operator.approvals",
+      ],
       auth: {
         token: this.options.token || undefined,
       },
@@ -337,15 +352,35 @@ export class GatewayClient {
   }
 
   async getAgent(agentId: string): Promise<AgentConfig | undefined> {
-    const agents = await this.getAgents();
+    const agents = await this.getAllAgentsIncludingMeta();
     return agents.find((a) => a.id === agentId);
+  }
+
+  /**
+   * Retire (delete) an AI employee. By default the gateway also trashes the
+   * agent's workspace + state directories; set `deleteFiles: false` to keep
+   * them on disk for audit/recovery.
+   */
+  async deleteAgent(
+    agentId: string,
+    options?: { deleteFiles?: boolean },
+  ): Promise<{ ok: boolean; agentId: string; removedBindings?: number }> {
+    return this.rpc("agents.delete", {
+      agentId,
+      ...(options && "deleteFiles" in options
+        ? { deleteFiles: options.deleteFiles }
+        : {}),
+    });
   }
 
   // --- Session Methods ---
 
-  async listSessions(): Promise<SessionSummary[]> {
+  async listSessions(options?: { agentId?: string }): Promise<SessionSummary[]> {
+    const params: Record<string, unknown> = {};
+    if (options?.agentId) params.agentId = options.agentId;
     const result = await this.rpc<SessionSummary[] | { sessions: SessionSummary[] }>(
-      "sessions.list"
+      "sessions.list",
+      Object.keys(params).length > 0 ? params : undefined,
     );
     if (Array.isArray(result)) return result;
     return result?.sessions ?? [];
@@ -363,17 +398,64 @@ export class GatewayClient {
     return result?.messages ?? [];
   }
 
-  async deleteSession(sessionKey: string): Promise<void> {
-    await this.rpc("sessions.delete", { sessionKey });
+  /**
+   * Delete a session (and optionally its transcript). Gateway schema expects
+   * `key`, not `sessionKey`.
+   */
+  async deleteSession(
+    sessionKey: string,
+    options?: { deleteTranscript?: boolean },
+  ): Promise<void> {
+    await this.rpc("sessions.delete", {
+      key: sessionKey,
+      ...(options?.deleteTranscript !== undefined
+        ? { deleteTranscript: options.deleteTranscript }
+        : {}),
+    });
+  }
+
+  /**
+   * Patch an existing session. Primary use case on the dashboard is renaming
+   * via `label`. Gateway schema expects `key`, not `sessionKey`.
+   */
+  async patchSession(
+    sessionKey: string,
+    patch: { label?: string | null },
+  ): Promise<unknown> {
+    return this.rpc("sessions.patch", { key: sessionKey, ...patch });
+  }
+
+  /**
+   * Create a new dashboard-originated session with a specific agent.
+   * Returns the canonical session key to use for subsequent chat.send calls
+   * and to match against "chat" / "session.message" events.
+   */
+  async createSession(
+    agentId: string,
+    initialMessage?: string,
+    options?: { label?: string },
+  ): Promise<SessionCreateResult> {
+    const params: Record<string, unknown> = { agentId };
+    if (initialMessage && initialMessage.trim()) {
+      params.message = initialMessage;
+    }
+    const label = options?.label?.trim();
+    if (label) params.label = label;
+    return this.rpc<SessionCreateResult>("sessions.create", params);
   }
 
   // --- Chat Methods ---
 
   async sendChat(
     message: string,
-    sessionKey: string
+    sessionKey: string,
+    idempotencyKey?: string
   ): Promise<unknown> {
-    return this.rpc("chat.send", { message, sessionKey });
+    return this.rpc("chat.send", {
+      message,
+      sessionKey,
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
   }
 
   async getChatHistory(
@@ -381,6 +463,61 @@ export class GatewayClient {
     limit?: number
   ): Promise<TranscriptMessage[]> {
     return this.getTranscript(sessionKey, limit);
+  }
+
+  /**
+   * Subscribe this connection to session-scoped events (`session.message`,
+   * `session.tool`, `sessions.changed`). Without this call the dashboard
+   * only receives the broadcast `chat` stream (merged assistant text). For
+   * richer progress surfacing — tool-call starts/results, thinking blocks
+   * — callers must subscribe once per connect.
+   */
+  async subscribeSessions(): Promise<void> {
+    await this.rpc("sessions.subscribe");
+  }
+
+  async unsubscribeSessions(): Promise<void> {
+    await this.rpc("sessions.unsubscribe");
+  }
+
+  // --- Agent Workspace Files ---
+
+  async listAgentFiles(agentId: string): Promise<AgentFileEntry[]> {
+    const result = await this.rpc<{ files?: AgentFileEntry[] }>(
+      "agents.files.list",
+      { agentId }
+    );
+    return result?.files ?? [];
+  }
+
+  async getAgentFile(agentId: string, name: string): Promise<AgentFileContent | null> {
+    try {
+      const result = await this.rpc<{ file?: AgentFileContent }>(
+        "agents.files.get",
+        { agentId, name }
+      );
+      return result?.file ?? null;
+    } catch (err) {
+      const code = (err as RpcError | undefined)?.code ?? "";
+      // Missing file / not in allow-list: surface as null rather than throwing.
+      if (
+        code === "NOT_FOUND" ||
+        code === "INVALID_REQUEST" ||
+        code === "invalid-request"
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  // --- Bindings ---
+
+  /** Retrieve channel bindings for a given agent from the live config snapshot. */
+  async getBindingsForAgent(agentId: string): Promise<BindingConfig[]> {
+    const config = await this.getConfig();
+    const raw = (config.bindings as BindingConfig[] | undefined) ?? [];
+    return raw.filter((b) => b.agentId === agentId);
   }
 
   // --- Approval Methods ---
@@ -393,13 +530,58 @@ export class GatewayClient {
     return this.rpc("exec.approval.get", { id });
   }
 
+  async listExecApprovals(): Promise<
+    Array<{
+      id: string;
+      request: Record<string, unknown>;
+      createdAtMs: number;
+      expiresAtMs?: number;
+    }>
+  > {
+    const result = await this.rpc<
+      Array<{
+        id: string;
+        request: Record<string, unknown>;
+        createdAtMs: number;
+        expiresAtMs?: number;
+      }>
+    >("exec.approval.list");
+    return result ?? [];
+  }
+
+  async listPluginApprovals(): Promise<
+    Array<{
+      id: string;
+      request: Record<string, unknown>;
+      createdAtMs: number;
+      expiresAtMs?: number;
+    }>
+  > {
+    const result = await this.rpc<
+      Array<{
+        id: string;
+        request: Record<string, unknown>;
+        createdAtMs: number;
+        expiresAtMs?: number;
+      }>
+    >("plugin.approval.list");
+    return result ?? [];
+  }
+
   async resolveApproval(
     id: string,
-    decision: "allow-once" | "allow-always" | "deny"
+    decision: "allow-once" | "allow-always" | "deny",
+    options?: { kind?: "exec" | "plugin"; reason?: string }
   ): Promise<unknown> {
-    const isPlugin = id.startsWith("plugin:");
-    const method = isPlugin ? "plugin.approval.resolve" : "exec.approval.resolve";
-    return this.rpc(method, { id, decision });
+    const inferredKind =
+      options?.kind ?? (id.startsWith("plugin:") ? "plugin" : "exec");
+    const method =
+      inferredKind === "plugin" ? "plugin.approval.resolve" : "exec.approval.resolve";
+    return this.rpc(method, {
+      id,
+      decision,
+      ...(options?.reason ? { reason: options.reason } : {}),
+    });
   }
 
   // --- Discovery Methods ---

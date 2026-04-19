@@ -166,7 +166,7 @@
 //
 // Models the hard constraints: financial approval thresholds, compliance
 // requirements, data classification rules, escalation policies. Content in
-// this pillar is cross-referenced by the RULES.md file for hard enforcement.
+// this pillar is cross-referenced by the `## Hard Rules (must not override)` section inside `AGENTS.md` for hard enforcement.
 //
 // Entity types:
 //   - rule              (a single enforceable constraint)

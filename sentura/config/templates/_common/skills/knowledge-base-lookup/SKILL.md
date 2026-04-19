@@ -15,7 +15,7 @@
    - Synonyms and alternative phrasings.
    - Associated concepts (e.g., "PTO policy" also search "time off", "vacation", "leave").
 
-2. **Select the authoritative source(s)** from CONTEXT.md:
+2. **Select the authoritative source(s)** from `BOOTSTRAP.md § Enterprise Context`:
    - Internal docs: Notion, Confluence, SharePoint (`{knowledge_source}`).
    - Code/runbook: GitHub wiki, internal repo READMEs.
    - HR/benefits: HRIS (`{hris_mcp}`) or benefits portal.
@@ -64,7 +64,7 @@
 - NEVER answer an enterprise-specific factual question without consulting an authoritative source
 - NEVER return outdated policies as current — always check `lastModified`
 - NEVER mix external web results with internal policy as if they're equivalent
-- NEVER cache or expose answers from documents the caller is not cleared to see (check RBAC via RULES.md / CONTEXT.md)
+- NEVER cache or expose answers from documents the caller is not cleared to see (check RBAC via `AGENTS.md § Hard Rules` / `BOOTSTRAP.md § Enterprise Context`)
 - ALWAYS cite sources inline (doc name + URL + last-updated date)
 - ALWAYS flag freshness concerns (>12 months old → add "verify with policy owner")
 - ALWAYS record a gap to `knowledge-gaps.md` when authoritative answer is missing

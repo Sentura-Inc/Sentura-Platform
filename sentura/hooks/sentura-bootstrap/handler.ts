@@ -1,14 +1,20 @@
 /**
  * Sentura Bootstrap Hook
  *
- * Injects Sentura-specific files into the agent system prompt:
- *   1. RULES.md — position-specific safety guardrails (Sentura innovation)
- *   2. CONTEXT.md — enterprise context
- *   3. MEMORY_USER_{token}.md — user-specific memory (if userToken in session context)
+ * OpenClaw natively loads 8 workspace files — `AGENTS.md`, `SOUL.md`,
+ * `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`,
+ * `MEMORY.md`. Hard rules live inside each agent's `AGENTS.md` (Hard Rules
+ * section) and enterprise context lives inside `BOOTSTRAP.md` (Enterprise
+ * Context section), so they ride at the runtime's highest prompt priority.
  *
- * OpenClaw natively loads 8 workspace files; Sentura adds these enterprise-specific
- * files via the hook pipeline so they appear in the system prompt without modifying
- * OpenClaw core.
+ * This hook's only job is per-user memory: when a session is bound to a
+ * user token (via the `agent:{id}:user:{token}:*` session-key convention),
+ * we inject that user's personal memory file at
+ * `memory/users/MEMORY_USER_{token}.md` into the bootstrap files so the
+ * agent can recall prior interactions with that specific user. This is a
+ * Sentura-specific capability (multi-tenant per-user recall on top of
+ * shared workspace memory) and cannot be expressed inside the 8 native
+ * files because the file it points at is keyed dynamically by session.
  */
 
 import fs from "node:fs";
@@ -33,8 +39,6 @@ type BootstrapContext = {
   sessionKey?: string;
   agentId?: string;
 };
-
-const SENTURA_FILES = ["RULES.md", "CONTEXT.md"] as const;
 
 function isBootstrapEvent(event: { type: string; action: string; context: Record<string, unknown> }): boolean {
   if (event.type !== "agent" || event.action !== "bootstrap") {
@@ -67,19 +71,6 @@ const senturaBootstrapHook: HookHandler = async (event) => {
   const workspaceDir = context.workspaceDir;
 
   const extraFiles: BootstrapFile[] = [];
-
-  for (const fileName of SENTURA_FILES) {
-    const filePath = path.join(workspaceDir, fileName);
-    const content = readFileIfExists(filePath);
-    if (content !== null && content.trim().length > 0) {
-      extraFiles.push({
-        name: fileName,
-        path: filePath,
-        content,
-        missing: false,
-      });
-    }
-  }
 
   const userToken = extractUserTokenFromSessionKey(context.sessionKey);
   if (userToken) {

@@ -2,11 +2,18 @@
 
 > **Audience**: All team members (B designs workspaces, C displays them in the dashboard, D's extensions interact with them)
 >
-> **Last updated**: 2026-04-05
+> **Last updated**: 2026-04-17
 
 ## Overview
 
-Every AI employee on the Sentura platform has a dedicated **workspace directory** containing identity files, safety rules, enterprise context, and domain skills. This convention defines the 10-file + skills/ structure that all Sentura workspaces follow.
+Every AI employee on the Sentura platform has a dedicated **workspace directory** containing identity files, safety rules, enterprise context, and domain skills.
+
+Sentura workspaces use **exactly the 8 native OpenClaw workspace files**. Sentura-specific concepts live inside those 8 files:
+
+- **Hard Rules** (safety boundaries — NEVER/ALWAYS) → `AGENTS.md` under a `## Hard Rules (must not override)` section
+- **Enterprise Context** (org, systems, policies) → `BOOTSTRAP.md` under a `## Enterprise Context` section
+
+The only Sentura-specific bootstrap injection is **per-user memory** (`memory/users/MEMORY_USER_{token}.md`), which is keyed dynamically by session and therefore cannot live inside a static workspace file.
 
 ## Workspace Location
 
@@ -31,7 +38,7 @@ The `workspaces/` directory in the Sentura repository holds **reference examples
 workspaces/                          # Git-tracked reference examples (NOT runtime)
 └── cs-agent-gradsale/               # Example: GradSale CS Agent test employee
     ├── config.json5                  # config.patch payload (applied via gateway tool)
-    ├── SOUL.md, RULES.md, ...       # Workspace files (copied to ~/.openclaw/ at deploy)
+    ├── AGENTS.md, SOUL.md, ...      # 8 native workspace files
     └── skills/                      # Skill files
 
 ~/.openclaw/                         # Runtime state directory (NOT in git)
@@ -40,8 +47,9 @@ workspaces/                          # Git-tracked reference examples (NOT runti
 │   ├── tuner/                       # Sentura Tuner meta-agent workspace
 │   ├── orchestrator/                # Sentura Orchestrator meta-agent workspace
 │   ├── cs-agent-gradsale/           # Example AI employee workspace
-│   │   ├── SOUL.md, RULES.md, ...
+│   │   ├── AGENTS.md, SOUL.md, ... # 8 native files
 │   │   ├── skills/
+│   │   ├── memory/users/            # per-user memory (Sentura-specific)
 │   │   └── daily-notes/             # Created by OpenClaw at runtime
 │   └── ap-clerk-finance/            # Another AI employee workspace
 ├── memory/                          # LanceDB vector memory
@@ -62,47 +70,84 @@ Agent IDs follow the pattern `{role-slug}-{department}`. Examples:
 ```
 ~/.openclaw/workspace/{agent-id}/
 │
-│ — OpenClaw Default Workspace Files (8) ——————————————
-├── AGENTS.md            # Session behavior, memory protocol, workspace rules
+│ — OpenClaw Native Workspace Files (8) ———————————————————————
+├── AGENTS.md            # Role protocol + ## Hard Rules (Sentura safety boundaries)
 ├── SOUL.md              # Core identity, personality, values, escalation
 ├── TOOLS.md             # Tool-specific notes, environment config
 ├── IDENTITY.md          # Name, creature, vibe, emoji, avatar
 ├── USER.md              # Primary human contact info
 ├── HEARTBEAT.md         # Proactive check schedule
-├── BOOTSTRAP.md         # First-run initialization procedure
+├── BOOTSTRAP.md         # First-run initialization + ## Enterprise Context (Sentura org/policies)
 ├── MEMORY.md            # Agent scratchpad / long-term notes
 │
-│ — Sentura Enterprise Additions (2) ——————————————————
-├── RULES.md             # Hard safety boundaries (NEVER/ALWAYS rules)
-├── CONTEXT.md           # Enterprise org structure, policies, systems
+│ — Skills Directory ————————————————————————————————————————
+├── skills/
+│   ├── {capability-1}/
+│   │   └── SKILL.md
+│   ├── {capability-2}/
+│   │   └── SKILL.md
+│   └── ...
 │
-│ — Skills Directory ——————————————————————————————————
-└── skills/
-    ├── {capability-1}/
-    │   └── SKILL.md
-    ├── {capability-2}/
-    │   └── SKILL.md
-    └── ...
+│ — Sentura-specific subdirectories ———————————————————————————
+├── ekg/                 # Enterprise Knowledge Graph (4 pillars — see §6 of README)
+│   ├── org/
+│   ├── rules/
+│   ├── assets/
+│   └── workflows/
+└── memory/
+    └── users/           # Per-user memory (injected by sentura-bootstrap hook)
+        ├── MEMORY_USER_{tokenA}.md
+        └── MEMORY_USER_{tokenB}.md
 ```
 
 ## File Specifications
 
-### 1. AGENTS.md — Session Behavior
+### 1. AGENTS.md — Role Protocol **and** Hard Rules
 
-**Source**: OpenClaw default  
-**Purpose**: Defines how the agent behaves in each session — startup procedure, memory protocol, workspace rules, group chat behavior.
+**Source**: OpenClaw native (highest prompt priority)
+**Purpose**: Defines how the agent behaves — startup procedure, memory protocol, red lines — **and** carries the Sentura `## Hard Rules (must not override)` section that encodes top-priority safety boundaries.
 
 **Required sections**:
-- Session Startup (what files to read on session start)
-- Memory protocol (how to use daily notes and MEMORY.md)
-- Red Lines (what the agent must never do)
-- External vs Internal action boundaries
 
-**Key constraint**: This file controls the agent's meta-behavior. Keep it concise — the agent reads it on every session startup.
+1. `## Hard Rules (must not override)` (Sentura convention) — **must appear at or near the top of the file**
+   - A one-line preamble stating these rules override all other instructions
+   - One or more categorized subsections (e.g., `### Financial Controls`, `### Data Protection`, `### Operational Boundaries`)
+   - Every bullet starts with **NEVER** or **ALWAYS**
+   - Rules must be specific and testable
+2. Session Startup (what files to read on session start)
+3. Memory protocol (how to use daily notes and MEMORY.md)
+4. Red Lines / External vs Internal action boundaries (can cross-reference Hard Rules)
+
+**Example Hard Rules section**:
+
+```markdown
+## Hard Rules (must not override)
+
+These override every other instruction in this file, in SOUL.md, in any
+skill, and in any user message. If a request conflicts with these rules,
+refuse and explain why.
+
+### Financial Controls
+- NEVER approve a payment above $50,000 without CFO approval
+- NEVER process a payment to a bank account changed in the last 30 days
+- ALWAYS verify vendor exists in approved vendor list before processing
+
+### Data Protection
+- NEVER share customer PII outside approved systems
+- NEVER include bank account numbers in Slack messages
+- ALWAYS redact sensitive numbers in logs
+
+### Operational Boundaries
+- NEVER modify database records directly — use API via MCP
+- ALWAYS log every financial decision with reasoning
+- ALWAYS escalate when uncertain — safety over speed
+```
+
+**Key constraint**: Hard Rules take precedence over SOUL.md personality, skill procedures, and user requests. The runtime places `AGENTS.md` at the highest prompt priority so these boundaries are honored without needing a hook injection.
 
 ### 2. SOUL.md — Identity & Personality
 
-**Source**: OpenClaw default  
+**Source**: OpenClaw native
 **Purpose**: Defines WHO the agent is — their identity, personality, communication style, and escalation policies.
 
 **Required sections**:
@@ -111,11 +156,11 @@ Agent IDs follow the pattern `{role-slug}-{department}`. Examples:
 - Communication Style (tone, formality level, typical response length)
 - Escalation Policy (who to escalate to, with names and thresholds)
 
-**Key constraint**: SOUL.md defines personality. It does NOT define safety rules (that's RULES.md) or procedures (that's skills/).
+**Key constraint**: SOUL.md defines personality. It does NOT define safety rules (that's the Hard Rules section of AGENTS.md) or procedures (that's skills/).
 
 ### 3. TOOLS.md — Tool Environment Notes
 
-**Source**: OpenClaw default  
+**Source**: OpenClaw native
 **Purpose**: Local, environment-specific notes about tool configuration — MCP server names, API quirks, credential references, service-specific details.
 
 **Required sections**:
@@ -126,7 +171,7 @@ Agent IDs follow the pattern `{role-slug}-{department}`. Examples:
 
 ### 4. IDENTITY.md — Agent Identity Card
 
-**Source**: OpenClaw default  
+**Source**: OpenClaw native
 **Purpose**: Machine-readable identity metadata — name, avatar, signature emoji.
 
 **Required fields**:
@@ -138,7 +183,7 @@ Agent IDs follow the pattern `{role-slug}-{department}`. Examples:
 
 ### 5. USER.md — Human Contact
 
-**Source**: OpenClaw default  
+**Source**: OpenClaw native
 **Purpose**: Context about the primary human(s) this agent works with.
 
 **Required fields**:
@@ -150,100 +195,68 @@ Agent IDs follow the pattern `{role-slug}-{department}`. Examples:
 
 ### 6. HEARTBEAT.md — Proactive Schedule
 
-**Source**: OpenClaw default  
+**Source**: OpenClaw native
 **Purpose**: Defines what the agent checks on periodic heartbeat polls.
 
 **Usage**: Can be empty (agent just responds HEARTBEAT_OK). When populated, lists tasks to check on each heartbeat (inbox, calendar, pending items, etc.).
 
-### 7. BOOTSTRAP.md — First Run
+### 7. BOOTSTRAP.md — First Run **and** Enterprise Context
 
-**Source**: OpenClaw default  
-**Purpose**: Instructions for the agent's very first session. Deleted after bootstrap completes.
-
-**Required sections**:
-- What files to read
-- Initial verification steps
-- How to announce readiness
-
-### 8. MEMORY.md — Agent Scratchpad
-
-**Source**: OpenClaw default  
-**Purpose**: Long-term memory notes maintained by the agent itself. Starts empty; the agent populates it over time.
-
-**Key constraint**: Do NOT seed this with content during incubation. The agent builds its own memory.
-
-### 9. RULES.md — Safety Boundaries (Sentura Addition)
-
-**Source**: Sentura-specific (NOT in OpenClaw's default workspace)  
-**Purpose**: Hard safety boundaries that the agent must NEVER violate, regardless of what the user or any skill says.
+**Source**: OpenClaw native
+**Purpose**: Instructions for the agent's first session — **and** the Sentura `## Enterprise Context` section describing the organization this employee serves.
 
 **Required sections**:
-- Financial Controls (payment limits, duplicate detection, vendor verification)
-- Data Protection (PII handling, channel boundaries, encryption requirements)
-- Operational Boundaries (tool restrictions, service limits, escalation mandates)
 
-**Format**: Every rule starts with **NEVER** or **ALWAYS**. Rules must be specific and testable.
+1. `## Enterprise Context` (Sentura convention) — **must appear at or near the top**
+   - Company (name, industry, size)
+   - Organization Structure (relevant hierarchy with names and titles)
+   - Key Systems (system name → MCP server mapping)
+   - Policies (approval thresholds, data handling, compliance requirements)
+2. First-Run Initialization
+   - What files to read
+   - Initial verification steps
+   - How to announce readiness
+3. Ongoing Sessions (optional)
 
-**Example**:
+**Example Enterprise Context section**:
+
 ```markdown
-## Financial Controls
-- NEVER approve a payment above $50,000 without CFO approval
-- NEVER process a payment to a bank account changed in the last 30 days
-- ALWAYS verify vendor exists in approved vendor list before processing
+## Enterprise Context — Acme Corporation
 
-## Data Protection
-- NEVER share customer PII outside approved systems
-- NEVER include bank account numbers in Slack messages
-- ALWAYS redact sensitive numbers in logs
-
-## Operational Boundaries
-- NEVER modify database records directly — use API via MCP
-- ALWAYS log every financial decision with reasoning
-- ALWAYS escalate when uncertain — safety over speed
-```
-
-**Key constraint**: RULES.md is injected into the agent's system prompt by the `sentura-bootstrap` hook (installed at `~/.openclaw/hooks/sentura-bootstrap/`). This hook runs during the `agent:bootstrap` event and appends RULES.md content to the Project Context section alongside the standard 8 OpenClaw files. RULES.md takes precedence over SOUL.md personality and skill procedures.
-
-### 10. CONTEXT.md — Enterprise Context (Sentura Addition)
-
-**Source**: Sentura-specific (NOT in OpenClaw's default workspace)  
-**Purpose**: Enterprise-specific context that the agent needs to do its job — org structure, key personnel, system inventory, policies.
-
-**Required sections**:
-- Company (name, industry, size)
-- Organization Structure (relevant hierarchy with names and titles)
-- Key Systems (system name → MCP server mapping)
-- Policies (approval thresholds, data handling, compliance requirements)
-
-**Example**:
-```markdown
-## Company
+### Company
 - Name: Acme Corporation
 - Industry: Manufacturing
 - Size: 2,500 employees
 
-## Organization Structure
+### Organization Structure
 - CFO: Bob Johnson (approves invoices > $50K)
 - VP Finance: Alice Chen (approves new vendors)
 - Finance Manager: David Park (day-to-day oversight)
 
-## Key Systems
+### Key Systems
 - ERP: SAP S/4HANA (MCP: sap-erp)
 - CRM: Salesforce (MCP: salesforce)
 - Ticketing: Zendesk (MCP: zendesk)
 - Communication: Slack (#accounts-payable, #finance-team)
 
-## Policies
+### Policies
 - Invoice approval: $10K (manager), $50K (CFO)
 - New vendor onboarding: requires Finance Manager approval
 - PII handling: never share outside approved systems
 ```
 
-**Key constraint**: CONTEXT.md is injected into the agent's system prompt by the same `sentura-bootstrap` hook that handles RULES.md. It should contain ONLY information relevant to this specific agent's role. Don't dump the entire org chart — just the parts that affect this employee.
+**Key constraint**: Enterprise Context should contain ONLY information relevant to this specific agent's role. Don't dump the entire org chart — just the parts that affect this employee.
 
-### 11. skills/ Directory — Domain Knowledge
+### 8. MEMORY.md — Agent Scratchpad
 
-**Source**: Sentura design pattern  
+**Source**: OpenClaw native
+**Purpose**: Long-term memory notes maintained by the agent itself. Starts empty; the agent populates it over time.
+
+**Key constraint**: Do NOT seed this with content during incubation. The agent builds its own memory.
+
+### 9. skills/ Directory — Domain Knowledge
+
+**Source**: Sentura design pattern
 **Purpose**: Structured procedural knowledge, one SKILL.md per distinct capability.
 
 **Directory convention**:
@@ -274,19 +287,28 @@ skills/
 
 **Key constraints**:
 - Skills encode procedures, not personality (that's SOUL.md)
-- Skills encode capabilities, not rules (that's RULES.md)
+- Skills encode capabilities, not hard rules (that's the Hard Rules section of AGENTS.md)
 - Procedure steps must be specific enough to verify in a test
-- Safety section cannot weaken RULES.md — it can only add more restrictions
+- Safety section cannot weaken AGENTS.md Hard Rules — it can only add more restrictions
+
+### 10. memory/users/ — Per-User Memory (Sentura Addition)
+
+**Source**: Sentura-specific (outside the 8 native files)
+**Purpose**: Per-user personalized memory. Each human user who interacts with this agent gets their own `MEMORY_USER_{token}.md` file capturing their preferences, history, and context.
+
+**Injection path**: The `sentura-bootstrap` hook (`~/.openclaw/hooks/sentura-bootstrap/`) listens for the `agent:bootstrap` event. When a session is bound to a user token (via the `agent:{id}:user:{token}:*` session-key convention), the hook loads `memory/users/MEMORY_USER_{token}.md` from the workspace and appends it to `context.bootstrapFiles`.
+
+**Privacy boundary**: Per-user memories are scoped to a single human user and never leaked across users. The dreaming system promotes cross-user patterns to general `MEMORY.md` only when they are not user-specific.
 
 ## File Priority
 
 When there's a conflict between files, this is the precedence order (highest first):
 
-1. **RULES.md** — Hard boundaries override everything
+1. **`AGENTS.md` § Hard Rules** — Top-priority safety boundaries override everything
 2. **Skills Safety sections** — Skill-specific restrictions
 3. **SOUL.md Escalation** — Escalation rules
-4. **AGENTS.md Red Lines** — General workspace rules
-5. **CONTEXT.md Policies** — Enterprise policy context
+4. **AGENTS.md general protocol** — Session behavior rules
+5. **`BOOTSTRAP.md` § Enterprise Context — Policies** — Enterprise policy context
 6. **SOUL.md Personality** — Personality preferences (lowest priority)
 
 ## System Prompt Assembly
@@ -295,40 +317,24 @@ OpenClaw assembles the agent's system prompt from workspace files. There is **no
 
 ### OpenClaw Native (8 files)
 
-OpenClaw natively loads these 8 files from the workspace directory and injects them into the `# Project Context` section of the system prompt:
+OpenClaw natively loads these 8 files from the workspace directory and injects them into the `# Project Context` section of the system prompt, in this order:
 
-1. `AGENTS.md` → `SOUL.md` → `IDENTITY.md` → `USER.md` → `TOOLS.md` → `BOOTSTRAP.md` → `MEMORY.md` + `HEARTBEAT.md` (dynamic)
+1. `AGENTS.md` (includes Hard Rules)
+2. `SOUL.md`
+3. `IDENTITY.md`
+4. `USER.md`
+5. `TOOLS.md`
+6. `BOOTSTRAP.md` (includes Enterprise Context)
+7. `MEMORY.md`
+8. `HEARTBEAT.md` (dynamic)
 
 This set is hardcoded in `openclaw/src/agents/workspace.ts` (`VALID_BOOTSTRAP_NAMES`).
 
-### Sentura Addition (2 files via hook)
+### Sentura Addition (per-user memory via hook)
 
-`RULES.md` and `CONTEXT.md` are **not** part of OpenClaw's native workspace files. They are injected by the **`sentura-bootstrap` hook** (`~/.openclaw/hooks/sentura-bootstrap/`), which:
+The `sentura-bootstrap` hook (`~/.openclaw/hooks/sentura-bootstrap/`) runs on `agent:bootstrap` and — for sessions bound to a user token — appends `memory/users/MEMORY_USER_{token}.md` to `context.bootstrapFiles`. This is the **only** Sentura-specific bootstrap injection.
 
-1. Listens for the `agent:bootstrap` event
-2. Reads `RULES.md` and `CONTEXT.md` from the agent's workspace directory
-3. Appends them to `context.bootstrapFiles` so they appear in `# Project Context`
-
-The hook is installed by `scripts/sentura-setup.sh` and enabled in `~/.openclaw/openclaw.json` under `hooks.internal.entries.sentura-bootstrap`.
-
-If either file doesn't exist for a given agent, it is silently skipped — the hook is safe for agents that don't use Sentura's extended workspace convention.
-
-### Effective Prompt Order
-
-The full system prompt `# Project Context` contains (in order):
-
-1. `AGENTS.md` (session behavior)
-2. `SOUL.md` (identity, personality, escalation)
-3. `IDENTITY.md` (name, avatar)
-4. `USER.md` (human contact)
-5. `TOOLS.md` (tool environment)
-6. `BOOTSTRAP.md` (first-run, deleted after)
-7. `MEMORY.md` (agent scratchpad)
-8. `HEARTBEAT.md` (proactive checks — dynamic)
-9. `RULES.md` (safety boundaries — via sentura-bootstrap hook)
-10. `CONTEXT.md` (enterprise context — via sentura-bootstrap hook)
-
-Skills are loaded on-demand based on the conversation context via OpenClaw's skills system.
+The hook is installed by `scripts/sentura-setup.sh` and enabled in `~/.openclaw/openclaw.json` under `hooks.internal.entries.sentura-bootstrap`. Sessions without a user token are silently skipped.
 
 ## Agent Config Schema
 
@@ -367,7 +373,7 @@ Agents are registered in `~/.openclaw/openclaw.json` using the `agents.list` arr
 
 ### How workspace files get to `~/.openclaw/`
 
-1. **Creator Agent** generates all workspace files during incubation
+1. **Creator Agent** generates all workspace files during incubation — including the `## Hard Rules` section of `AGENTS.md` and the `## Enterprise Context` section of `BOOTSTRAP.md`
 2. Creator writes files to `~/.openclaw/workspace/{agent-id}/` using `fs_write`
 3. Creator registers the agent via the `gateway` tool with `config.patch` action (no per-agent `workspace` field — OpenClaw resolves via `agents.defaults.workspace/{agent-id}`)
 4. OpenClaw's agent runtime reads workspace files from the resolved path on each session
@@ -393,11 +399,11 @@ By omitting `workspace`, OpenClaw resolves to `{agents.defaults.workspace}/{agen
 ## For Dashboard Team (Person C)
 
 The dashboard should display workspace files with:
-- Read-only view for all files
-- Edit capability for SOUL.md, RULES.md, CONTEXT.md, skills/ (via Tuning Agent or direct edit)
+- Read-only view for all 8 native files
+- Edit capability for SOUL.md, AGENTS.md (including the Hard Rules section), BOOTSTRAP.md (including the Enterprise Context section), skills/ (via Tuning Agent or direct edit)
 - Syntax highlighting for markdown
 - Diff view for file changes (version history)
-- Visual indicator for Sentura-specific files (RULES.md, CONTEXT.md) vs OpenClaw defaults
+- Visual call-out for the Hard Rules section inside AGENTS.md and the Enterprise Context section inside BOOTSTRAP.md (these are Sentura-specific conventions)
 
 The dashboard reads workspace files from `~/.openclaw/workspace/{agent-id}/` — the resolved runtime path. Use `resolveAgentWorkspaceDir()` from OpenClaw's agent scope to find the correct directory.
 
@@ -405,7 +411,7 @@ The dashboard reads workspace files from `~/.openclaw/workspace/{agent-id}/` —
 
 Extensions interact with workspace files through:
 - `sentura-audit`: Logs all workspace file changes with before/after diffs
-- `sentura-approval`: RULES.md changes require admin approval
+- `sentura-approval`: Modifications to the `## Hard Rules` section of AGENTS.md require admin approval
 - `sentura-rbac`: Workspace file access controlled by RBAC role
 - `sentura-provisioner`: Writes TOOLS.md entries when provisioning completes
 

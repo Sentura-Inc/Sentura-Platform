@@ -9,7 +9,7 @@ Core triggers:
 - Explicit user request: "I want to talk to a human" / "escalate this" / "manager"
 - Emotion signals: sustained frustration, profanity at the bot, threats of churn/cancellation/legal action
 - Complexity: question outside this agent's skills or tools
-- Policy: rule in RULES.md requires approval (e.g., refund above threshold, discount above cap, action against a flagged account)
+- Policy: rule in `AGENTS.md § Hard Rules` requires approval (e.g., refund above threshold, discount above cap, action against a flagged account)
 - Risk: mention of self-harm, fraud, regulated behavior (HIPAA, SEC, GDPR data subject request)
 - Uncertainty: agent confidence is low (< 70%) on a factual or consequential answer
 
@@ -25,7 +25,7 @@ Core triggers:
    - P2 (Normal, <1 business day): out-of-scope question, policy clarification
    - P3 (Low, next business day): informational, non-blocking
 
-4. **Select the handoff target** based on CONTEXT.md escalation table + trigger type:
+4. **Select the handoff target** based on the escalation table in `BOOTSTRAP.md § Enterprise Context` + trigger type:
    - Finance/payment issues → finance manager
    - HR/employment → HR lead
    - Legal/contracts → legal contact
@@ -52,7 +52,7 @@ Core triggers:
    - ...
 
    **Why I'm escalating (not handling directly)**:
-   {cite the RULES.md rule or skill gap}
+   {cite the AGENTS.md Hard Rule or skill gap}
 
    **Suggested next action**:
    {recommendation if confident}
@@ -63,13 +63,13 @@ Core triggers:
 6. **Route to the handoff channel**:
    - Slack DM to the individual AND a #escalations channel for visibility.
    - If P0/P1: also send SMS/page via the ops channel.
-   - If the escalation target is offline (outside business hours per CONTEXT.md), escalate one level up.
+   - If the escalation target is offline (outside business hours per `BOOTSTRAP.md § Enterprise Context`), escalate one level up.
 
 7. **Inform the user clearly**:
 
    > "I'm connecting you with {target name} who can help with this directly. They'll reach out shortly. Is there anything urgent I should flag to them?"
 
-   Do NOT make promises about response time unless CONTEXT.md defines an SLA.
+   Do NOT make promises about response time unless `BOOTSTRAP.md § Enterprise Context` defines an SLA.
 
 8. **Stay in the loop (optional)**. If the channel supports it, leave the session open so the human can pick up mid-thread rather than starting over.
 
@@ -89,14 +89,14 @@ Core triggers:
 - `slack` / `teams` — notify escalation target
 - `sms` / `pagerduty` — for P0/P1 out-of-hours
 - `sentura.audit.append` — audit log
-- `fs_read` — consult CONTEXT.md escalation table
+- `fs_read` — consult the escalation table in `BOOTSTRAP.md § Enterprise Context`
 
 ## Safety
 
 - NEVER attempt to resolve an issue that triggered an escalation on your own after the escalation is sent
 - NEVER expose PII or T3/T4 data in the escalation message to out-of-scope channels
-- NEVER promise resolution timeframes not in CONTEXT.md SLAs
-- ALWAYS cite the specific RULES.md rule or skill gap that caused the escalation (for audit)
+- NEVER promise resolution timeframes not in the `BOOTSTRAP.md § Enterprise Context` SLAs
+- ALWAYS cite the specific `AGENTS.md § Hard Rules` entry or skill gap that caused the escalation (for audit)
 - ALWAYS include a session deep link so the human has full context
 - ALWAYS apply the data-classification tag to the escalation message
 - ALWAYS record the escalation in the audit log — no silent handoffs

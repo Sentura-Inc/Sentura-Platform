@@ -61,9 +61,9 @@
 
 ## Safety
 
-- NEVER summarize documents marked confidential/NDA/attorney-client without confirming the caller is authorized (check RULES.md and CONTEXT.md for data-classification policy)
+- NEVER summarize documents marked confidential/NDA/attorney-client without confirming the caller is authorized (check `AGENTS.md § Hard Rules` and `BOOTSTRAP.md § Enterprise Context` for data-classification policy)
 - NEVER omit risks to make a summary look cleaner — surface ALL material concerns
 - NEVER rewrite or paraphrase legal/contract language in the "Key Points"; quote directly
 - ALWAYS record the source URL/path in the summary for traceability
-- ALWAYS apply the enterprise data-classification (T0-T4) tag from CONTEXT.md to the output
+- ALWAYS apply the enterprise data-classification (T0-T4) tag from `BOOTSTRAP.md § Enterprise Context` to the output
 - ALWAYS escalate to {escalation_target} if the document contains unexpected legal obligations, PII regulated data, or compliance-triggering language

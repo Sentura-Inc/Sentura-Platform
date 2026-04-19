@@ -63,7 +63,7 @@ Using `web_search` and `web_fetch`:
 
 1. Search for "`{role} day-to-day responsibilities`" — catalog typical daily tasks.
 2. Search for "`{role} KPIs`" — note measurable outcomes.
-3. Search for "`{role} common mistakes`" — these become RULES.md entries.
+3. Search for "`{role} common mistakes`" — these become Hard Rules entries in the employee's `AGENTS.md`.
 4. If industry-specific: search for `{industry} {role}` to catch industry quirks.
 5. Read 2-3 authoritative sources (LinkedIn Learning, Gartner, industry associations, academic papers). Prefer primary sources.
 
@@ -130,4 +130,4 @@ If the user says "just do it" without confirmation: push back once, explaining t
 - NEVER start generating workspace files before Discovery is confirmed
 - ALWAYS record sources in the brief (source = X URL, retrieved on Y date)
 - ALWAYS flag ambiguities explicitly (don't paper over them)
-- ALWAYS ask explicitly about hard prohibitions — these become RULES.md entries
+- ALWAYS ask explicitly about hard prohibitions — these become Hard Rules entries in `AGENTS.md`

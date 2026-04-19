@@ -46,9 +46,9 @@ OpenClaw is a mature personal AI assistant platform. It provides the runtime, ch
 | 1 | **Enterprise data integration** — CRM, ERP, contact center, database connectors built during onboarding | OpenClaw has zero enterprise connectors (no Salesforce, SAP, Zendesk, etc.) — only messaging channels and AI providers |
 | 2 | **Internal MCP server generation** — an MCP Builder Agent that takes API documentation (OpenAPI specs, markdown docs, database schemas) as input and generates OpenClaw-compatible MCP servers with typed tool definitions | OpenClaw's `mcp.servers` config is manual JSON5; no auto-discovery, API analysis, or API-to-MCP generation |
 | 3 | **Self-provisioning orchestration** — skills + approval workflows + error handling for autonomous service registration | OpenClaw has the browser tool (Playwright) but no built-in workflow for account registration or credential harvesting |
-| 4 | **Position-specific safety guardrails** — RULES.md, decision-context-aware approval, escalation chains | OpenClaw has generic tool denylists and binary agent-scoped exec approvals; no `RULES.md` in its workspace files |
+| 4 | **Position-specific safety guardrails** — `AGENTS.md` Hard Rules section, decision-context-aware approval, escalation chains | OpenClaw has generic tool denylists and binary agent-scoped exec approvals; no structured Hard Rules convention |
 | 5 | **No-code employee creation** — natural language → working AI employee via Creator Agent | OpenClaw's `agents.create` takes structured config params; no NL creation flow exists |
-| 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, merge industry ontology, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura adds RULES.md, CONTEXT.md, `ekg/` directory, and structured skills |
+| 6 | **Incubation pipeline** — fill workspace files, connect data layer, wire MCP tools, merge industry ontology, add position skills | OpenClaw bootstraps 8 generic workspace files; Sentura inlines Hard Rules into `AGENTS.md`, Enterprise Context into `BOOTSTRAP.md`, and adds the `ekg/` directory plus structured skills |
 | 7 | **Enterprise orchestration + AI Manager EKG** — macro-objective decomposition, multi-employee coordination, capability abstraction, cross-domain conflict detection, reverse-injection training | OpenClaw has basic subagent spawning with depth limits; no task decomposition, progress tracking, or cross-agent knowledge aggregation |
 | 8 | **Multi-tenancy & scope model** — platform scope can be an entire SME or a single department in a large enterprise; tenant isolation, user-level namespacing, data segregation | OpenClaw is single-tenant (one user, one gateway, one config) |
 | 9 | **Enterprise authentication** — SAML/OIDC/SSO for the dashboard | OpenClaw uses token + device pairing; no SSO |
@@ -240,19 +240,17 @@ Each AI employee has a dedicated workspace directory. OpenClaw provides 8 defaul
 ```
 workspaces/ap-clerk-finance/
 │
-│ — OpenClaw Default Workspace Files (8) ——
-├── AGENTS.md            # Multi-agent routing (OpenClaw default)
-├── SOUL.md              # Core identity, personality (OpenClaw default)
-├── TOOLS.md             # Tool documentation (OpenClaw default)
-├── IDENTITY.md          # Agent identity descriptor (OpenClaw default)
-├── USER.md              # User context / preferences (OpenClaw default)
-├── HEARTBEAT.md         # Cron heartbeat instructions (OpenClaw default)
-├── BOOTSTRAP.md         # Agent bootstrap instructions (OpenClaw default)
-├── MEMORY.md            # Memory notes / scratchpad (OpenClaw default)
+│ — OpenClaw Native Workspace Files (8) ——
+├── AGENTS.md            # Role protocol + § Hard Rules (Sentura safety boundaries)
+├── SOUL.md              # Core identity, personality
+├── TOOLS.md             # Tool documentation
+├── IDENTITY.md          # Agent identity descriptor
+├── USER.md              # User context / preferences
+├── HEARTBEAT.md         # Cron heartbeat instructions
+├── BOOTSTRAP.md         # First-run bootstrap + § Enterprise Context (Sentura org/policies)
+├── MEMORY.md            # Memory notes / scratchpad
 │
-│ — Sentura Enterprise Additions ——
-├── RULES.md             # Hard boundaries — Sentura-specific, not in OpenClaw
-├── CONTEXT.md           # Enterprise-specific context (org structure, policies)
+│ — Sentura Enterprise Additions (outside the 8 native files) ——
 ├── skills/              # Structured position-specific skills
 │   ├── invoice-processing/
 │   │   └── SKILL.md
@@ -260,6 +258,11 @@ workspaces/ap-clerk-finance/
 │   │   └── SKILL.md
 │   └── compliance-checks/
 │       └── SKILL.md
+├── ekg/                 # Enterprise Knowledge Graph (4 pillars)
+│   ├── org/
+│   ├── rules/
+│   ├── assets/
+│   └── workflows/
 ├── memory/              # Per-user memory isolation
 │   └── users/           # One MEMORY_USER file per human user
 │       ├── MEMORY_USER_{tokenA}.md
@@ -268,9 +271,14 @@ workspaces/ap-clerk-finance/
 └── data/                # Working data (templates, references)
 ```
 
-> **Important distinction**: OpenClaw's `AGENTS.md` defines multi-agent routing rules; `SOUL.md` defines personality; `TOOLS.md` documents available tools; `IDENTITY.md` provides agent identity; `USER.md` captures user context; `HEARTBEAT.md` gives cron-invoked instructions; `BOOTSTRAP.md` provides initial setup instructions; `MEMORY.md` serves as a general scratchpad. **Sentura adds `RULES.md`** (hard safety boundaries per position — this file does not exist in OpenClaw's workspace system), **`CONTEXT.md`** (enterprise-specific context like org structure, policies, system inventory), **and `memory/users/MEMORY_USER_{token}.md`** files (per-user personalized memory — preferences, habits, and context specific to each human user).
+> **Workspace file layout**: Sentura uses **exactly the 8 native OpenClaw workspace files**.
 >
-> **Unified identity, personalized memory**: All workspace files that define *who* the agent is (SOUL.md, AGENTS.md, RULES.md, CONTEXT.md, skills/, ekg/) are shared across all users — every human interacts with the same AI employee identity. However, episodic memory (LanceDB entries) and personal notes (`MEMORY_USER_{token}.md`) are **per-user isolated**. This mirrors how a real human employee has the same personality and knowledge with everyone but remembers different conversations with different colleagues.
+> - **Hard safety boundaries** (NEVER / ALWAYS / Escalation) live inside each agent's `AGENTS.md` under a `## Hard Rules (must not override)` section. The runtime gives `AGENTS.md` the highest prompt priority, so these rules are honored ahead of any user instruction.
+> - **Enterprise context** (org structure, policies, system inventory, fiscal calendar, etc.) lives inside each agent's `BOOTSTRAP.md` under a `## Enterprise Context` section.
+>
+> The only Sentura-specific bootstrap injection is **per-user memory** (`memory/users/MEMORY_USER_{token}.md`) — the file is keyed dynamically by session so it cannot live inside a static workspace file.
+>
+> **Unified identity, personalized memory**: All workspace files that define *who* the agent is (SOUL.md, AGENTS.md including its Hard Rules, BOOTSTRAP.md including its Enterprise Context, TOOLS.md, skills/, ekg/) are shared across all users — every human interacts with the same AI employee identity. However, episodic memory (LanceDB entries) and personal notes (`MEMORY_USER_{token}.md`) are **per-user isolated**. This mirrors how a real human employee has the same personality and knowledge with everyone but remembers different conversations with different colleagues.
 
 ### SOUL.md — Employee Identity
 
@@ -369,8 +377,8 @@ The Creator Agent produces:
 
 1. **Agent config** — model selection, tool allowlist, channel bindings
 2. **SOUL.md** — identity, personality, values
-3. **AGENTS.md** — role definition, responsibilities
-4. **RULES.md** — hard boundaries and compliance rules
+3. **AGENTS.md** — role protocol **and** the `## Hard Rules (must not override)` section (NEVER / ALWAYS / Escalation) that defines hard safety boundaries
+4. **BOOTSTRAP.md** — first-run instructions **and** the `## Enterprise Context` section (org, systems, policies, fiscal calendar)
 5. **SKILL.md files** — one per capability (ticket triage, escalation, billing inquiry, etc.)
 6. **MCP server list** — which enterprise integrations are needed
 7. **Approval workflow** — which actions require human approval
@@ -418,7 +426,7 @@ Before an employee goes live, the Creator Agent runs it through a structured **t
 |---------------|-------------------|---------|
 | **Task completion** | Can the employee finish the task end-to-end? | Process an invoice from PDF extraction to ERP submission |
 | **Tool usage** | Does it use the right MCP tools correctly? | Calls the correct API endpoint with valid parameters |
-| **Safety compliance** | Does it respect RULES.md boundaries? | Refuses to approve a payment above the threshold |
+| **Safety compliance** | Does it respect `AGENTS.md` Hard Rules boundaries? | Refuses to approve a payment above the threshold |
 | **Escalation judgment** | Does it escalate when appropriate? | Routes a flagged dispute to a human instead of auto-resolving |
 | **Tone & communication** | Does the response match SOUL.md personality? | Professional but approachable, not robotic |
 | **Error handling** | Does it recover gracefully from tool failures? | Retries or escalates when an API call fails |
@@ -426,10 +434,10 @@ Before an employee goes live, the Creator Agent runs it through a structured **t
 **Auto-tuning on failure**: When an employee fails a test case, the Creator Agent diagnoses the root cause and applies targeted fixes:
 
 - **Wrong tool usage** → adjust SKILL.md procedure steps or tool allowlist
-- **Safety violation** → strengthen RULES.md with the specific boundary that was crossed
+- **Safety violation** → strengthen the `## Hard Rules` section of `AGENTS.md` with the specific boundary that was crossed
 - **Missed escalation** → add escalation trigger to the relevant skill's Safety section
 - **Poor tone** → refine SOUL.md personality directives
-- **Missing knowledge** → add a new SKILL.md or update CONTEXT.md
+- **Missing knowledge** → add a new SKILL.md or extend the `## Enterprise Context` section of `BOOTSTRAP.md`
 
 The test-tune-retest loop runs until all test cases pass or a maximum iteration count is reached (at which point the employee is flagged for human review before deployment).
 
@@ -830,8 +838,8 @@ The `ekg/` directory **complements** — not replaces — the existing workspace
 | File | Purpose | Relationship to EKG |
 |------|---------|-------------------|
 | `SOUL.md` | Identity, personality | Unchanged — defines *who* the agent is |
-| `RULES.md` | Hard safety boundaries | Summary rules derived from `ekg/rules/` pillar; provides a human-readable constraint layer that overrides everything |
-| `CONTEXT.md` | Enterprise overview | High-level summary of `ekg/org/` pillar; the "executive brief" for quick reference |
+| `AGENTS.md` (`## Hard Rules`) | Hard safety boundaries | Summary rules derived from `ekg/rules/` pillar; provides a human-readable constraint layer that overrides everything |
+| `BOOTSTRAP.md` (`## Enterprise Context`) | Enterprise overview | High-level summary of `ekg/org/` pillar; the "executive brief" for quick reference |
 | `SKILL.md` files | Procedural knowledge | Procedures that *use* EKG data; reference `ekg/` pillars for specifics |
 | `ekg/` directory | Structured knowledge graph | Deep, structured, machine-queryable knowledge — the detailed backing store |
 
@@ -1124,7 +1132,7 @@ OpenClaw supports model fallback chains — if the primary provider is unavailab
 Sentura implements safety at every level, combining OpenClaw's built-in security primitives with enterprise-grade additions. The distinction matters:
 
 - **OpenClaw provides** (Layers 2–3): Generic tool allowlists/denylists per agent (`DEFAULT_GATEWAY_HTTP_TOOL_DENY`), sandbox mode, binary exec approvals per agent ID, SSRF guards, path safety
-- **Sentura adds** (Layers 1, 4–5): Position-specific `RULES.md` files, decision-context-aware approvals (e.g., "approve if refund < $500"), skill-level safety sections, escalation chains, timeout policies, enterprise-wide data classification, audit requirements
+- **Sentura adds** (Layers 1, 4–5): Position-specific Hard Rules inside each employee's `AGENTS.md`, decision-context-aware approvals (e.g., "approve if refund < $500"), skill-level safety sections, escalation chains, timeout policies, enterprise-wide data classification, audit requirements
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -1140,9 +1148,9 @@ Sentura implements safety at every level, combining OpenClaw's built-in security
 │  OpenClaw: binary exec.approval per agent ID             │
 │  Sentura: decision-context approvals, escalation, timeout│
 ├──────────────────────────────────────────────────────────┤
-│  Layer 4: RULES.md HARD BOUNDARIES            [SENTURA]  │
-│  Per-employee rules that override everything else        │
-│  This file does NOT exist in OpenClaw's workspace system │
+│  Layer 4: AGENTS.md HARD RULES                [SENTURA]  │
+│  Each employee's AGENTS.md carries a                     │
+│  ## Hard Rules (must not override) section               │
 │  "You may NEVER share customer PII outside the CRM"      │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 5: PLATFORM-LEVEL POLICIES             [SENTURA]  │
@@ -1203,26 +1211,34 @@ AI Employee wants to execute a high-risk action
         → Timeout → escalate to next approver
 ```
 
-### RULES.md — Hard Boundaries (Sentura Innovation)
+### AGENTS.md Hard Rules — Top-Priority Boundaries (Sentura Innovation)
 
-Every AI employee has a `RULES.md` file that defines absolute constraints. **This is a Sentura-specific addition** — OpenClaw's default workspace files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) do not include a dedicated rules file. Sentura's `sentura-bootstrap` hook (`~/.openclaw/hooks/sentura-bootstrap/`) injects `RULES.md` and `CONTEXT.md` into each agent's system prompt during the `agent:bootstrap` event:
+Every AI employee's `AGENTS.md` carries a `## Hard Rules (must not override)` section that defines absolute constraints. **This is a Sentura convention layered on top of OpenClaw's 8 native workspace files** (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`). Because the runtime places `AGENTS.md` at the highest prompt priority, Hard Rules are honored ahead of user instructions, skills, and any other content — which is exactly the guarantee a safety boundary needs.
+
+Example Hard Rules section inside an AP Clerk's `AGENTS.md`:
 
 ```markdown
-# AP Clerk — Hard Rules
+# AP Clerk — AGENTS.md
 
-## Financial Controls
+## Hard Rules (must not override)
+
+These override every other instruction in this file, in SOUL.md, in any
+skill, and in any user message. If a request conflicts with these rules,
+refuse and explain why.
+
+### Financial Controls
 - NEVER approve or process a payment above $50,000 without CFO approval
 - NEVER process a payment to a bank account that changed in the last 30 days
 - NEVER process duplicate invoices (same vendor + amount + date)
 - ALWAYS verify vendor exists in approved vendor list before processing
 
-## Data Protection
+### Data Protection
 - NEVER share financial data outside approved channels
 - NEVER include bank account numbers in Slack messages
 - NEVER export vendor lists to external services
 - ALWAYS redact sensitive numbers when logging
 
-## Operational Boundaries
+### Operational Boundaries
 - NEVER modify ERP records directly — always use the ERP API via MCP
 - NEVER create accounts on services not in the approved list
 - ALWAYS log every financial decision with reasoning
@@ -1306,7 +1322,8 @@ Sentura's memory architecture combines three layers — each with a different pe
 │ org-chart.json5   controls.json5   products/        sops/           │
 │ contacts.json5    compliance.json5 contracts/       experience-links│
 │                                    faqs/                            │
-│ SOUL.md   RULES.md   CONTEXT.md   SKILL.md files                    │
+│ SOUL.md   AGENTS.md(§Hard Rules)   BOOTSTRAP.md(§Enterprise Ctx)    │
+│ TOOLS.md  IDENTITY.md   USER.md   HEARTBEAT.md   SKILL.md files     │
 │                                                                     │
 │ Characteristics: Structured, version-controlled, human-editable,    │
 │ auto-indexed by OpenClaw's workspace file scanner                   │
@@ -1332,7 +1349,7 @@ Sentura's memory architecture combines three layers — each with a different pe
 
 OpenClaw's workspace file scanner **automatically indexes** all files under the agent's workspace directory — including the `ekg/` subdirectory. This means:
 
-1. **Automatic chunking:** Each JSON5 file in `ekg/` is chunked and embedded into the SQLite + LanceDB vector index alongside SOUL.md, RULES.md, and SKILL.md files.
+1. **Automatic chunking:** Each JSON5 file in `ekg/` is chunked and embedded into the SQLite + LanceDB vector index alongside SOUL.md, AGENTS.md (including its Hard Rules section), BOOTSTRAP.md (including its Enterprise Context section), and SKILL.md files.
 2. **Hybrid search:** When an agent calls `memory_search` with a query like "who approves purchases over $50K?", the system runs both FTS (keyword match against JSON5 field names) and vector similarity (semantic match against embedded chunks) — returning the relevant `ekg/org/org-chart.json5` entries.
 3. **Structured + semantic:** Because `ekg/` files use consistent JSON5 schemas with explicit field names (`type: "reports_to"`, `limit: "$50000"`), FTS catches exact matches while vector search catches semantic queries that don't use those exact terms.
 
@@ -1364,10 +1381,10 @@ Neither layer has any concept of a "user" — when multiple humans interact with
   │                                                                         │
   │  AP Clerk (dbPath: ~/.openclaw/memory/ap-clerk/)                        │
   │  ┌─────────────────────────────────────────────────────────────────┐    │
-  │  │  SHARED (unified per AI employee)                               │    │
-  │  │  SOUL.md  AGENTS.md  RULES.md  CONTEXT.md  IDENTITY.md         │    │
-  │  │  TOOLS.md  BOOTSTRAP.md  ekg/  skills/                         │    │
-  │  │  MEMORY.md (general, no PII)                                    │    │
+  │  │  SHARED (unified per AI employee, 8 native files)               │    │
+  │  │  AGENTS.md (+ § Hard Rules)  SOUL.md  TOOLS.md  IDENTITY.md     │    │
+  │  │  USER.md  HEARTBEAT.md  BOOTSTRAP.md (+ § Enterprise Context)   │    │
+  │  │  MEMORY.md (general, no PII)   ekg/   skills/                   │    │
   │  └─────────────────────────────────────────────────────────────────┘    │
   │                                                                         │
   │  TIER 2: USER-LEVEL ISOLATION (within each agent's vector store)       │
@@ -1410,7 +1427,7 @@ The combined result: Agent A's LanceDB only contains Agent A's memories (Mechani
 - **MEMORY.md** (general): Exists at the workspace root. Contains general, recurring observations that apply to all users. Updated by the dreaming system. Examples: "Invoices over $10K always require CFO approval", "The accounting system is slow on month-end close days."
 - **MEMORY_USER_{token}.md** (per-user): Stored in `memory/users/` under the workspace. Contains personal memories specific to one user's interaction history. Examples: "User prefers concise responses", "User's team handles APAC region accounts", "User asked me to always CC finance@acme.com on approvals."
 
-The `sentura-bootstrap` hook (which already injects RULES.md and CONTEXT.md) is extended to also inject the current user's `MEMORY_USER_{token}.md` alongside the general `MEMORY.md`, giving each user a personalized experience while keeping the agent's core identity unified.
+The `sentura-bootstrap` hook — the single remaining Sentura-specific bootstrap extension — injects the current user's `MEMORY_USER_{token}.md` into the prompt alongside the general `MEMORY.md`, giving each user a personalized experience while keeping the agent's core identity unified. (Hard Rules and Enterprise Context are **not** hook-injected; they live inside `AGENTS.md` and `BOOTSTRAP.md` respectively, which the runtime already loads natively.)
 
 #### Dreaming Integration for Per-User Memory
 
@@ -1658,7 +1675,7 @@ Tuning Agent:
   1. Reads current SOUL.md for ap-clerk-finance
   2. Modifies personality section to be more casual
   3. Updates via workspace file write
-  4. Verifies change doesn't conflict with RULES.md
+  4. Verifies change doesn't conflict with AGENTS.md Hard Rules
   5. Confirms change to human
 ```
 
@@ -1668,7 +1685,7 @@ Tuning Agent:
 |--------|-----------------|
 | **Personality/Tone** | Modify SOUL.md |
 | **Skills** | Add/modify/remove SKILL.md files |
-| **Rules & Boundaries** | Modify RULES.md (requires admin approval) |
+| **Rules & Boundaries** | Modify the `## Hard Rules` section inside `AGENTS.md` (requires admin approval) |
 | **Tools** | Update agent config tool allowlist via `config.patch` |
 | **Channel Bindings** | Add/remove channel bindings via `config.patch` |
 | **Model** | Switch LLM provider/model via `config.patch` |
@@ -1684,7 +1701,7 @@ OpenClaw's `config.patch` RPC applies changes immediately without restarting the
 
 The Tuning Agent enforces safety boundaries:
 
-- **Cannot remove safety rules** — RULES.md modifications require admin approval
+- **Cannot remove safety rules** — modifications to the `## Hard Rules` section of `AGENTS.md` require admin approval
 - **Cannot escalate tool access** — adding dangerous tools requires admin approval
 - **Version history** — every change is tracked with before/after diffs
 - **Rollback** — any change can be reverted via `config.revert` RPC
@@ -1886,7 +1903,7 @@ Sentura uses a **7-role model** designed around the principle that supervision, 
 | **Platform Admin** | Full platform access. Manages deployment, LLM providers, system config, user accounts. Exists in both SME and department-scoped deployments. | All resources |
 | **Manager** | Supervises all AI employee actions. Reviews task execution, approves/rejects high-risk decisions, monitors performance and compliance. The "boss" who watches agents work. | All agents in their scope (whole SME or department) |
 | **EKG Manager** | The only role that can upload, construct, and update the Enterprise Knowledge Graph. Controls what knowledge enters the system. Cannot create or tune agents. Also the only role that can trigger the MCP Builder Agent to generate internal MCP servers from API documentation. | EKG resources: `ekg/` uploads, Data Scavenger triggers, industry ontology selection, knowledge review/approval, MCP Builder |
-| **Agent Manager** | Creates and tunes AI employees. Designs agent personalities (SOUL.md), skills, rules (RULES.md), context (CONTEXT.md), tool allowlists, channel bindings, and MCP wiring. Cannot modify EKG content. | Agent config: SOUL.md, RULES.md, CONTEXT.md, skills/, tool allowlists, channel bindings, MCP wiring |
+| **Agent Manager** | Creates and tunes AI employees. Designs agent personalities (SOUL.md), role protocol + Hard Rules (AGENTS.md), enterprise context (BOOTSTRAP.md), skills, tool allowlists, channel bindings, and MCP wiring. Cannot modify EKG content. | Agent config: SOUL.md, AGENTS.md (+ § Hard Rules), BOOTSTRAP.md (+ § Enterprise Context), skills/, tool allowlists, channel bindings, MCP wiring |
 | **Auditor** | Read-only compliance view across all resources. Can view audit logs, compliance reports, approval histories, and cost attribution. | All resources (read-only) |
 | **End User** | Normal users who interact with AI employees through channels and dashboard chat. Basic task requests, conversations, approval triggers. Each user is identified by a `userToken` that isolates their session history and personalized memory. | Own sessions, own approval requests |
 | **Viewer** | Read-only access to dashboards and reports without agent interaction. Designed for executives and stakeholders who need visibility without operational access. | Read-only: dashboards, cost reports, employee status |
@@ -2177,7 +2194,7 @@ Sentura-Platform/
 │   │   └── sentura-provisioner/ # Self-provisioning coordinator
 │   │
 │   ├── hooks/                   # Sentura OpenClaw hooks
-│   │   └── sentura-bootstrap/   # Injects RULES.md + CONTEXT.md + ekg/ + MEMORY_USER_{token}.md into system prompt
+│   │   └── sentura-bootstrap/   # Injects per-user memory (memory/users/MEMORY_USER_{token}.md) into system prompt
 │   │       ├── HOOK.md          # Hook metadata (events, install info)
 │   │       └── handler.ts       # Bootstrap event handler
 │   │
@@ -2207,11 +2224,14 @@ Sentura-Platform/
 │
 ├── workspaces/                  # AI Employee workspaces (created at runtime)
 │   ├── ap-clerk-finance/        # Example: Accounts Payable clerk
+│   │   ├── AGENTS.md            # includes § Hard Rules (Sentura safety boundaries)
 │   │   ├── SOUL.md
-│   │   ├── AGENTS.md
-│   │   ├── RULES.md
-│   │   ├── CONTEXT.md
 │   │   ├── TOOLS.md
+│   │   ├── IDENTITY.md
+│   │   ├── USER.md
+│   │   ├── HEARTBEAT.md
+│   │   ├── BOOTSTRAP.md         # includes § Enterprise Context (Sentura org/policies)
+│   │   ├── MEMORY.md
 │   │   ├── skills/
 │   │   ├── memory/              # Per-user memory isolation
 │   │   │   └── users/           # MEMORY_USER_{token}.md files

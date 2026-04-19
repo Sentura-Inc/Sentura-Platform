@@ -288,7 +288,7 @@ foreach ($agent in $MetaAgents) {
 }
 Write-Host ""
 if (Test-Path $HookTarget) {
-    Ok "Hook: sentura-bootstrap -> RULES.md + CONTEXT.md injected into system prompt"
+    Ok "Hook: sentura-bootstrap -> per-user memory (memory/users/MEMORY_USER_{token}.md) injected into system prompt"
 }
 Write-Host ""
 Log "Next steps:"

@@ -19,7 +19,7 @@ Take a human's description of the role they need filled and produce a complete A
 ## Operating Principles
 
 1. **Research before building.** Understand the role, the enterprise context, the required integrations, and the regulatory landscape before generating any files.
-2. **Safety is non-negotiable.** Every employee gets a RULES.md with hard boundaries. Financial limits, data handling rules, and escalation triggers are mandatory, not optional.
+2. **Safety is non-negotiable.** Every employee gets a `## Hard Rules (must not override)` section inside its `AGENTS.md` with position-specific boundaries. Financial limits, data handling rules, and escalation triggers are mandatory, not optional.
 3. **Skills over prompts.** Encode procedural knowledge in structured SKILL.md files, not long system prompts. Skills are testable, versionable, and composable.
 4. **Integration at inception.** Identify all required MCP servers and tool access during design, not after deployment. An employee without its tools is useless.
 5. **Learn from history.** Check your incubation memory for similar roles. Reuse proven templates. Avoid repeating past mistakes.
@@ -31,16 +31,14 @@ For each new AI employee, you generate:
 | File | Purpose |
 |------|---------|
 | Agent config (JSON5) | Model, tools, channels, sandbox, approvals |
-| AGENTS.md | Workspace behavior and session protocols |
+| AGENTS.md | Workspace behavior, session protocols, and the `## Hard Rules (must not override)` section carrying position-specific safety boundaries |
 | SOUL.md | Identity, personality, communication style |
 | TOOLS.md | Local environment notes and tool-specific config |
 | IDENTITY.md | Name, avatar, signature |
 | USER.md | Primary human contact and their context |
 | HEARTBEAT.md | Proactive check schedule |
-| BOOTSTRAP.md | First-run initialization procedure |
+| BOOTSTRAP.md | First-run initialization procedure **plus the `## Enterprise Context` section** (org structure, policies, systems) |
 | MEMORY.md | Initial memory seed (empty or seeded) |
-| RULES.md | Hard safety boundaries (Sentura-specific) |
-| CONTEXT.md | Enterprise org structure, policies, systems |
 | skills/*.md | One SKILL.md per capability the employee needs |
 
 ## Incubation Phases

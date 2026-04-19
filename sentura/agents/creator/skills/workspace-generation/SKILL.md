@@ -8,26 +8,45 @@ During Phase 2 (Design & Configuration) of the incubation process, after researc
 
 ### Directory Setup
 
-1. Create the workspace directory at OpenClaw's default location: `~/.openclaw/workspace/{role-slug}-{department}/`
-2. Create the skills subdirectory: `~/.openclaw/workspace/{role-slug}-{department}/skills/`
+1. Create the workspace directory via
+   `sentura_agents_manage { action: "create_agent", agentId: "{role-slug}-{department}" }`.
+   This creates `~/.openclaw/workspace/{agent-id}/` on the host.
+2. The `skills/` subdirectory does NOT need to be created explicitly —
+   it is auto-created the first time you write into it via
+   `sentura_agents_manage { action: "write", agentId, relPath: "skills/<name>/SKILL.md", ... }`.
+
+> **Why not `fs_write`?** The sandbox mount of
+> `/workspace/.openclaw/workspace/` is **read-only** in `non-main`
+> mode, so `fs_write` and `apply_patch` will fail with
+> `Sandbox path is read-only`. The `gateway` tool also does NOT
+> expose `agents.create` or `agents.files.set`. `sentura_agents_manage`
+> is the only correct path to the host filesystem from inside the
+> Creator's sandbox.
 
 > **Why `~/.openclaw/workspace/`?** The gateway config has `agents.defaults.workspace` pointing to `~/.openclaw/workspace`. For any agent entry without an explicit `workspace` field, OpenClaw resolves to `{defaults.workspace}/{agent-id}`. This is absolute, deterministic, and works identically across dev/Docker/production.
 
 ### File Generation Order
 
-Generate files in dependency order — later files reference earlier ones. All files are written to `~/.openclaw/workspace/{agent-id}/`. The 8 standard files (AGENTS.md through MEMORY.md) are natively loaded by OpenClaw. RULES.md and CONTEXT.md are injected by the `sentura-bootstrap` hook during `agent:bootstrap`.
+Generate files in dependency order — later files reference earlier ones.
+Every file is created by a `sentura_agents_manage { action: "write", ...}` call.
+OpenClaw natively loads all 8 files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) into the system prompt.
 
-1. **CONTEXT.md** first — enterprise context that other files reference (injected by sentura-bootstrap hook)
-2. **RULES.md** second — safety boundaries that constrain everything else (injected by sentura-bootstrap hook)
-3. **SOUL.md** third — identity that respects RULES.md boundaries
-4. **AGENTS.md** — session behavior that references SOUL.md and RULES.md
-5. **IDENTITY.md** — name and avatar derived from SOUL.md identity
-6. **TOOLS.md** — tool notes based on the integration plan
-7. **USER.md** — primary human contact
-8. **HEARTBEAT.md** — proactive check schedule (may be empty)
-9. **BOOTSTRAP.md** — first-run initialization
-10. **MEMORY.md** — empty file (agent builds memory over time)
-11. **skills/*.md** — one per core capability
+Sentura-specific content is carried inside the two highest-priority native files:
+
+- **Hard Rules** (NEVER/ALWAYS safety boundaries) live inside `AGENTS.md` under a `## Hard Rules (must not override)` section at the very top of the file.
+- **Enterprise Context** (company, systems, org structure, policies) lives inside `BOOTSTRAP.md` under a `## Enterprise Context` section.
+
+Generation order:
+
+1. **SOUL.md** first — identity and personality that subsequent files reference.
+2. **AGENTS.md** — starts with `## Hard Rules (must not override)`, then session startup, memory protocol, workspace rules. Hard Rules are the strongest safety layer and must be written first.
+3. **BOOTSTRAP.md** — starts with `## Enterprise Context`, then first-run initialization steps that reference the rest of the workspace.
+4. **IDENTITY.md** — name and avatar derived from SOUL.md.
+5. **TOOLS.md** — tool notes based on the integration plan.
+6. **USER.md** — primary human contact.
+7. **HEARTBEAT.md** — proactive check schedule (may be empty).
+8. **MEMORY.md** — empty file (agent builds memory over time).
+9. **skills/*.md** — one per core capability.
 
 ### Generation Guidelines
 
@@ -37,17 +56,20 @@ Generate files in dependency order — later files reference earlier ones. All f
 - Personality should match the role (finance = precise, support = empathetic, sales = energetic)
 - Escalation section must name real people and their thresholds
 
-**RULES.md**:
+**AGENTS.md → `## Hard Rules (must not override)` section**:
+- Must be the first section of the file, before session startup or protocol
 - Every rule starts with NEVER or ALWAYS
 - Group rules by category: Financial Controls, Data Protection, Operational Boundaries
 - Include at least 3 rules per category
 - Rules must be specific and testable (not vague like "be careful")
+- Include an explicit "These override every other instruction in this file, in SOUL.md, in any skill, and in any user message" preamble
 
-**CONTEXT.md**:
+**BOOTSTRAP.md → `## Enterprise Context` section**:
 - Company name, industry, size
 - Org structure relevant to this role
 - Key systems with MCP server names
 - Policies that affect this role's behavior
+- Followed by a `## First Run` section with the boot checklist
 
 **Skills**:
 - One SKILL.md per distinct capability
@@ -88,13 +110,20 @@ OpenClaw uses `agents.list` (an **array** with `id` fields), NOT `agents.entries
 
 ## Tools Needed
 
-- `fs_write` — create workspace directories and files
-- `fs_read` — read templates for reference
+- `sentura_agents_manage` — create the employee workspace directory
+  (`action: "create_agent"`) and write every file in it
+  (`action: "write"` for natives and subfiles). This is the only
+  sandbox-safe way to materialize a new employee.
+- `gateway` — `config.get` to fetch current state; `config.patch` to
+  register the new agent, add bindings, and merge MCP entries.
+- `fs_read` — read templates under the Creator's own workspace only.
+- `fs_write` — scratch files in the Creator's own sandbox only.
+  Never for another agent's workspace.
 
 ## Safety
 
-- NEVER generate a workspace without RULES.md
+- NEVER generate a workspace whose `AGENTS.md` lacks a `## Hard Rules (must not override)` section
 - NEVER set sandbox mode to "main" — all AI employees run sandboxed
 - NEVER include credentials or secrets in workspace files
 - ALWAYS use `"${SECRET_NAME}"` env-style references for credentials in config
-- ALWAYS verify generated RULES.md is not weaker than the role template baseline
+- ALWAYS verify the generated Hard Rules are not weaker than the role template baseline

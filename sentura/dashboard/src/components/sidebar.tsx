@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
+import { useApprovals } from "@/lib/gateway";
 
 const CONTROL_UI_URL =
   process.env.NEXT_PUBLIC_CONTROL_UI_URL ?? "http://localhost:18789";
@@ -45,6 +46,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   disabled?: boolean;
   badge?: string;
+  badgeTone?: "default" | "alert";
   external?: boolean;
 }
 
@@ -59,9 +61,9 @@ const sections: NavSection[] = [
     items: [
       { label: "Overview", href: "/", icon: LayoutDashboard },
       { label: "Employees", href: "/employees", icon: Bot },
-      { label: "Create Employee", href: "/create", icon: Plus, disabled: true, badge: "W2" },
+      { label: "Create Employee", href: "/create", icon: Plus },
       { label: "Tune Employee", href: "/tune", icon: Sliders, disabled: true, badge: "W3" },
-      { label: "Approvals", href: "/approvals", icon: ShieldCheck, disabled: true, badge: "W2" },
+      { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],
   },
   {
@@ -91,8 +93,13 @@ const sections: NavSection[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { data: approvals } = useApprovals();
+  const pendingApprovals = approvals?.length ?? 0;
 
   const renderNavItem = (item: NavItem) => {
+    if (item.href === "/approvals" && pendingApprovals > 0) {
+      item = { ...item, badge: String(pendingApprovals), badgeTone: "alert" };
+    }
     const isActive =
       !item.external &&
       (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href));
@@ -152,7 +159,14 @@ export function Sidebar() {
           <>
             <span className="flex-1">{item.label}</span>
             {item.badge && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                  item.badgeTone === "alert"
+                    ? "bg-destructive text-destructive-foreground"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
                 {item.badge}
               </span>
             )}

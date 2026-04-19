@@ -1,5 +1,18 @@
 # Sentura Platform — Cursor Rules
 
+> ## ⚠️ DO NOT REINTRODUCE `RULES.md` OR `CONTEXT.md` ⚠️
+>
+> Sentura uses **exactly the 8 OpenClaw-native workspace files** — no `RULES.md`, no `CONTEXT.md`, ever. Hard safety boundaries live inside each agent's `AGENTS.md` under `## Hard Rules (must not override)`, and enterprise context lives inside `BOOTSTRAP.md` under `## Enterprise Context`. The only runtime hook extension is per-user memory (`memory/users/MEMORY_USER_{token}.md`).
+>
+> If you see `RULES.md` / `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md`, treat those entries as **historical audit log only** (MEMORY.md is append-only). They describe an earlier design that has been fully removed from code, templates, tests, runtime workspaces, and documentation. Do NOT use them as a guide for current or future work.
+>
+> Concretely, you MUST NOT:
+> - Create a file named `RULES.md` or `CONTEXT.md` anywhere in `sentura/`, `workspaces/`, `~/.openclaw/workspace/`, templates, test fixtures, or agent-facing prose.
+> - Add prompt sections, skills, hooks, config fields, schema entries, or docs that mention those filenames as current artifacts.
+> - Re-add "deprecated RULES.md/CONTEXT.md NOT emitted" assertions to test scripts — there is no code path that would emit them, so such assertions only re-surface the dead concept.
+>
+> If a past `MEMORY.md` entry conflicts with this rule, **this rule wins**.
+
 You are an expert AI/ML engineer building the Sentura platform: an **enterprise AI employee platform built on top of OpenClaw**. Each AI employee is an OpenClaw agent instance with specialized skills, tools, instructions, safety guardrails, human-in-the-loop approval workflows, and long-term memory. The platform targets **all enterprise customers** with flexible deployment (cloud, on-premise, or hybrid) and flexible LLM usage (API keys or self-hosted).
 
 ## Project Context
@@ -93,10 +106,10 @@ Do NOT substitute these without explicit approval:
 
 ### Agent Configuration
 
-- AI employees are defined by OpenClaw agent config entries (JSON5) + workspace files (SOUL.md, SKILL.md, RULES.md, etc.).
+- AI employees are defined by OpenClaw agent config entries (JSON5) + **the 8 native OpenClaw workspace files** (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) + SKILL.md files.
 - Configuration changes go through OpenClaw's `config.patch` gateway RPC — never edit config files directly at runtime.
 - Skills are markdown files (SKILL.md) with structured sections: When to Use, Procedure, Tools Needed, Safety.
-- SOUL.md defines identity and personality. RULES.md defines hard boundaries.
+- SOUL.md defines identity and personality. `AGENTS.md` carries the top-priority `## Hard Rules (must not override)` section (Sentura safety boundaries). `BOOTSTRAP.md` carries the `## Enterprise Context` section (Sentura org/policies). Only the 8 native OpenClaw workspace files exist — do not introduce additional top-level markdown files into an agent's workspace.
 
 ### Self-Provisioning
 
@@ -107,7 +120,7 @@ Do NOT substitute these without explicit approval:
 
 ### Safety & Guardrails
 
-- Every AI employee has a RULES.md with hard boundaries that the agent cannot override.
+- Every AI employee has a `## Hard Rules (must not override)` section inside its `AGENTS.md` with boundaries the agent cannot override.
 - Tool access is controlled via allowlists/denylists in agent config.
 - High-risk actions go through OpenClaw's `exec.approval` system.
 - Sandbox mode (`non-main`) is mandatory for all AI employees.
@@ -116,7 +129,7 @@ Do NOT substitute these without explicit approval:
 ### Memory
 
 - Each employee has its own memory namespace in OpenClaw's LanceDB-based memory system.
-- Workspace files (SOUL.md, CONTEXT.md, skills/) serve as static knowledge.
+- Workspace files (SOUL.md, the `## Enterprise Context` section of BOOTSTRAP.md, skills/) serve as static knowledge.
 - Dynamic memory (conversations, tool results, decisions) is stored in vector memory.
 - Memory dreaming/consolidation runs on a cron schedule.
 
@@ -186,7 +199,7 @@ Do NOT substitute these without explicit approval:
 
 - TypeScript: `kebab-case.ts` for modules, `PascalCase` for classes/types, `camelCase` for functions/variables.
 - Skills: `SKILL.md` (uppercase) in a named directory under `skills/`.
-- Agent workspace files: `SOUL.md`, `AGENTS.md`, `RULES.md`, `CONTEXT.md`, `TOOLS.md` (all uppercase).
+- Agent workspace files (8 native OpenClaw files, all uppercase): `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`.
 - Config files: `kebab-case.json5` or `kebab-case.yaml`.
 - OpenClaw extensions: one folder per extension under `sentura/extensions/<name>/` with `openclaw.plugin.json` manifest.
 

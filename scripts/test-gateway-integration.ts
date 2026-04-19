@@ -333,11 +333,24 @@ async function main() {
     check("sentura-bootstrap entry exists", Boolean(hookCfg?.internal?.entries?.["sentura-bootstrap"]));
     check("sentura-bootstrap enabled", hookCfg?.internal?.entries?.["sentura-bootstrap"]?.enabled === true);
 
+    // The 8 OpenClaw-native workspace files. Hard Rules live inside AGENTS.md
+    // and Enterprise Context lives inside BOOTSTRAP.md.
+    const required8 = [
+      "AGENTS.md",
+      "SOUL.md",
+      "TOOLS.md",
+      "IDENTITY.md",
+      "USER.md",
+      "HEARTBEAT.md",
+      "BOOTSTRAP.md",
+      "MEMORY.md",
+    ];
     for (const agentId of ["creator", "tuner", "orchestrator"]) {
       const wsDir = path.join(OPENCLAW_HOME, "workspace", agentId);
       const entries = await fs.readdir(wsDir).catch(() => [] as string[]);
-      check(`${agentId} workspace has RULES.md`, entries.includes("RULES.md"));
-      check(`${agentId} workspace has CONTEXT.md`, entries.includes("CONTEXT.md"));
+      for (const f of required8) {
+        check(`${agentId} workspace has ${f}`, entries.includes(f));
+      }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

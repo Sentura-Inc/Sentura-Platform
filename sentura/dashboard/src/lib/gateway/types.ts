@@ -29,6 +29,15 @@ export interface SessionSummary {
   messageCount?: number;
   lastActive?: string;
   status?: "active" | "idle" | "archived";
+  /** Human-readable label assigned via sessions.create / sessions.patch. */
+  label?: string;
+  /** Optional derived/display fields emitted by `sessions.list`. */
+  displayName?: string;
+  derivedTitle?: string;
+  lastMessagePreview?: string;
+  /** Gateway emits this as epoch-ms. */
+  updatedAt?: number | null;
+  kind?: "direct" | "group" | "global" | "unknown";
 }
 
 export interface ContentBlock {
@@ -50,11 +59,55 @@ export interface ApprovalRequest {
   id: string;
   agentId: string;
   action: string;
+  /** Raw request payload from the gateway (command/reason/title/etc). */
   context?: Record<string, unknown>;
   status: "pending" | "approved" | "rejected" | "expired";
   createdAt: string;
   resolvedAt?: string;
   resolvedBy?: string;
+  /** Source of the approval, drives which resolve RPC to call. */
+  kind?: "exec" | "plugin";
+  /** Optional expiration (epoch ms). */
+  expiresAtMs?: number;
+}
+
+/** Workspace file metadata returned by agents.files.list. */
+export interface AgentFileEntry {
+  name: string;
+  path: string;
+  missing: boolean;
+  size?: number;
+  updatedAtMs?: number;
+}
+
+/** Workspace file payload returned by agents.files.get. */
+export interface AgentFileContent extends AgentFileEntry {
+  content: string;
+}
+
+/** Result of sessions.create — the canonical session key for subsequent chat.send calls. */
+export interface SessionCreateResult {
+  ok: boolean;
+  key: string;
+  sessionId?: string;
+  entry?: SessionSummary;
+  runStarted?: boolean;
+  runError?: string;
+  messageSeq?: number;
+}
+
+/** Streaming chat event payload (event: "chat"). */
+export interface ChatEventPayload {
+  runId: string;
+  sessionKey: string;
+  seq?: number;
+  state: "delta" | "final";
+  stopReason?: string;
+  message?: {
+    role: "user" | "assistant" | "system" | "tool";
+    content: string | ContentBlock[];
+    timestamp?: number;
+  };
 }
 
 export interface GatewayHealth {
@@ -155,6 +208,7 @@ export type GatewayEventType =
   | "exec.approval.resolved"
   | "plugin.approval.requested"
   | "plugin.approval.resolved"
+  | "chat"
   | "connect.challenge";
 
 export interface GatewayEvent {

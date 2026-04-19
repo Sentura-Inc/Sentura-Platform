@@ -13,8 +13,19 @@
       {
         id: "mcp-builder",
         name: "Smith",
-        model: "openai/gpt-4o",
-        skills: ["~/.openclaw/workspace/mcp-builder/skills/*"],
+        // Model: `openai/gpt-4o` is NOT registered by openclaw/extensions/openai/
+        // openai-provider.ts — the `openai` provider only ships gpt-5.4,
+        // gpt-5.4-pro, gpt-5.4-mini, gpt-5.4-nano, and gpt-5.2. `gpt-4o` would
+        // fail at LLM-call time with "unknown model". Using the same default as
+        // the Creator Agent (Week 2 E2E-validated on 2026-04-19) for coherence.
+        model: "openai/gpt-5.4",
+        // NOTE: do NOT set `skills` here. In OpenClaw, `agents.list[].skills` is
+        // a skill-NAME filter, not a path glob — see the Week 2 sandbox-seeding
+        // repair note in docs/TeamPlan.md (Person A). Leaving it unset means
+        // "all workspace skills" — which is what we want: every SKILL.md under
+        // workspace/mcp-builder/skills/*/ is auto-discovered by OpenClaw's skill
+        // loader (and synced into the sandbox by the `sentura-sandbox-seed`
+        // hook). The old glob-path entry silently disabled every skill.
         runtime: { type: "embedded" },
         sandbox: { mode: "non-main" },
         tools: {
@@ -22,12 +33,24 @@
           alsoAllow: [
             "gateway",
             "sessions_send",
-            "sessions_spawn",
+            // Deliberately NOT re-adding `sessions_spawn` here. The `coding`
+            // profile already advertises it to the model, and Forge's Week 2
+            // Round 10 postmortem showed that an agent with `sessions_spawn`
+            // visible will hallucinate `sessions_spawn({task:"noop"})` calls
+            // that time out the embedded runtime. If MCP Builder ever needs
+            // subagents for parallel analysis, re-enable via `alsoAllow` at
+            // that point and remove from `tools.deny`.
             "web_search",
             "web_fetch",
             "browser",
             "pdf",
           ],
+          // Mirrors the Creator deny list (Week 2 Rounds 5/10). MCP Builder's
+          // primary mutation tool is `write`/`edit` against `sentura/mcp-servers/`
+          // on the HOST via the sandbox bind mount, which is required for its
+          // job. Only `sessions_spawn`/`subagents`/`sessions_yield` are denied
+          // to prevent the Round-10 noop hallucination loop.
+          deny: ["sessions_spawn", "subagents", "sessions_yield"],
         },
       }
     ]

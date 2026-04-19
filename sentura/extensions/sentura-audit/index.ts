@@ -85,17 +85,17 @@ export default definePluginEntry({
     });
 
     // --- Register gateway RPC method for dashboard queries ---
-    api.registerGatewayMethod({
-      method: "sentura.audit.query",
-      handler: async (params) => {
+    api.registerGatewayMethod("sentura.audit.query", async ({ params, respond }) => {
+      try {
         const entries = await store.query(params as Record<string, unknown>);
-        return { entries, count: entries.length };
-      },
+        respond(true, { entries, count: entries.length });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
-    api.registerGatewayMethod({
-      method: "sentura.audit.stats",
-      handler: async () => {
+    api.registerGatewayMethod("sentura.audit.stats", async ({ respond }) => {
+      try {
         const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const recent = await store.query({ startTime: last24h, limit: 10000 });
 
@@ -111,8 +111,10 @@ export default definePluginEntry({
           }
         }
 
-        return { period: "24h", total: recent.length, byType, bySeverity, byAgent };
-      },
+        respond(true, { period: "24h", total: recent.length, byType, bySeverity, byAgent });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
     });
 
     // --- Hook: before_tool_call ---

@@ -6,9 +6,11 @@ Each directory contains a complete role template that the Creator Agent uses as 
 |------|---------|
 | `config.json5` | Agent configuration with placeholders |
 | `SOUL.md` | Identity and personality template |
-| `RULES.md` | Safety boundaries with configurable thresholds |
-| `CONTEXT.md` | Enterprise context template with placeholders |
+| `AGENTS.md` | Role protocol + **Hard Rules** (safety boundaries) section |
+| `BOOTSTRAP.md` | First-run initialization + **Enterprise Context** section (placeholders) |
 | `skills/` | Role-specific skill files |
+
+The remaining OpenClaw-native files (`TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `MEMORY.md`) are seeded by the Creator agent when it materializes an employee workspace from a template. See `docs/workspace-convention.md` for the full 8-file contract.
 
 ## Available Templates
 
@@ -40,7 +42,7 @@ Templates use `{placeholder_name}` for values that must be customized per deploy
 - `${high_threshold}`, `${refund_limit}`, etc. — financial thresholds ($ prefix for amounts)
 - `{erp_mcp}`, `{crm_mcp}`, etc. — MCP server identifiers
 
-The Creator Agent fills these placeholders during the incubation process based on the user's answers to clarifying questions and the enterprise CONTEXT.md.
+The Creator Agent fills these placeholders during the incubation process based on the user's answers to clarifying questions and the enterprise context captured in `BOOTSTRAP.md § Enterprise Context`.
 
 ## Agent Config Schema
 

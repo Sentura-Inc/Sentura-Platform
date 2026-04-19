@@ -313,12 +313,12 @@ These risks apply regardless of where Sentura is hosted:
 
 | Risk | Detail | Mitigation |
 |------|--------|------------|
-| Agent shell execution | AI employees can run arbitrary shell commands. A prompt injection or jailbreak could lead to data exfiltration, file deletion, or lateral movement. | OpenClaw's sandbox mode (`non-main`) is mandatory. RULES.md guardrails define hard boundaries. Tool denylists block `exec` and `gateway` tools for most employees. |
+| Agent shell execution | AI employees can run arbitrary shell commands. A prompt injection or jailbreak could lead to data exfiltration, file deletion, or lateral movement. | OpenClaw's sandbox mode (`non-main`) is mandatory. The `## Hard Rules` section inside each employee's `AGENTS.md` defines top-priority boundaries the agent must not override. Tool denylists block `exec` and `gateway` tools for most employees. |
 | Browser automation | Playwright/Chromium can navigate to any URL. A compromised agent could exfiltrate data via HTTP requests or browser navigation. | Tool allowlists restrict browser access. Self-provisioning requires HITL approval for new accounts. Network-level egress filtering on the host. |
 | Credential store compromise | The OpenClaw secret store holds API keys for enterprise systems. Host compromise means access to all stored credentials. | Encrypt secrets at rest. Rotate credentials regularly. Limit per-employee MCP access to only the integrations they need. |
 | MCP server access | MCP servers connect to enterprise databases and APIs. An agent with MCP access can read/write enterprise data. | Minimize access scope per employee. Use read-only MCP tools where possible. Audit all MCP tool calls via `sentura-audit`. |
-| LLM prompt leakage | Every LLM call sends enterprise context (SOUL.md, CONTEXT.md, conversation history) to the provider. With cloud LLMs, this data is outside the customer's control. | Self-hosted LLMs (Ollama/vLLM/SGLang) eliminate this risk entirely. For cloud LLMs, use providers with enterprise data agreements (no training on customer data). |
-| Approval bypass | If the HITL approval system is misconfigured (auto-approve, short timeouts), high-risk actions could execute without human review. | `sentura-approval` extension enforces escalation chains and timeout policies. RULES.md defines mandatory approval triggers per position. |
+| LLM prompt leakage | Every LLM call sends enterprise context (SOUL.md, `BOOTSTRAP.md` Enterprise Context, conversation history) to the provider. With cloud LLMs, this data is outside the customer's control. | Self-hosted LLMs (Ollama/vLLM/SGLang) eliminate this risk entirely. For cloud LLMs, use providers with enterprise data agreements (no training on customer data). |
+| Approval bypass | If the HITL approval system is misconfigured (auto-approve, short timeouts), high-risk actions could execute without human review. | `sentura-approval` extension enforces escalation chains and timeout policies. The `## Hard Rules` section inside each employee's `AGENTS.md` defines mandatory approval triggers per position. |
 
 ### Security Spectrum
 

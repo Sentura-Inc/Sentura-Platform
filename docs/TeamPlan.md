@@ -4,6 +4,19 @@
 >
 > **Last synced**: 2026-04-13
 
+> ## ⚠️ DO NOT REINTRODUCE `RULES.md` OR `CONTEXT.md` ⚠️
+>
+> Sentura agent workspaces use **exactly the 8 OpenClaw-native files** — no `RULES.md`, no `CONTEXT.md`, ever. Hard safety boundaries live inside each agent's `AGENTS.md` under `## Hard Rules (must not override)`, and enterprise context lives inside `BOOTSTRAP.md` under `## Enterprise Context`. The only runtime hook extension is per-user memory (`memory/users/MEMORY_USER_{token}.md`).
+>
+> If you see `RULES.md` or `CONTEXT.md` mentioned anywhere in `docs/MEMORY.md`, treat those entries as **historical audit log only**. `MEMORY.md` is append-only: earlier entries describe a design that was fully removed from code, templates, tests, runtime workspaces, and documentation. They are kept for provenance, not as specification. Do NOT use them as a guide for current or future tasks.
+>
+> Concretely, when picking up any task below you MUST NOT:
+> - Add a file named `RULES.md` or `CONTEXT.md` anywhere in `sentura/`, `workspaces/`, `~/.openclaw/workspace/`, templates, tests, or scripts.
+> - Add prompt sections, skills, hooks, config fields, schema entries, or docs that mention those filenames as current artifacts.
+> - Re-introduce "deprecated RULES.md/CONTEXT.md NOT emitted" assertions in tests — the concept is gone from the code, so asserting its absence only keeps it alive in the reader's head.
+>
+> If a past `MEMORY.md` entry conflicts with this rule, **this rule wins**, and `.cursorrules` + this file are the authoritative source.
+
 ## Team Roles
 
 | Person | Title | Ownership | Directories |
@@ -22,7 +35,7 @@ Each of the 17 capabilities from README.md Section 1 must have explicit sprint t
 | 1 | Enterprise data integration | D | 2, 3, 4 |
 | 2 | Internal MCP server generation (MCP Builder Agent) | B + D | 2, 3 |
 | 3 | Self-provisioning orchestration | B + D | 3, 4 |
-| 4 | Position-specific safety guardrails (RULES.md) | B + D | 1, 2, 3 |
+| 4 | Position-specific safety guardrails (AGENTS.md `§ Hard Rules`) | B + D | 1, 2, 3 |
 | 5 | No-code employee creation | B + C | 1, 2 |
 | 6 | Incubation pipeline (+ industry ontology merge, ekg/ setup) | B + A | 2, 3, 4 |
 | 7 | Enterprise orchestration + AI Manager EKG | B + C | 4, 5 |
@@ -60,8 +73,8 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 |----------|-------|-----------|--------|
 | OpenClaw config schema (agents, channels, MCP) | A | B, C, D | JSON5 + Zod schemas (OpenClaw native) |
 | Gateway RPC API surface | A | C (dashboard), B (meta-agents) | WebSocket JSON-RPC (OpenClaw protocol) |
-| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8**: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md + **Sentura 3**: RULES.md, CONTEXT.md, memory/users/MEMORY_USER_{token}.md + skills/ directory + **EKG**: ekg/ directory (org/, rules/, assets/, workflows/) |
-| Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + workspace files (all 10 files + skills + ekg/ with industry ontology merge) |
+| Agent workspace file convention | B | C (UI display), D (extensions) | **OpenClaw 8 native files only**: AGENTS.md (+ § Hard Rules), SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md (+ § Enterprise Context), MEMORY.md + **Sentura additions (outside the 8)**: skills/ directory, ekg/ directory (org/, rules/, assets/, workflows/), memory/users/MEMORY_USER_{token}.md. |
+| Creator Agent input/output contract | B | C (UI chat interface) | NL input → agent config + all 8 native workspace files (AGENTS.md with Hard Rules, BOOTSTRAP.md with Enterprise Context) + skills + ekg/ with industry ontology merge |
 | Tuning Agent input/output contract | B | C (UI tuning panel) | NL tuning request → config.patch diff + workspace file edits |
 | Sentura extension plugin contract | D | B (agents use extensions), C (UI shows status) | `openclaw.plugin.json` manifest + `definePluginEntry` |
 | Approval workflow schema | D | B (agents trigger), C (UI approve/reject) | `exec.approval.*` + `plugin.approval.*` RPC + Sentura escalation policies |
@@ -104,10 +117,9 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 ### Person B — AI Employee & Skills Engineer
 - [x] Create the Creator Agent workspace: `sentura/agents/creator/` with SOUL.md, AGENTS.md, skills/
 - [x] Write the first version of the Creator Agent's system prompt
-- [x] Design the agent workspace file convention documenting the 10-file structure:
-  - OpenClaw 8: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md
-  - Sentura additions: RULES.md (position-specific safety — not in OpenClaw), CONTEXT.md (enterprise context)
-  - Skills directory: structured SKILL.md files per capability
+- [x] Design the agent workspace file convention documenting the 8-file native structure (plus Sentura-added skills/, ekg/, memory/users/ subdirectories):
+  - OpenClaw 8: AGENTS.md (Sentura adds `## Hard Rules` section — position-specific safety), SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md (Sentura adds `## Enterprise Context` section), MEMORY.md
+  - Sentura additions outside the 8 native files: skills/ directory (structured SKILL.md files per capability), ekg/ directory, memory/users/ directory
 - [x] Create 3 role templates: `sentura/config/templates/` (AP Clerk, CS Agent, SDR)
 - [x] Write the `self-provisioning` skill: `sentura/skills/self-provisioning/SKILL.md`
 - [x] Write the `knowledge-curation` skill: `sentura/skills/knowledge-curation/SKILL.md`
@@ -147,19 +159,69 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] Set up channel binding helpers (programmatically bind agent → channel/peer)
 - [x] **Implement per-agent LanceDB isolation convention**: configure `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config. Update `sentura-setup.sh` to set `dbPath` for meta-agents. Verify each agent's vector store is isolated.
 - [x] **Implement user token infrastructure**: assign `userToken` (UUID) at user creation in `sentura-rbac` user store. Attach `userToken` to WebSocket connections. Define session key format: `agent:<agentId>:user:<userToken>:<sessionId>`. Add `userToken` to all trace/audit events.
+- [x] **Fix sandbox seeding defect** (blocker surfaced during Week 2 integration): OpenClaw's `ensureSandboxWorkspace` only copies 7 hardcoded bootstrap files — it never mirrors `skills/`, `memory/`, `ekg/`, `config.json5`, or a customized `BOOTSTRAP.md` into the agent sandbox. Additionally, `agents.list[].skills` in `config.json5` acts as a *skill-name* filter (not a path glob), so the stale `["~/.openclaw/workspace/.../skills/*"]` entries silently disabled all skills. Repair delivered:
+  - Removed broken glob-path `skills` filter from `sentura/agents/{creator,tuner,orchestrator}/config.json5` (with explanatory comments).
+  - Built new `sentura/hooks/sentura-sandbox-seed/` internal hook that runs on `agent:bootstrap`, detects sandbox workspaces, and syncs from the host workspace: full mirror for `skills/`, union-copy for `memory/` and `ekg/`, union-copy for missing `config.json5`/`MEMORY.md`, and conditional overwrite of stub `BOOTSTRAP.md`. Hardens against symlink/hardlink escapes.
+  - Updated `scripts/sentura-setup.sh` to install + enable the new hook, scrub stale `skills` globs from `~/.openclaw/openclaw.json`, and clear stale meta-agent sandboxes so fresh boots hydrate correctly.
+  - Added operator repair tool `scripts/repair-sandbox-seeding.ts` for existing installations.
+  - Verified via `scripts/test-week2.ts` Part 11 (9 new test cases covering mirror, union-copy, preservation, and sandbox guardrails).
+- [x] **Fix deployment-pipeline defect** (follow-on blocker: after sandbox seeding landed, Forge could design a new employee but deployment failed with `Sandbox path is read-only; cannot create directories: /workspace/.openclaw/workspace/<id>`). Root cause: the `employee-deployment` skill used `fs_write` for new-employee workspace files, but `fs_write` is sandbox-local and the host path surfaces as read-only inside the sandbox. OpenClaw's `agents.files.set` only covers the 8 native files; no native RPC exists for subdirectory files. Repair delivered:
+  - Built new `sentura/extensions/sentura-agents/` platform extension exposing `sentura.agents.{writeSubfile,readSubfile,deleteSubfile,listSubfiles}` gateway RPCs and a `sentura_agents_manage` agent-facing tool. Path validation (`safeJoin`) blocks `..`, absolute paths, and symlink escapes; `NATIVE_WORKSPACE_FILES` blocks routing native files around `agents.files.set`; per-file size cap (5 MiB default).
+  - Updated `scripts/sentura-setup.sh` with a new Step 7a that scans `sentura/extensions/` for the known extension IDs (`sentura-agents`, `sentura-rbac`, `sentura-audit`, `sentura-approval`, `sentura-provisioner`), patches `~/.openclaw/openclaw.json` to add each to `plugins.load.paths`, and enables each in `plugins.entries` — this is the missing wiring step that left all prior installs without any Sentura extensions loaded.
+  - Verified via `scripts/test-week2.ts` Part 12 (22 new test cases covering extension manifest, gateway method registration, skill guidance, creator tool allowlist, and setup-script wiring).
+
+### Person B — AI Employee & Skills Engineer — deployment repair
+- [x] Rewrite `sentura/agents/creator/skills/employee-deployment/SKILL.md` around gateway RPCs instead of `fs_write`:
+  - Added top-level "HARD RULE" forbidding `fs_write` for new-employee workspaces, with the failure mode spelled out.
+  - Mapped every deployment intent to the correct RPC: `agents.create` (workspace + natives), `agents.files.set` (overwrite natives), `sentura.agents.writeSubfile` (skills/, ekg/, memory/users/), `config.patch` (registry + bindings). `fs_write`/`fs_read` retained only for sandbox-local scratch.
+  - Rewrote Steps 1–6, Tools Needed, Safety, and Rollback sections to match.
+  - Updated `sentura/agents/creator/config.json5` `tools.alsoAllow` to grant `sentura_agents_manage`, `sentura_rbac_manage`, `sentura_audit_query`.
+- [x] **Round 4 — fix Creator `AGENTS.md` / `TOOLS.md` / `BOOTSTRAP.md` Hard Rule override** (real root cause of "no response / read-only" after round 3). Problem: Hard Rules at the top of `AGENTS.md` explicitly override every skill, and they still ordered Forge to "ALWAYS `fs_write` new employee workspaces" + prescribed `fs_write` in Phase 5 Step 1. `TOOLS.md` listed `fs_write` as a primary tool and `BOOTSTRAP.md` had Forge verify access to `fs_write` on boot. So Forge kept emitting `fs_write` calls that hit `Sandbox path is read-only`, and the new agent was never registered. Fix:
+  - `sentura/agents/creator/AGENTS.md § Hard Rules` rewritten to forbid `fs_write`/`apply_patch` for anything under `/workspace/.openclaw/workspace/<agent>/…` or `/workspace/generated/…`, and to prescribe the canonical `sentura_agents_manage { create_agent → write } → gateway.config.patch` flow. Phase 5 rewritten to match (no `fs_write` prescription anywhere).
+  - `sentura/agents/creator/TOOLS.md` promotes `sentura_agents_manage` to "Primary workspace tool"; adds `sentura_rbac_manage` and `sentura_audit_query`; downgrades `fs_read`/`fs_write` to "scratch-only, inside your own sandbox".
+  - `sentura/agents/creator/BOOTSTRAP.md` boot-tool-check lists `sentura_agents_manage` first and documents why `fs_write` cannot reach employee workspaces.
+  - `sentura/agents/creator/config.json5` header comment updated from "coding profile for fs_write" to the `sentura_agents_manage` rationale.
+  - Re-synced all four files into `~/.openclaw/workspace/creator/` and cleared the stale `agent-creator-*` sandbox so the next session reseeds.
+  - Verified via 8 new test cases in `docs/TESTS.md § B6.3`.
+- [x] **Round 5 — enforce `sentura_agents_manage` via tool-policy deny list** (real root cause of "no response / read-only" after round 4). Problem: rounds 1–4 all lived in prompts (skills, Hard Rules, TOOLS.md, BOOTSTRAP.md). After round 4 Forge's trace still showed `write` tool calls such as `path: "generated/billing-support-rep-support/README.md"` failing with `Sandbox path is read-only; cannot create directories: /workspace/generated/…`. Root cause: the `coding` profile surfaces `write`, `edit`, and `apply_patch` to Forge, and no prompt-level instruction can reliably stop an LLM from reaching for a tool that is still in its toolbox. Fix:
+  - `sentura/agents/creator/config.json5 → agents.list[creator].tools.deny = ["write","edit","apply_patch"]`, forcing Forge to route all workspace mutations through `sentura_agents_manage`.
+  - `scripts/sentura-setup.sh → overrides.creator.tools.deny = ['write','edit','apply_patch']` so every `pnpm sentura:setup` re-applies the policy.
+  - Live `~/.openclaw/openclaw.json` patched in place; stale `agent-creator-b40f8302` sandbox deleted so the next session reseeds with the new tool set.
+  - Verified via 7 new test cases in `docs/TESTS.md § B6.4`.
+- [x] **Round 6 — authorize the webchat operator via `commands.ownerAllowFrom`** (real root cause of "deployment tools are not exposed" after round 5). Problem: Round 5 removed `write`/`edit`/`apply_patch` and the gateway stopped logging `Sandbox path is read-only`, but Forge still refused to deploy, returning drafts with the explicit message "this sandbox does not expose the `gateway` tool". Root cause: `gateway`, `cron`, and `nodes` are **owner-only** core tools (`openclaw/src/agents/tools/owner-only-tools.ts`); `applyOwnerOnlyToolPolicy` strips them from every agent's manifest whenever `senderIsOwner` is false. Our `commands.ownerAllowFrom` was entirely unset, so every webchat message — including from the local operator on the OpenClaw dashboard — was treated as non-owner, and Forge's declared `alsoAllow: ["gateway", …]` was silently discarded at tool-resolution time. The earlier `Sandbox path is read-only` symptom was a downstream effect: without `gateway`, Forge reached for whichever built-in write tool was still in the `coding` profile. Fix:
+  - Live `~/.openclaw/openclaw.json` patched with `commands.ownerAllowFrom: ["*"]` (the canonical single-operator wildcard, covered by `openclaw/src/auto-reply/command-auth.owner-default.test.ts`).
+  - `scripts/sentura-setup.sh` (after the agent-overrides block) now writes `config.commands.ownerAllowFrom = ['*']` when unset and preserves any explicit operator list you configure later.
+  - Stale `agent-creator-*` sandboxes deleted so Forge's next session reseeds with the owner-authorized tool set.
+  - Verified via 7 new test cases in `docs/TESTS.md § B6.5`. Expected E2E behavior after restart: Forge's manifest lists `gateway` and `sentura_agents_manage`; a "deploy a minimal billing agent" request produces a real `gateway.config.patch` call and the new employee appears in the dashboard's `agents.list`.
+- [x] **Round 7 — pin `tools.exec.host` to `"gateway"`** (real root cause of "deployment tools are not exposed" that survived round 6). Problem: Round 6 restored `gateway` to Forge's manifest, but Forge still concluded that "this session does not expose the two deployment tools I need" after generating a draft bundle. Only a single tool error was left in the gateway log: `[tools] exec failed: exec host not allowed (requested gateway; configured host is auto; …) raw_params={"command":"which openclaw || openclaw gateway status", … "host":"gateway"}`. Root cause: `tools.exec` was absent from `~/.openclaw/openclaw.json`, so `tools.exec.host` defaulted to `"auto"`. `openclaw/src/agents/bash-tools.exec-runtime.ts → isRequestedExecTargetAllowed` explicitly rejects `host: "gateway"` whenever `sandboxAvailable` is true under `auto`. Forge's self-diagnostic ("can I reach the gateway CLI?") failed, and its LLM collapsed the exec rejection into "the gateway tool itself is missing." Fix:
+  - Live `~/.openclaw/openclaw.json` patched with `tools.exec.host: "gateway"` (hot-reloaded at 18:30:14 per the gateway log line `config change applied (dynamic reads: tools.exec)`; no process restart required).
+  - `scripts/sentura-setup.sh` now writes `config.tools.exec.host = 'gateway'` right after the `ownerAllowFrom` block, guarded by `if (config.tools.exec.host !== 'gateway')` so operator-customized hosts (`"sandbox"` etc.) are preserved on re-run.
+  - Stale `agent-creator-*` sandboxes deleted so Forge's next session reseeds with the updated config.
+  - Verified via 8 new test cases in `docs/TESTS.md § B6.6`. Expected E2E behavior: Forge's self-probe succeeds, the `sentura_agents_manage` + `gateway` deployment chain from round 6 actually runs to completion, and `agents.list` picks up the new employee.
+- [x] **Round 10 — deny `sessions_spawn` / `subagents` / `sessions_yield` and reconcile AGENTS.md with the existing `exec` deny** (real root cause of the `"noop"` reply and `1000ms` embedded-run timeout observed on retry after round 9). Problem: Forge running `openai/gpt-5.3-codex` hallucinated a `sessions_spawn({ task: "noop", runTimeoutSeconds: 1 })` call. The gateway's subagent-spawn path passed the `1` through as `timeoutMs: 1000`, so the embedded run timed out every turn; the spawned subagent bootstrapped an empty workspace (logs: `[agent:nested] session=agent:creator:subagent:… Read: from ./SOUL.md failed`) and returned nothing, which bubbled up as Forge's literal `"noop"` reply. Zero files written, agent not registered. A previous attempt to remove `sessions_spawn` from `tools.alsoAllow` was a no-op because `openclaw/src/agents/tool-catalog.ts` registers all three tools with `profiles: ["coding"]`, so Forge's `coding` profile's allowlist already shipped them. The only way to block a profile-included tool is via `tools.deny` — `openclaw/src/agents/tool-policy-match.ts → makeToolPolicyMatcher` checks `deny` before any `allow` path. Separately audited a persistent `tools.profile (coding) allowlist contains unknown entries (gateway)` warning; it fires only for subagent sessions (`pi-tools.policy.ts → SUBAGENT_TOOL_DENY_ALWAYS` includes `gateway`) and does not affect the main Forge session, which gets `gateway` via the control-ui's `operator.admin` scope. No fix needed for that warning. Fix:
+  - `sentura/agents/creator/config.json5` `tools.deny` extended from `["write","edit","apply_patch","exec"]` to `["write","edit","apply_patch","exec","sessions_spawn","subagents","sessions_yield"]` with a block comment documenting the `coding`-profile override rationale and the `noop` failure mode.
+  - Live `~/.openclaw/openclaw.json` hot-patched with the same deny list; verified via `c.agents.list.find(a=>a.id==='creator').tools.deny`.
+  - `sentura/agents/creator/AGENTS.md` "Tool Availability" section scrubbed of `sessions_spawn`/`sessions_yield`/`subagents`/`exec`; "Denied intentionally" block now enumerates all seven denied tools with per-tool rationale (matches the config's inline comment).
+  - `~/.openclaw/workspace/creator/AGENTS.md` synced byte-for-byte with the repo copy.
+  - Verified via 9 new test cases in `docs/TESTS.md § B6.7`. Expected E2E behavior: a fresh deploy of `billing-support-rep` produces zero `[agent:nested] session=agent:creator:subagent:` lines, zero `embedded run timeout` logs, and zero `Read: from ./SOUL.md failed` logs; Forge completes the deploy in a single main session using `sentura_agents_manage` + `gateway.config.patch`, and `agents.list` returns the new employee.
+- [x] **Round 11 — set creator `sandbox.workspaceAccess: "rw"` so host workspace edits actually reach the in-container agent** (real reason Rounds 6–10's AGENTS.md/TOOLS.md/BOOTSTRAP.md edits had no visible effect on the running agent). Problem: deep audit of `openclaw/src/agents/sandbox/` found that with the default `workspaceAccess: "none"`, `/workspace` in the container is bind-mounted at a separate host dir (`~/.openclaw/sandboxes/agent-creator-<hash>/`) that is seeded from `~/.openclaw/workspace/creator/` exactly once via `ensureSandboxWorkspace` (`openclaw/src/agents/sandbox/workspace.ts:17-59`, which uses `fs.writeFile(..., {flag: "wx"})` — only writes if the dest is missing, never on mtime change). Live evidence at the time of the audit: workspace `AGENTS.md` was 18706 bytes (Apr 18 22:32) while the sandbox copy was 18053 bytes (Apr 18 20:43). Forge was reading the 20:43 copy, which still advertised `sessions_spawn`, `sessions_yield`, `subagents`, and `exec` in its Tool Availability list — exactly why the model kept emitting `sessions_spawn({task:"noop"})` even after Round 10's deny list shipped. Also audited the full subagent-spawn surface (only `sessions_spawn`, `subagents` tool, `sessions_yield`, `/subagents spawn` slash command) and the `senderIsOwner` path (`openclaw/src/gateway/server-methods/agent.ts:83-86`, scope-based); confirmed no implicit auto-spawn or auto-heartbeat exists for Creator. Fix:
+  - `sentura/agents/creator/config.json5` `sandbox` upgraded from `{ mode: "non-main" }` to `{ mode: "non-main", workspaceAccess: "rw" }` with a block comment documenting (a) the seed-once semantics of `ensureSandboxWorkspace`, (b) why `"ro"` does not solve the problem (the second mount it adds is at `SANDBOX_AGENT_WORKSPACE_MOUNT`, not `/workspace`, so the agent would still read stale docs from `/workspace`), and (c) the safety posture (OK because `tools.deny` already strips all built-in filesystem-mutation tools and Forge's only fs tool — `sentura_agents_manage` — targets OTHER agents' workspaces, not Forge's own; `sandbox.mode: "non-main"` still isolates Forge from the host Sentura repo).
+  - Live `~/.openclaw/openclaw.json` hot-patched with the same sandbox block; verified via `c.agents.list.find(a=>a.id==='creator').sandbox === { mode: "non-main", workspaceAccess: "rw" }`.
+  - Stale `~/.openclaw/sandboxes/agent-creator-<hash>/` dir removed by the operator prior to the change so the next Forge boot creates a fresh container with the live bind mount.
+  - Verified via 6 new test cases in `docs/TESTS.md § B6.8`. Expected E2E behavior: editing `~/.openclaw/workspace/creator/AGENTS.md` on the host and restarting the gateway is sufficient for the in-container agent to see the new content, with no manual sandbox cleanup required. `docker inspect` of the creator sandbox shows `/workspace` mount `Source` = `~/.openclaw/workspace/creator` and `RW: true`. No new `~/.openclaw/sandboxes/agent-creator-*` dir is created.
 
 ### Person B — AI Employee & Skills Engineer
 - [x] Build Creator Agent Phase 1: Research & Discovery (web search, clarifying questions) — `sentura/agents/creator/skills/research-and-discovery/SKILL.md`
-- [x] Build Creator Agent Phase 2: Design (generate agent config, all 10 workspace files, skills) — `sentura/agents/creator/skills/employee-design/SKILL.md`
-  - [x] Generates RULES.md with position-specific guardrails (Sentura innovation, not in OpenClaw)
-  - [x] Generates CONTEXT.md with enterprise context
+- [x] Build Creator Agent Phase 2: Design (generate agent config + all 8 native workspace files + skills) — `sentura/agents/creator/skills/employee-design/SKILL.md`
+  - [x] Generates `AGENTS.md` with a `## Hard Rules (must not override)` section carrying position-specific guardrails (Sentura convention; top-priority prompt placement)
+  - [x] Generates `BOOTSTRAP.md` with a `## Enterprise Context` section carrying enterprise org/policies
   - [x] Wires MCP server references for required integrations
   - [x] Creates `ekg/` directory structure with 4 pillar subdirectories (org/, rules/, assets/, workflows/)
   - [x] Merges appropriate industry ontology template into `ekg/` during incubation
   - [x] Sets `memory-lancedb.dbPath` to `~/.openclaw/memory/{agentId}/lancedb` in per-agent plugin config for vector store isolation
 - [x] Build Creator Agent Phase 4: Deploy (write workspace, `config.patch`, smoke test) — `sentura/agents/creator/skills/employee-deployment/SKILL.md`
 - [x] Test Creator helpers offline — `scripts/test-creator-helpers.ts` (49/49 pass; helper-level validation, not true LLM E2E)
-- [ ] Test end-to-end: NL → real LLM Creator run → working AI employee (stub: `scripts/test-creator-e2e-live.ts`, requires `SENTURA_LLM_E2E=1` and provider creds)
+- [x] Test end-to-end: NL → real LLM Creator run → working AI employee — `scripts/test-creator-e2e-live.ts` PASSED on 2026-04-19 with `openai/gpt-5.4`: NL brief "Create Penny (AP clerk, > £5000 escalate)" → Forge ran Phase 1–4 → new agent `penny-ap` appeared in config after ~110s → 8-file workspace materialized with the £5000 approval rule correctly embedded in AGENTS.md Hard Rules. See MEMORY.md Round 13.
 - [x] Write 5 more skill templates for common enterprise tasks — `sentura/config/templates/_common/skills/` (meeting-notes, document-summarization, escalation-handling, status-update, knowledge-base-lookup)
 - [x] **Design the EKG 4-pillar JSON5 schema (capability #11)**:
   - [x] Defined entity/relation/attribute format for each pillar (org, rules, assets, workflows)
@@ -169,13 +231,13 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [x] **Build 2 industry ontology templates (capability #13 — Tier 1)**:
   - [x] `sentura/config/industry-ontologies/financial-services/` (SOX, AML/KYC, PCI, approval chains, standard SOPs)
   - [x] `sentura/config/industry-ontologies/e-commerce/` (consumer protection, fraud detection, order fulfillment, RMA/refund/chargeback)
-- [x] **Create MCP Builder Agent workspace**: `sentura/agents/mcp-builder/` with full 10-file workspace and 4 skills (api-analysis, mcp-generation, smoke-test, register-server). Agent takes API docs as input and produces TypeScript MCP server projects at `sentura/mcp-servers/{name}/`.
+- [x] **Create MCP Builder Agent workspace**: `sentura/agents/mcp-builder/` with the full 8 native workspace files (AGENTS.md § Hard Rules + BOOTSTRAP.md § Enterprise Context) and 4 skills (api-analysis, mcp-generation, smoke-test, register-server). Agent takes API docs as input and produces TypeScript MCP server projects at `sentura/mcp-servers/{name}/`. **Round 14 (2026-04-20)**: `config.json5` repaired during Week 2 audit — invalid `openai/gpt-4o` model replaced with `openai/gpt-5.4` (the `openai` provider doesn't register `gpt-4o`); broken path-glob `skills:` filter removed (OpenClaw treats `agents.list[].skills` as a name filter, not a glob, so the old entry silently disabled all four skills); Creator-parity `tools.deny = [sessions_spawn, subagents, sessions_yield]` applied to prevent the Round-10 noop-hallucination loop on first deploy. Covered by `docs/TESTS.md` B9.6 + B9.7.
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway)
-- [ ] Build the Employee Detail page (`/employees/[id]` — show SOUL.md, RULES.md, CONTEXT.md, skills, channel bindings, lifecycle actions)
-- [ ] ~~Build the Session/Conversation viewer~~ → Removed: deferred to OpenClaw Control UI (hybrid approach)
-- [ ] Build the Approval Queue page (`/approvals` — list pending approvals, approve/reject with decision context)
+- [x] Build the Employee Creator chat UI (`/create` — talks to Creator Agent via gateway). Streaming chat via `sessions.create` + `chat.send` + `chat` events with `state: "delta"`/`"final"`.
+- [x] Build the Employee Detail page (`/employees/[id]` — show the 8 native workspace files, channel bindings, lifecycle actions). Note: `agents.files.get` only exposes bootstrap + memory files from an allow-list (e.g., `SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`); any file outside the allow-list is shown in the file list but edit-out links to Control UI's config editor. Lifecycle: Refresh, Tune (deferred W3), Edit in Control UI, Retire (via `agents.delete` with confirmation dialog).
+- [x] ~~Build the Session/Conversation viewer~~ → Removed: deferred to OpenClaw Control UI (hybrid approach)
+- [x] Build the Approval Queue page (`/approvals` — list pending approvals, approve/reject with decision context). Seeds from `exec.approval.list` + `plugin.approval.list` on connect, then subscribes to `*.approval.requested`/`*.approval.resolved` events. Approve-once / Always-allow / Deny with optional reason. Requires `operator.approvals` scope (added to gateway client).
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build `sentura-rbac` extension with **7-role model**: `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`. Implement scope model (SME-wide or per-department). Include `userToken` in user store.
@@ -280,7 +342,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Test approval flow: AI employee triggers high-risk action → human approves on dashboard
 - [ ] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)**:
   - Update `sentura/hooks/sentura-bootstrap/handler.ts` to scan `ekg/` directory at agent startup
-  - Inject EKG summary (pillar counts, key entities, rule count) into system prompt alongside RULES.md and CONTEXT.md
+  - Inject EKG summary (pillar counts, key entities, rule count) into system prompt alongside AGENTS.md Hard Rules and BOOTSTRAP.md Enterprise Context (both already loaded natively by OpenClaw)
   - Ensure `ekg/` files are included in OpenClaw's workspace file scanning for vector indexing
 
 ---
@@ -336,7 +398,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] **Implement pre-deployment test runner (capability #15)**:
   - Run employee in sandbox mode against each test case
   - Score results across 6 dimensions: task completion, tool usage, safety compliance, escalation judgment, tone, error handling
-  - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, RULES.md, SOUL.md, CONTEXT.md, ekg/ files, or tool config) → re-test
+  - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, AGENTS.md `§ Hard Rules`, SOUL.md, BOOTSTRAP.md `§ Enterprise Context`, ekg/ files, or tool config) → re-test
   - Cap iterations with human-review escalation if max retries exceeded
   - Test against ekg/ GradSale: create CS agent → run against historical dispute records → tune until all pass
 - [ ] Build incubation memory: Creator Agent remembers past creations, learns from failures
@@ -499,7 +561,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 - [ ] Write user guide (creating employees, tuning, orchestration, knowledge ingestion)
 - [ ] Handle edge cases: Creator Agent failures, incomplete provisioning, bad user input
 - [ ] Build fallback strategies: if self-provisioning fails, graceful degradation to manual setup
-- [ ] Write skill authoring guide (how to write custom SKILL.md files, RULES.md conventions)
+- [ ] Write skill authoring guide (how to write custom SKILL.md files, AGENTS.md `§ Hard Rules` conventions)
 - [ ] Write enterprise onboarding guide (how to prepare API docs for MCP generation)
 - [ ] Final skill template polish
 
@@ -600,7 +662,7 @@ Before Week 1 coding begins, the team agrees on these shared contracts:
 | Auto-tune loop doesn't converge | Cap iterations; escalate to human review; store failure diagnostics for Creator Agent learning |
 | LLM prompt leakage in cloud deployments | Self-hosted LLMs for regulated customers; enterprise data agreements for cloud LLM providers. See docs/HOSTING.md security analysis |
 | Credential store compromise on host | Disk encryption at rest; minimize per-employee MCP scope; secret rotation. See docs/HOSTING.md platform-wide risks |
-| Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; RULES.md guardrails; network egress filtering on host. See docs/HOSTING.md |
+| Agent shell/browser exfiltration | Sandbox mode mandatory; tool denylists; AGENTS.md `§ Hard Rules` guardrails; network egress filtering on host. See docs/HOSTING.md |
 | Data Scavenger misclassifies knowledge into wrong EKG pillar | LLM-driven classification with confidence thresholds; low-confidence items flagged for human review; additive-only merges (never destructive) |
 | Experience Links generate false patterns from insufficient data | Minimum occurrence threshold (default: 3) before promotion; confidence scoring with decay; human review for high-impact experience links |
 | Manager conflict detection produces false positives | All conflicts require human resolution via approval system; never auto-resolve; confidence scoring on detected conflicts |
@@ -622,9 +684,9 @@ Every Sentura capability references specific README.md sections for requirements
 | Enterprise data integration | §6, §14 | 3-tier MCP strategy, knowledge ingestion from all sources table |
 | Internal MCP server generation | §14 | API docs → MCP server code → config.patch pipeline |
 | Self-provisioning orchestration | §5 | 9-step pipeline, approval integration, error recovery, audit logging |
-| Position-specific safety guardrails | §9 | 5-layer safety architecture, RULES.md (Sentura innovation), decision-context approvals |
+| Position-specific safety guardrails | §9 | 5-layer safety architecture, AGENTS.md `§ Hard Rules` (Sentura convention inside OpenClaw's native AGENTS.md), decision-context approvals |
 | No-code employee creation | §4 | 4-phase incubation (Research → Design → Provision → Deploy), reflection loop |
-| Incubation pipeline (+ EKG setup) | §3, §4, §6 | 10 workspace files + `ekg/` directory + industry ontology merge, structured skills/ directory |
+| Incubation pipeline (+ EKG setup) | §3, §4, §6 | 8 native workspace files (AGENTS.md with Hard Rules, BOOTSTRAP.md with Enterprise Context) + `ekg/` directory + industry ontology merge, structured skills/ directory |
 | Enterprise orchestration + Manager EKG | §12 | AI Manager with capability abstraction, conflict detection, reverse injection; sessions_spawn + progress tracking |
 | Multi-tenancy | §1, §15 | Tenant isolation, per-department namespacing, data segregation |
 | Enterprise authentication | §15, §17, docs/HOSTING.md | SAML/OIDC SSO for dashboard, gateway auth modes (token, trusted-proxy, Tailscale) per hosting target |

@@ -104,26 +104,75 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
 
   useEffect(() => {
     if (state !== "connected") return;
-    setLoading(false);
+
+    const seed = async () => {
+      try {
+        const [execList, pluginList] = await Promise.all([
+          client.listExecApprovals().catch(() => []),
+          client.listPluginApprovals().catch(() => []),
+        ]);
+        const initial: ApprovalRequest[] = [
+          ...execList.map((r) => ({
+            id: r.id,
+            agentId:
+              typeof r.request?.agentId === "string" ? r.request.agentId : "unknown",
+            action:
+              typeof r.request?.command === "string" ? r.request.command : "exec",
+            context: r.request ?? {},
+            status: "pending" as const,
+            createdAt: new Date(r.createdAtMs ?? Date.now()).toISOString(),
+            expiresAtMs: r.expiresAtMs,
+            kind: "exec" as const,
+          })),
+          ...pluginList.map((r) => ({
+            id: r.id,
+            agentId:
+              typeof r.request?.agentId === "string" ? r.request.agentId : "unknown",
+            action:
+              typeof r.request?.title === "string" ? r.request.title : "plugin",
+            context: r.request ?? {},
+            status: "pending" as const,
+            createdAt: new Date(r.createdAtMs ?? Date.now()).toISOString(),
+            expiresAtMs: r.expiresAtMs,
+            kind: "plugin" as const,
+          })),
+        ];
+        setData((prev) => {
+          const existing = new Set(prev.map((a) => a.id));
+          return [...prev, ...initial.filter((a) => !existing.has(a.id))];
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    void seed();
 
     const unsubExecReq = client.on("exec.approval.requested", (event) => {
       const p = event.payload as {
         id?: string;
-        request?: { agentId?: string; command?: string };
+        request?: Record<string, unknown>;
         createdAtMs?: number;
         expiresAtMs?: number;
       };
       if (!p.id) return;
+      const req = p.request ?? {};
+      const agentId = typeof req.agentId === "string" ? req.agentId : "unknown";
+      const command = typeof req.command === "string" ? req.command : undefined;
       setData((prev) => {
         if (prev.some((a) => a.id === p.id)) return prev;
         return [
           ...prev,
           {
             id: p.id!,
-            agentId: p.request?.agentId ?? "unknown",
-            action: p.request?.command ?? "exec",
+            agentId,
+            action: command ?? "exec",
+            context: req,
             status: "pending" as const,
-            createdAt: p.createdAtMs ? new Date(p.createdAtMs).toISOString() : new Date().toISOString(),
+            createdAt: p.createdAtMs
+              ? new Date(p.createdAtMs).toISOString()
+              : new Date().toISOString(),
+            expiresAtMs: p.expiresAtMs,
+            kind: "exec" as const,
           },
         ];
       });
@@ -132,20 +181,29 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
     const unsubPluginReq = client.on("plugin.approval.requested", (event) => {
       const p = event.payload as {
         id?: string;
-        request?: { agentId?: string; title?: string };
+        request?: Record<string, unknown>;
         createdAtMs?: number;
+        expiresAtMs?: number;
       };
       if (!p.id) return;
+      const req = p.request ?? {};
+      const agentId = typeof req.agentId === "string" ? req.agentId : "unknown";
+      const title = typeof req.title === "string" ? req.title : undefined;
       setData((prev) => {
         if (prev.some((a) => a.id === p.id)) return prev;
         return [
           ...prev,
           {
             id: p.id!,
-            agentId: p.request?.agentId ?? "unknown",
-            action: p.request?.title ?? "plugin",
+            agentId,
+            action: title ?? "plugin",
+            context: req,
             status: "pending" as const,
-            createdAt: p.createdAtMs ? new Date(p.createdAtMs).toISOString() : new Date().toISOString(),
+            createdAt: p.createdAtMs
+              ? new Date(p.createdAtMs).toISOString()
+              : new Date().toISOString(),
+            expiresAtMs: p.expiresAtMs,
+            kind: "plugin" as const,
           },
         ];
       });
