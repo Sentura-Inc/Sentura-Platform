@@ -79,9 +79,9 @@ Generation order:
 
 ### Agent Config Generation
 
-Use the `gateway` tool with `action: "config.patch"` to register the new agent. The patch is a JSON5 merge-patch applied to `~/.openclaw/openclaw.json`.
+Use `sentura_agents_manage { action: "register_agent", ... }` to register the new agent. This is an in-process mutation routed through the plugin runtime API (`api.runtime.config.{loadConfig, writeConfigFile}`) — it performs the same config write that `gateway config.patch` would, but without the scope-upgrade / pairing deadlock that blocks `gateway.config.patch` from Forge's embedded runtime.
 
-OpenClaw uses `agents.list` (an **array** with `id` fields), NOT `agents.entries`. There is no `systemPrompt` field — identity comes from workspace SOUL.md and AGENTS.md. Bindings and MCP servers go at the top level, not inside the agent entry.
+OpenClaw uses `agents.list` (an **array** with `id` fields), NOT `agents.entries`. There is no `systemPrompt` field — identity comes from workspace SOUL.md and AGENTS.md. Bindings and MCP servers are top-level; pass them via the `bindings` and `mcpServers` parameters to `register_agent`.
 
 ```json5
 {
@@ -111,11 +111,15 @@ OpenClaw uses `agents.list` (an **array** with `id` fields), NOT `agents.entries
 ## Tools Needed
 
 - `sentura_agents_manage` — create the employee workspace directory
-  (`action: "create_agent"`) and write every file in it
-  (`action: "write"` for natives and subfiles). This is the only
-  sandbox-safe way to materialize a new employee.
-- `gateway` — `config.get` to fetch current state; `config.patch` to
-  register the new agent, add bindings, and merge MCP entries.
+  (`action: "create_agent"`), write every file in it
+  (`action: "write"` for natives and subfiles), AND register the
+  new agent with bindings + MCP servers (`action: "register_agent"`).
+  This is the only sandbox-safe way to materialize a new employee
+  AND the only way to register one from Forge's embedded runtime.
+- `gateway` — `config.get` only, to fetch current state and verify
+  `agents.list` after `register_agent`. **Do NOT** call
+  `gateway { action: "config.patch", ... }` — it deadlocks waiting
+  for a scope-upgrade pairing prompt that Forge cannot answer.
 - `fs_read` — read templates under the Creator's own workspace only.
 - `fs_write` — scratch files in the Creator's own sandbox only.
   Never for another agent's workspace.

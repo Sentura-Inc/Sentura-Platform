@@ -128,7 +128,10 @@ async function testAgentRegistration() {
   check("Agent ID correct", parsed.agents.list[0].id === "test-emp");
   check("Patch has bindings", Array.isArray(parsed.bindings));
   check("Patch has mcp.servers", Boolean(parsed.mcp?.servers?.["gradsale-api"]));
-  check("Patch has plugins.memory-lancedb", Boolean(parsed.plugins?.["memory-lancedb"]?.dbPath));
+  check(
+    "Patch has plugins.entries['memory-lancedb'].config.dbPath",
+    Boolean(parsed.plugins?.entries?.["memory-lancedb"]?.config?.dbPath),
+  );
 
   // buildMemoryDbPath
   const dbPath = buildMemoryDbPath("my-agent");
@@ -549,8 +552,9 @@ async function testSenturaAgentsExtension() {
     skill.includes('"agents.files.set"') || skill.includes("gateway.call(\"agents.files.set\""),
   );
   check(
-    "employee-deployment SKILL.md uses sentura.agents.writeSubfile for subfiles",
-    skill.includes("sentura.agents.writeSubfile"),
+    "employee-deployment SKILL.md uses sentura_agents_manage { action: \"write\" } for subfiles (Round 17 contract)",
+    /sentura_agents_manage[\s\S]{0,80}action:\s*"write"/.test(skill)
+      || skill.includes("sentura.agents.writeSubfile"),
   );
   check(
     "employee-deployment SKILL.md calls out the fs_write sandbox restriction",

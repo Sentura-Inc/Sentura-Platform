@@ -1,3 +1,4 @@
 packages:
   - "sentura/dashboard"
   - "sentura/extensions/*"
+  - "sentura/mcp-servers/*"

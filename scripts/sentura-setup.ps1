@@ -144,7 +144,7 @@ if (-not (Test-Path $WorkspaceBase)) {
 
 Log "Step 2: Copying meta-agent workspace files..."
 
-$MetaAgents = @("creator", "tuner", "orchestrator")
+$MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder")
 $SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
 
 foreach ($agent in $MetaAgents) {
@@ -155,6 +155,65 @@ foreach ($agent in $MetaAgents) {
         Warn "Meta-agent source not found: $agentSource"
     }
 }
+
+# Mark each meta-agent workspace as "bootstrap complete" for OpenClaw.
+#
+# WHY: OpenClaw (openclaw/src/agents/workspace.ts -> resolveWorkspaceBootstrapStatus)
+# treats a workspace as "bootstrap pending" while BOOTSTRAP.md exists on disk AND
+# .openclaw/workspace-state.json does not have setupCompletedAt set. When pending,
+# the runtime injects a "[Bootstrap pending]" prefix into every turn's user
+# prompt and, for non-primary runs (e.g. dashboard-spawned sessions), forces the
+# agent into "limited" mode, which blocks Forge from deploying new employees
+# from the dashboard. Sentura keeps BOOTSTRAP.md permanently because it hosts
+# the `## Enterprise Context` section, so we stamp setupCompletedAt instead of
+# deleting the file. See scripts/sentura-setup.sh for the matching bash logic.
+Log "Stamping setupCompletedAt into meta-agent workspace state..."
+$StateNow = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+foreach ($agent in $MetaAgents) {
+    $agentWorkspace = Join-Path $WorkspaceBase $agent
+    if (-not (Test-Path $agentWorkspace)) {
+        continue
+    }
+    $stateDir = Join-Path $agentWorkspace ".openclaw"
+    $stateFile = Join-Path $stateDir "workspace-state.json"
+    if (-not (Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+    $env:AGENT_ID = $agent
+    $env:STATE_FILE = $stateFile
+    $env:STATE_NOW = $StateNow
+    $stampScript = @'
+const fs = require("fs");
+const path = require("path");
+const { STATE_FILE, STATE_NOW, AGENT_ID } = process.env;
+let state = { version: 1 };
+try {
+  const raw = fs.readFileSync(STATE_FILE, "utf8");
+  const parsed = JSON.parse(raw);
+  if (parsed && typeof parsed === "object") {
+    state = { ...parsed };
+  }
+} catch (err) {
+  if (err && err.code !== "ENOENT") {
+    console.error(`  warn: could not read ${STATE_FILE} (${err.code ?? err.message}); recreating`);
+  }
+}
+if (typeof state.version !== "number") state.version = 1;
+if (typeof state.setupCompletedAt === "string" && state.setupCompletedAt.trim().length > 0) {
+  process.stdout.write(`  ${AGENT_ID}: already complete (${state.setupCompletedAt})\n`);
+} else {
+  state.setupCompletedAt = STATE_NOW;
+  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n", "utf8");
+  process.stdout.write(`  ${AGENT_ID}: stamped setupCompletedAt=${STATE_NOW}\n`);
+}
+'@
+    & node -e $stampScript
+    Remove-Item Env:AGENT_ID -ErrorAction SilentlyContinue
+    Remove-Item Env:STATE_FILE -ErrorAction SilentlyContinue
+    Remove-Item Env:STATE_NOW -ErrorAction SilentlyContinue
+}
+Ok "Meta-agent workspaces marked as bootstrap-complete."
 
 # --- Step 3: Register meta-agents ---
 
@@ -186,16 +245,56 @@ const fs = require('fs');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-const wsBase = '$WorkspaceBaseEscaped';
+// NOTE: we deliberately do NOT set agent.skills here. In OpenClaw,
+// agents.list[].skills is a NAME filter (array of skill names), not a
+// path glob. Writing a path like '{workspace}/skills/*' matched zero
+// skill names and silenced every SKILL.md in the sandbox. Omitting the
+// field falls back to the default discovery path (workspace/skills/*/
+// SKILL.md), which is what we want.
+//
+// SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19) -- mirror of
+// scripts/sentura-setup.sh. OpenClaw's non-main sandbox applies a
+// SECOND tool filter after the agent-level alsoAllow step. Any plugin
+// tool (sentura_agents_manage, gateway, browser, pdf, canvas, cron,
+// memory_*, update_plan, image_generate, video_generate, web_fetch,
+// web_search, sentura_rbac_manage, sentura_audit_query) is stripped at
+// the sandbox stage unless it also appears in
+// tools.sandbox.tools.alsoAllow. Without this block, the dashboard
+// chat.send path hands Forge a 7-tool toolset and the model refuses
+// to deploy. The CLI 'openclaw agent' path is NOT affected -- this is
+// the CLI-vs-dashboard divergence documented in docs/SETUP.md.
+const creatorSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
+  'sentura_agents_manage','sentura_rbac_manage','sentura_audit_query',
+  'memory_search','memory_get','cron','update_plan','image_generate','video_generate'
+];
+const tunerSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch',
+  'sentura_agents_manage','sentura_rbac_manage','sentura_audit_query',
+  'memory_search','memory_get','update_plan','pdf','canvas','cron'
+];
+const orchestratorSandboxAlsoAllow = [
+  'sessions_send','sessions_spawn','subagents','web_search','web_fetch',
+  'memory_search','memory_get','update_plan','cron'
+];
+const mcpBuilderSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
+  'memory_search','memory_get','update_plan','cron'
+];
+
 const overrides = {
-  creator:      { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, skills: [wsBase + '/creator/skills/*'] },
-  tuner:        { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, skills: [wsBase + '/tuner/skills/*'] },
-  orchestrator: { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, skills: [wsBase + '/orchestrator/skills/*'] },
+  creator:       { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:         { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  orchestrator:  { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'mcp-builder': { name: 'Socket',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
   if (overrides[agent.id]) {
     Object.assign(agent, overrides[agent.id]);
+    if (Array.isArray(agent.skills) && agent.skills.some((s) => typeof s === 'string' && s.includes('/'))) {
+      delete agent.skills;
+    }
   }
 }
 
@@ -270,7 +369,174 @@ console.log('  Hook enabled in config');
     Warn "Hook source not found at $HookSource - skipping hook installation"
 }
 
-# --- Step 7: Summary ---
+# --- Step 7: Seed the first platform admin (customer-facing: no curl required) ---
+#
+# See the long comment in scripts/sentura-setup.sh Step 8 for the full
+# rationale. Short version: without a real platform_admin in the RBAC
+# store every guarded RPC runs in bootstrap mode with a synthetic
+# `__bootstrap__` actor, which is only meant to exist for the very first
+# upsert. We close that gap by seeding the admin directly into the
+# store's JSON file. The gateway does NOT need to be running.
+#
+# Inputs (priority order):
+#   1. Env vars: $env:SENTURA_ADMIN_NAME, $env:SENTURA_ADMIN_EMAIL
+#   2. Interactive prompts if the host is interactive
+#   3. Defaults: "Platform Admin" / "admin@sentura.local"
+#
+# Idempotent: if any platform_admin already exists, reuse their token.
+
+Log "Step 7: Seeding first platform admin (so no curl required)..."
+
+$RbacDataDir = Join-Path $OpenClawState "sentura-rbac"
+$RbacUsersFile = Join-Path $RbacDataDir "users.json"
+$DashboardEnvFile = Join-Path $ProjectRoot "sentura" "dashboard" ".env.local"
+
+if (-not (Test-Path $RbacDataDir)) {
+    New-Item -ItemType Directory -Path $RbacDataDir -Force | Out-Null
+}
+
+$adminStatusScript = @"
+const fs = require('fs');
+const p = '$($RbacUsersFile -replace '\\', '\\\\')';
+let users = [];
+try { users = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) {}
+const admin = users.find((u) => u && u.role === 'platform_admin');
+if (admin) {
+  process.stdout.write('EXISTS\t' + admin.id + '\t' + admin.email + '\t' + admin.userToken);
+} else {
+  process.stdout.write('MISSING');
+}
+"@
+$AdminStatus = & node -e $adminStatusScript
+
+if ($AdminStatus -like "EXISTS*") {
+    $parts = $AdminStatus -split "`t"
+    $AdminId = $parts[1]
+    $AdminEmail = $parts[2]
+    $AdminToken = $parts[3]
+    Ok "  Platform admin already seeded: $AdminEmail (id=$AdminId)"
+    Log "  Skipping seed step (re-runs are safe). Re-using existing credentials for the dashboard wiring below."
+}
+else {
+    $AdminName = $env:SENTURA_ADMIN_NAME
+    $AdminEmail = $env:SENTURA_ADMIN_EMAIL
+
+    $canPrompt = [Environment]::UserInteractive -and ($Host.Name -ne 'Default Host') -and -not $env:SENTURA_ADMIN_NONINTERACTIVE
+
+    if (-not $AdminName -or -not $AdminEmail) {
+        if ($canPrompt) {
+            Log "  No SENTURA_ADMIN_* env vars set - prompting for the first admin's identity."
+            Log "  (Set `$env:SENTURA_ADMIN_NAME / `$env:SENTURA_ADMIN_EMAIL / `$env:SENTURA_ADMIN_NONINTERACTIVE=1 to skip prompts next time.)"
+            if (-not $AdminName) {
+                $defaultName = if ($env:USERNAME) { $env:USERNAME } else { "Platform Admin" }
+                $reply = Read-Host "  Admin full name [$defaultName]"
+                if ([string]::IsNullOrWhiteSpace($reply)) { $AdminName = $defaultName } else { $AdminName = $reply }
+            }
+            if (-not $AdminEmail) {
+                $defaultEmail = "admin@sentura.local"
+                $reply = Read-Host "  Admin email [$defaultEmail]"
+                if ([string]::IsNullOrWhiteSpace($reply)) { $AdminEmail = $defaultEmail } else { $AdminEmail = $reply }
+            }
+        }
+        else {
+            if (-not $AdminName) { $AdminName = "Platform Admin" }
+            if (-not $AdminEmail) { $AdminEmail = "admin@sentura.local" }
+            Log "  Non-interactive - using name=`"$AdminName`", email=`"$AdminEmail`"."
+        }
+    }
+
+    if ($AdminEmail -notmatch '@') {
+        Err "  Admin email must contain '@' - got: $AdminEmail"
+        exit 1
+    }
+
+    $env:SENTURA_ADMIN_NAME = $AdminName
+    $env:SENTURA_ADMIN_EMAIL = $AdminEmail
+
+    $seedScript = @"
+const fs = require('fs');
+const crypto = require('crypto');
+const p = '$($RbacUsersFile -replace '\\', '\\\\')';
+const name = process.env.SENTURA_ADMIN_NAME;
+const email = process.env.SENTURA_ADMIN_EMAIL;
+let users = [];
+try { users = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) {}
+const now = new Date().toISOString();
+const shortId = crypto.randomBytes(4).toString('hex');
+const user = {
+  id: 'user-admin-' + shortId,
+  email,
+  name,
+  role: 'platform_admin',
+  userToken: crypto.randomUUID(),
+  departmentIds: [],
+  ownedEmployeeIds: [],
+  createdAt: now,
+  updatedAt: now,
+  metadata: { seededBy: 'sentura-setup', seededAt: now },
+};
+users = users.filter((u) => u && u.email !== email);
+users.push(user);
+const tmp = p + '.tmp';
+fs.writeFileSync(tmp, JSON.stringify(users, null, 2), 'utf8');
+fs.renameSync(tmp, p);
+process.stdout.write(user.id + '\t' + user.email + '\t' + user.userToken);
+"@
+    $SeedResult = & node -e $seedScript
+    $parts = $SeedResult -split "`t"
+    $AdminId = $parts[0]
+    $AdminEmail = $parts[1]
+    $AdminToken = $parts[2]
+    Ok "  Seeded platform admin: $AdminEmail"
+    Ok "  -> id:    $AdminId"
+    Ok "  -> token: $AdminToken"
+}
+
+Log "  Wiring dashboard .env.local with admin credentials..."
+
+$env:SENTURA_ADMIN_USER_ID = $AdminId
+$env:SENTURA_ADMIN_USER_TOKEN = $AdminToken
+$env:SENTURA_DASHBOARD_ENV_FILE = $DashboardEnvFile
+
+$envWireScript = @"
+const fs = require('fs');
+const path = require('path');
+const p = process.env.SENTURA_DASHBOARD_ENV_FILE;
+const adminId = process.env.SENTURA_ADMIN_USER_ID;
+const adminToken = process.env.SENTURA_ADMIN_USER_TOKEN;
+
+let body = '';
+try { body = fs.readFileSync(p, 'utf8'); } catch (_) { body = ''; }
+
+function upsertLine(src, key, value, comment) {
+  const re = new RegExp('^' + key.replace(/[.*+?^\${}()|[\\\\]\\\\\\\\]/g, '\\\\\$&') + '=.*$', 'm');
+  const line = key + '=' + value;
+  if (re.test(src)) return src.replace(re, line);
+  const prefix = src.length && !src.endsWith('\n') ? '\n' : '';
+  const block = (src.length ? '\n' : '') + (comment ? '# ' + comment + '\n' : '') + line + '\n';
+  return src + prefix + block;
+}
+
+let next = body;
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
+  'Sentura platform admin user id (seeded by scripts/sentura-setup.ps1, Step 7)');
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
+  'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+
+if (next !== body) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, next, 'utf8');
+  console.log('  -> updated ' + p);
+} else {
+  console.log('  -> ' + p + ' already has admin keys');
+}
+"@
+node -e $envWireScript
+
+Ok "Dashboard admin credentials wired."
+Log "  The dashboard will pick these up on next ``pnpm dev`` (or restart). No curl step required."
+
+# --- Step 8: Summary ---
 
 Write-Host ""
 Log ("=" * 50)
@@ -291,8 +557,19 @@ if (Test-Path $HookTarget) {
     Ok "Hook: sentura-bootstrap -> per-user memory (memory/users/MEMORY_USER_{token}.md) injected into system prompt"
 }
 Write-Host ""
+if ($AdminEmail -and $AdminToken) {
+    Log "Platform admin:"
+    Ok  "  email:     $AdminEmail"
+    Ok  "  id:        $AdminId"
+    Ok  "  userToken: $AdminToken"
+    Log "  (token also written to sentura/dashboard/.env.local as NEXT_PUBLIC_SENTURA_ADMIN_TOKEN)"
+    Write-Host ""
+}
 Log "Next steps:"
 Log "  1. Start the gateway:  cd openclaw; pnpm gateway:watch"
-Log "  2. Open the UI:        http://localhost:18789"
-Log "  3. Chat with Forge:    Send a message to create your first AI employee"
+Log "  2. Start the dashboard: cd sentura/dashboard; pnpm dev"
+Log "  3. Open:               http://localhost:18789 (OpenClaw Control UI)"
+Log "                         http://localhost:3000  (Sentura dashboard)"
+Log "  4. Chat with Forge:    Send a message to create your first AI employee"
+Log "                         (runs as the seeded platform admin - not bootstrap mode)"
 Write-Host ""

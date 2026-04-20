@@ -101,6 +101,47 @@
           // `coding` profile is the source of these tools in Forge's toolkit;
           // `alsoAllow` is purely additive.
           alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch", "browser", "pdf", "canvas", "sentura_agents_manage", "sentura_rbac_manage", "sentura_audit_query"],
+          // CRITICAL: The sandbox tool policy (openclaw/src/agents/sandbox/tool-policy.ts)
+          // is a SEPARATE filter applied *after* agent-level `alsoAllow`. It uses a
+          // narrow hardcoded `DEFAULT_TOOL_ALLOW` that only contains exec/read/write/
+          // edit/apply_patch/process/image/sessions_*. Any plugin tool (including
+          // `sentura_agents_manage`, `gateway`, `browser`, `pdf`, `canvas`,
+          // `web_fetch`, etc.) is stripped at the sandbox stage unless it appears
+          // in `tools.sandbox.tools.alsoAllow`.
+          //
+          // Symptom when this block is missing (observed 2026-04-19): Forge in the
+          // dashboard reported a 7-tool toolset [read, process, sessions_list,
+          // sessions_history, sessions_send, session_status, image] and refused
+          // to call `sentura_agents_manage`, even though the gateway's
+          // `tools.effective` RPC reported the full list. The pipeline step
+          // `sandbox tools.allow` was dropping 21->7 tools.
+          //
+          // Fix: mirror the agent-level `alsoAllow` into the sandbox layer so
+          // plugin tools survive sandboxing. Channel-like tools listed here
+          // (gateway, browser, canvas, pdf, cron) are also auto-removed from
+          // `DEFAULT_TOOL_DENY` by `filterDefaultDenyForExplicitAllows`.
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "gateway",
+                "sessions_send",
+                "web_search",
+                "web_fetch",
+                "browser",
+                "pdf",
+                "canvas",
+                "sentura_agents_manage",
+                "sentura_rbac_manage",
+                "sentura_audit_query",
+                "memory_search",
+                "memory_get",
+                "cron",
+                "update_plan",
+                "image_generate",
+                "video_generate",
+              ],
+            },
+          },
           // HARD DENY: the "coding" profile ships several tools Forge MUST NOT
           // use for new-employee deployment. `deny` takes precedence over
           // `allow`/`alsoAllow`/profile — see openclaw/src/agents/tool-policy.ts.

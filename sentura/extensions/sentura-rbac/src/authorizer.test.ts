@@ -8,11 +8,13 @@ import type { SenturaUser } from "./types.js";
 
 function makeUser(overrides: Partial<SenturaUser> = {}): SenturaUser {
   const now = new Date().toISOString();
+  const id = `user-${Math.random().toString(36).slice(2)}`;
   return {
-    id: `user-${Math.random().toString(36).slice(2)}`,
-    email: "test@example.com",
+    id,
+    email: `${id}@example.com`,
     name: "Test User",
     role: "end_user",
+    userToken: `tok-${id}`,
     departmentIds: [],
     ownedEmployeeIds: [],
     createdAt: now,
@@ -64,8 +66,8 @@ describe("Authorizer", () => {
     expect(deleteResult.allowed).toBe(false);
   });
 
-  it("employee_owner can read and update agents with 'owned' scope", async () => {
-    const owner = makeUser({ role: "employee_owner" });
+  it("agent_manager can read and update agents with 'owned' scope", async () => {
+    const owner = makeUser({ role: "agent_manager" });
     await store.upsertUser(owner);
 
     const readResult = await authorizer.authorize(owner.id, "agents.list");
@@ -77,11 +79,20 @@ describe("Authorizer", () => {
     expect(updateResult.filteredScope).toBe("owned");
   });
 
-  it("employee_owner cannot create agents", async () => {
-    const owner = makeUser({ role: "employee_owner" });
+  it("agent_manager can create agents with 'owned' scope", async () => {
+    const owner = makeUser({ role: "agent_manager" });
     await store.upsertUser(owner);
 
     const result = await authorizer.authorize(owner.id, "agents.create");
+    expect(result.allowed).toBe(true);
+    expect(result.filteredScope).toBe("owned");
+  });
+
+  it("agent_manager cannot delete agents", async () => {
+    const owner = makeUser({ role: "agent_manager" });
+    await store.upsertUser(owner);
+
+    const result = await authorizer.authorize(owner.id, "agents.delete");
     expect(result.allowed).toBe(false);
   });
 
@@ -102,13 +113,50 @@ describe("Authorizer", () => {
     expect(result.allowed).toBe(false);
   });
 
-  it("dept_admin can access agents with 'department' scope", async () => {
-    const deptAdmin = makeUser({ role: "dept_admin" });
-    await store.upsertUser(deptAdmin);
+  it("manager can access agents with 'department' scope", async () => {
+    const mgr = makeUser({ role: "manager" });
+    await store.upsertUser(mgr);
 
-    const result = await authorizer.authorize(deptAdmin.id, "agents.list");
+    const result = await authorizer.authorize(mgr.id, "agents.list");
     expect(result.allowed).toBe(true);
     expect(result.filteredScope).toBe("department");
+  });
+
+  it("manager can resolve approvals but not configure them", async () => {
+    const mgr = makeUser({ role: "manager" });
+    await store.upsertUser(mgr);
+
+    const resolveResult = await authorizer.authorize(mgr.id, "exec.approval.resolve");
+    expect(resolveResult.allowed).toBe(true);
+    expect(resolveResult.filteredScope).toBe("department");
+
+    const configureResult = await authorizer.authorize(mgr.id, "exec.approvals.set");
+    expect(configureResult.allowed).toBe(false);
+  });
+
+  it("ekg_manager has SME-wide write access to EKG", async () => {
+    const ekgMgr = makeUser({ role: "ekg_manager" });
+    await store.upsertUser(ekgMgr);
+
+    const result = await authorizer.authorize(ekgMgr.id, "sentura.ekg.upload");
+    expect(result.allowed).toBe(true);
+    expect(result.filteredScope).toBe("all");
+  });
+
+  it("ekg_manager can build MCP servers", async () => {
+    const ekgMgr = makeUser({ role: "ekg_manager" });
+    await store.upsertUser(ekgMgr);
+
+    const result = await authorizer.authorize(ekgMgr.id, "sentura.mcp.build");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("agent_manager cannot build MCP servers", async () => {
+    const owner = makeUser({ role: "agent_manager" });
+    await store.upsertUser(owner);
+
+    const result = await authorizer.authorize(owner.id, "sentura.mcp.build");
+    expect(result.allowed).toBe(false);
   });
 
   it("auditor can query audit logs", async () => {
@@ -128,17 +176,34 @@ describe("Authorizer", () => {
     expect(result.allowed).toBe(false);
   });
 
+  it("viewer can read agents list but not sessions", async () => {
+    const viewer = makeUser({ role: "viewer" });
+    await store.upsertUser(viewer);
+
+    const agents = await authorizer.authorize(viewer.id, "agents.list");
+    expect(agents.allowed).toBe(true);
+
+    const sessions = await authorizer.authorize(viewer.id, "sessions.list");
+    expect(sessions.allowed).toBe(false);
+  });
+
   it("only platform_admin can access secrets", async () => {
     const admin = makeUser({ role: "platform_admin" });
-    const deptAdmin = makeUser({ role: "dept_admin" });
-    const owner = makeUser({ role: "employee_owner" });
+    const manager = makeUser({ role: "manager" });
+    const agentMgr = makeUser({ role: "agent_manager" });
+    const ekgMgr = makeUser({ role: "ekg_manager" });
+    const auditor = makeUser({ role: "auditor" });
 
     await store.upsertUser(admin);
-    await store.upsertUser(deptAdmin);
-    await store.upsertUser(owner);
+    await store.upsertUser(manager);
+    await store.upsertUser(agentMgr);
+    await store.upsertUser(ekgMgr);
+    await store.upsertUser(auditor);
 
     expect((await authorizer.authorize(admin.id, "secrets.resolve")).allowed).toBe(true);
-    expect((await authorizer.authorize(deptAdmin.id, "secrets.resolve")).allowed).toBe(false);
-    expect((await authorizer.authorize(owner.id, "secrets.resolve")).allowed).toBe(false);
+    expect((await authorizer.authorize(manager.id, "secrets.resolve")).allowed).toBe(false);
+    expect((await authorizer.authorize(agentMgr.id, "secrets.resolve")).allowed).toBe(false);
+    expect((await authorizer.authorize(ekgMgr.id, "secrets.resolve")).allowed).toBe(false);
+    expect((await authorizer.authorize(auditor.id, "secrets.resolve")).allowed).toBe(false);
   });
 });

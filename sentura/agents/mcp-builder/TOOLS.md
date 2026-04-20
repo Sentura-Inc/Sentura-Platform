@@ -23,7 +23,7 @@ Your profile is `coding` with extra allowlist for `gateway`, `web_search`, `web_
 - Large PDFs (>50MB): extract section-by-section to stay within context.
 
 ### `gateway` — for OpenClaw integration
-- Use `config.patch` to add entries to top-level `mcp.servers.entries.{name}`.
+- Use `config.patch` to add entries at OpenClaw's native path `mcp.servers.{name}`. This is the exact path OpenClaw's MCP loader reads (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`). Any other nesting (including the legacy `mcp.servers.entries.{name}`) is silently ignored at runtime — the server never spawns and the agent has no tools.
 - NEVER write to `agents.*` from this agent — that is the Creator Agent's job.
 
 ### `pnpm` / `npm` (via `exec` in coding profile)
@@ -40,21 +40,19 @@ Your profile is `coding` with extra allowlist for `gateway`, `web_search`, `web_
 
 All credentials use OpenClaw's `$secret.{NAME}` syntax in config, NEVER in source code.
 
-Example generated config entry:
+Example generated config entry (uses OpenClaw's native `mcp.servers.<name>` path):
 
 ```json5
 {
   mcp: {
     servers: {
-      entries: {
-        "example-api": {
-          transport: "stdio",
-          command: "node",
-          args: ["sentura/mcp-servers/example-api/dist/index.js"],
-          env: {
-            EXAMPLE_API_KEY: "$secret.EXAMPLE_API_KEY",
-            EXAMPLE_API_BASE_URL: "https://api.example.com",
-          },
+      "example-api": {
+        transport: "stdio",
+        command: "node",
+        args: ["sentura/mcp-servers/example-api/dist/index.js"],
+        env: {
+          EXAMPLE_API_KEY: "$secret.EXAMPLE_API_KEY",
+          EXAMPLE_API_BASE_URL: "https://api.example.com",
         },
       },
     },

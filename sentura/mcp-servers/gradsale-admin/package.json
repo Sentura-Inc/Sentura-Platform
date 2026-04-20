@@ -1,0 +1,35 @@
+{
+  "name": "@sentura/mcp-gradsale-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server exposing GradSale admin panel API as tools for AI employees (e.g. Dispute Resolver, Support Agent, Trust & Safety reviewer).",
+  "type": "module",
+  "bin": {
+    "sentura-mcp-gradsale-admin": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "sentura": {
+    "sourceDocs": ["ekg/api-admin.md"],
+    "category": "enterprise-integration",
+    "generatedFrom": "ekg/api-admin.md (GradSale Admin Panel API Reference)"
+  }
+}

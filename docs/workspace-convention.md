@@ -247,6 +247,18 @@ refuse and explain why.
 
 **Key constraint**: Enterprise Context should contain ONLY information relevant to this specific agent's role. Don't dump the entire org chart — just the parts that affect this employee.
 
+**Divergence from OpenClaw's default convention (important)**
+
+In vanilla OpenClaw, `BOOTSTRAP.md` is a one-time setup checklist the agent deletes during its first run to mark itself "bootstrap complete". Sentura does **not** do that — `BOOTSTRAP.md` is permanent because it also hosts `## Enterprise Context`.
+
+To reconcile with OpenClaw's runtime (`openclaw/src/agents/workspace.ts` → `resolveWorkspaceBootstrapStatus`), Sentura instead stamps `setupCompletedAt` into `<workspace>/.openclaw/workspace-state.json`. A workspace is considered complete when `setupCompletedAt` is a non-empty string OR when `BOOTSTRAP.md` does not exist. Since Sentura keeps `BOOTSTRAP.md`, we rely on the timestamp.
+
+- **Who writes it**: `scripts/sentura-setup.sh` / `scripts/sentura-setup.ps1` write it for the three meta-agents (`creator`, `tuner`, `orchestrator`) after all other setup steps succeed. Idempotent — existing timestamps are preserved on re-run.
+- **Why it matters**: when a workspace is pending, OpenClaw prefixes every user turn with `[Bootstrap pending]` and forces non-primary runs (e.g. dashboard-spawned sessions) into limited mode, which makes the Creator Agent refuse to actually deploy a new AI employee from the dashboard. Stamping `setupCompletedAt` disables that limiter without removing Enterprise Context.
+- **Employee workspaces**: deployed employees (children of Forge) follow the normal OpenClaw convention. The `setupCompletedAt` stamp is specific to Sentura's meta-agents.
+
+See `docs/SETUP.md` § "Meta-agent bootstrap convention" for customer-facing documentation.
+
 ### 8. MEMORY.md — Agent Scratchpad
 
 **Source**: OpenClaw native

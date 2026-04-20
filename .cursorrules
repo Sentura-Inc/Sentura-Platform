@@ -79,7 +79,7 @@ Do NOT substitute these without explicit approval:
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| Core Runtime | OpenClaw (Node.js 22+, TypeScript) | Gateway, agents, channels, plugins |
+| Core Runtime | OpenClaw `2026.4.19-beta.2` (Node.js 24 recommended / 22.16+ min, TypeScript, pnpm monorepo) | Gateway, agents, channels, plugins |
 | Agent Core | `@mariozechner/pi-agent-core` | OpenClaw's agent execution engine |
 | Configuration | JSON5 + Zod validation | OpenClaw's config system — hot-patchable via gateway RPC |
 | State | File-based (SQLite-vec, JSON) | OpenClaw's state layer — no external DB required |
@@ -203,7 +203,7 @@ Do NOT substitute these without explicit approval:
 
 13. **Web search constantly.** ALWAYS use web search to verify implementation details for: OpenClaw APIs, MCP SDK usage, Playwright patterns, Next.js App Router, shadcn/ui components, and any other third-party integration. Libraries evolve fast — never rely on memory alone.
 
-14. **Prefer existing OpenClaw features.** Before building something new, check if OpenClaw already provides it (extensions, tools, gateway RPC methods, etc.). The 86 bundled extensions cover most needs.
+14. **Prefer existing OpenClaw features.** Before building something new, check if OpenClaw already provides it (extensions, tools, gateway RPC methods, etc.). The 107 bundled extensions in OpenClaw `2026.4.19-beta.2` cover most needs.
 
 15. **Keep employees simple.** AI employees must complete tasks reliably. Prefer clear skills with well-defined procedures over clever multi-branch logic. Reliability beats sophistication.
 

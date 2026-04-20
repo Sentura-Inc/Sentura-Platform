@@ -27,25 +27,25 @@ For each secret reference in the generated README:
 
 ### Step 3: Build the `config.patch` Request
 
+The entry **must** live at OpenClaw's native path `mcp.servers.<name>`. This is the path OpenClaw's MCP loader walks at runtime — see `openclaw/src/agents/embedded-pi-mcp.ts` (`normalizeConfiguredMcpServers(cfg.mcp?.servers)`) and `openclaw/src/config/mcp-config.ts` (reads/writes `sourceConfig.mcp.servers`). Any other nesting (e.g. the legacy `mcp.servers.entries.<name>` shape) is invisible to OpenClaw — the server will not be spawned and the agent will silently have no tools.
+
 Example patch:
 
 ```json5
 {
   mcp: {
     servers: {
-      entries: {
-        "{name}": {
-          transport: "stdio",
-          command: "node",
-          args: ["sentura/mcp-servers/{name}/dist/index.js"],
-          env: {
-            // map each required secret
-            "{ENV_VAR}": "$secret.{SECRET_NAME}",
-          },
-          // optional:
-          timeoutMs: 30000,
-          restartOnCrash: true,
+      "{name}": {
+        transport: "stdio",
+        command: "node",
+        args: ["sentura/mcp-servers/{name}/dist/index.js"],
+        env: {
+          // map each required secret
+          "{ENV_VAR}": "$secret.{SECRET_NAME}",
         },
+        // optional:
+        timeoutMs: 30000,
+        restartOnCrash: true,
       },
     },
   },
@@ -59,7 +59,7 @@ Show the proposed patch to the user:
 ```
 ## Proposed MCP Server Registration
 
-- Entry key: mcp.servers.entries.{name}
+- Entry key: mcp.servers.{name}
 - Command: node sentura/mcp-servers/{name}/dist/index.js
 - Environment:
   - {ENV_VAR} = $secret.{NAME}
@@ -75,7 +75,7 @@ On user `yes`:
 ```typescript
 gateway.call("config.patch", {
   patch: {
-    "mcp.servers.entries.{name}": { /* the entry */ }
+    "mcp.servers.{name}": { /* the entry */ }
   }
 });
 ```

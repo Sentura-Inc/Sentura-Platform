@@ -145,7 +145,7 @@ mkdir -p "$WORKSPACE_BASE"
 
 log "Step 2: Copying meta-agent workspace files..."
 
-META_AGENTS=("creator" "tuner" "orchestrator")
+META_AGENTS=("creator" "tuner" "orchestrator" "mcp-builder")
 SENTURA_AGENTS_DIR="$PROJECT_ROOT/sentura/agents"
 
 for agent in "${META_AGENTS[@]}"; do
@@ -168,6 +168,71 @@ for agent in "${META_AGENTS[@]}"; do
   fi
 done
 ok "Sentura workspace directories ensured."
+
+# Mark each meta-agent workspace as "bootstrap complete" for OpenClaw.
+#
+# WHY: OpenClaw (openclaw/src/agents/workspace.ts → resolveWorkspaceBootstrapStatus)
+# treats a workspace as "bootstrap pending" while `BOOTSTRAP.md` exists on disk
+# AND `.openclaw/workspace-state.json` does not have `setupCompletedAt` set. When a
+# workspace is pending, the runtime injects a `[Bootstrap pending]` prefix into
+# every turn's user prompt and, for non-primary runs (e.g. dashboard-spawned
+# sessions), forces the agent into "limited" mode — which is why Forge refuses
+# to deploy a new employee from the dashboard with "This run is still
+# bootstrap-pending, so I should not claim the creator workspace is fully
+# initialized or do the actual deployment from here."
+#
+# Sentura deliberately KEEPS BOOTSTRAP.md permanently in every agent workspace
+# because it hosts the top-level `## Enterprise Context` section (org structure,
+# key systems, MCP inventory, data-classification tiers, policies). That is the
+# intentional Sentura convention and differs from OpenClaw's native convention
+# where BOOTSTRAP.md is a one-time checklist the agent deletes after setup.
+#
+# To reconcile: after Sentura setup runs on the customer's machine, we stamp
+# `setupCompletedAt` into `<workspace>/.openclaw/workspace-state.json`. That
+# tells OpenClaw "this workspace's setup is already complete — do not
+# self-limit" while still keeping BOOTSTRAP.md as the permanent Enterprise
+# Context file.
+#
+# Idempotent: if `setupCompletedAt` is already set, we preserve the original
+# timestamp (so the "first setup" timestamp survives re-runs of this script).
+log "Stamping setupCompletedAt into meta-agent workspace state..."
+STATE_NOW="$(node -e 'process.stdout.write(new Date().toISOString())')"
+for agent in "${META_AGENTS[@]}"; do
+  target="$WORKSPACE_BASE/$agent"
+  if [[ ! -d "$target" ]]; then
+    continue
+  fi
+  state_dir="$target/.openclaw"
+  state_file="$state_dir/workspace-state.json"
+  mkdir -p "$state_dir"
+  AGENT_ID="$agent" STATE_FILE="$state_file" STATE_NOW="$STATE_NOW" node <<'NODE_EOF'
+    const fs = require("fs");
+    const path = require("path");
+    const { STATE_FILE, STATE_NOW, AGENT_ID } = process.env;
+    let state = { version: 1 };
+    try {
+      const raw = fs.readFileSync(STATE_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        state = { ...parsed };
+      }
+    } catch (err) {
+      if (err && err.code !== "ENOENT") {
+        console.error(`  warn: could not read ${STATE_FILE} (${err.code ?? err.message}); recreating`);
+      }
+    }
+    if (typeof state.version !== "number") state.version = 1;
+    if (typeof state.setupCompletedAt === "string" && state.setupCompletedAt.trim().length > 0) {
+      process.stdout.write(`  ${AGENT_ID}: already complete (${state.setupCompletedAt})\n`);
+    } else {
+      state.setupCompletedAt = STATE_NOW;
+      fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+      fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n", "utf8");
+      process.stdout.write(`  ${AGENT_ID}: stamped setupCompletedAt=${STATE_NOW}\n`);
+    }
+NODE_EOF
+done
+ok "Meta-agent workspaces marked as bootstrap-complete."
 
 # --- Step 3: Register meta-agents ---
 
@@ -215,28 +280,78 @@ const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 // resulted in zero matching skill names, so every skill was silenced in
 // the sandbox. Omitting the field falls back to the default discovery
 // path (\`workspace/skills/*/SKILL.md\`), which is what we want.
+// IMPORTANT: 'sentura_agents_manage' is the tool Forge uses to materialize
+// new-employee workspace subfiles (skills/, ekg/, memory/users/) on the
+// HOST filesystem. fs_write cannot target /workspace/.openclaw/workspace/*
+// (that path is read-only in the sandbox), and gateway.agents.files.set
+// only covers the eight native workspace files. Without this entry in
+// alsoAllow the Creator's employee-deployment skill is unexecutable.
+//
+// HARD DENY of 'write', 'edit', 'apply_patch', 'exec': the 'coding'
+// profile ships these built-in filesystem mutation tools AND shell access.
+// Observed Forge runs defaulted to 'write' with /workspace/generated/...
+// paths (which are read-only in the sandbox) despite every skill telling
+// it to use sentura_agents_manage. Removing these four tools from the
+// resolved tool set at the policy layer is the only reliable way to force
+// Forge through the correct path. 'exec' was added to the deny list on
+// 2026-04-18 after Forge was observed using exec + python3 heredocs to
+// write employee files to the host repo (Sentura-Platform/workspaces/)
+// and then git-committing them, bypassing both sentura_agents_manage and
+// config.patch entirely.
+//
+// SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19)
+// ------------------------------------------------------------------
+// OpenClaw's non-main sandbox applies a SECOND tool filter *after* the
+// agent-level tools.allow/alsoAllow step. It is implemented in
+// openclaw/src/agents/sandbox/constants.ts:
+//   - DEFAULT_TOOL_ALLOW: hardcoded narrow set (exec/read/write/edit/
+//     apply_patch/process/image/sessions_*/session_status/subagents).
+//   - DEFAULT_TOOL_DENY:  hardcoded (gateway, browser, canvas, cron,
+//     nodes + every channel id).
+// Agent-level tools.alsoAllow does NOT bleed into the sandbox filter.
+// Any plugin tool (sentura_agents_manage, gateway, browser, pdf, canvas,
+// cron, memory_*, update_plan, image_generate, video_generate, web_fetch,
+// web_search, sentura_rbac_manage, sentura_audit_query) is silently
+// stripped at the sandbox stage unless it also appears in
+// tools.sandbox.tools.alsoAllow.
+//
+// Symptom when this block is missing: the dashboard chat.send path
+// (which goes through the sandbox) hands the meta-agent a 7-tool toolset
+// and the model refuses to call sentura_agents_manage. The CLI
+// 'openclaw agent' path is NOT affected because its tool resolution runs
+// before the sandbox filter -- this is the CLI-vs-dashboard divergence
+// that blocked deploys for a full day.
+//
+// Fix: every Sentura meta-agent mirrors its agent-level alsoAllow into
+// tools.sandbox.tools.alsoAllow. Channel-like entries (gateway/browser/
+// canvas/pdf/cron) are auto-removed from DEFAULT_TOOL_DENY by
+// filterDefaultDenyForExplicitAllows -- no sandbox deny-list edit needed.
+// See docs/SETUP.md § 'Sandbox tool-policy filter' and
+// docs/OPENCLAW.md § 'Sandbox tool-policy (dashboard path)' for details.
+const creatorSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
+  'sentura_agents_manage','sentura_rbac_manage','sentura_audit_query',
+  'memory_search','memory_get','cron','update_plan','image_generate','video_generate'
+];
+const tunerSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch',
+  'sentura_agents_manage','sentura_rbac_manage','sentura_audit_query',
+  'memory_search','memory_get','update_plan','pdf','canvas','cron'
+];
+const orchestratorSandboxAlsoAllow = [
+  'sessions_send','sessions_spawn','subagents','web_search','web_fetch',
+  'memory_search','memory_get','update_plan','cron'
+];
+const mcpBuilderSandboxAlsoAllow = [
+  'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
+  'memory_search','memory_get','update_plan','cron'
+];
+
 const overrides = {
-  // IMPORTANT: 'sentura_agents_manage' is the tool Forge uses to materialize
-  // new-employee workspace subfiles (skills/, ekg/, memory/users/) on the
-  // HOST filesystem. fs_write cannot target /workspace/.openclaw/workspace/*
-  // (that path is read-only in the sandbox), and gateway.agents.files.set
-  // only covers the eight native workspace files. Without this entry in
-  // alsoAllow the Creator's employee-deployment skill is unexecutable.
-  //
-  // HARD DENY of 'write', 'edit', 'apply_patch', 'exec': the 'coding'
-  // profile ships these built-in filesystem mutation tools AND shell access.
-  // Observed Forge runs defaulted to 'write' with /workspace/generated/...
-  // paths (which are read-only in
-  // the sandbox) despite every skill telling it to use sentura_agents_manage.
-  // Removing these four tools from the resolved tool set at the policy
-  // layer is the only reliable way to force Forge through the correct path.
-  // 'exec' was added to the deny list on 2026-04-18 after Forge was observed
-  // using exec + python3 heredocs to write employee files to the host repo
-  // (Sentura-Platform/workspaces/) and then git-committing them, bypassing
-  // both sentura_agents_manage and config.patch entirely.
-  creator:      { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  tuner:        { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  orchestrator: { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'] }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  creator:       { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:         { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  orchestrator:  { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'mcp-builder': { name: 'Socket',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -492,7 +607,185 @@ else
   log "  No sandbox root at $SANDBOX_ROOT yet — nothing to clear."
 fi
 
-# --- Step 8: Summary ---
+# --- Step 8: Seed the first platform admin ---
+#
+# Customer-facing UX: the operator who just ran `sentura-setup.sh` should be
+# able to log into the dashboard and drive the Creator/Tuner without ever
+# opening a terminal again. That requires a real `platform_admin` user in
+# the RBAC store — otherwise every guarded RPC (Creator deploy, audit query,
+# RBAC management) runs in bootstrap mode (synthetic `__bootstrap__` user),
+# which is only ever meant as an escape hatch for the FIRST upsert call.
+#
+# Bootstrap mode silently succeeds, so customers don't notice the gap until
+# audit trails show `__bootstrap__` as the actor on every action. We close
+# that gap here by seeding the admin directly into the RBAC store's JSON
+# file. The gateway does NOT need to be running — `sentura-rbac` picks the
+# record up on its next load because the store is file-backed.
+#
+# Inputs (priority order):
+#   1. Env vars (non-interactive):  SENTURA_ADMIN_NAME, SENTURA_ADMIN_EMAIL
+#   2. Interactive prompts if stdin is a TTY
+#   3. Sensible defaults (`Platform Admin` / `admin@sentura.local`) otherwise
+#
+# Idempotent: if ANY user with role=platform_admin already exists, the seed
+# step is skipped. The existing admin's token is still echoed into
+# `sentura/dashboard/.env.local` (if that file lacks the keys) so re-runs
+# after a dashboard reinstall still yield a working config.
+
+log "Step 8: Seeding first platform admin (so no curl required)..."
+
+RBAC_DATA_DIR="$OPENCLAW_STATE/sentura-rbac"
+RBAC_USERS_FILE="$RBAC_DATA_DIR/users.json"
+DASHBOARD_ENV_FILE="$PROJECT_ROOT/sentura/dashboard/.env.local"
+
+mkdir -p "$RBAC_DATA_DIR"
+
+# Decide whether a seed is needed. We read the file in node so we handle the
+# "file missing" and "file exists but has no platform_admin" cases uniformly.
+ADMIN_STATUS="$(node -e "
+const fs = require('fs');
+const p = '$RBAC_USERS_FILE';
+let users = [];
+try { users = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) {}
+const admin = users.find((u) => u && u.role === 'platform_admin');
+if (admin) {
+  process.stdout.write('EXISTS\t' + admin.id + '\t' + admin.email + '\t' + admin.userToken);
+} else {
+  process.stdout.write('MISSING');
+}
+")"
+
+if [[ "$ADMIN_STATUS" == EXISTS* ]]; then
+  IFS=$'\t' read -r _ ADMIN_ID ADMIN_EMAIL ADMIN_TOKEN <<< "$ADMIN_STATUS"
+  ok "  Platform admin already seeded: $ADMIN_EMAIL (id=$ADMIN_ID)"
+  log "  Skipping seed step (re-runs are safe). Re-using existing credentials for the dashboard wiring below."
+else
+  # Resolve name/email from env vars, TTY prompts, or defaults.
+  ADMIN_NAME="${SENTURA_ADMIN_NAME:-}"
+  ADMIN_EMAIL="${SENTURA_ADMIN_EMAIL:-}"
+
+  if [[ -z "$ADMIN_NAME" || -z "$ADMIN_EMAIL" ]]; then
+    if [[ -t 0 && -z "${SENTURA_ADMIN_NONINTERACTIVE:-}" ]]; then
+      log "  No SENTURA_ADMIN_* env vars set — prompting for the first admin's identity."
+      log "  (Set SENTURA_ADMIN_NAME / SENTURA_ADMIN_EMAIL / SENTURA_ADMIN_NONINTERACTIVE=1 to skip the prompts next time.)"
+      if [[ -z "$ADMIN_NAME" ]]; then
+        default_name="$(id -F 2>/dev/null || getent passwd "$USER" 2>/dev/null | cut -d: -f5 | cut -d, -f1 || echo "")"
+        default_name="${default_name:-Platform Admin}"
+        read -r -p "  Admin full name [$default_name]: " ADMIN_NAME </dev/tty || ADMIN_NAME=""
+        ADMIN_NAME="${ADMIN_NAME:-$default_name}"
+      fi
+      if [[ -z "$ADMIN_EMAIL" ]]; then
+        default_email="admin@sentura.local"
+        read -r -p "  Admin email [$default_email]: " ADMIN_EMAIL </dev/tty || ADMIN_EMAIL=""
+        ADMIN_EMAIL="${ADMIN_EMAIL:-$default_email}"
+      fi
+    else
+      ADMIN_NAME="${ADMIN_NAME:-Platform Admin}"
+      ADMIN_EMAIL="${ADMIN_EMAIL:-admin@sentura.local}"
+      log "  Non-interactive — using name=\"$ADMIN_NAME\", email=\"$ADMIN_EMAIL\"."
+    fi
+  fi
+
+  # Very light validation — an unusable email here would make the dashboard
+  # login screen awkward later, so we catch the obvious "contains @" case.
+  if [[ "$ADMIN_EMAIL" != *"@"* ]]; then
+    err "  Admin email must contain '@' — got: $ADMIN_EMAIL"
+    exit 1
+  fi
+
+  # Atomic seed via node: generate UUIDv4 userToken, build the SenturaUser
+  # record matching `sentura/extensions/sentura-rbac/src/types.ts`, write to
+  # a .tmp file, rename into place. Keeps the store valid even if the process
+  # is killed mid-write.
+  export SENTURA_ADMIN_NAME="$ADMIN_NAME"
+  export SENTURA_ADMIN_EMAIL="$ADMIN_EMAIL"
+  SEED_RESULT="$(node -e "
+const fs = require('fs');
+const crypto = require('crypto');
+const p = '$RBAC_USERS_FILE';
+const name = process.env.SENTURA_ADMIN_NAME;
+const email = process.env.SENTURA_ADMIN_EMAIL;
+let users = [];
+try { users = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) {}
+const now = new Date().toISOString();
+const shortId = crypto.randomBytes(4).toString('hex');
+const user = {
+  id: 'user-admin-' + shortId,
+  email,
+  name,
+  role: 'platform_admin',
+  userToken: crypto.randomUUID(),
+  departmentIds: [],
+  ownedEmployeeIds: [],
+  createdAt: now,
+  updatedAt: now,
+  metadata: { seededBy: 'sentura-setup', seededAt: now },
+};
+// Collapse any non-admin duplicate of the same email so re-running with the
+// same email (after manually deleting the admin) doesn't produce two entries.
+users = users.filter((u) => u && u.email !== email);
+users.push(user);
+const tmp = p + '.tmp';
+fs.writeFileSync(tmp, JSON.stringify(users, null, 2), 'utf8');
+fs.renameSync(tmp, p);
+process.stdout.write(user.id + '\t' + user.email + '\t' + user.userToken);
+")"
+  IFS=$'\t' read -r ADMIN_ID ADMIN_EMAIL ADMIN_TOKEN <<< "$SEED_RESULT"
+  ok "  Seeded platform admin: $ADMIN_EMAIL"
+  ok "  → id:    $ADMIN_ID"
+  ok "  → token: $ADMIN_TOKEN"
+fi
+
+# --- Dashboard .env wiring ---
+#
+# The dashboard needs two new keys so it can call RBAC-guarded RPCs as the
+# newly seeded admin (the gateway token alone only gets you transport-level
+# auth; `actorId` / userToken is what the middleware checks against). We
+# upsert just those two keys and leave any existing gateway config intact.
+
+log "  Wiring dashboard .env.local with admin credentials..."
+
+export SENTURA_ADMIN_USER_ID="$ADMIN_ID"
+export SENTURA_ADMIN_USER_TOKEN="$ADMIN_TOKEN"
+export SENTURA_DASHBOARD_ENV_FILE="$DASHBOARD_ENV_FILE"
+
+node -e "
+const fs = require('fs');
+const p = process.env.SENTURA_DASHBOARD_ENV_FILE;
+const adminId = process.env.SENTURA_ADMIN_USER_ID;
+const adminToken = process.env.SENTURA_ADMIN_USER_TOKEN;
+
+let body = '';
+try { body = fs.readFileSync(p, 'utf8'); } catch (_) { body = ''; }
+
+function upsertLine(src, key, value, comment) {
+  const re = new RegExp('^' + key.replace(/[.*+?^\${}()|[\\\\]\\\\\\\\]/g, '\\\\\$&') + '=.*$', 'm');
+  const line = key + '=' + value;
+  if (re.test(src)) return src.replace(re, line);
+  const prefix = src.length && !src.endsWith('\n') ? '\n' : '';
+  const block = (src.length ? '\n' : '') + (comment ? '# ' + comment + '\n' : '') + line + '\n';
+  return src + prefix + block;
+}
+
+let next = body;
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
+  'Sentura platform admin user id (seeded by scripts/sentura-setup.sh, Step 8)');
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
+  'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+
+if (next !== body) {
+  fs.mkdirSync(require('path').dirname(p), { recursive: true });
+  fs.writeFileSync(p, next, 'utf8');
+  console.log('  → updated ' + p);
+} else {
+  console.log('  → ' + p + ' already has admin keys');
+}
+"
+
+ok "Dashboard admin credentials wired."
+log "  The dashboard will pick these up on next \`pnpm dev\` (or restart). No curl step required."
+
+# --- Step 9: Summary ---
 
 echo ""
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -532,8 +825,19 @@ if [[ -n "${SENTURA_EXT_TUPLES:-}" ]]; then
   done <<< "$SENTURA_EXT_TUPLES"
   echo ""
 fi
+if [[ -n "${ADMIN_EMAIL:-}" && -n "${ADMIN_TOKEN:-}" ]]; then
+  log "Platform admin:"
+  ok  "  email:       $ADMIN_EMAIL"
+  ok  "  id:          $ADMIN_ID"
+  ok  "  userToken:   $ADMIN_TOKEN"
+  log "  (token also written to sentura/dashboard/.env.local as NEXT_PUBLIC_SENTURA_ADMIN_TOKEN)"
+  echo ""
+fi
 log "Next steps:"
 log "  1. Start the gateway:  cd openclaw && pnpm gateway:watch"
-log "  2. Open the UI:        http://localhost:18789"
-log "  3. Chat with Forge:    Send a message to create your first AI employee"
+log "  2. Start the dashboard: cd sentura/dashboard && pnpm dev"
+log "  3. Open:               http://localhost:18789 (OpenClaw Control UI)"
+log "                         http://localhost:3000  (Sentura dashboard)"
+log "  4. Chat with Forge:    Send a message to create your first AI employee"
+log "                         (runs as the seeded platform admin — not bootstrap mode)"
 echo ""

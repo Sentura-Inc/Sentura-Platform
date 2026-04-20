@@ -17,6 +17,33 @@
         tools: {
           profile: "coding",
           alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch"],
+          // SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19). OpenClaw's non-main
+          // sandbox applies a SECOND tool filter after agent-level alsoAllow.
+          // Plugin tools (sentura_*, gateway, memory_*, update_plan, etc.) are
+          // stripped there unless re-added here. Without this block the
+          // dashboard `chat.send` path hands Refine a 7-tool toolset even
+          // though CLI `openclaw agent --agent tuner` sees everything. See
+          // docs/SETUP.md § "Sandbox tool-policy filter" and
+          // openclaw/src/agents/sandbox/constants.ts (DEFAULT_TOOL_ALLOW/DENY).
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "gateway",
+                "sessions_send",
+                "web_search",
+                "web_fetch",
+                "sentura_agents_manage",
+                "sentura_rbac_manage",
+                "sentura_audit_query",
+                "memory_search",
+                "memory_get",
+                "update_plan",
+                "pdf",
+                "canvas",
+                "cron",
+              ],
+            },
+          },
         },
       }
     ]

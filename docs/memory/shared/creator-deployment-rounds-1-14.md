@@ -27,6 +27,8 @@ Each round is preserved verbatim below. Summary table lives in `docs/TeamPlan.md
 | 13 | 2026-04-18 | Dashboard-spawned session blockers (Option A.1 + Fix B) |
 | 14 | 2026-04-19 | Week 2 Person B E2E live test PASSED |
 | 15 | 2026-04-20 | Week 2 audit pass + MCP Builder config repair |
+| 16 | 2026-04-19 | OpenClaw-native MCP wiring alignment (`mcp.servers.entries` → `mcp.servers`) |
+| 20 | 2026-04-19 | Dashboard `chat.send` sandbox tool-policy filter root cause + fix (`tools.sandbox.tools.alsoAllow`) |
 
 (Headings in the preserved sections below use the original round numbering from the session that logged them; rounds 1–14 in the table above are the chronological ordering used everywhere else in the project.)
 
@@ -427,6 +429,8 @@ should be able to run the full deployment flow end-to-end.
    `sentura_agents_manage(write × 8 natives)` →
    `sentura_agents_manage(write × N skills/ekg)` →
    `gateway(config.patch, {agents.list $append / bindings $append / mcp.servers.entries merge})` →
+   <!-- CORRECTION-OF-RECORD (2026-04-19, Round 16): the `mcp.servers.entries` path recorded here and in round-14 follow-ups was wrong. OpenClaw's MCP loader (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`) reads `mcp.servers.<name>` directly — there is no `.entries` wrapper. Entries nested one level too deep are silently ignored, so the MCP server never spawns and the employee appears tool-less. Historical line preserved for audit; see Round 16 below for the fix across all Sentura agent skills and docs. -->
+
    user-driven smoke test.
 4. New agent should appear in Dashboard → Agents on hot-reload.
 
@@ -1644,3 +1648,566 @@ Fixing them now is cheap and keeps the Week 2 surface clean.
   config repair.
 - `docs/TESTS.md` — B9 test suite extended with B9.6 (model validity) and B9.7
   (sessions_spawn denial) covering this repair.
+
+## 2026-04-19 — Round 16: OpenClaw-native MCP wiring alignment (`mcp.servers.entries` → `mcp.servers`)
+
+### What was wrong (root cause, not symptom)
+
+While auditing the brand-new `sentura/mcp-servers/gradsale-admin/` server that Person D shipped for the Week 2 first-enterprise-MCP deliverable, we re-traced the path OpenClaw actually uses to discover MCP servers at agent boot:
+
+- `openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`
+- `openclaw/src/config/mcp-config.ts` → reads `sourceConfig.mcp?.servers` (a flat map `{ [name]: McpServerConfig }`)
+- `openclaw/src/config/types.mcp.ts` → `McpConfig.servers: Record<string, McpServerConfig>`
+
+There is **no `.entries` wrapper** anywhere in that pipeline. But Sentura's earlier instructions (written while we were still standing up the Creator + MCP-Builder meta-agents) had quietly settled on `mcp.servers.entries.<name>` as the canonical shape — it appeared in four places:
+
+1. `sentura/agents/mcp-builder/skills/register-server/SKILL.md` — the step-by-step recipe the MCP-Builder agent follows.
+2. `sentura/agents/mcp-builder/TOOLS.md` — the `gateway` tool example the MCP-Builder sees in context.
+3. `sentura/agents/creator/skills/employee-design/SKILL.md` — the design-bundle artifact the Creator hands off to Forge.
+4. `sentura/agents/creator/skills/employee-deployment/SKILL.md` — the `config.patch` snippet Forge was generating at deploy time.
+
+Because the path is one level too deep, OpenClaw's loader silently skips the entry: no warning, no error — the agent just boots with zero MCP servers and appears to have no enterprise tools. This is exactly the kind of silent failure a human reviewer would miss right up until an employee is asked "please open this GradSale dispute" and responds with "I don't have a tool for that."
+
+The prior round-2 note (line 429 of this file, from 2026-04-17) already baked `mcp.servers.entries merge` into the Creator's verification script, so the mistake was self-reinforcing across the meta-agent stack.
+
+### Fix
+
+Corrected every Sentura-side surface to use the OpenClaw-native path `mcp.servers.<name>`, and added explanatory paragraphs wherever the path is shown so the next contributor sees *why* this is the right shape, not just *that* it is:
+
+- `sentura/mcp-servers/gradsale-admin/README.md` — rewrote "Wiring into an AI employee" with an explicit warning that `mcp.servers.entries.<name>` is invisible to OpenClaw's loader, plus a pointer to `normalizeConfiguredMcpServers`.
+- `sentura/mcp-servers/gradsale-admin/src/server.ts` → `src/index.ts` (rename), plus `package.json` (`bin` / `main` / `start` / `dev` → `dist/index.js` or `src/index.ts`) and `src/server.test.ts` import update — so the spawn command in the config snippet is a clean `node ./sentura/mcp-servers/gradsale-admin/dist/index.js` rather than routing through `pnpm --filter`.
+- `sentura/agents/mcp-builder/skills/register-server/SKILL.md` — corrected the JSON5 example, the "Entry key" bullet, and the `gateway.call` target; added a paragraph explaining why `mcp.servers.<name>` is the native path.
+- `sentura/agents/mcp-builder/TOOLS.md` — same corrections for the `gateway` tool example.
+- `sentura/agents/creator/skills/employee-design/SKILL.md` — design-bundle `mcp` subsection now targets `mcp.servers`, with a warning next to the snippet.
+- `sentura/agents/creator/skills/employee-deployment/SKILL.md` — the precondition check, the `config.patch` merge snippet, and the `gateway.call` verification step all target `mcp.servers.<name>`; added a callout explaining the silent-failure mode if `entries` leaks back in.
+- `docs/DESIGN.md` §14 "Enterprise MCP Server Pattern" — refreshed the Step-3 example to match the new spawn style (`command: "node"`, direct `dist/index.js` path) and added a paragraph pointing at OpenClaw's loader as the source of truth.
+- `docs/memory/shared/creator-deployment-rounds-1-14.md` (this file) — preserved the original round-2 line and annotated it with an inline `<!-- CORRECTION-OF-RECORD -->` comment pointing at this round.
+
+### Why this mattered beyond the GradSale server
+
+The Creator meta-agent's whole job is to *generate new AI employees*, and the deployment skill it reads is what it emits into `config.patch`. If we had left `mcp.servers.entries` in place, every employee the Creator ships — not just the first one that happens to need an MCP server — would have silently broken MCP tools. Fixing it in the skill files (not just in the one GradSale README) prevents the bug from being recreated on every `employee-deployment` run.
+
+### Verification
+
+- `rg "mcp\.servers\.entries" sentura/ docs/ README.md` → only hit is the historical line 429 of this file, now annotated (historical audit preserved per MEMORY policy).
+- `openclaw/src/config/types.mcp.ts` and `openclaw/src/config/mcp-config.ts` re-read → both confirm `servers: Record<string, McpServerConfig>` at `mcp.servers`.
+- `sentura/mcp-servers/gradsale-admin/` → `pnpm build && pnpm test` (next task, id 8) will confirm the entry-point rename did not break the hermetic integration tests.
+
+### Files touched this round
+
+- `sentura/mcp-servers/gradsale-admin/src/index.ts` (renamed from `server.ts`)
+- `sentura/mcp-servers/gradsale-admin/src/server.test.ts` (import path)
+- `sentura/mcp-servers/gradsale-admin/package.json` (bin/main/start/dev)
+- `sentura/mcp-servers/gradsale-admin/README.md` (wiring section + warning)
+- `sentura/agents/mcp-builder/skills/register-server/SKILL.md`
+- `sentura/agents/mcp-builder/TOOLS.md`
+- `sentura/agents/creator/skills/employee-design/SKILL.md`
+- `sentura/agents/creator/skills/employee-deployment/SKILL.md`
+- `docs/DESIGN.md` (§14 Enterprise MCP Server Pattern)
+- `docs/memory/shared/creator-deployment-rounds-1-14.md` (this round + inline correction on line 429)
+- `docs/memory/person-d/week-2.md` (session entry)
+- `docs/MEMORY.md` (matrix row)
+
+
+## 2026-04-20 — Round 19 (Person D): Dashboard-session "Forge claims it has no tools" was context poisoning, not a real tool-visibility regression — proven end-to-end via CLI deploy
+
+### Symptom
+
+After rounds 1–16 landed (in-process `register_agent`, stamped `setupCompletedAt`, AGENTS.md trimmed to ~11k, stale sandbox deleted, alsoAllow includes `sentura_agents_manage`), a fresh `billing-support-rep` deploy attempt from the dashboard webchat **still** ended with Forge replying:
+
+> "this current session only has **read/process/sessions/status/image** tools, so I can't actually create/register the employee from this webchat session. If you reopen this in a Sentura Creator run with deployment access, I can use the defaults above and deploy it immediately."
+
+The user had spent two full days on rounds 14–16 to get to this state and reasonably concluded the fix had regressed. The root cause turned out to be different from any prior round, and the user's pressure to "let OpenClaw write some files and perform a agent register" was correct: Forge was *capable* the whole time and the block was upstream of the tool pipeline.
+
+### Diagnosis
+
+Walked the tool-resolution pipeline end-to-end inside `openclaw/src/`:
+
+- `sentura/extensions/sentura-agents/openclaw.plugin.json` → `enabledByDefault: true`, `contracts.tools: ["sentura_agents_manage"]`, tool is **not** marked `optional`.
+- `sentura/extensions/sentura-agents/index.ts` → `api.registerTool({ name: "sentura_agents_manage", …, ownerOnly: undefined })` — no owner-only filter.
+- `/Users/henry/.openclaw/openclaw.json` → `agents.list["creator"].tools.alsoAllow` contains `sentura_agents_manage` (plus `sentura_rbac_manage`, `sentura_audit_query`); `deny` list excludes it; `profile: "coding"`; sandbox `mode=non-main, workspaceAccess=rw`.
+- `openclaw/src/agents/pi-tools.ts:587` → `collectExplicitAllowlist([profilePolicy, providerProfilePolicy, globalPolicy, globalProviderPolicy, agentPolicy, agentProviderPolicy, groupPolicy, sandboxToolPolicy, subagentPolicy])` feeds `pluginToolAllowlist` into `createOpenClawTools`; `agentPolicy.allow` carries the `alsoAllow` entries.
+- `openclaw/src/plugins/tools.ts:145-154` → non-optional plugin tools skip the allowlist filter entirely (`entry.optional ? filter : listRaw`). So `sentura_agents_manage` cannot be dropped here regardless of allowlist content.
+- `openclaw/src/agents/pi-embedded-runner/effective-tool-policy.ts:131-156` → the final pipeline pass merges `profileAlsoAllow` into `profilePolicyWithAlsoAllow` and uses that for the pipeline step, then runs `applyOwnerOnlyToolPolicy(bundledTools, senderIsOwner)` on plugin tools.
+- Gateway log grep for `sentura_agents_manage` → **no** "access denied", "unavailable", or "unknown allowlist entry" messages; only the benign `[tools] agents.creator.tools.allow allowlist contains unknown entries (web_search)` warning from Round 5.
+
+Conclusion: the tool pipeline was healthy. Forge had the tool. The webchat reply was a hallucination — the LLM's own prior turns (across days of failed deploy attempts in the same session thread) had written "only read/session tools" so many times that the model kept restating it as ground truth even after the real runtime caught up.
+
+### Proof by CLI probe
+
+Two direct CLI invocations, both falling back to the embedded runtime (gateway `pairing required` — expected for unpaired CLI callers; the embedded path is the same code the webchat uses once the session lands).
+
+**Probe 1** — list visible tools, no tool calls allowed:
+
+```
+$ node openclaw.mjs agent --agent creator \
+    --session-id "test-tool-check-$(date +%s)" \
+    --message "Please list the EXACT tool names you can see in your tool inventory right now. Just list them comma-separated. Do not call any tools, just respond with the list."
+
+…
+read, process, canvas, cron, image_generate, video_generate, gateway,
+update_plan, sessions_list, sessions_history, sessions_send, session_status,
+web_search, web_fetch, image, pdf,
+sentura_agents_manage, sentura_rbac_manage, sentura_audit_query,
+browser, memory_search, memory_get, multi_tool_use.parallel
+```
+
+23 tools visible — all three Sentura plugin tools present. This alone refutes the "only read/session" claim.
+
+**Probe 2** — drive the 4-call deploy sequence end-to-end:
+
+```
+$ node openclaw.mjs agent --agent creator \
+    --session-id "deploy-billing-$(date +%s)" --timeout 300 \
+    --message "Deploy a new employee with this EXACT spec. Execute the 4-call sentura_agents_manage deployment sequence (create_agent -> write the 8 native files -> register_agent -> stamp_setup). …  Spec: id=billing-support-rep, name='Billing Support Rep', role='Customer Support rep for billing questions', model=openai/gpt-5.4 (alias GPT), channels=[webchat], data_sources=[stripe, zendesk], allowed_actions=['read Stripe/Zendesk','answer customer billing questions','add internal Zendesk notes'], blocked_actions=['refunds','credits','subscription changes','payment changes'], escalate_to='Henry Zhang' …, tone='warm, concise'. After register_agent + stamp_setup, respond with DEPLOYED followed by the exact 4 tool call names you executed."
+
+…
+Config overwrite: /Users/henry/.openclaw/openclaw.json
+  (sha256 a8c660c4… -> 4c0cf263…, backup=/Users/henry/.openclaw/openclaw.json.bak)
+…
+DEPLOYED create_agent, write, register_agent, stamp_setup
+```
+
+Forge ran the full sequence in 80 s and reported the tool names it invoked. Post-run verification:
+
+- `~/.openclaw/workspace/billing-support-rep/` contains all 8 native files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) with the exact spec-driven content — `AGENTS.md` Hard Rules enumerate the blocked actions and the Henry-Zhang escalation list; `SOUL.md` names the billing voice ("warm, concise, calm under pressure"); `IDENTITY.md` / `BOOTSTRAP.md` / others are populated correctly.
+- `~/.openclaw/workspace/billing-support-rep/.openclaw/workspace-state.json` → `{"setupCompletedAt": "2026-04-20T00:15:53.754Z", "version": 1}`. Not bootstrap-pending.
+- `openclaw.json` → `agents.list[id=billing-support-rep]` entry present with `model: openai/gpt-5.4`, `tools.profile: messaging`, `tools.deny: ["gateway"]`, `sandbox.mode: non-main`, `runtime.type: embedded`, and `params` carrying `role`, `tone`, `channels`, `dataSources`, `allowedActions`, `blockedActions`, `escalateTo` exactly matching the spec.
+
+### Fix / lesson
+
+The **code** fix in this round was zero — rounds 14–16 had already repaired the pipeline. What changed on 2026-04-20 was the operational verification path and the failure-mode documentation.
+
+Three operational rules now apply to Creator-deployment debugging:
+
+1. **Never trust Forge's "I can't" reply as a runtime signal.** Forge is an LLM; if a session thread has had three failed deploy attempts in a row, the model will keep restating the failure rationale even after the underlying block is gone. Always verify with a **fresh session** (new `--session-id`) before concluding the runtime is broken.
+2. **The authoritative tool-visibility probe is `openclaw agent --agent creator --message "list your tools"`.** It runs the same embedded tool pipeline the webchat uses, but with no prior-turn contamination. If `sentura_agents_manage` is in the reply, the pipeline is healthy regardless of what any other session claims.
+3. **If the probe shows the tool but the dashboard session does not call it, the dashboard session is poisoned — start a new conversation.** This is a session-scoped context-window problem, not a config or pipeline problem.
+
+Smoke test that should now pass whenever Forge's runtime is wired correctly (captured in `docs/tests/tests-person-d.md` under D-CRE-19):
+
+```
+openclaw agent --agent creator --session-id tool-probe-$(date +%s) \
+  --message "List your tool names, comma-separated. Do not call anything."
+# Must contain "sentura_agents_manage"
+```
+
+### Files touched this round
+
+- `docs/memory/shared/creator-deployment-rounds-1-14.md` (this section)
+- `docs/memory/person-d/week-2.md` (dated session entry cross-linking here)
+- `docs/MEMORY.md` (Week 2 matrix row)
+- `docs/TeamPlan.md` (Week 2 Person D wrap-up — marked Round 19 complete)
+- `docs/TESTS.md` + `docs/tests/tests-person-d.md` (added D-CRE-19 "Forge tool-probe + E2E deploy smoke test")
+
+### Production outputs from the CLI deploy (preserved for audit)
+
+`/Users/henry/.openclaw/workspace/billing-support-rep/AGENTS.md`:
+
+```
+## Hard Rules (must not override)
+### Employee Safety
+- NEVER process refunds, credits, subscription changes, or payment method changes without human approval.
+- NEVER promise a billing outcome you cannot verify in Stripe or Zendesk.
+- ALWAYS escalate disputes, refund requests, angry customers, suspected fraud, chargeback risk, or other high-risk billing issues to Henry Zhang.
+- ALWAYS keep replies warm, concise, and accurate.
+### Data Protection
+- NEVER expose full card numbers, bank details, CVVs, or full payment credentials.
+- NEVER share account details with an unauthenticated person.
+- ALWAYS minimize sensitive data in replies and internal notes.
+- ALWAYS use Stripe and Zendesk only for the minimum data needed to resolve the case.
+### Operational
+- NEVER issue refunds, credits, or account changes yourself.
+- NEVER edit customer subscriptions or payment settings.
+- ONLY read Stripe and Zendesk, answer customer billing questions, and add internal Zendesk notes.
+- ALWAYS leave an internal Zendesk note when escalation is required.
+```
+
+`openclaw.json` entry (trimmed):
+
+```
+{
+  "id": "billing-support-rep",
+  "name": "Billing Support Rep",
+  "workspace": "/Users/henry/.openclaw/workspace/billing-support-rep",
+  "model": "openai/gpt-5.4",
+  "tools": { "profile": "messaging", "deny": ["gateway"] },
+  "sandbox": { "mode": "non-main" },
+  "runtime": { "type": "embedded" },
+  "params": {
+    "role": "Customer Support rep for billing questions",
+    "tone": "warm, concise",
+    "channels": ["webchat"],
+    "dataSources": ["stripe", "zendesk"],
+    "allowedActions": ["read Stripe/Zendesk", "answer customer billing questions", "add internal Zendesk notes"],
+    "blockedActions": ["refunds", "credits", "subscription changes", "payment changes"],
+    "escalateTo": "Henry Zhang"
+  }
+}
+```
+
+---
+
+## 2026-04-19 — Round 20: Dashboard `chat.send` sandbox tool-policy filter root cause + fix
+
+### Symptom
+
+After Rounds 17–19 (E2E PASS on CLI), Forge in the **dashboard webchat** was still
+refusing to deploy employees with: *"I can't call `sentura_agents_manage` in this
+session because that tool is not available here."* Initial diagnosis (context
+poisoning from old conversation turns) was proven wrong when a fresh dashboard
+session exhibited the same failure.
+
+The user's verdict was unambiguous: *"We need to find out and resolve why
+dashboard is failing, because this is our main platform and it has to work."*
+
+### Divergence between CLI and dashboard paths
+
+| Path | RPC | Entry | Tool resolution observed |
+|---|---|---|---|
+| CLI probe | `agent.run` | direct embedded runner | 21 effective tools, `sentura_agents_manage` present |
+| Dashboard | `chat.send` → auto-reply runner → `runEmbeddedPiAgent` | gateway-orchestrated | **7 tools**: `[read, process, sessions_list, sessions_history, sessions_send, session_status, image]` |
+
+`scripts/probe-creator-tools.ts` (direct `tools.effective` RPC) also reported
+21 tools — so the gateway's **advertised** tool set was correct. The drop
+happened **inside the embedded runner** on the `chat.send` execution path.
+
+### Instrumentation
+
+Added three temporary `[sentura-debug]` logs to triangulate:
+
+1. `openclaw/src/agents/pi-embedded-runner/run/attempt.ts` — log `effectiveTools`
+   names handed to the LLM.
+2. `openclaw/src/agents/pi-tools.ts` — log tool counts at each upstream
+   filtering stage (`tools`, `memFlush`, `msgProv`, `modelProv`, `ownerAuth`).
+3. `openclaw/src/agents/tool-policy-pipeline.ts` — log before/after for every
+   policy step in `applyToolPolicyPipeline`.
+
+Forced the build via `rm -f dist/.buildstamp && touch src/agents/pi-tools.ts`
+(the `run-node.mjs` build detector keys off `.buildstamp`, not `build-stamp.json`
+as an earlier note implied). Ran `scripts/probe-chat-send.ts` — a new probe
+that uses the gateway's `chat.send` RPC to match the exact dashboard flow —
+and read the logs from `/tmp/openclaw/openclaw-2026-04-19.log` (NOT
+`/tmp/gateway-latest.log`, which the watcher owns).
+
+### Root cause
+
+The `pi-tools` stages log showed **32 tools surviving all upstream filters**:
+
+```
+[sentura-debug] pi-tools stages agent=creator msgProvider=webchat
+  modelProvider=openai senderIsOwner=true allowGatewaySubagentBinding=true
+  tools=32 [...] memFlush=32 msgProv=32 modelProv=32 ownerAuth=32
+```
+
+So `messageProvider=webchat`, `senderIsOwner=true`, and
+`allowGatewaySubagentBinding=true` were all set correctly — earlier
+hypotheses about `params.toolsAllow` and `allowGatewaySubagentBinding=false`
+on the `chat.send` path were **incorrect**.
+
+The pipeline log then pinpointed the drop:
+
+```
+[sentura-debug] pipeline step="sandbox tools.allow" 21->7
+  remaining=[read,process,sessions_list,sessions_history,sessions_send,session_status,image]
+```
+
+The **sandbox tool policy** (not the agent-level allowlist) is a **separate
+filter** applied after agent `alsoAllow`. It is defined in
+`openclaw/src/agents/sandbox/` and seeded from two hardcoded constants in
+`constants.ts`:
+
+```ts
+export const DEFAULT_TOOL_ALLOW = [
+  "exec", "process", "read", "write", "edit", "apply_patch", "image",
+  "sessions_list", "sessions_history", "sessions_send", "sessions_spawn",
+  "sessions_yield", "subagents", "session_status",
+];
+export const DEFAULT_TOOL_DENY = ["browser", "canvas", "nodes", "cron", "gateway", ...CHANNEL_IDS];
+```
+
+`DEFAULT_TOOL_ALLOW` does not contain any plugin tool (no
+`sentura_agents_manage`, no `browser`, no `pdf`, no `canvas`, no `gateway`,
+etc.), and `DEFAULT_TOOL_DENY` explicitly blocks `gateway`, `browser`,
+`canvas`, `cron`. The agent-level `tools.alsoAllow` does **not** bleed into
+this layer — it only merges into the top-level `tools.allow` filter. So
+`sandbox tools.allow` was stripping every plugin tool Forge needed.
+
+This is a legitimate sandbox-security default (the sandbox is paranoid by
+design), but meta-agents like Forge need the plugin tools to do their job.
+The hook to re-allow them exists — `resolveSandboxToolPolicyForAgent` reads
+`tools.sandbox.tools.alsoAllow` from the agent config and
+`filterDefaultDenyForExplicitAllows` removes any explicitly-allowed tool
+from the default deny list — but the Creator's `config.json5` didn't use it.
+
+### Fix
+
+Added `tools.sandbox.tools.alsoAllow` to the Creator's agent config in
+both the source template and the deployed runtime config, mirroring the
+plugin tools from agent-level `tools.alsoAllow`:
+
+```json5
+// sentura/agents/creator/config.json5 — inside "tools": { ... }
+sandbox: {
+  tools: {
+    alsoAllow: [
+      "gateway", "sessions_send",
+      "web_search", "web_fetch", "browser", "pdf", "canvas",
+      "sentura_agents_manage", "sentura_rbac_manage", "sentura_audit_query",
+      "memory_search", "memory_get", "cron", "update_plan",
+      "image_generate", "video_generate",
+    ],
+  },
+},
+```
+
+Mirrored the same block into `~/.openclaw/openclaw.json` for the live
+`creator` agent so the next `chat.send` would pick it up without a config
+re-sync.
+
+Channel-like tools listed here (`gateway`, `browser`, `canvas`, `pdf`, `cron`)
+are **automatically removed from `DEFAULT_TOOL_DENY`** by
+`filterDefaultDenyForExplicitAllows`, so no deny-list edit is needed.
+
+### Verification
+
+After the config patch and a gateway restart, `probe-chat-send.ts` showed:
+
+```
+[sentura-debug] pipeline step="sandbox tools.allow" 21->21 (no change)
+[sentura-debug] attempt.effectiveTools agent=creator ... effective=21
+  names=[read,process,canvas,cron,image_generate,video_generate,gateway,
+         update_plan,sessions_list,sessions_history,sessions_send,
+         session_status,web_fetch,image,pdf,sentura_agents_manage,
+         sentura_rbac_manage,sentura_audit_query,browser,memory_search,
+         memory_get]
+```
+
+`scripts/probe-creator-tools.ts` re-run post-fix also confirmed 21 effective
+tools including `sentura_agents_manage` and `gateway`. The `[sentura-debug]`
+logs were then removed from `attempt.ts`, `pi-tools.ts`, and
+`tool-policy-pipeline.ts`.
+
+### Lessons
+
+- The gateway's `tools.effective` RPC is **not** identical to the tool list
+  the embedded runner's sandbox hands to the LLM. `tools.effective` answers
+  at the gateway layer; sandbox tool policy is a later filter inside
+  `runEmbeddedPiAgent`. Two different probes are needed when debugging:
+  `tools.effective` (gateway view) **and** a `chat.send`-driven debug log
+  (runner view).
+- `params.toolsAllow` in `attempt.ts` is a cron / subagent concern, not a
+  dashboard `chat.send` concern. Don't waste time there again.
+- `DEFAULT_TOOL_ALLOW` / `DEFAULT_TOOL_DENY` in `openclaw/src/agents/sandbox/
+  constants.ts` are the authoritative sandbox defaults. Any meta-agent that
+  needs plugin tools (Forge, Tuner, Orchestrator, MCP Builder) MUST set
+  `tools.sandbox.tools.alsoAllow` in its `config.json5`. Agent-level
+  `tools.alsoAllow` alone is not enough.
+- The build watcher keys off `openclaw/dist/.buildstamp` (not
+  `build-stamp.json`). Deleting the buildstamp + touching a source file is
+  the reliable way to force a rebuild during a watch session.
+
+## 2026-04-19 — Round 20 dashboard E2E smoke test: billing-support-rep deployed via `chat.send`
+
+After shipping the `tools.sandbox.tools.alsoAllow` fix, confirmed the dashboard
+path can now drive a full employee deployment end-to-end (the CLI probe from
+Round 19 was not sufficient — the user's explicit requirement was that the
+dashboard webchat path, which goes through gateway `chat.send`, must work).
+
+Wrote `scripts/deploy-billing-rep.ts` — a minimal gateway client that mimics
+the dashboard: `connect` → `sessions.create { agentId: "creator" }` →
+`chat.send { message, sessionKey }` → stream chat deltas until `chat.final`.
+Sent the billing-support-rep spec (id=`billing-support-rep`, model=GPT,
+channel=webchat, data=Stripe+Zendesk, hard rules block refunds/credits/
+subscription changes, escalate to Henry Zhang, tone=warm/concise).
+
+Before running: removed the prior `billing-support-rep` entry from
+`~/.openclaw/openclaw.json` and deleted `~/.openclaw/workspace/billing-support-rep/`
+to ensure a fresh deploy.
+
+Result: Forge autonomously ran the full 4-phase `sentura_agents_manage`
+sequence (`create_agent → write × 10 → register_agent → stamp_setup`).
+Verification:
+- `/tmp/gateway-latest.log` at 21:39:43 shows `effectiveTools=21` on the
+  dashboard `chat.send` path with `sentura_agents_manage` present (Round 20
+  fix holding).
+- `/tmp/gateway-latest.log` at 21:52:02 shows
+  `Config overwrite: /Users/henry/.openclaw/openclaw.json (sha256 ... -> ...)`
+  — the atomic write performed by `sentura_agents_manage { action: "register_agent" }`.
+- `~/.openclaw/workspace/billing-support-rep/` contains all 8 native files
+  (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md,
+  BOOTSTRAP.md, MEMORY.md) + `skills/billing-triage/SKILL.md` +
+  `skills/internal-note-taking/SKILL.md`. `AGENTS.md` carries the Hard Rules
+  exactly as specified (block refunds/credits/subscription+payment changes,
+  escalate to Henry Zhang for disputes/angry customers/high-risk billing).
+- `~/.openclaw/workspace/billing-support-rep/.openclaw/workspace-state.json`
+  has `setupCompletedAt` stamped (no bootstrap-pending state on first boot).
+- `~/.openclaw/openclaw.json → agents.list` contains the agent with
+  `model="openai/gpt-5.4"`, `runtime.type="embedded"`, `sandbox.mode="non-main"`,
+  `tools.profile="minimal"`, `tools.alsoAllow=[browser, memory_search,
+  memory_get]`, and the expected deny-list.
+
+The `deploy-billing-rep.ts` script reports `tool calls observed: 0` — that is
+a known limitation of the script's generic `tool.call` event listener, not a
+real failure. The gateway config-overwrite log + on-disk artifacts are the
+authoritative proof that `sentura_agents_manage` ran.
+
+Closes the dashboard deploy gap. `Verify dashboard Forge can call
+sentura_agents_manage` and `Have Forge deploy billing-support-rep from the
+dashboard` are both done.
+
+## 2026-04-19 — Round 20 follow-up: rollout to all meta-agents + setup scripts + doc hub
+
+**Owner:** D (shared because it touches all four meta-agents and the platform bootstrap scripts)
+
+**Context.** The Round 20 fix patched only the Creator (Forge) config. That was
+enough to unblock the dashboard billing-rep deploy, but it left three open
+problems: (a) Tuner/Orchestrator/MCP-Builder would still ship broken on a clean
+install; (b) re-running `bash scripts/sentura-setup.sh` would rewrite
+`~/.openclaw/openclaw.json` without re-injecting the sandbox allowlist,
+silently regressing Forge on the next setup; (c) the sandbox two-stage filter
+— which is the single most confusing OpenClaw concept we have hit so far — was
+not documented anywhere a new contributor would find it.
+
+**Changes.**
+
+1. Source `config.json5` updates (all three remaining meta-agents):
+   - `sentura/agents/tuner/config.json5` — added `tools.sandbox.tools.alsoAllow`
+     with 13 tools (`gateway`, `sessions_send`, `web_search`, `web_fetch`,
+     `sentura_agents_manage`, `sentura_rbac_manage`, `sentura_audit_query`,
+     `memory_search`, `memory_get`, `update_plan`, `pdf`, `canvas`, `cron`).
+   - `sentura/agents/orchestrator/config.json5` — added with 9 tools
+     (`sessions_send`, `sessions_spawn`, `subagents`, `web_search`, `web_fetch`,
+     `memory_search`, `memory_get`, `update_plan`, `cron`).
+   - `sentura/agents/mcp-builder/config.json5` — added with 11 tools (`gateway`,
+     `sessions_send`, `web_search`, `web_fetch`, `browser`, `pdf`, `canvas`,
+     `memory_search`, `memory_get`, `update_plan`, `cron`).
+   - Each block carries a comment pointing at `docs/SETUP.md § "Sandbox
+     tool-policy filter"` and `openclaw/src/agents/sandbox/constants.ts`.
+
+2. Setup-script parity (`scripts/sentura-setup.sh`, `scripts/sentura-setup.ps1`):
+   - Added four `*SandboxAlsoAllow` arrays (`creatorSandboxAlsoAllow`,
+     `tunerSandboxAlsoAllow`, `orchestratorSandboxAlsoAllow`,
+     `mcpBuilderSandboxAlsoAllow`) and wired them into the embedded Node
+     overrides block so every setup run patches `tools.sandbox.tools.alsoAllow`
+     for all four meta-agents.
+   - Extended `META_AGENTS` (`$MetaAgents` in PowerShell) from
+     `(creator tuner orchestrator)` → `(creator tuner orchestrator mcp-builder)`
+     so the new meta-agent's workspace is also bootstrapped and stamped.
+   - Verified idempotency by dry-running the embedded Node block against a mock
+     `openclaw.json` and by re-running `bash scripts/sentura-setup.sh` on the
+     live install and diffing `~/.openclaw/openclaw.json` — no drift on the
+     relevant keys.
+
+3. Documentation updates (the big one — this is what future contributors hit
+   first):
+   - `docs/SETUP.md` gained a new top-level section **"Sandbox tool-policy
+     filter"** that covers: why it matters (two-layer filtering in the
+     `non-main` sandbox), where it bites (CLI vs dashboard divergence and the
+     Round 20 outage), how setup fixes it (per-agent allowlist table with tool
+     counts), how to verify (re-run setup, `jq` query, `probe-chat-send.ts`),
+     and a checklist for new meta-agents. Also added MCP Builder to the "Key
+     Directories" list.
+   - `docs/OPENCLAW.md` § 12 "Security Model" gained **"Sandbox tool-policy
+     filter (dashboard vs CLI divergence)"** with the stage-1-vs-stage-2
+     pipeline explanation, the `DEFAULT_TOOL_ALLOW`/`DEFAULT_TOOL_DENY`
+     constants, the tool-count table (CLI 21 vs dashboard 7 without fix / 21
+     with fix), and a design-time checklist for capability authors.
+   - `docs/DESIGN.md` § 3 "AI Employee Model" gained **"Sandbox runtime —
+     two-stage tool-policy filter"** for the architectural rationale. Also
+     amended the AP Clerk code sample to include a `sandbox.tools.alsoAllow`
+     block and updated the § 15 Security Model row with a cross-reference.
+   - `README.md` "Key Documentation" block gained a one-paragraph blockquote
+     warning about the two-stage filter and linking to both SETUP.md and
+     OPENCLAW.md.
+
+4. Test matrix:
+   - `docs/TESTS.md` D14 expanded from 4 → 6 checks (source config for all four
+     meta-agents; live config mirrored; setup-script parity + idempotency;
+     gateway view; runner view; docs sync).
+   - `docs/tests/tests-person-d.md` D-SAND-01 kept as the detailed procedure.
+
+**Verification.**
+
+- All four source `config.json5` files parsed as valid JSON5 and contained the
+  expected `tools.sandbox.tools.alsoAllow` arrays (tool counts 16 / 13 / 9 /
+  11 for creator / tuner / orchestrator / mcp-builder).
+- `scripts/sentura-setup.sh` dry-run on the extracted Node block against a
+  mock `openclaw.json` produced the expected patched output.
+- Re-running the real `bash scripts/sentura-setup.sh` against the live install
+  left `~/.openclaw/openclaw.json` unchanged on the relevant keys (idempotent).
+- `jq '.agents.list[] | select(.id=="creator") | .tools.sandbox.tools.alsoAllow
+  | length' ~/.openclaw/openclaw.json` → `16`. Same shape verified for the
+  other three meta-agents.
+
+**Why this matters going forward.** Round 20 took a full day to diagnose
+because the CLI (`openclaw agent`) and the `tools.effective` RPC both lied by
+omission — they report the pre-sandbox view, so every probe in the investigation
+said "the tool is there" while every real dashboard session said "I don't have
+that tool." Making the two-stage filter a first-class concept in SETUP.md +
+OPENCLAW.md + DESIGN.md should prevent the next contributor from burning the
+same day. The setup-script rollout is the durable part — even if a meta-agent's
+source config is reverted, `bash scripts/sentura-setup.sh` restores the
+sandbox allowlist on the next run.
+
+## 2026-04-19 — Dashboard re-test prep: `billing-support-rep` artifacts removed, `deploy-billing-rep.ts` deleted
+
+### Context
+
+User requested: _"I want to remove anything about the newly generated AI
+employee and I want to start it over myself on dashboard to test it. Give me
+the prompt for creator to generate this as well. I see that you have this
+`scripts/deploy-billing-rep.ts` file, without this file will creator be able to
+do it? because I think that if we want to adapt to any company or enterprises,
+there are a lot of positions we need to generate, we can't write a script for
+all of those."_
+
+The Round 20 dashboard smoke test proved the two-stage sandbox tool-policy
+filter fix works from `chat.send`, and the evidence on disk (8 workspace files,
+stamped `setupCompletedAt`, `agents.list[id=billing-support-rep]` entry with
+the exact spec) demonstrated Forge deployed autonomously. The user now wants
+to re-validate the same path **from the dashboard UI itself**, without any
+helper script in the loop, to confirm that the product surface is what's
+working — not the probe.
+
+### Changes
+
+- **Runtime cleanup (host machine only, not in repo):**
+  - `rm -rf ~/.openclaw/workspace/billing-support-rep/` — all 8 native files +
+    `skills/` + `.openclaw/workspace-state.json` removed.
+  - `~/.openclaw/openclaw.json` → `agents.list` filtered to remove the
+    `billing-support-rep` entry (backup kept at `~/.openclaw/openclaw.json.bak.pre-bsr-removal`).
+    Post-removal `agents.list` is exactly the 5 baseline ids: `main`,
+    `creator`, `tuner`, `orchestrator`, `mcp-builder`.
+- **Repo cleanup:**
+  - `scripts/deploy-billing-rep.ts` deleted. Rationale: it was a one-shot
+    dashboard-path probe (raw `connect → sessions.create → chat.send`) used to
+    prove the Round 20 fix worked end-to-end. It was never part of the product
+    surface. Keeping it in the repo was misleading — it implies each employee
+    needs its own script, which is the opposite of what Sentura is for.
+- **Historical memory preserved per `.cursorrules` rule 1 (append-only):**
+  `docs/MEMORY.md` 2026-04-19 rows, the Round 20 E2E section above in this
+  file, and all test-case snippets in `docs/TESTS.md` / `docs/tests/tests-person-d.md`
+  still reference `billing-support-rep` as factual audit log. Do not rewrite.
+
+### Why this matters
+
+This confirms the Sentura value proposition: **Creator deploys any role from a
+natural-language spec, no per-employee code required.** The 4-call
+`sentura_agents_manage` sequence (`create_agent → write ×N → register_agent →
+stamp_setup`) is driven by Forge's LLM from the dashboard chat — same path for
+a billing rep, a procurement clerk, a compliance analyst, or any of the
+dozens of roles a typical enterprise needs. The only per-role artifact is the
+natural-language prompt the operator sends Creator. If a future contributor
+catches themselves writing a `deploy-<role>.ts` script, that is a sign that
+something regressed in Creator — debug that, don't ship the script.
+
+### Next verification (operator-driven, not logged here)
+
+1. Open the dashboard, select `creator`.
+2. Paste the Billing Support Rep prompt (see assistant's reply on the same
+   session — verbatim prompt designed to exercise the full 4-call sequence).
+3. Expect Forge to reply `DEPLOYED create_agent, write, register_agent,
+   stamp_setup` (or equivalent) and for `~/.openclaw/workspace/billing-support-rep/`
+   + `agents.list[id=billing-support-rep]` to reappear on disk without any
+   script being run.

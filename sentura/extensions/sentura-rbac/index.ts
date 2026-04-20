@@ -2,9 +2,13 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { definePluginEntry, resolveOpenClawDir, type OpenClawPluginApi } from "./api.js";
 import { Authorizer } from "./src/authorizer.js";
+import { withRbac } from "./src/middleware.js";
 import { ROLE_DEFINITIONS, getOperatorScopesForRole } from "./src/roles.js";
 import { RbacStore } from "./src/store.js";
 import type { RbacConfig, SenturaRole, SenturaUser } from "./src/types.js";
+
+export { withRbac, createImperativeAuthorize, resolveActorUser } from "./src/middleware.js";
+export type { HandlerArgs, MiddlewareOptions, RbacHandler, GuardedHandler } from "./src/middleware.js";
 
 function resolveConfig(pluginConfig: Record<string, unknown>): RbacConfig {
   const raw = pluginConfig as Partial<RbacConfig>;
@@ -57,54 +61,80 @@ export default definePluginEntry({
       }
     });
 
-    // --- Gateway RPC: Assign role ---
-    api.registerGatewayMethod("sentura.rbac.users.assign", async ({ params, respond }) => {
-      try {
-        const userId = params?.userId as string;
-        const role = params?.role as SenturaRole;
-        if (!userId || !role) {
-          respond(false, undefined, { code: "BAD_REQUEST", message: "userId and role are required" });
-          return;
-        }
-        const success = await store.assignRole(userId, role);
-        if (success) {
-          respond(true, { success: true, operatorScopes: getOperatorScopesForRole(role) });
-        } else {
-          respond(false, undefined, { code: "NOT_FOUND", message: "User not found" });
-        }
-      } catch (err) {
-        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
-      }
-    });
+    // --- Gateway RPC: Assign role (RBAC-guarded — requires users:write permission) ---
+    // NOTE: `actorId` identifies the caller, `userId` identifies the target.
+    api.registerGatewayMethod(
+      "sentura.rbac.users.assign",
+      withRbac(
+        authorizer,
+        store,
+        {
+          method: "sentura.rbac.users.assign",
+          enforce: config.enforceOnPluginMethods,
+          userIdField: "actorId",
+        },
+        async ({ params, respond }) => {
+          try {
+            const userId = params?.userId as string;
+            const role = params?.role as SenturaRole;
+            if (!userId || !role) {
+              respond(false, undefined, { code: "BAD_REQUEST", message: "userId and role are required" });
+              return;
+            }
+            const success = await store.assignRole(userId, role);
+            if (success) {
+              respond(true, { success: true, operatorScopes: getOperatorScopesForRole(role) });
+            } else {
+              respond(false, undefined, { code: "NOT_FOUND", message: "User not found" });
+            }
+          } catch (err) {
+            respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+          }
+        },
+      ),
+    );
 
-    // --- Gateway RPC: Upsert user (auto-assigns userToken on creation) ---
-    api.registerGatewayMethod("sentura.rbac.users.upsert", async ({ params, respond }) => {
-      try {
-        const userData = params as unknown as Partial<SenturaUser>;
-        if (!userData?.id || !userData?.email) {
-          respond(false, undefined, { code: "BAD_REQUEST", message: "id and email are required" });
-          return;
-        }
-        const now = new Date().toISOString();
-        const existing = await store.getUser(userData.id);
-        const user: SenturaUser = {
-          id: userData.id,
-          email: userData.email,
-          name: userData.name ?? userData.email,
-          role: userData.role ?? existing?.role ?? config.defaultRole,
-          userToken: existing?.userToken ?? crypto.randomUUID(),
-          departmentIds: userData.departmentIds ?? existing?.departmentIds ?? [],
-          ownedEmployeeIds: userData.ownedEmployeeIds ?? existing?.ownedEmployeeIds ?? [],
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-          metadata: userData.metadata ?? existing?.metadata ?? {},
-        };
-        await store.upsertUser(user);
-        respond(true, { user });
-      } catch (err) {
-        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
-      }
-    });
+    // --- Gateway RPC: Upsert user (RBAC-guarded — requires users:create permission) ---
+    // NOTE: `actorId` identifies the caller; the user payload is the target.
+    api.registerGatewayMethod(
+      "sentura.rbac.users.upsert",
+      withRbac(
+        authorizer,
+        store,
+        {
+          method: "sentura.rbac.users.create",
+          enforce: config.enforceOnPluginMethods,
+          userIdField: "actorId",
+        },
+        async ({ params, respond }) => {
+          try {
+            const userData = params as unknown as Partial<SenturaUser>;
+            if (!userData?.id || !userData?.email) {
+              respond(false, undefined, { code: "BAD_REQUEST", message: "id and email are required" });
+              return;
+            }
+            const now = new Date().toISOString();
+            const existing = await store.getUser(userData.id);
+            const user: SenturaUser = {
+              id: userData.id,
+              email: userData.email,
+              name: userData.name ?? userData.email,
+              role: userData.role ?? existing?.role ?? config.defaultRole,
+              userToken: existing?.userToken ?? crypto.randomUUID(),
+              departmentIds: userData.departmentIds ?? existing?.departmentIds ?? [],
+              ownedEmployeeIds: userData.ownedEmployeeIds ?? existing?.ownedEmployeeIds ?? [],
+              createdAt: existing?.createdAt ?? now,
+              updatedAt: now,
+              metadata: userData.metadata ?? existing?.metadata ?? {},
+            };
+            await store.upsertUser(user);
+            respond(true, { user });
+          } catch (err) {
+            respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+          }
+        },
+      ),
+    );
 
     // --- Gateway RPC: Resolve user by token (for WebSocket auth) ---
     api.registerGatewayMethod("sentura.rbac.users.resolveByToken", async ({ params, respond }) => {

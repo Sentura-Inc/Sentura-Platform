@@ -1,7 +1,7 @@
 {
   "id": "sentura-rbac",
   "name": "Sentura RBAC",
-  "description": "Enterprise role-based access control — enforces five-role permission model (Platform Admin, Dept Admin, Employee Owner, Auditor, End User) across all gateway RPC methods with department and ownership scoping.",
+  "description": "Enterprise role-based access control — enforces seven-role permission model (Platform Admin, Manager, EKG Manager, Agent Manager, Auditor, End User, Viewer) across all gateway RPC methods with department and ownership scoping.",
   "enabledByDefault": true,
   "contracts": {
     "tools": ["sentura_rbac_manage"]
@@ -16,14 +16,22 @@
       },
       "defaultRole": {
         "type": "string",
-        "enum": ["platform_admin", "dept_admin", "employee_owner", "auditor", "end_user"],
+        "enum": [
+          "platform_admin",
+          "manager",
+          "ekg_manager",
+          "agent_manager",
+          "auditor",
+          "end_user",
+          "viewer"
+        ],
         "default": "end_user",
         "description": "Default role for new users without explicit assignment"
       },
       "enforceOnPluginMethods": {
         "type": "boolean",
         "default": true,
-        "description": "Whether to enforce RBAC on plugin-registered gateway methods (sentura.audit.*, etc.)"
+        "description": "Whether to enforce RBAC on plugin-registered gateway methods (sentura.audit.*, sentura.mcp.*, etc.)"
       }
     }
   }

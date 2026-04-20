@@ -16,7 +16,7 @@ Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise
 
 ### Core Principles
 
-- **OpenClaw at the core** — every AI employee is a configured OpenClaw agent. No custom runtime. 86 extensions, 40+ providers, 22+ channels.
+- **OpenClaw at the core** — every AI employee is a configured OpenClaw agent. No custom runtime. 107 bundled extensions, 37+ AI providers, 22+ channels (as of OpenClaw `2026.4.19-beta.2`).
 - **No-code everything** — enterprise users create and manage AI employees through natural language.
 - **Self-provisioning** — AI employees autonomously register for services and configure integrations using browser automation, structured skills, approval workflows, and error recovery.
 - **Flexible deployment** — cloud, on-premise, or hybrid; cloud LLMs or self-hosted (Ollama / vLLM / SGLang).
@@ -59,13 +59,13 @@ OpenClaw is a mature personal AI assistant platform providing runtime, channels,
 ### What OpenClaw Provides (That We Leverage As-Is)
 
 - **22+ messaging channels** (Slack, Teams, WhatsApp, Discord, Telegram, Signal, Matrix, and more)
-- **40+ AI provider integrations** (OpenAI, Anthropic, Google, Ollama, vLLM, and more)
+- **37+ AI provider integrations** (OpenAI, Anthropic, Google, Ollama, vLLM, SGLang, Mistral, Groq, and more — see `docs/OPENCLAW.md §21`)
 - **Agent tool system** (30+ built-in tools: browser, search, fetch, PDF, canvas, exec, cron, etc.)
 - **Gateway server** with HTTP + WebSocket JSON-RPC protocol
 - **Config system** with hot-patchable JSON5, Zod validation, `config.patch` RPC
 - **Memory system** (LanceDB vector embeddings, dreaming/consolidation)
 - **Cron scheduler** for recurring autonomous tasks
-- **Plugin SDK** with 86 bundled extensions and typed contracts
+- **Plugin SDK** (`@openclaw/plugin-sdk`, monorepo package under `openclaw/packages/plugin-sdk/`) with 107 bundled extensions and typed contracts
 - **Security primitives** (tool denylists, sandbox mode, SSRF guards, path safety, audit logging)
 - **Exec approval system** (`exec.approval.*`, `plugin.approval.*` RPC)
 - **Subagent spawning** with depth limits and isolated sessions
@@ -109,7 +109,7 @@ Do NOT substitute these without explicit approval.
 
 | Component | Technology |
 |-----------|-----------|
-| **Runtime** | Node.js 22+ (ESM, TypeScript) |
+| **Runtime** | Node.js 24 (recommended) or Node 22.16+ — ESM, TypeScript (matches OpenClaw `2026.4.19-beta.2` engines) |
 | **Gateway** | Hono (HTTP) + ws (WebSocket) |
 | **Agent core** | `@mariozechner/pi-agent-core` |
 | **Configuration** | JSON5 + Zod validation + JSON Schema |
@@ -148,11 +148,17 @@ Do NOT substitute these without explicit approval.
 
 ```
 Sentura-Platform/
-├── openclaw/                      # OpenClaw core (submodule or local install)
-│   ├── src/                       # Core TypeScript source
-│   ├── extensions/                # 86 plugin extensions
+├── openclaw/                      # OpenClaw core (pnpm monorepo, v2026.4.19-beta.2)
+│   ├── src/                       # Core TypeScript source (gateway, agents, config, mcp, …)
+│   ├── extensions/                # 107 plugin extensions (channels, providers, tools, memory)
+│   ├── packages/                  # pnpm workspace packages
+│   │   ├── plugin-sdk/            # @openclaw/plugin-sdk (stable public API for extensions)
+│   │   ├── memory-host-sdk/       # @openclaw/memory-host-sdk (memory engine host interface)
+│   │   └── plugin-package-contract/ # @openclaw/plugin-package-contract
+│   ├── apps/                      # Native companion apps (macos/, ios/, android/, shared/)
+│   ├── Swabble/                   # Swift package (shared Swift surface)
 │   ├── skills/                    # Bundled skills
-│   └── ui/                        # Control UI (Lit web components)
+│   └── ui/                        # Control UI (Lit web components, also a workspace package)
 │
 ├── sentura/                       # Sentura control plane
 │   ├── agents/                    # Meta-agents (each uses the 8 native workspace files)
@@ -283,3 +289,5 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`ekg/*`](ekg/) | GradSale reference enterprise docs | When building MCP servers or integration skills |
 
 > **Contributors**: update `docs/TESTS.md` whenever you add, change, or remove testable deliverables. See `.cursorrules` rule 3.
+
+> **Deploying a new meta-agent or sandboxed employee?** The `non-main` sandbox applies a **second** tool-policy filter after the agent-level one — plugin tools (`sentura_*`, `memory_*`, `update_plan`, `web_fetch`, `pdf`, `canvas`, `cron`, channels) disappear from the dashboard `chat.send` path unless you also set `tools.sandbox.tools.alsoAllow` in the agent config. The CLI will still show the full toolset, so don't trust CLI-only verification. See [`docs/SETUP.md` § "Sandbox tool-policy filter"](docs/SETUP.md) and [`docs/OPENCLAW.md` § "Sandbox tool-policy filter (dashboard vs CLI divergence)"](docs/OPENCLAW.md).

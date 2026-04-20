@@ -4,6 +4,7 @@ import path from "node:path";
 export {
   definePluginEntry,
   type OpenClawPluginApi,
+  type OpenClawConfig,
 } from "openclaw/plugin-sdk/plugin-entry";
 
 /**

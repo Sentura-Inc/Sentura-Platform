@@ -10,7 +10,7 @@ This skill produces an **in-memory design bundle** that Phase 4 will write to di
 
 - `config` — agent config entry to be patched into `agents.list`
 - `bindings` — channel binding entries
-- `mcp` — MCP server references to add to `mcp.servers.entries`
+- `mcp` — MCP server references to add to `mcp.servers` (OpenClaw-native path — see Step 5)
 - `workspaceFiles` — the 10 standard markdown files as strings
 - `skills` — map of `{skillName: SKILL.md content}`
 - `ekgFiles` — structured EKG files (from industry ontology + role-specific additions)
@@ -81,15 +81,13 @@ For each integration from Phase 1:
    - Tier 2 (Sentura-generated): `sentura/mcp-servers/*/` — existing scaffolds.
 2. If no coverage: this is a **deferral** — note that MCP Builder must create one. Phase 4 will trigger the MCP Builder Agent.
 
-Produce an `mcp` subsection for the design bundle:
+Produce an `mcp` subsection for the design bundle. The entry **must** live directly under `mcp.servers.<name>` — that is OpenClaw's native path, read by `openclaw/src/agents/embedded-pi-mcp.ts` (`normalizeConfiguredMcpServers(cfg.mcp?.servers)`). Do NOT nest under `mcp.servers.entries.<name>` — that shape is invisible to OpenClaw and the server will silently fail to spawn, leaving the employee with zero MCP tools.
 
 ```json5
 {
   mcp: {
     servers: {
-      entries: {
-        "{name}": { transport: "stdio", command: "node", args: [...], env: { /* $secret refs */ } },
-      },
+      "{name}": { transport: "stdio", command: "node", args: [...], env: { /* $secret refs */ } },
     },
   },
 }

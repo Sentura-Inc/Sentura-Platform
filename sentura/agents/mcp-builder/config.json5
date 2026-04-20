@@ -51,6 +51,31 @@
           // job. Only `sessions_spawn`/`subagents`/`sessions_yield` are denied
           // to prevent the Round-10 noop hallucination loop.
           deny: ["sessions_spawn", "subagents", "sessions_yield"],
+          // SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19). OpenClaw's non-main
+          // sandbox applies a SECOND tool filter after agent-level alsoAllow.
+          // Plugin tools (gateway, browser, pdf, canvas, memory_*, update_plan,
+          // cron, web_fetch, web_search) are stripped there unless re-added
+          // here. Without this block the dashboard `chat.send` path hands
+          // Socket a 7-tool toolset and MCP server scaffolding breaks. See
+          // docs/SETUP.md § "Sandbox tool-policy filter" and
+          // openclaw/src/agents/sandbox/constants.ts.
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "gateway",
+                "sessions_send",
+                "web_search",
+                "web_fetch",
+                "browser",
+                "pdf",
+                "canvas",
+                "memory_search",
+                "memory_get",
+                "update_plan",
+                "cron",
+              ],
+            },
+          },
         },
       }
     ]

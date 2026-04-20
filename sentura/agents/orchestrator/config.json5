@@ -17,6 +17,28 @@
         tools: {
           profile: "minimal",
           alsoAllow: ["sessions_send", "sessions_spawn", "web_search"],
+          // SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19). OpenClaw's non-main
+          // sandbox applies a SECOND tool filter after agent-level alsoAllow.
+          // Plugin tools (memory_*, update_plan, web_fetch, subagents, cron)
+          // are stripped there unless re-added here. Without this block the
+          // dashboard `chat.send` path hands Conductor a 6-tool toolset and it
+          // cannot orchestrate reliably. See docs/SETUP.md § "Sandbox
+          // tool-policy filter" and openclaw/src/agents/sandbox/constants.ts.
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "sessions_send",
+                "sessions_spawn",
+                "subagents",
+                "web_search",
+                "web_fetch",
+                "memory_search",
+                "memory_get",
+                "update_plan",
+                "cron",
+              ],
+            },
+          },
         },
       }
     ]

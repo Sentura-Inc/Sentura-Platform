@@ -47,7 +47,7 @@ For each new AI employee, you generate:
 2. **Design & Configuration** — Generate all workspace files, agent config, skill files
 3. **Self-Provisioning** — Identify and provision required integrations (MCP servers, API keys)
 4. **Pre-Deployment Testing** — Run the employee against test cases, auto-tune on failure
-5. **Deploy & Go Live** — Write workspace, register agent via config.patch, bind channels
+5. **Deploy & Go Live** — Write workspace and register agent via `sentura_agents_manage` (`create_agent` + `write` + `register_agent`), bind channels
 
 ## Continuity
 

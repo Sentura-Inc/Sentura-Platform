@@ -10,7 +10,7 @@
 4. [Self-Provisioning & Autonomous Tool Setup](#5-self-provisioning--autonomous-tool-setup)
 5. [Enterprise Knowledge Graph (EKG)](#6-enterprise-knowledge-graph-ekg)
 6. [Communication & Channels](#7-communication--channels)
-7. [LLM Abstraction — 40+ Providers](#8-llm-abstraction--40-providers)
+7. [LLM Abstraction — 37+ Providers](#8-llm-abstraction--37-providers)
 8. [Safety, Guardrails & Human-in-the-Loop](#9-safety-guardrails--human-in-the-loop)
 9. [Memory Architecture](#10-memory-architecture)
 10. [Observability & Traceability](#11-observability--traceability)
@@ -42,7 +42,7 @@
 │  └─────────┬──────────────────┬──────────────────┬─────────────────────┘  │
 │            │                  │                  │                        │
 │  ┌─────────▼──────┐ ┌────────▼───────┐ ┌───────▼───────────────────┐      │
-│  │  AI EMPLOYEES  │ │  22+ CHANNELS  │ │  40+ LLM PROVIDERS        │      │
+│  │  AI EMPLOYEES  │ │  22+ CHANNELS  │ │  37+ LLM PROVIDERS        │      │
 │  │                │ │                │ │                           │      │
 │  │ ┌────────────┐ │ │ Slack          │ │ OpenAI    │ Ollama        │      │
 │  │ │ AP Clerk   │ │ │ MS Teams       │ │ Anthropic │ vLLM          │      │
@@ -117,6 +117,16 @@ Each AI employee maps to an entry in the `agents.list` array in the OpenClaw gat
           profile: "minimal",
           alsoAllow: ["web_search", "web_fetch", "pdf", "canvas", "cron", "message"],
           deny: ["exec", "gateway"],
+          // Sandbox second-stage filter (see § "Sandbox runtime — two-stage
+          // tool-policy filter" below). Any plugin tool that should remain
+          // visible inside the non-main sandbox MUST also be listed here —
+          // otherwise it is stripped silently on the dashboard `chat.send`
+          // path even though CLI sessions still see it.
+          sandbox: {
+            tools: {
+              alsoAllow: ["web_search", "web_fetch", "pdf", "canvas", "cron", "memory_search", "memory_get", "update_plan"],
+            },
+          },
         },
       }
     ]
@@ -231,6 +241,31 @@ When you receive an invoice (PDF, image, or forwarded email) from any channel.
 - ALWAYS flag invoices from unrecognized vendors
 - Request human approval for any payment to a new bank account
 ```
+
+### Sandbox runtime — two-stage tool-policy filter
+
+Every Sentura AI employee (and every meta-agent) runs with `sandbox.mode = "non-main"`. That protects the host but also means tool visibility is filtered **twice** before the agent's LLM ever sees the toolset. Skipping the second stage is the single most common reason a freshly-deployed employee looks broken — this section captures the contract so capability designers don't rediscover it through outages.
+
+**The two stages**
+
+1. **Agent-level pipeline.** Applies `tools.profile` (`coding` / `minimal` / …), `tools.allow`, `tools.alsoAllow`, and `tools.deny` from the agent config. Produces the "agent toolset."
+2. **Sandbox-level pipeline.** Intersects the agent toolset with hard-coded sandbox defaults in `openclaw/src/agents/sandbox/constants.ts`:
+    - `DEFAULT_TOOL_ALLOW` is narrow and filesystem-oriented: `exec, read, write, edit, apply_patch, process, image, sessions_list, sessions_history, sessions_send, session_status, subagents`.
+    - `DEFAULT_TOOL_DENY` removes the high-surface tools: `gateway, browser, canvas, cron, nodes`, plus every channel id.
+    - A second helper re-opens any channel-like deny entry that is explicitly re-added via `tools.sandbox.tools.alsoAllow`.
+
+**Why both Sentura plugin tools and OpenClaw plugin tools are affected.** `sentura_agents_manage`, `sentura_rbac_manage`, `sentura_audit_query`, `memory_search`, `memory_get`, `update_plan`, `web_fetch`, `web_search`, `pdf`, `image_generate`, `video_generate`, the channel tools — none of them are in `DEFAULT_TOOL_ALLOW`, so they are all stripped at stage 2 unless the config carries a matching `tools.sandbox.tools.alsoAllow`.
+
+**Dashboard vs CLI divergence.** This is the silent part. The `chat.send` gateway RPC (used by the dashboard webchat) activates the agent through the embedded runner and therefore goes through **both** stages. The direct CLI path (`openclaw agent --agent <id>`) and the `tools.effective` gateway RPC both report the pre-sandbox view. The result is that a freshly deployed employee can advertise 21 tools in every test you write and still behave as if it has 7 tools the moment a human talks to it through the dashboard. See `docs/OPENCLAW.md` § "Sandbox tool-policy filter (dashboard vs CLI divergence)" for the tool-count table and the Round 20 evidence trail.
+
+**Design-time contract for every new capability.**
+
+- When the capability requires plugin tools (Sentura-specific or OpenClaw-bundled), list them in both `tools.alsoAllow` *and* `tools.sandbox.tools.alsoAllow`.
+- Tools already present in `DEFAULT_TOOL_ALLOW` (`read`, `write`, `edit`, `exec`, `apply_patch`, `process`, `image`, `sessions_*`) do not need to be re-listed under `sandbox.tools.alsoAllow`.
+- Test the capability via the dashboard `chat.send` path, not just the CLI — the CLI will lie to you by design.
+- Meta-agents ship with this configuration out of the box (Creator, Tuner, Orchestrator, MCP Builder). The setup scripts (`scripts/sentura-setup.sh` / `.ps1`) patch it into `~/.openclaw/openclaw.json` on bootstrap, so re-running setup is idempotent and safe.
+
+This section is the architectural rationale; the operational commands live in `docs/SETUP.md` § "Sandbox tool-policy filter."
 
 ---
 
@@ -948,11 +983,11 @@ For tasks requiring multiple AI employees — "prepare the quarterly report" inv
 
 ---
 
-## 8. LLM Abstraction — 40+ Providers
+## 8. LLM Abstraction — 37+ Providers
 
 ### Provider Flexibility
 
-OpenClaw supports **40+ AI providers** out of the box. Sentura enterprises can choose any combination:
+OpenClaw `2026.4.19-beta.2` ships **37+ AI provider extensions** out of the box (see `docs/OPENCLAW.md §21` for the full catalog). Sentura enterprises can choose any combination:
 
 **Cloud Providers (API key-based)**:
 
@@ -968,7 +1003,7 @@ OpenClaw supports **40+ AI providers** out of the box. Sentura enterprises can c
 | Together | `together` | Open model hosting |
 | OpenRouter | `openrouter` | Multi-provider routing |
 | Amazon Bedrock | `amazon-bedrock` | AWS-native enterprises |
-| +25 more | Various | Specialized providers |
+| +20 more | Various | Specialized / regional providers (Qwen, DeepSeek, Moonshot, Qianfan, Volcengine, xAI, …) |
 
 **Self-Hosted (Local Inference)**:
 
@@ -1762,6 +1797,66 @@ EKG Manager uploads API docs via dashboard
 
 **Access control:** Only the `ekg_manager` role can trigger the MCP Builder, since it involves importing external API definitions into the platform's knowledge/tool layer.
 
+### Enterprise MCP Server Pattern
+
+Until the MCP Builder Agent is fully autonomous (Week 5+), Sentura contributors hand-write enterprise MCP servers following a stable three-step pattern. The reference implementation lives at [`sentura/mcp-servers/gradsale-admin/`](../sentura/mcp-servers/gradsale-admin/README.md) and wraps the GradSale admin API documented in `ekg/api-admin.md`.
+
+**Step 1 — API docs → tool registry.** Read the markdown API reference (or OpenAPI spec) and translate each endpoint into one entry in a `TOOLS: ToolDefinition[]` array. Each entry carries:
+
+```ts
+interface ToolDefinition<S extends RawShape> {
+  name: string;          // snake_case, prefixed with {vendor}_{surface}_ (e.g. gradsale_admin_)
+  title: string;         // short human-readable title shown in the MCP client UI
+  description: string;   // includes the HTTP endpoint for auditor traceability
+  endpoint: string;      // "VERB /api/path" — canonical link back to ekg/*.md
+  mutates: boolean;      // drives MCP destructiveHint + read-only filtering
+  inputShape: S;         // raw Zod shape (Record<string, ZodTypeAny>) — NOT z.object(...)
+  handler: (client, args) => Promise<unknown>;
+}
+```
+
+Two non-obvious rules:
+
+- **Raw shapes, not `z.object`.** The MCP SDK's `server.registerTool()` expects a `Record<string, ZodTypeAny>`, not a full `z.object()` — passing the latter breaks input validation silently. Cross-field validation (e.g. "rejectionReason is required when decision is 'rejected'") must live in the `handler`, not in a `.refine()`.
+- **`mutates` is load-bearing.** It is mirrored onto the MCP tool as `annotations.destructiveHint: true` so the Sentura approval extension can route write actions through HITL. Auditor/analyst personas set `readOnly: true` in the server's env config, which strips all mutating tools from the catalog entirely.
+
+**Step 2 — MCP server wiring.** A single `server.ts` loads config from env vars, instantiates an `McpServer`, and calls `server.registerTool()` for each entry in `listTools({ readOnly })`. The handler returns `{ content: [{ type: "text", text: JSON.stringify(result) }] }` on success or `{ isError: true, content: [...] }` on failure. All HTTP plumbing (JWT auth, timeouts, error envelopes) is isolated in a small `client.ts` so the tools remain thin facades.
+
+**Step 3 — `config.patch` into an employee.** Once the server exists, an AI employee picks it up via OpenClaw's `mcp.servers` config section — patched at runtime through the gateway RPC, never hand-edited in the agent's JSON5 file. The entry **must** live directly at `mcp.servers.<name>`; this is the exact path OpenClaw's MCP loader reads (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)` and `openclaw/src/config/mcp-config.ts` → `sourceConfig.mcp?.servers`). Any other nesting (a historically-mentioned `mcp.servers.entries.<name>` shape) is silently invisible to OpenClaw — the server never spawns and the employee appears to have no tools, with no runtime error. Spawn with `command: "node"` pointing at the compiled entry (`dist/index.js`) rather than `pnpm --filter ... start`; OpenClaw launches MCP servers as child processes, so going through `pnpm` adds an unnecessary parent process and pulls workspace resolution into every agent start.
+
+```ts
+await gateway.rpc("config.patch", {
+  scope: "agent",
+  agentId: "dispute-resolver",
+  patch: {
+    mcp: {
+      servers: {
+        "gradsale-admin": {
+          command: "node",
+          args: ["./sentura/mcp-servers/gradsale-admin/dist/index.js"],
+          env: {
+            GRADSALE_API_URL: "https://admin.gradsale.example",
+            GRADSALE_ADMIN_TOKEN: { $secret: "gradsale.admin_token" },
+            GRADSALE_READ_ONLY: "false",
+          },
+        },
+      },
+    },
+    tools: {
+      allow: ["gradsale_admin_*"],
+    },
+  },
+});
+```
+
+Three properties this pattern guarantees:
+
+1. **Auditability.** Every tool description carries its endpoint string, so any action in an approval queue or audit log can be traced back to exactly one line in `ekg/api-admin.md`.
+2. **Persona-shaped catalogs.** `GRADSALE_READ_ONLY=true` turns the same server into a safe tool bundle for analyst personas — no code change, no new agent config file.
+3. **Hermetic tests.** Because the HTTP client is injected, the same server can be connected to an MCP client via `InMemoryTransport` with a stubbed `fetch`, letting us write full "employee calls tool → tool hits API → employee sees response" integration tests that run in milliseconds.
+
+This pattern is what the MCP Builder Agent (Section 14, above) will eventually automate — the hand-written gradsale-admin server is both the proof-of-concept and the code template.
+
 ### The ACP Extension
 
 For advanced inter-agent communication, Sentura can leverage OpenClaw's `acpx` extension (Agent Client Protocol), which provides:
@@ -1782,7 +1877,7 @@ Sentura inherits OpenClaw's security layers and adds enterprise-grade controls:
 | Layer | OpenClaw Feature | Sentura Extension |
 |-------|-----------------|-------------------|
 | **Tool Policy** | Tool allowlists/denylists per agent | Per-department and per-role policies |
-| **Sandbox** | Docker sandbox for non-main agents | Mandatory sandboxing for all AI employees |
+| **Sandbox** | Docker sandbox for non-main agents + two-stage tool-policy filter (see § 3 "Sandbox runtime — two-stage tool-policy filter") | Mandatory sandboxing for all AI employees |
 | **DM Pairing** | Channel-level authentication | Enterprise SSO integration |
 | **Approval Workflows** | `exec.approval` system | HITL with escalation and timeout |
 | **Secret Management** | Encrypted secret store | Secret rotation, audit logging |

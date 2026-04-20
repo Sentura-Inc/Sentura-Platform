@@ -1,13 +1,13 @@
-> **On-demand reference — not read by default.** Consult when working on OpenClaw internals: extensions, gateway RPC, plugin SDK, channels, providers, memory, approvals, or hooks. Core agent loop is read by Sentura code via stable `openclaw/plugin-sdk/*` APIs only.
+> **On-demand reference — not read by default.** Consult when working on OpenClaw internals: extensions, gateway RPC, plugin SDK, channels, providers, memory, approvals, or hooks. Core agent loop is read by Sentura code via the stable `@openclaw/plugin-sdk` package (under `openclaw/packages/plugin-sdk/`) — never from OpenClaw's internal `src/` paths.
 
 # OpenClaw — Technical Reference Document
 
-> **Version analyzed:** `2026.4.4` (package.json)
+> **Version analyzed:** `2026.4.19-beta.2` (package.json)
 > **License:** MIT (Copyright 2025 Peter Steinberger)
 > **Repository:** `github.com/openclaw/openclaw`
-> **Runtime:** Node.js 22.14+ (24 recommended)
-> **Language:** TypeScript (ESM, strict mode, ES2023 target)
-> **Package manager:** pnpm 10.32.1
+> **Runtime:** Node.js 24 (recommended) or Node 22.16+ (engines declare `>=22.14.0`; README recommends 24)
+> **Language:** TypeScript (ESM, strict mode, ES2023 target) + Swift (Swabble package, native apps)
+> **Package manager:** pnpm 10.33.0 (pnpm workspaces: `.`, `ui`, `packages/*`, `extensions/*`)
 
 ---
 
@@ -41,24 +41,24 @@
 
 ## 1. Overview
 
-**OpenClaw** is an open-source, self-hosted **personal AI assistant** platform. It operates as a **multi-channel AI gateway** that receives messages from 22+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Matrix, MS Teams, IRC, etc.), routes them through configurable AI providers (OpenAI, Anthropic, Ollama, vLLM, 40+ providers), and delivers responses back to the originating channel.
+**OpenClaw** is an open-source, self-hosted **personal AI assistant** platform. It operates as a **multi-channel AI gateway** that receives messages from 22+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Matrix, MS Teams, IRC, etc.), routes them through configurable AI providers (OpenAI, Anthropic, Ollama, vLLM, 37+ providers), and delivers responses back to the originating channel.
 
 The product philosophy is **"the assistant, not the gateway."** The gateway is the control plane; the user experience is a personal AI assistant that lives across all your communication channels, runs on your own hardware, and supports voice, canvas rendering, browser automation, scheduled tasks, and multi-agent coordination.
 
 ### Core Capabilities
 
 - **22+ messaging channels** with unified conversation model
-- **40+ AI provider integrations** (cloud APIs + local inference)
+- **37+ AI provider integrations** (cloud APIs + local inference; see §21 for the full catalog)
 - **Agent tool system** with 30+ built-in tools (browser, canvas, cron, exec, file system, image generation, web search/fetch, session coordination)
 - **Subagent spawning** with depth limits and isolated sessions
 - **Cron scheduler** for persistent scheduled agent runs
 - **Memory system** with LanceDB vector embeddings and dreaming/consolidation
 - **Voice pipeline** (Wake Word, Talk Mode, TTS/STT on macOS/iOS/Android)
 - **Live Canvas** with A2UI (agent-driven visual workspace)
-- **MCP loopback server** for tool protocol interop
-- **Plugin SDK** with 86 bundled extensions
-- **Control UI** (web dashboard) + **WebChat** interface
-- **Native apps** for macOS, iOS, and Android
+- **MCP loopback server** + child-process stdio MCP servers configured via `mcp.servers.<name>`
+- **Plugin SDK** (`@openclaw/plugin-sdk`) with **107 bundled extensions**
+- **Control UI** (web dashboard, now a pnpm workspace package) + **WebChat** interface
+- **Native apps** for macOS, iOS, and Android, plus the `Swabble/` Swift package
 - **Multi-agent routing** (per-channel/account/peer agent isolation)
 
 ---
@@ -130,25 +130,28 @@ The product philosophy is **"the assistant, not the gateway."** The gateway is t
 
 ## 3. Directory Structure
 
+OpenClaw is now a **pnpm monorepo** (`pnpm-workspace.yaml` lists `.`, `ui`, `packages/*`, `extensions/*`). Top-level layout:
+
 ```
 openclaw/
 ├── openclaw.mjs              # CLI entry (bin wrapper, Node version check)
-├── package.json               # v2026.4.4, 86 plugin-sdk exports, 200+ scripts
+├── package.json               # v2026.4.19-beta.2, exports ./plugin-sdk/* from dist/plugin-sdk/
+├── pnpm-workspace.yaml        # pnpm monorepo definition
 ├── tsconfig.json              # ESM, NodeNext, strict, ES2023
 ├── Dockerfile                 # Multi-stage Node 24 bookworm build
 ├── docker-compose.yml         # Gateway + CLI services
 ├── render.yaml                # Render.com deployment config
 ├── openclaw.podman.env        # Podman environment template
 │
-├── src/                       # Core TypeScript source (93 top-level entries)
+├── src/                       # Core TypeScript source (root workspace `openclaw`)
 │   ├── entry.ts               # CLI entry point (respawn, profile, container target)
 │   ├── index.ts               # Library re-exports for programmatic use
-│   ├── agents/                # Agent tools factory, subagent control, tool types
+│   ├── agents/                # Agent tools factory, subagent control, embedded-pi-mcp loader
 │   ├── gateway/               # HTTP + WS server, protocol schemas, methods
-│   ├── config/                # Config loader, JSON5 I/O, Zod schemas, session store
+│   ├── config/                # Config loader, JSON5 I/O, Zod schemas, mcp-config.ts, types.mcp.ts
 │   ├── infra/                 # Platform infra (root resolution, env, updates, TLS, etc.)
 │   ├── channels/              # Channel plugin types, web channel, plugin contracts
-│   ├── plugin-sdk/            # Stable public API surface for extensions (342 files)
+│   ├── plugin-sdk/            # Source of the plugin SDK (compiled into dist/plugin-sdk)
 │   ├── plugins/               # Plugin runtime, registry, tool resolution
 │   ├── cli/                   # Commander program, subcommands, root help
 │   ├── commands/              # CLI command implementations
@@ -162,8 +165,8 @@ openclaw/
 │   ├── media-understanding/   # Vision/audio understanding pipeline
 │   ├── image-generation/      # Image generation tool + provider dispatch
 │   ├── video-generation/      # Video generation tool + provider dispatch
-│   ├── memory-host-sdk/       # Memory engine host interface
-│   ├── mcp/                   # MCP loopback server
+│   ├── memory-host-sdk/       # In-tree host interface (mirrors packages/memory-host-sdk)
+│   ├── mcp/                   # MCP loopback server + plugin-tools serve
 │   ├── hooks/                 # Lifecycle hooks (before_prompt_build, etc.)
 │   ├── flows/                 # Agent flow definitions
 │   ├── routing/               # Message routing logic
@@ -171,32 +174,40 @@ openclaw/
 │   ├── canvas-host/           # Canvas A2UI host
 │   ├── terminal/              # Terminal/PTY management
 │   ├── pairing/               # Device pairing protocol
-│   ├── shared/                # Shared utilities (70 files)
+│   ├── shared/                # Shared utilities
 │   ├── utils/                 # General utilities
 │   ├── logging/               # Structured logging (tslog)
 │   ├── types/                 # Shared type definitions
 │   ├── wizard/                # Setup wizard
 │   └── ...
 │
-├── extensions/                # 86 plugin extensions
-│   ├── slack/                 # Channel: Slack (defineChannelPluginEntry)
-│   ├── telegram/              # Channel: Telegram
-│   ├── whatsapp/              # Channel: WhatsApp
-│   ├── openai/                # Provider: OpenAI (definePluginEntry)
-│   ├── anthropic/             # Provider: Anthropic/Claude
-│   ├── ollama/                # Provider: Ollama (local)
-│   ├── memory-core/           # Memory: Core memory engine
-│   ├── memory-lancedb/        # Memory: LanceDB vector store
-│   ├── browser/               # Tool: Browser automation (Playwright)
-│   ├── acpx/                  # Tool: ACP runtime + MCP servers
-│   └── ... (86 total)
+├── packages/                  # pnpm workspace packages (NEW in this version)
+│   ├── plugin-sdk/            # @openclaw/plugin-sdk — stable public SDK surface (per-entry
+│   │                           #   exports resolve TypeScript to src/ and declarations to
+│   │                           #   dist/src/plugin-sdk/*.d.ts)
+│   ├── memory-host-sdk/       # @openclaw/memory-host-sdk — memory engine host interface
+│   │                           #   (./runtime, ./engine, ./engine-foundation, …)
+│   └── plugin-package-contract/ # @openclaw/plugin-package-contract — plugin package contract
+│                              #   shared between SDK and plugin manifests
 │
-├── ui/                        # Control UI (Vite + Lit web components)
-│   ├── package.json           # "openclaw-control-ui"
+├── extensions/                # 107 plugin extensions (channel / provider / memory / tool /
+│                              #   search / speech / infrastructure)
+│   ├── slack/  telegram/  whatsapp/  discord/  signal/  imessage/  msteams/  matrix/ …
+│   ├── openai/  anthropic/  google/  mistral/  groq/  ollama/  vllm/  sglang/ …
+│   ├── memory-core/  memory-lancedb/  memory-wiki/  active-memory/
+│   ├── browser/  acpx/  firecrawl/  tavily/  exa/  brave/  duckduckgo/ …
+│   ├── speech-core/  elevenlabs/  deepgram/  tts/  voice-call/  talk-voice/
+│   ├── image-generation-core/  video-generation-core/  media-understanding-core/
+│   ├── diagnostics-otel/  device-pair/  webhooks/  qa-lab/  qa-matrix/  qa-channel/
+│   └── …  (see §21 for the full catalog)
+│
+├── ui/                        # Control UI (Vite + Lit web components, now a pnpm workspace
+│                              #   package — "openclaw-control-ui")
+│   ├── package.json
 │   ├── src/
 │   │   ├── main.ts            # UI entry
 │   │   ├── ui/                # App shell, views, controllers, gateway client
-│   │   ├── i18n/              # Internationalization (en, de, es, zh-CN, zh-TW, pt-BR)
+│   │   ├── i18n/              # en, de, es, zh-CN, zh-TW, pt-BR
 │   │   └── styles/            # CSS modules
 │   └── vite.config.ts
 │
@@ -206,12 +217,17 @@ openclaw/
 │   ├── android/               # Android app (Kotlin, Gradle)
 │   └── shared/OpenClawKit/    # Shared Swift kit (protocol, Canvas, Talk, pairing)
 │
+├── Swabble/                   # Standalone Swift package (Package.swift, Sources/, Tests/)
+│                              #   shared Swift surface separate from apps/shared
+│
 ├── skills/                    # Bundled skill definitions
-├── docs/                      # Documentation (700+ files, English + zh-CN)
+├── docs/                      # Documentation (English + zh-CN)
 ├── scripts/                   # Build, release, CI, deployment scripts
 ├── test/                      # Integration/architecture tests
 └── git-hooks/                 # Pre-commit hooks
 ```
+
+**Monorepo migration notes:** the SDK used to be imported from `openclaw/plugin-sdk/*` (subpath exports of the root package). As of `2026.4.19-beta.2` the same subpath exports still work (package.json resolves `./plugin-sdk/*` to `dist/plugin-sdk/*`), **and** a parallel workspace package `@openclaw/plugin-sdk` exists under `packages/plugin-sdk/` that exposes the same surface with per-entry exports (`./core`, `./acp-runtime`, `./browser-config-runtime`, `./approval-runtime`, …). Sentura code should keep importing from `openclaw/plugin-sdk/*` — do NOT reach into `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly.
 
 ---
 
@@ -223,8 +239,8 @@ openclaw/
 openclaw (bin) → openclaw.mjs → dist/entry.js → src/entry.ts
 ```
 
-**`openclaw.mjs`** (181 lines):
-- Validates Node.js version (>=22.14)
+**`openclaw.mjs`** (CLI bin wrapper):
+- Validates Node.js version (engines declare `>=22.14.0`; Node 24 recommended, Node 22.16+ supported)
 - Enables compile cache
 - Handles fast-path `--help` via precomputed metadata
 - Imports `dist/entry.js` or `dist/entry.mjs`
@@ -241,6 +257,20 @@ openclaw (bin) → openclaw.mjs → dist/entry.js → src/entry.ts
 - Library mode re-exports (`loadConfig`, `resolveStorePath`, `monitorWebChannel`, etc.)
 - Only loads library modules when **not** running as main (avoids CLI side-effects)
 - Legacy CLI entry function `runLegacyCliEntry` for backward compat
+
+### Per-workspace bootstrap state (`resolveWorkspaceBootstrapStatus`)
+
+Defined in `openclaw/src/agents/workspace.ts`. A workspace is considered **complete** if either:
+
+1. `<workspace>/.openclaw/workspace-state.json` contains a non-empty `setupCompletedAt` string, OR
+2. `<workspace>/BOOTSTRAP.md` does **not** exist.
+
+Otherwise it is **pending**. When a workspace is pending:
+
+- The runtime injects a `[Bootstrap pending]` prefix into every turn's user prompt.
+- Non-primary runs (sessions spawned via gateway RPC — e.g. the dashboard) are forced into **limited mode**, which causes agents to refuse destructive or deployment actions.
+
+The OpenClaw-native escape from this state is for the agent to delete `BOOTSTRAP.md` during its first run. **Sentura diverges here**: `BOOTSTRAP.md` is permanent because it hosts `## Enterprise Context`. `scripts/sentura-setup.sh` / `scripts/sentura-setup.ps1` stamp `setupCompletedAt` into each meta-agent workspace instead. See `docs/SETUP.md` § "Meta-agent bootstrap convention" and `docs/workspace-convention.md` § 7 for the full reasoning.
 
 ---
 
@@ -366,9 +396,18 @@ Tools implement `execute(toolCallId, args)` returning structured results (`jsonR
 
 ## 7. Plugin SDK & Extension System
 
-### Plugin SDK (`src/plugin-sdk/`)
+### Plugin SDK
 
-The plugin SDK is the **stable public API** for extensions. It exposes 100+ sub-path exports from `package.json`:
+As of `2026.4.19-beta.2` the plugin SDK lives in two places that expose the **same public API**:
+
+| Location | Package name | Used by |
+|----------|--------------|---------|
+| `openclaw/packages/plugin-sdk/` | `@openclaw/plugin-sdk` (private workspace package) | Internal workspace packages and extensions inside the OpenClaw monorepo (via pnpm workspace linking). |
+| `openclaw/src/plugin-sdk/` → compiled to `openclaw/dist/plugin-sdk/` | Re-exported from the root `openclaw` package as subpath exports `./plugin-sdk/*` | External consumers (including Sentura). |
+
+**Sentura rule:** always import from `openclaw/plugin-sdk/...` (the root package's subpath exports). Never import from `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly — those are build-time paths that change between versions.
+
+The SDK exposes 100+ sub-path exports:
 
 ```
 openclaw/plugin-sdk              — Core SDK types and interfaces
@@ -672,6 +711,35 @@ exec, spawn, shell, fs_*, apply_patch, sessions_spawn,
 sessions_send, cron, gateway, nodes, whatsapp_login, ...
 ```
 
+### Sandbox tool-policy filter (dashboard vs CLI divergence)
+
+OpenClaw applies tool policy in **two** stages when an agent runs in `sandbox.mode = "non-main"`:
+
+1. **Agent-level pipeline** (`openclaw/src/agents/tool-policy.ts` + `tool-policy-pipeline.ts`). Reads `agent.tools.profile`, `agent.tools.allow`, `agent.tools.alsoAllow`, `agent.tools.deny` and produces the "agent toolset".
+2. **Sandbox-level pipeline** (`openclaw/src/agents/sandbox/tool-policy.ts`). Intersects the agent toolset with the hardcoded constants in `openclaw/src/agents/sandbox/constants.ts`:
+    - `DEFAULT_TOOL_ALLOW` = `{exec, read, write, edit, apply_patch, process, image, sessions_list, sessions_history, sessions_send, session_status, subagents}` (narrow on purpose).
+    - `DEFAULT_TOOL_DENY` = `{gateway, browser, canvas, cron, nodes, <every channel id>}`.
+    - `filterDefaultDenyForExplicitAllows` removes a channel-like deny entry if it is re-added via `tools.sandbox.tools.alsoAllow`.
+
+The critical consequence: **agent-level `tools.alsoAllow` does NOT bleed into the sandbox filter.** Plugin tools (`sentura_agents_manage`, `sentura_rbac_manage`, `sentura_audit_query`, `memory_search`, `memory_get`, `update_plan`, `web_fetch`, `web_search`, `pdf`, `image_generate`, `video_generate`) vanish at stage 2 unless re-listed under `tools.sandbox.tools.alsoAllow`.
+
+**Why this matters for entry points:**
+
+| Entry point | Goes through sandbox filter? | Visible tool count (Forge, 2026-04-19) |
+|-------------|:---------------------------:|----------------------------------------|
+| CLI: `openclaw agent --agent creator` | No (main-process path) | 21 (full toolset) |
+| Gateway RPC: `tools.effective` | No (reports pre-sandbox view) | 21 |
+| Dashboard webchat: `chat.send` RPC | **Yes** (embedded runner) | 7 without the fix, 21 with it |
+| `sessions.send` (cross-session) | **Yes** if target agent is `non-main` | same as dashboard |
+
+This is why the Sentura debug cycle that was stuck for a full day (Creator deployment Rounds 15–19) looked like two contradictory worlds: every CLI probe said "the tool is there" while every dashboard chat said "I don't have `sentura_agents_manage`." Round 20 resolved it by adding `tools.sandbox.tools.alsoAllow` to every meta-agent. See `docs/SETUP.md` § "Sandbox tool-policy filter" for the per-agent allowlists and verification command, and `docs/memory/shared/creator-deployment-rounds-1-14.md` for the full postmortem.
+
+**Checklist when adding or modifying a sandboxed agent:**
+
+1. Agent-level `tools.alsoAllow` — tools the agent should be able to see and plan around.
+2. Sandbox-level `tools.sandbox.tools.alsoAllow` — MUST list every plugin tool from step 1 that is not already in `DEFAULT_TOOL_ALLOW`. Channel-like entries listed here are automatically exempted from `DEFAULT_TOOL_DENY`.
+3. Verify from the dashboard session, not only the CLI — run `tools.effective` via the gateway **and** send an actual `chat.send` before declaring the wiring correct.
+
 ### Security Layers
 
 | Layer | Mechanism |
@@ -740,9 +808,9 @@ Two-extension memory system:
 - Similarity search for memory recall
 - Configurable embedding dimensions and models
 
-### Memory Host SDK (`src/memory-host-sdk/`)
+### Memory Host SDK (`packages/memory-host-sdk/` → `@openclaw/memory-host-sdk`, mirrored in `src/memory-host-sdk/`)
 
-Host interface for memory engines:
+Host interface for memory engines. The package exposes per-entry exports: `./runtime`, `./runtime-core`, `./runtime-cli`, `./runtime-files`, `./engine`, `./engine-foundation`, and the additional host sub-modules listed below:
 - `memory-core-engine-runtime` — engine lifecycle
 - `memory-core-host-engine-embeddings` — embedding operations
 - `memory-core-host-engine-foundation` — foundation model calls
@@ -1018,6 +1086,10 @@ Multiple project-scoped Vitest configs aggregated in `vitest.config.ts`:
 
 ## 21. Complete Extension Catalog
 
+`openclaw/extensions/` contains **107 extension directories** in the `2026.4.19-beta.2` cut (count via `ls -d openclaw/extensions/*/ | wc -l`). The tables below group them by role and reflect what shipped in this release. The directory also contains shared tsconfig fragments (`tsconfig.package-boundary.base.json`, `tsconfig.package-boundary.paths.json`), a `shared/` helpers directory, and a couple of live-test files (`music-generation-providers.live.test.ts`, `video-generation-providers.live.test.ts`) which are **not** extensions.
+
+**New extensions since `2026.4.4`:** `active-memory`, `alibaba`, `amazon-bedrock-mantle`, `arcee`, `codex`, `comfy`, `fireworks`, `image-generation-core`, `lmstudio`, `media-understanding-core`, `memory-wiki`, `qa-channel`, `qa-lab`, `qa-matrix`, `runway`, `speech-core`, `video-generation-core`, `voyage`, `vydra`, `webhooks`. Always re-derive from the directory rather than trusting this list — it is maintained best-effort.
+
 ### Messaging Channels (22 extensions)
 
 | Extension | ID | Channel |
@@ -1140,76 +1212,73 @@ Multiple project-scoped Vitest configs aggregated in `vitest.config.ts`:
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| `hono` | 4.12.10 | HTTP framework (gateway) |
+| `hono` | 4.12.14 (pinned via pnpm overrides) | HTTP framework (gateway) |
 | `ws` | ^8.20.0 | WebSocket server |
 | `commander` | ^14.0.3 | CLI framework |
 | `zod` | ^4.3.6 | Schema validation |
 | `@sinclair/typebox` | 0.34.49 | JSON Schema types |
 | `ajv` | ^8.18.0 | JSON Schema validation |
 | `@modelcontextprotocol/sdk` | 1.29.0 | MCP protocol support |
-| `@mariozechner/pi-agent-core` | 0.65.0 | Agent runtime core |
-| `@mariozechner/pi-tui` | 0.65.0 | Terminal UI framework |
-| `@agentclientprotocol/sdk` | 0.18.0 | ACP protocol support |
+| `@mariozechner/pi-agent-core` | 0.67.68 | Agent runtime core |
+| `@mariozechner/pi-tui` | 0.67.68 | Terminal UI framework |
+| `@agentclientprotocol/sdk` | 0.19.0 | ACP protocol support |
 | `matrix-js-sdk` | 41.3.0 | Matrix protocol |
 | `playwright-core` | 1.59.1 | Browser automation |
 | `sharp` | ^0.34.5 | Image processing |
 | `pdfjs-dist` | ^5.6.205 | PDF processing |
 | `sqlite-vec` | 0.1.9 | Vector similarity (SQLite) |
-| `markdown-it` | ^14.1.1 | Markdown parsing |
-| `@line/bot-sdk` | ^10.6.0 | LINE API |
+| `markdown-it` | 14.1.1 | Markdown parsing |
 | `croner` | ^10.0.1 | Cron expression parser |
 | `chokidar` | ^5.0.0 | File watching |
-| `dotenv` | ^17.4.0 | Environment variables |
+| `dotenv` | ^17.4.2 | Environment variables |
 | `yaml` | ^2.8.3 | YAML parsing |
-| `undici` | ^8.0.0 | HTTP client |
+| `undici` | 8.1.0 | HTTP client |
 | `tslog` | ^4.10.2 | Structured logging |
-| `lit` | ^3.3.2 | Web components (UI) |
-| `vitest` | ^4.1.2 | Test runner |
+| `lit` | ^3.3.2 | Web components (UI, `openclaw/ui`) |
+| `vitest` | ^4.1.4 | Test runner |
 | `typescript` | ^6.0.2 | TypeScript compiler |
-| `tsdown` | 0.21.7 | Build tool |
-| `oxlint` | ^1.58.0 | Linter |
-| `oxfmt` | 0.43.0 | Formatter |
+| `tsdown` | 0.21.9 | Build tool |
+| `oxlint` | ^1.60.0 | Linter |
 
 ---
 
 ## 23. Relevance to Sentura
 
-OpenClaw represents a production-grade reference implementation for several Sentura subsystems:
+OpenClaw **is** the Sentura runtime — Sentura does not wrap or replace it. Sentura is a control-plane layer of extensions, skills, configured AI employees, meta-agents (Creator/Tuner/Orchestrator), an admin dashboard, and enterprise MCP servers that all run on top of OpenClaw's gateway, agent loop, plugin system, and memory host. Every Sentura AI employee is a configured OpenClaw agent.
 
-### Architectural Patterns to Study
+### OpenClaw features leveraged by Sentura
 
-| OpenClaw Feature | Sentura Equivalent |
-|-----------------|-------------------|
-| Multi-channel gateway | `packages/communication/` (Slack, Teams, Notion) |
-| Plugin SDK + extension system | `packages/integrations/` MCP server architecture |
-| Agent tool registration | `packages/runtime/` LangGraph tool binding |
-| Session management | `packages/memory/` per-employee sessions |
-| Config-driven behavior | `config/sectors/` YAML-driven sector config |
-| Cron scheduler | `packages/orchestration/` scheduled agent runs |
-| Security/tool policy | `packages/safety/` guardrails and circuit breakers |
-| Device pairing | Could inform Sentura's enterprise device enrollment |
-| Gateway RPC protocol | Could inform Sentura's FastAPI WebSocket protocol |
+| OpenClaw feature | How Sentura uses it |
+|------------------|----------------------|
+| Gateway RPC (`agent.run`, `config.patch`, `exec.approval`, `cron.*`, `sessions.*`) | Primary interface from the Sentura dashboard and meta-agents. Dashboard never talks directly to agents. |
+| Plugin SDK (`openclaw/plugin-sdk/*`) | Sentura extensions (`sentura/extensions/*`) register channels, tools, approval providers, and memory hooks via the same contracts. |
+| Channel extensions (22+) | Used as-is for Slack/Teams/Discord/WhatsApp/etc. notification and chat surfaces. Sensitive actions are always routed to the dashboard. |
+| Provider extensions (37+) | LLM selection per employee — cloud API keys or self-hosted Ollama/vLLM/SGLang. Sentura policy picks a default per tenant; users can override. |
+| Memory host (`@openclaw/memory-host-sdk`) + `memory-lancedb` | Per-employee vector memory namespaces with dreaming/consolidation on the OpenClaw cron. |
+| Approval workflow (`exec.approval`) | Sentura's HITL UI surfaces pending approvals from OpenClaw's queue and routes them to the right role via RBAC. |
+| MCP servers (`mcp.servers.<name>`) | Sentura-built enterprise MCP servers (e.g. `@sentura/mcp-gradsale-admin`) are wired into an employee's config via `config.patch` under `mcp.servers.<name>`. Sentura does **not** invent a different MCP wiring. |
+| Config JSON5 + Zod schemas | Sentura ships agent templates as JSON5 diffs applied through `config.patch`, never by hand-editing config files at runtime. |
+| Workspace convention (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) | The only 8 native OpenClaw workspace files. Sentura's safety boundaries live in `AGENTS.md → Hard Rules`; enterprise context lives in `BOOTSTRAP.md → Enterprise Context`. |
+| Sandbox mode (`non-main`) | Mandatory for every AI employee deployed by Sentura's Creator agent. |
+| Device pairing + Control UI | Available for employee owners/admins who want OpenClaw's native view alongside the Sentura dashboard. |
 
-### Key Differences from Sentura
+### Boundary rules (non-negotiable)
 
-| Aspect | OpenClaw | Sentura |
-|--------|----------|---------|
-| **Scope** | Personal assistant (single user) | Enterprise AI employees (multi-tenant) |
-| **Runtime** | Node.js / TypeScript | Python / FastAPI / LangGraph |
-| **Deployment** | User device / Docker | On-premise enterprise datacenter |
-| **LLM access** | Direct provider APIs + local | LiteLLM gateway → Ollama/vLLM only in prod |
-| **Data store** | File-based (JSON, SQLite-vec) | PostgreSQL + Neo4j + pgvector + Redis |
-| **Safety** | Tool denylists, owner-only | NeMo Guardrails, HITL, circuit breakers |
-| **Auth** | Token + pairing | RBAC + MFA + PII tiers (T0-T4) |
-| **Multi-agent** | Subagent spawning | Orchestration (Mode B), incubation pipeline |
-| **Channels** | 22+ messaging (notification + response) | Slack/Teams/Notion (notification only, dashboard for actions) |
+1. **Never modify OpenClaw core source.** Sentura changes happen in `sentura/extensions/*`, `sentura/skills/*`, `sentura/agents/*`, `sentura/dashboard/*`, and `sentura/mcp-servers/*`.
+2. **Never import from `openclaw/src/*` or `openclaw/packages/plugin-sdk/src/*`.** Always use the stable subpath exports `openclaw/plugin-sdk/*`.
+3. **Never call LLM providers directly.** All LLM access flows through OpenClaw's provider system.
+4. **Never bypass the config system.** Runtime changes go through `config.patch`.
+5. **Never store credentials in config or conversation.** Use OpenClaw's secret store (`$secret` references) or `~/.openclaw/.env`.
+6. **Never build a custom Docker/docker-compose for the gateway.** Use `pnpm openclaw onboard` + `pnpm gateway:watch` in dev, or `openclaw/docker-setup.sh` in production.
 
-### What Sentura Can Learn
+### Differences in posture (same runtime, different surface)
 
-1. **Plugin SDK design** — OpenClaw's 100+ sub-path exports with typed contracts is a mature pattern for extensibility
-2. **Channel abstraction** — The `ChannelPlugin` interface with adapters (config, setup, pairing, security, outbound) is a clean separation
-3. **Gateway protocol** — Typed JSON-RPC over WebSocket with Ajv validation and codegen to Swift is robust
-4. **Config schema composition** — Each plugin contributing its own `configSchema` merged into a unified schema
-5. **Tool policy enforcement** — Layered security (denylists, owner-only, approval workflows) before tool execution
-6. **Memory architecture** — Separate memory engine (core) from storage (LanceDB) with a host SDK interface
-7. **Native app strategy** — Shared protocol types codegen'd across platforms (TypeScript → Swift → Kotlin)
+| Aspect | OpenClaw (stock) | Sentura (control plane) |
+|--------|------------------|-------------------------|
+| **Primary user** | An individual power user | Enterprise admin + role-scoped employee users |
+| **Provisioning** | Manual channel linking, config editing | Natural-language employee creation via the Creator agent; self-provisioning skills via `browser` with approval |
+| **Safety** | Tool denylists + owner-only | Adds RBAC, data-tier (T0–T4) routing, enhanced HITL, audit logs |
+| **Multi-agent** | Subagent spawning | Adds the Orchestrator meta-agent (Mode B), Creator, and Tuner |
+| **Deployment flexibility** | User device / personal Docker | Cloud, on-prem, hybrid — without changing agent code |
+| **LLM policy** | User-chosen keys or local models | Tenant-level default provider policy with per-employee override |
+| **Channels** | Full-bidirectional per user | Bidirectional for T0/T1; sensitive ops always surface on the Sentura dashboard |
