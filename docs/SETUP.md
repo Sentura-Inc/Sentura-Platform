@@ -9,6 +9,8 @@
 
 > OpenClaw `2026.4.19-beta.2` declares `"engines": { "node": ">=22.14.0" }` and its README recommends Node 24. The `@openclaw/plugin-sdk` is shipped as a workspace package, so pnpm 10.33+ is needed for correct workspace resolution.
 
+> **macOS note on paths with spaces:** if your project path contains a space (e.g. `~/Agent Factory/Sentura/`), the `@discordjs/opus` native module will fail to compile during `pnpm install` — its build script doesn't quote paths correctly. `pnpm install` continues past the error; only the Discord voice channel binding is affected. Core Sentura features (dashboard, Creator/Tuner/Orchestrator meta-agents, gateway, MCP tools) all work fine. For full Discord voice support, clone into a space-free path like `~/sentura/`.
+
 ### Installing prerequisites by platform
 
 **macOS:**
@@ -42,6 +44,43 @@ wsl --install   # if WSL2 is not yet installed (requires reboot)
 
 ---
 
+## Cleanup (if you previously installed OpenClaw)
+
+If you used OpenClaw standalone before switching to Sentura — via `sudo npm install -g openclaw@latest` following OpenClaw's own install guide, or by installing the OpenClaw macOS app — you likely have a global `openclaw` binary on PATH and/or a LaunchAgent auto-starting an older `openclaw-gateway`. Both will conflict with the locally-built `openclaw` in this repo:
+
+- Version-mismatch warnings in `sentura-setup.sh` output (config written by the newer local build, CLI is the older global one)
+- Port 18789 race between the LaunchAgent gateway and `pnpm gateway:watch`
+- Unexpected stderr output from `openclaw gateway status` can appear in setup-script eval contexts
+
+Clean up before building the local source:
+
+**macOS:**
+```bash
+# Stop and disable the LaunchAgent (OpenClaw macOS app installs this)
+launchctl unload -w ~/Library/LaunchAgents/ai.openclaw.gateway.plist 2>/dev/null
+
+# Kill any running gateway
+pkill -f openclaw-gateway
+
+# Uninstall the global CLI
+npm uninstall -g openclaw
+
+# Confirm cleanup
+which openclaw    # should print "openclaw not found"
+lsof -i :18789    # should be empty
+```
+
+**Linux / WSL2:** same `npm uninstall -g openclaw` + `pkill -f openclaw-gateway`. No LaunchAgent equivalent on these platforms.
+
+After the local OpenClaw source builds successfully (next section), expose it on PATH as the global `openclaw` so `scripts/sentura-setup.sh` picks up the matching version:
+
+```bash
+cd openclaw && npm link
+openclaw --version    # should match openclaw/package.json (2026.4.19-beta.2)
+```
+
+---
+
 ## OpenClaw Setup (from source)
 
 The OpenClaw source is included in the `openclaw/` directory. Build and run it locally — no Docker needed.
@@ -52,11 +91,13 @@ These commands work on **macOS, Linux, and WSL2**:
 cd openclaw
 
 pnpm install
-pnpm ui:build          # auto-installs UI deps on first run
-pnpm build
+pnpm ui:build                                    # auto-installs UI deps on first run
+OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build          # skip A2UI bundle (see note below)
 
 pnpm openclaw onboard
 ```
+
+> **Note on `OPENCLAW_A2UI_SKIP_MISSING=1`:** the `canvas:a2ui:bundle` build step requires Google's A2UI closed-source bundle, which isn't included in this distribution's `openclaw/vendor/a2ui/`. The env var is the officially-supported skip path (see `openclaw/scripts/bundle-a2ui.mjs`). A2UI powers the optional Canvas agent-to-agent UI — it's not needed for Sentura core (dashboard, meta-agents, MCP tools, gateway all work without it). If you have access to A2UI sources, drop the env var and the bundle will build normally.
 
 **Windows (native PowerShell):**
 ```powershell
