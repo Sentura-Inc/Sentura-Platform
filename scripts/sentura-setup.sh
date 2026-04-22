@@ -386,7 +386,7 @@ if (!Array.isArray(config.commands.ownerAllowFrom) || config.commands.ownerAllow
 //   exec host not allowed (requested gateway; configured host is auto; ...)
 // (see openclaw/src/agents/bash-tools.exec-runtime.ts
 //  isRequestedExecTargetAllowed). Forge's deployment skill and its
-// self-diagnostic calls (e.g. `openclaw gateway status`) need
+// self-diagnostic calls (e.g. openclaw gateway status) need
 // gateway-host execution, so we pin the configured host to 'gateway'
 // for local dev. This does NOT grant exec any additional capabilities;
 // it only removes the ambiguous auto-routing rejection. Production
