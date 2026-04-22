@@ -743,17 +743,39 @@ fi
 # auth; `actorId` / userToken is what the middleware checks against). We
 # upsert just those two keys and leave any existing gateway config intact.
 
-log "  Wiring dashboard .env.local with admin credentials..."
+log "  Wiring dashboard .env.local with admin credentials + gateway auth..."
 
 export SENTURA_ADMIN_USER_ID="$ADMIN_ID"
 export SENTURA_ADMIN_USER_TOKEN="$ADMIN_TOKEN"
 export SENTURA_DASHBOARD_ENV_FILE="$DASHBOARD_ENV_FILE"
+export SENTURA_OPENCLAW_CONFIG="$OPENCLAW_CONFIG"
 
 node -e "
 const fs = require('fs');
 const p = process.env.SENTURA_DASHBOARD_ENV_FILE;
 const adminId = process.env.SENTURA_ADMIN_USER_ID;
 const adminToken = process.env.SENTURA_ADMIN_USER_TOKEN;
+const openclawConfigPath = process.env.SENTURA_OPENCLAW_CONFIG;
+
+// Read gateway URL + auth token from openclaw.json so the dashboard's
+// WebSocket client can authenticate on every RPC connection. Without these
+// the client connects anonymously and the gateway rejects every handshake
+// with code=1008 reason='device identity required', producing a perpetual
+// 'Gateway disconnected' banner in the UI and a 3-second auto-reconnect storm.
+let gatewayUrl = 'ws://localhost:18789';
+let gatewayToken = '';
+try {
+  const oc = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
+  const port = (oc && oc.gateway && oc.gateway.port) || 18789;
+  const bind = (oc && oc.gateway && oc.gateway.bind) || 'loopback';
+  const host = bind === 'loopback' ? 'localhost' : '0.0.0.0';
+  gatewayUrl = 'ws://' + host + ':' + port;
+  gatewayToken = (oc && oc.gateway && oc.gateway.auth && oc.gateway.auth.token) || '';
+} catch (_) {
+  // openclaw.json may be absent if onboard was skipped; the dashboard will
+  // fall back to compiled-in defaults (ws://localhost:18789, empty token)
+  // and the user can re-run setup after 'openclaw onboard'.
+}
 
 let body = '';
 try { body = fs.readFileSync(p, 'utf8'); } catch (_) { body = ''; }
@@ -772,17 +794,23 @@ next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
   'Sentura platform admin user id (seeded by scripts/sentura-setup.sh, Step 8)');
 next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
   'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+next = upsertLine(next, 'NEXT_PUBLIC_GATEWAY_URL', gatewayUrl,
+  'OpenClaw gateway WebSocket URL (derived from ~/.openclaw/openclaw.json gateway.port + bind)');
+if (gatewayToken) {
+  next = upsertLine(next, 'NEXT_PUBLIC_GATEWAY_TOKEN', gatewayToken,
+    'OpenClaw gateway auth token (from ~/.openclaw/openclaw.json gateway.auth.token) — required; without it the dashboard WS is rejected with code 1008 device identity required');
+}
 
 if (next !== body) {
   fs.mkdirSync(require('path').dirname(p), { recursive: true });
   fs.writeFileSync(p, next, 'utf8');
   console.log('  → updated ' + p);
 } else {
-  console.log('  → ' + p + ' already has admin keys');
+  console.log('  → ' + p + ' already has all dashboard env keys');
 }
 "
 
-ok "Dashboard admin credentials wired."
+ok "Dashboard admin credentials + gateway auth wired."
 log "  The dashboard will pick these up on next \`pnpm dev\` (or restart). No curl step required."
 
 # --- Step 9: Summary ---
