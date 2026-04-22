@@ -2,12 +2,24 @@
 
 ## Prerequisites
 
-| Tool | Version | Check |
-|------|---------|-------|
-| Node.js | 22.16+ (Node 24 recommended) | `node --version` |
-| pnpm | 10.33+ | `pnpm --version` |
+| Tool | Version | Check | Required? |
+|------|---------|-------|-----------|
+| Node.js | 22.16+ (Node 24 recommended) | `node --version` | Yes |
+| pnpm | 10.33+ | `pnpm --version` | Yes |
+| Docker | any recent version | `docker --version` | Recommended (see note) |
 
 > OpenClaw `2026.4.19-beta.2` declares `"engines": { "node": ">=22.14.0" }` and its README recommends Node 24. The `@openclaw/plugin-sdk` is shipped as a workspace package, so pnpm 10.33+ is needed for correct workspace resolution.
+
+> **Docker for meta-agent sandboxes.** The Sentura meta-agents (Creator/Forge, Tuner/Refine, Orchestrator/Conductor, MCP Builder/Socket) are configured with `sandbox.mode: "non-main"`, which runs the agent in a Docker container for isolation. Without Docker on PATH, dashboard chat with any meta-agent fails with:
+>
+> ```
+> Sandbox mode requires Docker, but the "docker" command was not found in PATH.
+> ```
+>
+> Two ways to proceed:
+>
+> 1. **Install Docker** (`brew install --cask docker` on macOS, or Docker Desktop) — this matches the team's production path and is required to exercise the sandbox tool-policy double filter (see `docs/OPENCLAW.md` § Sandbox tool-policy filter), including reproducing the team's 2026-04-20 `billing-support-rep` 80-second E2E deployment.
+> 2. **Disable sandbox for local dev only** — edit `~/.openclaw/openclaw.json` and set `sandbox.mode: "off"` on every meta-agent in `agents.list`. Forge will deploy and chat normally, but Phase 5 smoke tests that need `sessions_spawn` with an `agentId` will be blocked (acceptable for dashboard-only work; not acceptable for CI or demo rehearsals).
 
 > **macOS note on paths with spaces:** if your project path contains a space (e.g. `~/Agent Factory/Sentura/`), the `@discordjs/opus` native module will fail to compile during `pnpm install` — its build script doesn't quote paths correctly. `pnpm install` continues past the error; only the Discord voice channel binding is affected. Core Sentura features (dashboard, Creator/Tuner/Orchestrator meta-agents, gateway, MCP tools) all work fine. For full Discord voice support, clone into a space-free path like `~/sentura/`.
 
