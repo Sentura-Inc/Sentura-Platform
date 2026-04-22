@@ -150,7 +150,7 @@ Do NOT substitute these without explicit approval:
 - Communicates with OpenClaw exclusively through the Gateway WebSocket RPC API.
 - Every dashboard action maps to a gateway RPC call (config.*, sessions.*, agent, cron.*, etc.).
 - Real-time updates via WebSocket event streaming.
-- RBAC enforced: different views for Platform Admin, Department Admin, Employee Owner, Auditor.
+- RBAC enforced (7 roles: `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`). Dashboard views differ by role + scope (SME-wide or per-department). Source of truth: `sentura/extensions/sentura-rbac/src/types.ts` + `sentura/extensions/sentura-rbac/DESIGN.md`.
 
 ## Behavioral Rules for Every Chat
 
