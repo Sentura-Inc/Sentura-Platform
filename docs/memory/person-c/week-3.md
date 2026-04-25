@@ -180,4 +180,39 @@ The first new UI surface, building on locked decisions and shared infrastructure
 
 ## Decisions log
 
-(Append D1-D5 decisions here as they're made.)
+### D1 — State management library — **2026-04-25**
+
+**Decision: Zustand** (option A in plan).
+
+Rationale: hook-first API, ~1KB, no boilerplate, integrates cleanly with Next.js App Router (subscriptions only in client components, no Provider wrapping). Defer TanStack Query until cache-invalidation pain materializes — premature add buys us a dependency without a problem.
+
+First store this week: `useAgentRosterStore` (employees page proof, then reused in /chat New-conversation employee picker).
+
+### D2 — `<AgentChat>` component contract — **2026-04-25**
+
+**Decision: Approved as proposed.** Signature locked exactly as drafted in Phase 1 above.
+
+Locked-down behavior (no caller customization): streaming via `chat` delta accumulation + commit on `state: "final"`, sessionKey persistence, inline tool-call cards, smart auto-scroll. Caller-controlled (props): `agentId`, `sessionKey`, side-effect callbacks.
+
+Rationale: prevents 4 callers (`/create`, `/tune`, `/chat`, `/orchestrator`) from drifting into 4 subtly-different chat behaviors visible to users.
+
+### D3 — `usePermission` hook signature — **2026-04-25**
+
+**Decision: Approved as proposed.** Signature `usePermission(action, ctx?)` returning `{ allowed, reason?, loading }`.
+
+This week ships a stub returning `{ allowed: true, loading: false }`. All Week 3+ pages adopt the contract day-1 so Person D's Week 5 real implementation requires zero refactor across surfaces.
+
+### D4 — Visual token system — **2026-04-25**
+
+**Decision: a + b.**
+
+- **Base palette**: shadcn defaults + 2 IAI brand accents (green = Internal MCP, blue = External MCP). Lightweight investment now; Week 6-8 polish phase can upgrade to a fully bespoke palette if needed.
+- **Demo Mode B scenario 3 "brake cable" cross-screen animation**: deferred to Week 6-8 polish stretch goal. Designing the animation system without a real demo target risks over-engineering and abstract scaffolding that won't fit the actual storyboard.
+
+Phase 2 work: create `src/styles/tokens.css` with palette + typography scale + motion primitives + elevation. Define green/blue IAI tokens even before any UI consumes them — that makes Week 4 IAI integration UI cheap.
+
+### D5 — `useGatewayEvents` subscription strategy — **2026-04-25**
+
+**Decision: Approved as proposed.** Central hook `useGatewayEvents(eventTypes[])` in `src/lib/gateway/hooks.ts`, multi-subscriber dedup, refactor `useApprovals` to be its first consumer.
+
+**Backfill behavior deferred**: Phase 2 ships with TODO marker for "replay missed events on reconnect." Phase 3 `/chat` is the first surface that genuinely needs backfill — wait until then to design the API against a real consumer instead of speculating.
