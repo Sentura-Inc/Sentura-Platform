@@ -7,7 +7,9 @@ export {
   useTranscript,
   useApprovals,
   useGatewayEvent,
+  useGatewayEvents,
 } from "./hooks";
+export type { GatewayEventHandlerMap } from "./hooks";
 export type {
   AgentConfig,
   AgentFileContent,
