@@ -160,4 +160,36 @@ Per D3 (Next.js API route + SSE):
 
 ## Decisions log
 
-(Append D1-D5 decisions here as they're made.)
+### D1 — `/tune` UX — **2026-04-26**
+
+**Decision: A — chat-only MVP.** Mount `<AgentChat agentId="tuner">` with Tuner-specific suggestion pills in the empty state. No diff panel for W4.
+
+Rationale: the diff panel needs Tuner-side cooperation (a new `chat` event subtype or session-metadata frame so the dashboard knows "this is a pending change vs. a regular reply") which is Person B's work. `/approvals` already shows the diff via `exec.approval.requested` payload, so users still see what's about to change before it lands. Polish phase upgrades to inline diff once we know what the Tuner agent actually emits.
+
+### D2 — `/integrations` layout — **2026-04-26**
+
+**Decision: B — tabbed by tier.** Three tabs: T1 (open-source npm) / T2 (Sentura-generated) / T3 (self-provisioned). Each tab is a table optimized for that tier's metadata and actions.
+
+Rationale: tier-specific actions (T2 "regenerate from API doc", T3 "rotate credential", T1 "check for updates") make tabs the natural separation. A single unified table forces awkward "this column N/A for tier ≠ X" empty cells; card grid is harder to scan.
+
+### D3 — Group Chat fan-out architecture — **2026-04-26**
+
+**Decision: A — Next.js API route + SSE.** Dashboard POSTs `{ message, participantAgentIds[] }` to `/api/group-chat/[groupId]/send`; the route opens N WebSocket sessions to the gateway via a Sentura-internal client; merges the `chat` event streams; emits SSE frames `{ agentId, delta | final }` back to the browser.
+
+Rationale: the unified thread with sender attribution is core to Demo.md Mode B value prop. Client-side fan-out (B) renders N parallel transcripts which is a fundamentally different UX. A is more work but it's the right work — ship the API route + simple unified-thread UI in W4 even if features like history pagination and participant management wait for W5.
+
+This is also the dashboard's first server-side code (no Next.js API routes today). The pattern needs documenting in `sentura/dashboard/README.md` so future routes (notification webhooks, cron triggers, etc.) follow consistent structure.
+
+### D4 — User-aware session filtering — **2026-04-26**
+
+**Decision: C ship A first.** W4 ships invisible auto-filter (every `sessions.list` call passes the connected user's `userToken`); explicit "viewing as" selector for `manager`/`auditor`/`platform_admin` lands in W5 once `sentura-rbac` real impl lets us check the broader scope via `usePermission("sessions.read.all")`.
+
+Rationale: avoids over-engineering before the RBAC contract is implementable. Option A unblocks the dashboard immediately when Person A's filter ships mid-W4; B becomes a Week 5 enhancement gated on Person D's work.
+
+### D5 — Skeleton-shell content — **2026-04-26**
+
+**Decision: B — empty-state shell only.** No mock data. Each blocked surface gets: route + sidebar nav + page header + an explicit empty card naming the blocking owner and deliverable.
+
+Rationale: a mock-data UI looks done; reviewers stop scrutinizing it; when real data has a different shape than the mock, both UI and tests need rewriting. The "Awaiting [owner] [thing]" copy is also a useful cross-team signal — when Person B reads it, they know `/knowledge` is blocked on their Data Scavenger output schema and may push it earlier in their queue.
+
+Acceptance bar for Phase 3: the four skeleton routes return HTTP 200 with consistent header/empty-state styling using `tokens.css` IAI tokens. Sidebar shows them as live nav targets (no `disabled: true, badge: "W4"` placeholders). Each empty card names the blocking owner and deliverable in user-readable copy.
