@@ -421,16 +421,16 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
 - [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
 - [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
-- [ ] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI)
-- [ ] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)**:
-  - New `/chat` route with two-pane layout: conversation list (left) + chat thread (right)
-  - Conversation list: all dashboard sessions grouped by employee, sorted by last activity
-  - "New conversation" button: employee picker → `sessions.create` with selected `agentId`
-  - Chat thread: send messages via `chat.send`, stream responses via WebSocket `chat` events (`state: "delta"` / `"final"`)
-  - Load conversation history via `chat.history` on conversation open
-  - Typing indicator, message timestamps, agent avatar/name attribution
-  - Conversation persistence (OpenClaw session stores survive page reloads)
-  - Add `/chat` link to dashboard sidebar navigation
+- [x] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI) _(completed 2026-04-25 — `useGatewayEvents(handlerMap)` primitive in `sentura/dashboard/src/lib/gateway/hooks.ts` (commit `42e98f5e`); `useApprovals` refactored as first consumer with 4 event types collapsed to 1 handler map; `config.changed` exposed in `GatewayEventType` union ready for use; sidebar `/chat` badge live-updates via `sessions.changed`)_
+- [x] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)** _(completed 2026-04-25 — `sentura/dashboard/src/app/chat/` (commits `6af96df7` + `3468afcc`); 17 sub-tests in `docs/tests/tests-person-c.md` C11; all 4 acceptance criteria from `docs/memory/person-c/week-3.md` Phase 3 verified end-to-end via Playwright)_:
+  - [x] New `/chat` route with two-pane layout: conversation list (left) + chat thread (right) — `chat-sidebar.tsx` + `<AgentChat>` mounted in right pane
+  - [x] Conversation list: all dashboard sessions grouped by employee (via `getSessionAgentId` helper that parses the structured session key prefix because gateway `sessions.list` inconsistently populates the `agentId` schema field), sorted by last activity within each group
+  - [x] "New conversation" button: employee picker (`employee-picker-dialog.tsx`) → `?draft=<agentId>` URL → first send fires `sessions.create` and the URL adopts the resulting `?key=<sessionKey>`
+  - [x] Chat thread: send messages via `chat.send`, stream responses via WebSocket `chat` events (`state: "delta"` / `"final"`) — all encapsulated in shared `<AgentChat>` (D2 contract)
+  - [x] Load conversation history via `chat.history` on conversation open — handled inside `<AgentChat>`'s combined reset+hydrate effect
+  - [x] Typing indicator, message timestamps, agent avatar/name attribution — `<AgentChat>` `MessageBubble` + `StreamingDots`
+  - [x] Conversation persistence — URL `?key=` query param is source of truth, refresh-resilient and multi-tab independent
+  - [x] Add `/chat` link to dashboard sidebar navigation with live conversation-count badge (`useSessions().length` refetched on `sessions.changed`)
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build `sentura-provisioner` extension: coordinates self-provisioning workflows
