@@ -132,6 +132,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | C9 | Employee Detail page (`/employees/[id]`) | — | 8 natives view (allow-list aware), bindings, lifecycle (Refresh / Tune (W3) / Edit in Control UI / Retire) | PASS | § C9 |
 | C10 | Approval Queue (`/approvals`) | — | Seeds `exec.approval.list` + `plugin.approval.list`; subscribes to `*.approval.requested/resolved`; Approve-once / Always-allow / Deny | PASS | § C10 |
 | C11 | Chat 1:1 (`/chat`) — Week 3 | 17 | `sessions.list` global + group by agent (key-prefix parsed via `getSessionAgentId`); URL `?key=` for sessionKey persistence (refresh + multi-tab); employee picker dialog (excludes meta-agents); draft mode → AgentChat creates session on first send; sidebar live conversation-count badge via `useGatewayEvents("sessions.changed")` | PASS (W3 dev) | § C11 |
+| C12 | Tune Employee 1:1 (`/tune`) — Week 4 | 9 | Single-agent surface targeting the Tuner ("Refine") meta-agent; `sessions.list { agentId: "tuner" }` filtered list; URL `?key=` for sessionKey persistence; "+ New tuning" → AgentChat draft mode → first send creates session via `sessions.create("tuner", message)`; Tuner-specific empty state with 4 adjustment suggestion pills + "include the target employee's ID" tip; Refine guardrails verified end-to-end (preserve identity, show diff before apply, never weaken safety) | PASS (W4 dev) | § C12 |
 
 ### Person D — Extensions & Integrations
 

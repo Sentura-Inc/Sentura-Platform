@@ -63,7 +63,7 @@ const sections: NavSection[] = [
       { label: "Employees", href: "/employees", icon: Bot },
       { label: "Create Employee", href: "/create", icon: Plus },
       { label: "Chat", href: "/chat", icon: MessageSquare },
-      { label: "Tune Employee", href: "/tune", icon: Sliders, disabled: true, badge: "W3" },
+      { label: "Tune Employee", href: "/tune", icon: Sliders },
       { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],
   },

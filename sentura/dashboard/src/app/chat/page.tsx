@@ -303,9 +303,6 @@ export default function ChatPage() {
         ) : targetAgentId ? (
           <AgentChat
             ref={chatRef}
-            // key forces remount on agent switch so internal state
-            // (messages, refs) is fresh — avoids cross-conversation bleed.
-            key={`${targetAgentId}:${activeKey ?? "draft"}`}
             agentId={targetAgentId}
             sessionKey={activeKey ?? undefined}
             onSessionCreated={handleSessionCreated}

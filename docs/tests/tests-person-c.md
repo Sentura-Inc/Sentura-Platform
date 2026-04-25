@@ -188,5 +188,21 @@ The first surface that mounts the shared `<AgentChat>` component (D2 contract) o
 | C11.16 | URL state survives navigation | Active conversation, navigate to `/employees` then back via browser-back | Browser-back returns to `/chat?key=<sessionKey>`; conversation pane restores from URL — confirms `router.replace` (not `push`) on selection means back button doesn't accumulate noise |
 | C11.17 | Permission stub gating | Inspect `usePermission` adoption (deferred to Week 5 swap-in) | `/chat` is a read+chat surface; no high-risk mutation buttons require gating today. When sentura-rbac lands in Week 5, gate the picker via `usePermission("sessions.read")` if the role lacks chat access entirely |
 
+### C12. Tune Employee — 1:1 (`/tune`) — Week 4
+
+Single-agent surface targeting the Tuner ("Refine") meta-agent. Mounts the shared `<AgentChat>` (D2 contract from Phase 2) with `agentId="tuner"` hard-coded; sidebar lists past Tuner sessions only (filter via `sessions.list { agentId: "tuner" }`). Per Week 4 D1: chat-only MVP — no inline diff panel; the Tuner verbally describes proposed changes and routes the actual apply through `/approvals`.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C12.1 | Page loads | Navigate to `/tune` | Two-pane layout renders: sidebar with "+ New tuning" + (potentially empty) tuning list; right pane with empty state "What needs tuning?" + 4 suggestion pills + "include the target employee's ID" tip |
+| C12.2 | Sidebar empty state | No prior Tuner sessions on the gateway | Sidebar shows "No tuning conversations yet. Click New tuning to start one." |
+| C12.3 | Sidebar filtered to Tuner only | Have other agents' sessions on the gateway (e.g. from `/chat` or `/create`) | `/tune` sidebar lists ONLY conversations with `agentId === "tuner"`; other-agent conversations don't leak in (proves `sessions.list { agentId }` filter is respected) |
+| C12.4 | First send creates session | Type a message in draft mode, press Enter | `client.createSession("tuner", message)` fires; URL adopts `?key=agent:tuner:dashboard:<uuid>`; user message appears immediately in transcript (no remount-flash empty state — the `key` prop on AgentChat is intentionally NOT bound to sessionKey to avoid remount on the undefined→defined transition); session row appears at top of sidebar |
+| C12.5 | Streaming response | Wait for Tuner reply | First delta arrives within ~5s; bubble accumulates via `chat` event subscription; "Progress · N steps" dropdown shows tool calls Refine made (typically `gateway` `config.get` + agents lookups for "what can I tune") |
+| C12.6 | Tuner Hard Rules visible | Ask "what can you help me adjust?" | Response mentions guardrails: preserve identity, show diff before apply, never weaken safety, never expose secrets. Confirms Refine's `AGENTS.md` Hard Rules are loaded into context |
+| C12.7 | Switch between tunings | Click a different tuning in sidebar | URL updates to new `?key=`; transcript clears and re-hydrates from `chat.history` for the selected session; AgentChat does NOT remount (no `key` prop) but its internal `prevSessionKeyRef` reset effect handles the A→B switch correctly |
+| C12.8 | Sandbox failure surfaces | Tuner agent configured with `sandbox.mode: "non-main"` on a host without Docker | Assistant frame contains a system-error message describing the sandbox failure (e.g. "Sandbox mode requires Docker, but the 'docker' command was not found in PATH"); does not silently hang. Workaround documented in `docs/SETUP.md`: patch all 4 meta-agents to `sandbox.mode: "off"` for local dev |
+| C12.9 | Diff panel deferred | Inspect right pane during a config-change request | No inline before/after diff panel today (per Week 4 D1: chat-only MVP). Diffs land in `/approvals` via the `exec.approval.requested` payload that the Tuner generates when it's ready to apply. Inline diff panel deferred to Week 6-8 polish once Tuner emits a "pending change" event subtype |
+
 ---
 
