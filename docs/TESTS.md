@@ -131,6 +131,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | C8 | Employee Creator page (`/create`) | — | Streaming via `sessions.create` + `chat.send` + `chat` events (`state: "delta"`/`"final"`) | PASS | § C8 |
 | C9 | Employee Detail page (`/employees/[id]`) | — | 8 natives view (allow-list aware), bindings, lifecycle (Refresh / Tune (W3) / Edit in Control UI / Retire) | PASS | § C9 |
 | C10 | Approval Queue (`/approvals`) | — | Seeds `exec.approval.list` + `plugin.approval.list`; subscribes to `*.approval.requested/resolved`; Approve-once / Always-allow / Deny | PASS | § C10 |
+| C11 | Chat 1:1 (`/chat`) — Week 3 | — | `sessions.list` global + group by agent; URL `?key=` for sessionKey persistence (refresh + multi-tab); employee picker dialog (excludes meta-agents); draft mode → AgentChat creates session on first send; sidebar live conversation-count badge via `useGatewayEvents("sessions.changed")` | PLANNED (W3) | § C11 |
 
 ### Person D — Extensions & Integrations
 
@@ -182,7 +183,7 @@ When running a full pass, fill this in:
 ```
 Person A: N/15 sections PASS (cases: ?/? )
 Person B: N/21 sections PASS (cases: ?/? — B11 49/49 offline)
-Person C: N/10 sections PASS
+Person C: N/11 sections PASS
 Person D: N/14 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression — D14 expanded to 6 checks to cover all 4 meta-agents + setup-script parity + docs sync)
 Cross-team: N/6 scenarios PASS
 Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via Forge's 4-call `sentura_agents_manage` sequence (openai/gpt-5.4); prior: 2026-04-19 — penny-ap deployed in ~110s
