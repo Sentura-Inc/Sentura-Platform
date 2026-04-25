@@ -72,7 +72,7 @@ const sections: NavSection[] = [
     items: [
       { label: "Cost Center", href: "/cost", icon: DollarSign, disabled: true, badge: "W4" },
       { label: "Audit Trail", href: "/audit", icon: ClipboardList, disabled: true, badge: "W5" },
-      { label: "Integrations", href: "/integrations", icon: Plug, disabled: true, badge: "W3" },
+      { label: "Integrations", href: "/integrations", icon: Plug },
       { label: "Orchestrator", href: "/orchestrator", icon: GitBranch, disabled: true, badge: "W4" },
       { label: "Knowledge", href: "/knowledge", icon: BookOpen, disabled: true, badge: "W4" },
       { label: "Testing", href: "/testing", icon: FlaskConical, disabled: true, badge: "W4" },

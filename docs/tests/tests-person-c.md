@@ -204,5 +204,19 @@ Single-agent surface targeting the Tuner ("Refine") meta-agent. Mounts the share
 | C12.8 | Sandbox failure surfaces | Tuner agent configured with `sandbox.mode: "non-main"` on a host without Docker | Assistant frame contains a system-error message describing the sandbox failure (e.g. "Sandbox mode requires Docker, but the 'docker' command was not found in PATH"); does not silently hang. Workaround documented in `docs/SETUP.md`: patch all 4 meta-agents to `sandbox.mode: "off"` for local dev |
 | C12.9 | Diff panel deferred | Inspect right pane during a config-change request | No inline before/after diff panel today (per Week 4 D1: chat-only MVP). Diffs land in `/approvals` via the `exec.approval.requested` payload that the Tuner generates when it's ready to apply. Inline diff panel deferred to Week 6-8 polish once Tuner emits a "pending change" event subtype |
 
+### C13. Integrations — MCP server manager (`/integrations`) — Week 4
+
+Tabbed-by-tier layout per Week 4 D2 — three lifecycle paths each get their own table and actions. Today (zero MCP servers configured) all three tabs render explanatory empty states; classification logic ships now so behavior is correct the moment real entries arrive.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C13.1 | Page loads | Navigate to `/integrations` | Header "Integrations" + 3-tier description; Refresh + Edit-raw-config buttons; Tabs row with T1/T2/T3 tabs each showing live count badge `Tn · N` |
+| C13.2 | All-empty state | Zero MCP servers configured (default fresh setup) | All three tabs show count `· 0`; T1 (default-selected) renders the "No open-source MCP servers configured" card with explanatory copy + npx command snippet; switching to T2 and T3 shows their tier-specific empty cards |
+| C13.3 | Refresh action | Click Refresh button | Calls `client.getConfig()` again; on connected gateway re-renders the tabs with updated counts; on disconnected gateway shows the destructive disconnect banner |
+| C13.4 | Tier classification — explicit override | MCP entry with `sentura.tier: 2` | Lands in T2 tab regardless of command/args (explicit metadata wins over heuristic) |
+| C13.5 | Tier classification — path heuristic | MCP entry with `command: "node"` and `args[0]` containing `sentura/mcp-servers/` | Lands in T2 tab even without explicit `sentura.tier` field |
+| C13.6 | Tier classification — SaaS heuristic | MCP entry with `sentura.saasProvider: "Stripe"` | Lands in T3 tab; status badge renders if `sentura.status` is set |
+| C13.7 | Per-agent MCP discovery | Agent in `agents.list` with `mcpServers: { foo: {...} }` | `/integrations` table includes `foo` (proves the extractor walks both top-level `mcp` and `agents[].mcpServers`); de-duplication by name avoids double-listing if a server appears in both places |
+
 ---
 
