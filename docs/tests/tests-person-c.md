@@ -218,5 +218,17 @@ Tabbed-by-tier layout per Week 4 D2 — three lifecycle paths each get their own
 | C13.6 | Tier classification — SaaS heuristic | MCP entry with `sentura.saasProvider: "Stripe"` | Lands in T3 tab; status badge renders if `sentura.status` is set |
 | C13.7 | Per-agent MCP discovery | Agent in `agents.list` with `mcpServers: { foo: {...} }` | `/integrations` table includes `foo` (proves the extractor walks both top-level `mcp` and `agents[].mcpServers`); de-duplication by name avoids double-listing if a server appears in both places |
 
+### C14. Skeleton shells — `/orchestrator` `/knowledge` `/cost` `/testing` — Week 4
+
+Backend-blocked surfaces shipped as honest empty-state placeholders per Week 4 D5. Each route mounts the shared `<SkeletonShell>` component (DRY across the 4 pages) naming its blocking owner + deliverable.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C14.1 | All 4 routes return 200 | `curl http://localhost:3000/{orchestrator,knowledge,cost,testing}` | Each returns HTTP 200; no 404 placeholders, no broken nav targets |
+| C14.2 | Sidebar links enabled | Inspect sidebar `Management` section | `/cost`, `/orchestrator`, `/knowledge`, `/testing` all rendered as enabled links (no `pointer-events-none opacity-40` styling, no `W4` badge). `/audit` still disabled with `W5` badge (intentional — it's Person D's W5 audit-log work) |
+| C14.3 | Each shell names its blocker | Inspect each page | Header has `{Week} placeholder` badge; empty card body explicitly names the blocking owner ("Person A" / "Person B") and the specific deliverable ("Orchestrator agent + Manager EKG schema" / "Data Scavenger output schema" / "cost tracking backend (LLM call interceptor + ...)" / "test runner output schema") |
+| C14.4 | "Will include" expectations published | Each page lists 4 bullets describing what the surface will eventually contain | Bullet copy is concrete (e.g. /orchestrator: "Task decomposition view — top-level goal → subtasks → assigned employees", /knowledge: "EKG browser — 4 pillars (org / rules / assets / workflows) per agent with provenance"). This sets reviewer expectations and gives the blocking owner a hint about the dashboard's input contract |
+| C14.5 | Zero mock data | Inspect page source | No fake numbers, no placeholder rows, no "lorem ipsum" data. Per Week 4 D5: a mock-data UI looks done; reviewers stop scrutinizing it; when real data has a different shape than the mock, both UI and tests need rewriting. Honest empty state is the choice |
+
 ---
 
