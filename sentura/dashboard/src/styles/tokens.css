@@ -1,0 +1,69 @@
+/*
+ * tokens.css — Sentura visual design tokens
+ *
+ * Single source of truth for colors, motion, elevation, typography.
+ * All new components reference these tokens; never use hardcoded hex / rgb / px.
+ *
+ * Imported from src/app/globals.css after shadcn baseline so brand additions
+ * extend (not override) the shadcn palette.
+ */
+
+@theme inline {
+  /* IAI Dual-MCP brand accents — surface the origin of tool calls so users
+   * see at a glance whether an action ran against an Internal (Sentura-built)
+   * or External (third-party SaaS) MCP server. Demo.md Mode A scenarios 1-3
+   * lean on this distinction. */
+  --color-iai-internal: var(--iai-internal);
+  --color-iai-internal-foreground: var(--iai-internal-foreground);
+  --color-iai-internal-soft: var(--iai-internal-soft);
+  --color-iai-external: var(--iai-external);
+  --color-iai-external-foreground: var(--iai-external-foreground);
+  --color-iai-external-soft: var(--iai-external-soft);
+
+  /* Motion primitives — paired with tw-animate-css. Use --motion-duration-base
+   * for normal interactions, -fast for hover/press feedback, -slow for layout
+   * shifts the user should be able to follow with their eyes. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 320ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+
+  /* Elevation scale — neutral shadows so future palette swaps don't break.
+   * Use shadow-sm for cards at rest, shadow-md for hover, shadow-lg for
+   * floating menus / dialogs. */
+  --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.04);
+  --shadow-sm: 0 2px 4px -1px oklch(0 0 0 / 0.06), 0 1px 2px -1px oklch(0 0 0 / 0.04);
+  --shadow-md: 0 6px 12px -3px oklch(0 0 0 / 0.08), 0 2px 4px -2px oklch(0 0 0 / 0.04);
+  --shadow-lg: 0 12px 24px -6px oklch(0 0 0 / 0.10), 0 4px 8px -4px oklch(0 0 0 / 0.06);
+
+  /* Typography scale — extends shadcn baseline with one display size for
+   * marketing / demo headlines (Mode B "10% productivity" scenario). */
+  --font-size-display: 2.25rem;
+  --line-height-display: 2.5rem;
+  --letter-spacing-display: -0.02em;
+}
+
+/* Light mode IAI colors — saturated enough to read as "branded" against
+ * the otherwise-neutral shadcn light palette. Pickable in tokens.css only. */
+:root {
+  --iai-internal: oklch(0.65 0.18 152);
+  --iai-internal-foreground: oklch(0.985 0 0);
+  --iai-internal-soft: oklch(0.95 0.05 152);
+
+  --iai-external: oklch(0.62 0.16 240);
+  --iai-external-foreground: oklch(0.985 0 0);
+  --iai-external-soft: oklch(0.95 0.04 240);
+}
+
+/* Dark mode IAI colors — lift lightness, drop chroma slightly so accents
+ * don't vibrate against the dark background. */
+.dark {
+  --iai-internal: oklch(0.72 0.16 152);
+  --iai-internal-foreground: oklch(0.145 0 0);
+  --iai-internal-soft: oklch(0.30 0.06 152);
+
+  --iai-external: oklch(0.70 0.14 240);
+  --iai-external-foreground: oklch(0.145 0 0);
+  --iai-external-soft: oklch(0.28 0.05 240);
+}

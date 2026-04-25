@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useApprovals, useGateway } from "@/lib/gateway";
 import type { ApprovalRequest } from "@/lib/gateway";
+import { usePermission } from "@/lib/auth/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -212,6 +213,7 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const { client } = useGateway();
+  const { allowed: canResolve } = usePermission("approvals.resolve");
 
   const description = describeApproval(approval);
   const countdown = formatCountdown(approval.expiresAtMs);
@@ -296,6 +298,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="default"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("allow-once")}
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
@@ -304,6 +308,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="outline"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("allow-always")}
             >
               Always allow
@@ -311,6 +317,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="destructive"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("deny")}
             >
               <XCircle className="h-3.5 w-3.5 mr-1" />
