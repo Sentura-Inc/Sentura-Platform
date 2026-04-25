@@ -10,6 +10,7 @@ export {
   useGatewayEvents,
 } from "./hooks";
 export type { GatewayEventHandlerMap } from "./hooks";
+export { parseAgentIdFromKey, getSessionAgentId } from "./helpers";
 export type {
   AgentConfig,
   AgentFileContent,

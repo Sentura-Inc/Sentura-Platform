@@ -131,7 +131,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | C8 | Employee Creator page (`/create`) | — | Streaming via `sessions.create` + `chat.send` + `chat` events (`state: "delta"`/`"final"`) | PASS | § C8 |
 | C9 | Employee Detail page (`/employees/[id]`) | — | 8 natives view (allow-list aware), bindings, lifecycle (Refresh / Tune (W3) / Edit in Control UI / Retire) | PASS | § C9 |
 | C10 | Approval Queue (`/approvals`) | — | Seeds `exec.approval.list` + `plugin.approval.list`; subscribes to `*.approval.requested/resolved`; Approve-once / Always-allow / Deny | PASS | § C10 |
-| C11 | Chat 1:1 (`/chat`) — Week 3 | — | `sessions.list` global + group by agent; URL `?key=` for sessionKey persistence (refresh + multi-tab); employee picker dialog (excludes meta-agents); draft mode → AgentChat creates session on first send; sidebar live conversation-count badge via `useGatewayEvents("sessions.changed")` | PLANNED (W3) | § C11 |
+| C11 | Chat 1:1 (`/chat`) — Week 3 | 17 | `sessions.list` global + group by agent (key-prefix parsed via `getSessionAgentId`); URL `?key=` for sessionKey persistence (refresh + multi-tab); employee picker dialog (excludes meta-agents); draft mode → AgentChat creates session on first send; sidebar live conversation-count badge via `useGatewayEvents("sessions.changed")` | PASS (W3 dev) | § C11 |
 
 ### Person D — Extensions & Integrations
 
