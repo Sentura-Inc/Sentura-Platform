@@ -216,3 +216,76 @@ Phase 2 work: create `src/styles/tokens.css` with palette + typography scale + m
 **Decision: Approved as proposed.** Central hook `useGatewayEvents(eventTypes[])` in `src/lib/gateway/hooks.ts`, multi-subscriber dedup, refactor `useApprovals` to be its first consumer.
 
 **Backfill behavior deferred**: Phase 2 ships with TODO marker for "replay missed events on reconnect." Phase 3 `/chat` is the first surface that genuinely needs backfill — wait until then to design the API against a real consumer instead of speculating.
+
+---
+
+## 2026-04-25 — Phase 2 + Phase 3 ship session (compressed)
+
+The original plan budgeted Phase 2 for Day 2-3 and Phase 3 for Day 4-6 (3 days each). Both compressed into a single intense session on 2026-04-25 (Day 1 → Day 6 of plan, in one sitting). Ship summary:
+
+### What landed
+
+**Phase 2 — Foundation** (4 commits → `dd817c43` `f40f98a1` `42e98f5e` `9418c016`)
+
+| Decision | Implementation | Status |
+|---|---|---|
+| D1 Zustand | `useAgentRosterStore` mirrors `useAgents()` data; `/employees` is the canonical hydrator; `/chat` employee picker subscribes via selector | ✅ |
+| D2 `<AgentChat>` | Extracted from `/create/page.tsx` (1,026 → 290 lines, 72% reduction); `forwardRef` exposes `AgentChatHandle` for legitimate imperative needs (suggestion-pill setInput); `prevSessionKeyRef` handles undefined→defined sessionKey transition without wiping optimistic state | ✅ |
+| D3 `usePermission` | Stub returning `{ allowed: true, loading: false }`; typed `PermissionAction` union (11 actions); wired into 5 pages day-1 so D's Week 5 sentura-rbac swap is zero-refactor | ✅ |
+| D4 Visual tokens | `src/styles/tokens.css` with shadcn defaults + IAI Internal (green, oklch 0.65/0.18/152) and IAI External (blue, oklch 0.62/0.16/240) MCP brand accents; motion + elevation + display typography scales | ✅ |
+| D5 `useGatewayEvents` | Multi-event handler-map primitive in `lib/gateway/hooks.ts`; `useApprovals` refactored as first consumer (4 separate `client.on` calls collapsed to 1 handler map); reconnect backfill TODO deferred until Phase 3 needed it (it didn't, so still TODO) | ✅ |
+
+**Phase 3 — `/chat` 1:1** (2 commits → `6af96df7` `3468afcc`)
+
+| Task | Implementation | Status |
+|---|---|---|
+| Route + 2-pane layout | `src/app/chat/page.tsx` (257 lines) | ✅ |
+| Conversation list | `chat-sidebar.tsx` (295 lines), grouped by agent via `getSessionAgentId` (parses key prefix), sorted by last activity within group, groups sorted by most-recent activity | ✅ |
+| New conversation flow | `employee-picker-dialog.tsx` (105 lines); picker → `?draft=<agentId>` URL; first send fires AgentChat's `onSessionCreated` → URL adopts new `?key=...` | ✅ |
+| Thread pane | `<AgentChat key={`${agent}:${sessionKey}`}>` — React `key` prop forces remount on conversation switch; emptyState prop renders "Say hello to {agent name}" card | ✅ |
+| URL params | `useSearchParams` reads `?key=` and `?draft=`; `router.replace` writes (not push, so back button doesn't accumulate noise); supports refresh (#2) + multi-tab (#3) | ✅ |
+| Sidebar nav badge | `useSessions().length` with `useGatewayEvents("sessions.changed")` refetch; live updates within ~1s across tabs | ✅ |
+| C11 test entry | 17 sub-tests in `docs/tests/tests-person-c.md` covering all 4 acceptance criteria + edge cases (stale URL key, disconnect banner, picker meta-filter, group ordering) | ✅ |
+
+### Acceptance criteria — all 4 verified via Playwright
+
+| # | Criterion | Verification |
+|---|---|---|
+| 1 | Fresh chat with `billing-support-rep` streams in <5s | First delta <2s, full response in seconds |
+| 2 | Refresh restores conversation | Re-navigate to `?key=...` → `chat.history` hydrates full transcript |
+| 3 | Multi-tab independent | Tab 0 (billing-rep) untouched after Tab 2 created `main` agent session |
+| 4 | Sidebar badge live update across tabs | Badge auto-incremented 3 → 4 → 5 within ~1s without manual refresh |
+
+### What slipped
+
+Nothing from the Week 3 plan slipped. `/tune` and `/integrations` were already explicitly de-scoped on Day 1 (decisions phase) into Week 4 and remain on track for next week.
+
+### Bugs found and fixed during Phase 2/3
+
+- **AgentChat `showEmptyState` empty-state guard inverted** (caught by code-reviewer subagent before push) — `sessionKey !== undefined` requirement meant draft-mode pills never rendered. Fixed inline before commit.
+- **`getSessionAgentId` helper for unreliable gateway field** (caught by Playwright run, not in original plan) — gateway's `sessions.list` inconsistently populates `agentId`, breaking sidebar grouping and AgentChat right-pane mount on freshly-created sessions. Fixed by parsing the structured session key prefix as authoritative source.
+
+### Pre-existing issues surfaced (not blocking, follow-up for team)
+
+| Where | Issue | Severity |
+|---|---|---|
+| `client.ts:339` `META_AGENT_IDS` Set | Missing `mcp-builder` and `data-scavenger` — both leak into `/chat` employee picker | Medium (UX confusion, not data corruption) |
+| `/chat` picker | "main" agent appears with empty model field — looks like a default placeholder that probably shouldn't be picker-able | Low |
+| `useGateway`, `useRpc`, `useGatewayEvent` (singular), `/employees/[id]`, original `/create` patterns | 13 React 19 strict-rule lint errors (`react-hooks/refs` + `react-hooks/set-state-in-effect`) — pre-existing from React 18 → 19 upgrade; my Phase 2/3 work added 1 more in same pattern (`/chat/page.tsx:96` `void refreshSessions()`). Worth holistic cleanup as separate PR | Low (lint-only, runtime OK) |
+
+### Future test rows (for next ship cycle)
+
+When `/tune` lands in Week 4: add **C12 — Tune (`/tune`) — Week 4** following the same C11 template structure (mounts AgentChat with `agentId="tuner"` + Tuner-specific suggestions in emptyState).
+
+When `/integrations` lands in Week 4: add **C13 — Integrations (`/integrations`) — Week 4** covering MCP server CRUD via `config.patch` + per-agent binding lists.
+
+When the AgentChat reconnect-backfill TODO is resolved (driven by /chat needing it in production): add **C14 — useGatewayEvents reconnect backfill** covering missed-events-on-reconnect replay via `*.list` RPC backfill.
+
+### Plan deviation log
+
+- Day 1 (decisions) actually consumed ~30 minutes instead of "1 day" — user was decisive and the recommendations stuck without debate
+- Day 2-3 (Phase 2 foundation) compressed to ~2 hours — D1+D3+D4 commits were small/independent, D5 took longer because of ref-sync subtlety
+- Day 4-6 (Phase 3 /chat) compressed to ~3 hours including the Playwright acceptance run; bug fix discovery (`getSessionAgentId`) added ~15 min
+- Day 7 (Phase 4 polish) — partially complete (this ship log entry); 6-agent E2E manual test deferred to next session, was lower-priority than starting Week 4 surfaces
+
+Net: Week 3 plan delivered in ~1 day of Claude Code session time vs 7-day budget. Shifts saved time toward Week 4 launch.
