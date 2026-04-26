@@ -413,13 +413,13 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Test: two users interact with same AI employee → verify memories are isolated, general patterns are promoted
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] **Wire the auto-seeded platform admin into the dashboard gateway client** (unblocks every RBAC-guarded RPC) — `scripts/sentura-setup.{sh,ps1}` now writes `NEXT_PUBLIC_SENTURA_ADMIN_USER_ID` and `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` into `sentura/dashboard/.env.local` automatically (Week 2 wrap-up, Person D, 2026-04-19). The dashboard's gateway client must:
-  - Read `process.env.NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` on startup and expose it as the "acting user" identity.
-  - Attach the token as `params.userToken` (default) — or `params.actorToken` on RPCs whose `userIdField` is different (e.g. `sentura.rbac.users.upsert` takes `userId` for the target + `actorToken` for the caller; see `sentura/extensions/sentura-rbac/src/middleware.ts`).
-  - Surface a clear "no admin token — re-run `./scripts/sentura-setup.sh`" banner when the env var is missing, instead of letting calls fall silently into RBAC bootstrap mode.
-  - Document the contract in `sentura/dashboard/README.md` so future Next.js pages don't forget to forward the token.
-- [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
-- [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
+- [x] **Wire the auto-seeded platform admin into the dashboard gateway client** _(completed 2026-04-26 — env vars wired (commit `91dd9581`); `<MissingTokenBanner>` site-wide warning + dashboard README env contract section (commit `76944958`))_:
+  - [x] Read `process.env.NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` on startup and expose it as the "acting user" identity.
+  - [x] Attach the token as `params.userToken` (default) — or `params.actorToken` on RPCs whose `userIdField` is different (e.g. `sentura.rbac.users.upsert` takes `userId` for the target + `actorToken` for the caller; see `sentura/extensions/sentura-rbac/src/middleware.ts`).
+  - [x] Surface a clear "no admin token — re-run `./scripts/sentura-setup.sh`" banner when the env var is missing, instead of letting calls fall silently into RBAC bootstrap mode.
+  - [x] Document the contract in `sentura/dashboard/README.md` so future Next.js pages don't forget to forward the token.
+- [x] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs) _(completed 2026-04-26 — `sentura/dashboard/src/app/tune/page.tsx` (commit `7af91863`); per W4 D1 chat-only MVP — diffs route through `/approvals` via `exec.approval.requested` payload, inline diff panel deferred to W6+ when Tuner emits a "pending change" event subtype; 9 sub-tests in C12)_
+- [x] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials) _(completed 2026-04-26 — `sentura/dashboard/src/app/integrations/page.tsx` (commit `a030091c`); per W4 D2 tabbed-by-tier (T1 open-source / T2 Sentura-generated / T3 self-provisioned), classifyTier heuristic (explicit `sentura.tier` > saasProvider > path > default T1), per-tier empty states + W5-deferred per-tier actions; 7 sub-tests in C13)_
 - [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
 - [x] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI) _(completed 2026-04-25 — `useGatewayEvents(handlerMap)` primitive in `sentura/dashboard/src/lib/gateway/hooks.ts` (commit `42e98f5e`); `useApprovals` refactored as first consumer with 4 event types collapsed to 1 handler map; `config.changed` exposed in `GatewayEventType` union ready for use; sidebar `/chat` badge live-updates via `sessions.changed`)_
 - [x] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)** _(completed 2026-04-25 — `sentura/dashboard/src/app/chat/` (commits `6af96df7` + `3468afcc`); 17 sub-tests in `docs/tests/tests-person-c.md` C11; all 4 acceptance criteria from `docs/memory/person-c/week-3.md` Phase 3 verified end-to-end via Playwright)_:
@@ -515,24 +515,24 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Write reflection loop: Creator monitors new employee, auto-patches issues
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking)
-- [ ] Build the Knowledge Manager UI (`/knowledge` — upload documents to Data Scavenger, view generated skills, browse agent EKG pillar contents, skill distribution)
-- [ ] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking)
+- [x] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking) _(completed 2026-04-26 — skeleton shipped per W4 D5; `sentura/dashboard/src/app/orchestrator/page.tsx` (commit `f8f92461`); blocked on Person B's Orchestrator agent + Manager EKG schema for full impl)_
+- [x] Build the Knowledge Manager UI (`/knowledge` — upload documents to Data Scavenger, view generated skills, browse agent EKG pillar contents, skill distribution) _(completed 2026-04-26 — skeleton shipped per W4 D5; `sentura/dashboard/src/app/knowledge/page.tsx` (commit `f8f92461`); blocked on Person B's Data Scavenger output schema for full impl)_
+- [x] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking) _(completed 2026-04-26 — skeleton shipped per W4 D5; `sentura/dashboard/src/app/cost/page.tsx` (commit `f8f92461`); blocked on Person A's cost tracking backend for full impl)_
 - [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
-- [ ] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
-- [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
-- [ ] **Implement user-aware session filtering in dashboard**:
+- [x] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history) _(completed 2026-04-26 — skeleton shipped per W4 D5; `sentura/dashboard/src/app/testing/page.tsx` (commit `f8f92461`); blocked on Person B's test runner output schema for full impl)_
+- [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI) _(blocked on Person A's multi-tenancy namespace convention; deferred to W5+)_
+- [ ] **Implement user-aware session filtering in dashboard** _(blocked on Person A's `sessions.list { userToken }` filter; deferred to W5+ per W4 D4)_:
   - Filter `sessions.list` by `userToken` — each user sees only their own conversations
   - `manager` and `platform_admin` roles can view all sessions (filtered by scope)
   - `auditor` sees all sessions (read-only)
   - `viewer` sees aggregate metrics only (no session-level access)
   - Chat panel and session views respect `userToken` isolation
-- [ ] **Build Group Chat — Communication Panel Phase 2 (capability #16)**:
-  - Group creation UI: select multiple AI employees + invite humans by name/role
-  - Fan-out orchestration layer (Next.js API route): receives a human message → sends to N agent sessions via `sessions.send` → merges streaming responses into a unified thread with agent attribution
-  - Group metadata store (Sentura-managed JSON/SQLite): group name, participant list, purpose, underlying session keys
-  - Unified chat thread view: messages from all agents and humans interleaved chronologically with sender attribution
-  - Group management: add/remove participants, rename group, archive
+- [x] **Build Group Chat — Communication Panel Phase 2 (capability #16)** _(completed 2026-04-26 — `sentura/dashboard/src/app/api/groups/` + `src/components/group-chat.tsx` + `src/lib/groups/` (commit `68e4abe3`); per W4 D3 Next.js Route Handler + SSE; first server-side code path on dashboard; 8 sub-tests in C15)_:
+  - [x] Group creation UI: select multiple AI employees + invite humans by name/role _(humans deferred — single-tenant dev today; AI multi-select via `<GroupPickerDialog>`)_
+  - [x] Fan-out orchestration layer (Next.js API route): receives a human message → sends to N agent sessions via `sessions.send` → merges streaming responses into a unified thread with agent attribution _(POST /api/groups/[id]/send streams `started`/`delta`/`final`/`agent-error`/`done` SSE frames)_
+  - [x] Group metadata store (Sentura-managed JSON/SQLite): group name, participant list, purpose, underlying session keys _(file-based JSON at `~/.openclaw/sentura-group-chats/groups.json`; SQLite migration deferred; transcripts NOT persisted today — each agent's gateway session retains its slice)_
+  - [x] Unified chat thread view: messages from all agents and humans interleaved chronologically with sender attribution _(`<GroupChat>` component, sender chips per assistant bubble)_
+  - [ ] Group management: add/remove participants, rename group, archive _(MVP scope; archive helper exists in store but no UI; deferred to W6+ polish)_
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Build comprehensive audit logging (every action, every tool call, searchable)
@@ -591,12 +591,12 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] **Build 3rd industry ontology template**: `sentura/config/industry-ontologies/healthcare/` (HIPAA compliance, clinical workflows)
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Implement full 7-role RBAC in dashboard (role-based views, permission enforcement per README §15 — `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`)
-- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable, tagged with `userToken` for attribution)
-- [ ] Build the Settings page (`/settings` — SSO config, 7-role RBAC management, scope model, global approval policies, gateway connection)
-- [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`)
-- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per docs/HOSTING.md)
-- [ ] **Build Employee Lifecycle UI** (in `/employees` and `/employees/[id]`): version history, clone, health score, retire
+- [x] Implement full 7-role RBAC in dashboard (role-based views, permission enforcement per README §15 — `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`) _(completed 2026-04-26 — `src/lib/auth/{roles.ts,use-current-role.tsx,use-permission.ts}` + `src/components/{role-switcher,require-permission}.tsx` + `/403` + sidebar nav filter + 5 hard-hide call sites (commit `1c8bacd7`); per W5 D1 hard-hide enforcement; 7×11 matrix mirrors `sentura-rbac/DESIGN.md` § 4; dev-only role switcher gated by `NEXT_PUBLIC_ENABLE_ROLE_SWITCHER=1`; 8 sub-tests in C16; SSO swap-in surface ready for W6 — useCurrentRole signature stays identical when role source flips from localStorage to SSO assertion)_
+- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable, tagged with `userToken` for attribution) _(blocked on Person D's audit event schema; Phase 4 ships honest skeleton + filter UI shell)_
+- [x] Build the Settings page (`/settings` — SSO config, 7-role RBAC management, scope model, global approval policies, gateway connection) _(completed 2026-04-26 — `sentura/dashboard/src/app/settings/` 7-tab framework (commit `77a4b234`); per W5 D3 tabs with `?tab=` URL state; 3 real tabs (Gateway / Approvals read-only / About) + 1 hybrid (RBAC matrix real, user assignment skeleton) + 3 pure skeletons (Scopes / SSO / Audit retention); sidebar Settings flipped enabled, gated by `usePermission("settings.write")`; 9 sub-tests in C17)_
+- [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`) _(blocked on Person B's 10 role templates + template metadata schema; Phase 4 ships "Start from template" inline rail in `/create` with skeleton placeholder)_
+- [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per docs/HOSTING.md) _(blocked on Person A's SAML/OIDC backend; Phase 4 ships `/login` placeholder; full redirect waits W6)_
+- [ ] **Build Employee Lifecycle UI** (in `/employees` and `/employees/[id]`): version history, clone, health score, retire _(blocked on Person B's lifecycle API; Phase 4 ships Lifecycle tab on `/employees/[id]` with 4 inline `<SkeletonBlock>` sections)_
 
 ### Person D — Extensions & Integrations Engineer
 - [ ] Security audit: review all extensions for vulnerabilities
