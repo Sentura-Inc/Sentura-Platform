@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ExternalLink,
+  LayoutTemplate,
   Sparkles,
   WifiOff,
 } from "lucide-react";
@@ -283,6 +284,7 @@ function CreateEmployeePageBody() {
         {!hasActiveConversation ? (
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
+              <TemplateRail />
               <WelcomeState onNew={handleNewConversation} />
             </div>
           </div>
@@ -305,6 +307,51 @@ function CreateEmployeePageBody() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Start from template" rail at the top of /create. Per Week 5 D4
+ * (inline /create entry, not separate /templates route): when Person B's
+ * 10 role templates ship, this rail becomes a horizontal scroll of
+ * preview cards. Clicking a template prefills the Creator chat with
+ * template-specific intent ("create an AP clerk for the finance team").
+ *
+ * Today: single placeholder card showing the eventual layout + naming
+ * Person B as the blocker so they know the dashboard's input contract.
+ */
+function TemplateRail() {
+  return (
+    <Card className="border-dashed">
+      <CardContent className="py-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
+            <LayoutTemplate className="h-4 w-4 text-primary" />
+          </div>
+          <h2 className="text-sm font-semibold">Start from template</h2>
+          <span className="ml-auto rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-amber-700 dark:text-amber-400">
+            placeholder
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Skip the open-ended interview — pick a role template to give the
+          Creator Agent a starting blueprint. Awaiting{" "}
+          <span className="font-medium text-foreground">Person B</span>&apos;s
+          10 role templates + template metadata schema (Week 5).
+        </p>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="shrink-0 w-44 rounded-md border border-border bg-muted/30 p-3 space-y-1.5 opacity-70">
+            <div className="flex items-center gap-1.5">
+              <div className="h-5 w-5 rounded bg-muted" />
+              <span className="text-[11px] font-medium">Coming soon</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              AP Clerk · CS Agent · SDR · Recruiter · etc.
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

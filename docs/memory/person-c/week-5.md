@@ -194,3 +194,73 @@ Rationale: all four actions are about the *employee in context*; jumping to a se
 **Decision:** *Self-driven work first, collaborative work later.* The two real-data deliverables (RBAC + `/settings` framework) ship Day 2-4. The four backend-blocked deliverables (`/audit` + Template entry + Lifecycle tab + `/login`) ship as honest skeletons Day 5-6.
 
 Rationale: 4 of 6 W5 Person C items hard-depend on Person A/B/D backends. Strategy A (skeleton everything blocked) is safer than Strategy B (mock data) because mock-data UIs that ship look done — reviewers stop scrutinizing them, and when real schemas land different, both UI + tests need rewriting. Strategy C (proactively coordinate schemas with A/B/D in Day 1) was considered but rejected as too coordination-heavy for a 7-day sprint where C can self-drive 2 substantial items already.
+
+---
+
+## 2026-04-26 — Week 5 ship session
+
+W5 compressed from a 7-day plan into 2 same-day sessions: morning ship of W4 Phase 4 (Group Chat) + W5 plan, afternoon ship of W5 Phase 2 + 3 (RBAC + `/settings`), evening ship of W5 Phase 4 (4 backend-blocked skeletons). All W5 self-driven work done; backend-blocked work shipped as honest skeletons per W5 D5.
+
+### What landed (in chronological order)
+
+| Phase | Surface | Commit | Lines | Notes |
+|---|---|---|---|---|
+| 4 (W4) | `/chat` group fan-out (cap #16 P2) | `68e4abe3` | +1416/-23 | Pre-W5 — counted here for context. First server-side code on dashboard (Next.js Route Handler + SSE). |
+| 1 (W5) | week-5.md plan + D1-D5 decisions | (in W5 wrap commit) | — | All 5 user-aligned to recommendations + strategic posture "self-driven first" |
+| 2 (W5) | 7-role RBAC + hard-hide + dev role switcher | `1c8bacd7` | +828/-146 | Per W5 D1 hard-hide; matrix mirrors `sentura-rbac/DESIGN.md` § 4; 8 sub-tests in C16 |
+| 3 (W5) | `/settings` 7-tab framework | `77a4b234` | +1022/-25 | Per W5 D3 tabs with `?tab=`; 3 real + 1 hybrid + 3 skeleton; 9 sub-tests in C17 |
+| 4 (W5) | 4 backend-blocked surfaces (this session) | (W5 wrap commit) | — | `/audit` + `/create` Template rail + `/employees/[id]` Lifecycle Card + `/login` placeholder; 8 sub-tests in C18 |
+
+### Acceptance vs original Phase 4 plan
+
+| Plan item | Shipped | Notes |
+|---|---|---|
+| `/audit` route + sidebar enable + filter UI shell + SkeletonBlock | ✅ | Exact match. Filter shell uses 5 disabled inputs (date / user / agent / action / resource) per W5 D2 server-side decision |
+| Template Library inline rail in `/create` | ✅ | One placeholder card today; expands to N when B's templates ship |
+| Employee Lifecycle UI on `/employees/[id]` | ✅ | Per W5 D5 — but landed as "Lifecycle Card" (after Bindings) instead of a true tab, because the existing detail page uses vertical Card stack, not top-level Tabs. Single consolidated `<SkeletonBlock>` with 4 willInclude bullets covers Clone / Version / Health / Retire |
+| `/login` SSO placeholder route | ✅ | Brand mark + disabled SSO button + amber dev-mode banner + "When SSO ships" 3-bullet list |
+| C18 TESTS.md row + 8 sub-tests | ✅ | Person C count bumps to N/18 |
+
+### Cross-team status post-Phase 4
+
+After Phase 4, the dashboard has **18 surfaces total**: 11 fully-functional + 7 honest skeletons (4 from W4 + `/audit` + Template rail + Lifecycle Card from W5; `/login` is a 7th if you count it). Every backend-blocked skeleton names its specific blocking owner + deliverable.
+
+| Blocking owner | Surfaces waiting | Status |
+|---|---|---|
+| Person A | `/cost`, `/login`, `/settings#sso`, `/settings#scopes` + W4 carry (tenant/userToken filter) | None landed; multi-tenancy + SSO are biggest unblockers |
+| Person B | `/orchestrator`, `/knowledge`, `/testing`, `/create` Template rail, `/employees/[id]` Lifecycle | None landed |
+| Person D | `/audit`, `/settings#rbac` user-list, `/settings#audit-retention` | None landed; sentura-rbac frontend RPC is biggest unblocker |
+
+W6 cannot start meaningful new C work until at least one of the above lands. Most actionable for the team meeting: schema-first publishing from B + D would let C build against real shapes without mock-rewrite cost.
+
+### Bug fixes / gotchas this session
+
+None new. The two W4-era gotchas (AgentChat key prop bug + OpenClaw Origin header) stay valid and well-documented in `current_work_state.md` + `openclaw_origin_header_gotcha.md` memory.
+
+### Lint baseline
+
+19 → 20 → 21 across W5 phases:
+- W3 closeout: 16
+- Phase 2 (RBAC use-current-role mount effect): +1 → 17
+- ...post-W4 Phase 4 era was 19...
+- Phase 2 (W5): +1 → 20
+- Phase 3 (W5 approvals tab load effect): +1 → 21
+- Phase 4: **+0** — all 4 surfaces are pure presentational, no useEffect/setState patterns
+
+All new errors are the same canonical "set-state in load-on-mount effect" pattern the codebase already has 13+ instances of. Accepted team-wide.
+
+### New commit cadence policy applied
+
+Per team policy locked 2026-04-26 (after the meeting): commit at week-task granularity, not phase-by-phase. Phase 4 + ship log + snapshot ship as **one W5 wrap commit** (not 3 separate commits as Phase 2 + 3 had). Future weeks (W6+) will land in `~3-5 commits/week` not `~10-30/week`. Memory: `commit_cadence.md`.
+
+### Week 5 status — closed
+
+| Item | Status |
+|---|---|
+| Phase 1 — D1-D5 decisions | ✅ |
+| Phase 2 — RBAC + hard-hide enforcement | ✅ commit `1c8bacd7` |
+| Phase 3 — `/settings` 7-tab framework | ✅ commit `77a4b234` |
+| Phase 4 — 4 backend-blocked skeletons | ✅ this session |
+| Phase 5 — Ship + retro | ✅ this entry IS the retro |
+
+W5 next-week setup: **W6 cannot meaningfully start until A / B / D ship at least one backend deliverable.** C is unblocked-blocked.

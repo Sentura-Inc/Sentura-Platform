@@ -276,5 +276,20 @@ Per Week 5 D3 (tabs with `?tab=<id>` URL state). Top-tab nav: 7 categories (Gate
 | C17.8 | Skeleton tabs name their blocker | Open each of `/settings?tab={scopes,sso,audit-retention}` | Each renders `<SkeletonBlock>` with explicit blocking owner (`Person A` for scopes/sso, `Person D` for audit-retention) + concrete deliverable copy + 4 willInclude bullets describing eventual functionality |
 | C17.9 | URL state survives refresh + tab clicks update URL | Open `/settings?tab=sso` → refresh → click "Approvals" tab button | After refresh URL `?tab=sso` persists, SSO tab still active. After tab click URL becomes `?tab=approvals` via `router.replace` (no scroll, no history pollution). Sidebar `Settings` link href = `/settings` so clicking it returns to default Gateway tab |
 
+### C18. Backend-blocked surface skeletons (Week 5 Phase 4)
+
+Per Week 5 D5 (skeleton-only for backend-blocked, no mock data). 4 surfaces ship as honest placeholders so the design language is locked + each blocking owner sees a concrete signal of what the dashboard expects. Same playbook as W4 Phase 3 (4 skeleton surfaces) but now applied at varied granularity (full-page route + inline rail + Card section + auth landing).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C18.1 | `/audit` page loads + sidebar enabled | Click "Audit Trail" in sidebar | Sidebar item active (no `W5` badge); page renders header + filter UI shell + `<SkeletonBlock>` blocking on Person D's audit event schema |
+| C18.2 | `/audit` filter shell shape locked | Inspect filter inputs | 5 visible-but-disabled inputs (Date range / User / Agent / Action / Resource) with mute styling + Search button disabled with title "Search disabled until audit.search RPC ships". Demonstrates the eventual filter shape so D sees the contract |
+| C18.3 | `/create` Template rail renders above WelcomeState | Navigate to `/create` with no active conversation | `<TemplateRail>` card with dashed border sits ABOVE the existing "Start a new employee" WelcomeState card; `placeholder` badge top-right; explanatory copy names Person B as blocker; horizontal rail shows 1 "Coming soon" preview card listing AP Clerk / CS Agent / SDR / Recruiter as future templates |
+| C18.4 | `/create` rail hidden during active conversation | Click an existing conversation in left sidebar | Template rail disappears (it's part of the empty-state branch). Reverting to "no active" state shows it again |
+| C18.5 | `/employees/[id]` Lifecycle Card renders | Open any employee detail page, scroll past Bindings | "Lifecycle" Card with History icon header + single consolidated `<SkeletonBlock>` blocking on Person B's lifecycle API; willInclude lists all 4 future actions (Clone / Version history / Health score / Retire) with concrete behavior copy each |
+| C18.6 | `/employees/[id]` Lifecycle position | Inspect card order | Lifecycle Card appears AFTER Channel Bindings (last in the vertical Card stack); per W5 D5 (in-context, not separate workflow) — the actions stay tied to the employee detail view |
+| C18.7 | `/login` placeholder loads + dev-mode messaging | Navigate to `/login` directly | Centered Card with brand mark + "Sign in to Sentura" + disabled "Sign in with SSO" button (title naming Person A SAML/OIDC backend Week 5) + amber "Local dev mode" banner explaining single-tenant bypass + "When SSO ships" 3-bullet posture list |
+| C18.8 | `/login` button visibly disabled but well-styled | Hover the SSO button | Button has `cursor-not-allowed` + reduced opacity, but maintains primary color hint so the eventual flow is visually obvious. Subtitle below button names blocker explicitly |
+
 ---
 

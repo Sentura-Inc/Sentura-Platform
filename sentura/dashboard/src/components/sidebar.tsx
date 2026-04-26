@@ -81,7 +81,7 @@ const sections: NavSection[] = [
     title: "Management",
     items: [
       { label: "Cost Center", href: "/cost", icon: DollarSign, requiresPermission: "audit.read" },
-      { label: "Audit Trail", href: "/audit", icon: ClipboardList, requiresPermission: "audit.read", disabled: true, badge: "W5" },
+      { label: "Audit Trail", href: "/audit", icon: ClipboardList, requiresPermission: "audit.read" },
       { label: "Integrations", href: "/integrations", icon: Plug, requiresPermission: "ekg.read" },
       { label: "Orchestrator", href: "/orchestrator", icon: GitBranch, requiresPermission: "agents.read" },
       { label: "Knowledge", href: "/knowledge", icon: BookOpen, requiresPermission: "ekg.read" },

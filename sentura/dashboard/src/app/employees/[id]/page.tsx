@@ -9,6 +9,7 @@ import {
   Bot,
   ExternalLink,
   FileText,
+  History,
   Loader2,
   Network,
   RefreshCw,
@@ -25,6 +26,7 @@ import type {
   BindingConfig,
 } from "@/lib/gateway";
 import { usePermission } from "@/lib/auth/use-permission";
+import { SkeletonBlock } from "@/components/skeleton-block";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -443,6 +445,33 @@ export default function EmployeeDetailPage() {
             </CardHeader>
             <CardContent>
               <BindingsList bindings={bindings} />
+            </CardContent>
+          </Card>
+
+          {/* Lifecycle — clone / version history / health score / retire.
+              Per Week 5 D5 (tab-on-detail vs separate workflow): keep
+              everything in /employees/[id] context. Today blocked on
+              Person B's lifecycle API; ships as one consolidated
+              SkeletonBlock listing all 4 future actions. */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Lifecycle
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SkeletonBlock
+                blockingOwner="Person B"
+                blockingDeliverable="employee lifecycle API (clone / version / health / retire)"
+                targetWeek="Week 5"
+                willInclude={[
+                  "Clone employee — duplicate this agent's config + workspace files into a new agent with a chosen name; useful for spinning up A/B variants",
+                  "Version history — list of prior config + workspace snapshots with diff viewer; one-click rollback gated by `agents.delete` (since rollback wipes intervening changes)",
+                  "Health score — response quality / error rate / approval rejection rate over the last 7d, surfaced as a single 0-100 with drill-down to per-dimension breakdown",
+                  "Retire — graceful shutdown wizard: drain in-flight sessions, hand off to backup agent if configured, archive workspace + transcripts to cold storage, audit-log the retirement",
+                ]}
+              />
             </CardContent>
           </Card>
         </>
