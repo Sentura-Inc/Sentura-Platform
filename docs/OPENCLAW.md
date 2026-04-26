@@ -654,7 +654,6 @@ Inbound message (webhook/WS/poll)
 - `config.get` — read current config
 - `config.apply` — apply full config replacement
 - `config.patch` — merge patch with conflict detection
-- `config.revert` — revert to previous state
 
 ---
 
@@ -1256,8 +1255,8 @@ OpenClaw **is** the Sentura runtime — Sentura does not wrap or replace it. Sen
 | Provider extensions (37+) | LLM selection per employee — cloud API keys or self-hosted Ollama/vLLM/SGLang. Sentura policy picks a default per tenant; users can override. |
 | Memory host (`@openclaw/memory-host-sdk`) + `memory-lancedb` | Per-employee vector memory namespaces with dreaming/consolidation on the OpenClaw cron. |
 | Approval workflow (`exec.approval`) | Sentura's HITL UI surfaces pending approvals from OpenClaw's queue and routes them to the right role via RBAC. |
-| MCP servers (`mcp.servers.<name>`) | Sentura-built enterprise MCP servers (e.g. `@sentura/mcp-gradsale-admin`) are wired into an employee's config via `config.patch` under `mcp.servers.<name>`. Sentura does **not** invent a different MCP wiring. |
-| Config JSON5 + Zod schemas | Sentura ships agent templates as JSON5 diffs applied through `config.patch`, never by hand-editing config files at runtime. |
+| MCP servers (`mcp.servers.<name>` + workspace `config.json5 -> mcpServers`) | Shared/operator-managed MCP servers still use global `mcp.servers.<name>`. Week 3 employee-local self-provisioning now writes to `~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers` via Sentura host helpers, while still preserving OpenClaw's flat-map MCP wiring. |
+| Config JSON5 + Zod schemas | Sentura ships agent templates as JSON5 diffs applied through `config.patch`, and uses in-process Sentura host helpers for employee-local secrets/MCP state instead of hand-editing config from inside sandboxed agents. |
 | Workspace convention (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`) | The only 8 native OpenClaw workspace files. Sentura's safety boundaries live in `AGENTS.md → Hard Rules`; enterprise context lives in `BOOTSTRAP.md → Enterprise Context`. |
 | Sandbox mode (`non-main`) | Mandatory for every AI employee deployed by Sentura's Creator agent. |
 | Device pairing + Control UI | Available for employee owners/admins who want OpenClaw's native view alongside the Sentura dashboard. |
@@ -1267,8 +1266,8 @@ OpenClaw **is** the Sentura runtime — Sentura does not wrap or replace it. Sen
 1. **Never modify OpenClaw core source.** Sentura changes happen in `sentura/extensions/*`, `sentura/skills/*`, `sentura/agents/*`, `sentura/dashboard/*`, and `sentura/mcp-servers/*`.
 2. **Never import from `openclaw/src/*` or `openclaw/packages/plugin-sdk/src/*`.** Always use the stable subpath exports `openclaw/plugin-sdk/*`.
 3. **Never call LLM providers directly.** All LLM access flows through OpenClaw's provider system.
-4. **Never bypass the config system.** Runtime changes go through `config.patch`.
-5. **Never store credentials in config or conversation.** Use OpenClaw's secret store (`$secret` references) or `~/.openclaw/.env`.
+4. **Never bypass the config system.** Shared/global runtime changes go through `config.patch`; employee-local secret/MCP changes go through the `sentura-agents` host helpers.
+5. **Never store credentials in config or conversation.** Use Sentura's file-backed secret provider with string pointers like `"$secret:/sentura/agents/<agentId>/<service>/<credential>"`, or operator-managed environment injection.
 6. **Never build a custom Docker/docker-compose for the gateway.** Use `pnpm openclaw onboard` + `pnpm gateway:watch` in dev, or `openclaw/docker-setup.sh` in production.
 
 ### Differences in posture (same runtime, different surface)

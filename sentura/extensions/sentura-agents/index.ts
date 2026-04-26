@@ -1,6 +1,13 @@
 import path from "node:path";
-import { Type, type Static } from "@sinclair/typebox";
 import { definePluginEntry, resolveOpenClawDir, type OpenClawPluginApi } from "./api.js";
+import {
+  hasSenturaSecret,
+  putSenturaSecret,
+} from "../../lib/secrets.ts";
+import {
+  removePerAgentMcpServers,
+  upsertPerAgentMcpServers,
+} from "../../lib/per-agent-mcp.ts";
 import {
   createAgentWorkspace,
   deleteSubfile,
@@ -58,135 +65,197 @@ function toErrorShape(err: unknown): { code: string; message: string } {
   return { code: "INTERNAL_ERROR", message };
 }
 
-// TypeBox schema for the agent-facing tool. Permissive optional fields cover
-// five actions; per-action required fields are enforced in `execute`. Writes
+function normalizeBindings(raw: unknown): BindingEntry[] | undefined {
+  return Array.isArray(raw)
+    ? (raw.filter(
+        (entry): entry is BindingEntry =>
+          typeof entry === "object"
+          && entry !== null
+          && typeof (entry as { agentId?: unknown }).agentId === "string",
+      ) as BindingEntry[])
+    : undefined;
+}
+
+function normalizeRecord(raw: unknown): Record<string, unknown> | undefined {
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : undefined;
+}
+
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const values = raw.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  return values.length > 0 ? values : undefined;
+}
+
+// JSON schema for the agent-facing tool. Permissive optional fields cover
+// several actions; per-action required fields are enforced in `execute`. Writes
 // may target either a subfile (skills/, ekg/, memory/users/) OR one of the
 // eight OpenClaw-native workspace files at the root (AGENTS.md, SOUL.md,
 // TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) —
 // because the agent-callable `gateway` tool does NOT expose agents.files.set.
-const ManageToolSchema = Type.Object(
-  {
-    action: Type.Union(
-      [
-        Type.Literal("create_agent"),
-        Type.Literal("write"),
-        Type.Literal("read"),
-        Type.Literal("delete"),
-        Type.Literal("list"),
-        Type.Literal("register_agent"),
-        Type.Literal("stamp_setup"),
+const ManageToolSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: "string",
+      enum: [
+        "create_agent",
+        "write",
+        "read",
+        "delete",
+        "list",
+        "register_agent",
+        "stamp_setup",
+        "put_secret",
+        "has_secret",
+        "upsert_mcp_servers",
+        "remove_mcp_servers",
       ],
-      {
-        description:
-          "Operation: 'create_agent' creates the agent workspace directory (idempotent, auto-stamps setupCompletedAt so the agent is not bootstrap-pending); 'write' creates/overwrites a file (either a native top-level workspace file like AGENTS.md OR a subfile under skills/, ekg/, memory/users/); 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files under the workspace (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers) IN-PROCESS, bypassing the gateway's scope-upgrade pairing requirement; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json so the agent is not bootstrap-pending on first boot.",
-      },
-    ),
-    agentId: Type.String({
+      description:
+        "Operation: 'create_agent' creates the agent workspace directory (idempotent, auto-stamps setupCompletedAt so the agent is not bootstrap-pending); 'write' creates/overwrites a file (either a native top-level workspace file like AGENTS.md OR a subfile under skills/, ekg/, memory/users/); 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files under the workspace (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers) IN-PROCESS, bypassing the gateway's scope-upgrade pairing requirement; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json so the agent is not bootstrap-pending on first boot; 'put_secret' stores a per-agent secret in Sentura's file-backed secret store and returns only a $secret pointer; 'has_secret' checks whether a per-agent secret already exists; 'upsert_mcp_servers' writes per-agent MCP servers into the target workspace's config.json5 -> mcpServers using the Sentura secret-pointer launcher; 'remove_mcp_servers' removes named per-agent MCP servers from config.json5.",
+    },
+    agentId: {
+      type: "string",
       minLength: 1,
       description:
         "Target agent id (e.g. 'remy-billing-support'). Lowercase letters, digits, and hyphens only (same rules as OpenClaw agent ids).",
-    }),
-    relPath: Type.Optional(
-      Type.String({
-        description:
-          "Relative path under the agent's workspace. Either one of the native workspace files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) OR a subfile under skills/, ekg/, memory/users/. Example: 'AGENTS.md' or 'skills/billing-triage/SKILL.md'. Required for action='write' | 'read' | 'delete'. Ignored otherwise.",
-      }),
-    ),
-    content: Type.Optional(
-      Type.String({
-        description: "File contents (UTF-8). Required for action='write'.",
-      }),
-    ),
-    relDir: Type.Optional(
-      Type.String({
-        description:
-          "Optional subdirectory under the agent's workspace to restrict a 'list' action to (e.g. 'skills'). Only used when action='list'.",
-      }),
-    ),
-    // --- Fields used by action='register_agent' ---
-    name: Type.Optional(
-      Type.String({
-        description:
-          "Human-friendly display name for the employee (e.g. 'Remy'). Only used when action='register_agent'. Falls back to agentId if omitted.",
-      }),
-    ),
-    model: Type.Optional(
-      Type.String({
-        description:
-          "Provider/model slug (e.g. 'openai/gpt-5.4'). Only used when action='register_agent'. If omitted, falls back to agents.defaults.model.",
-      }),
-    ),
-    workspaceDir: Type.Optional(
-      Type.String({
-        description:
-          "Absolute path (or '~/…') to the employee's workspace. Defaults to '<OPENCLAW_HOME>/workspace/<agentId>'. Only used when action='register_agent'.",
-      }),
-    ),
-    agentDir: Type.Optional(
-      Type.String({
-        description:
-          "Absolute path (or '~/…') to the agent's code directory. Defaults to '<OPENCLAW_HOME>/agents/<agentId>/agent'. Only used when action='register_agent'.",
-      }),
-    ),
-    identity: Type.Optional(
-      Type.Any({
-        description:
-          "Identity metadata object (e.g. { name, emoji, role }) written into the agents.list entry. Only used when action='register_agent'.",
-      }),
-    ),
-    tools: Type.Optional(
-      Type.Any({
-        description:
-          "Tools config object (profile, alsoAllow[], deny[], etc.). Only used when action='register_agent'.",
-      }),
-    ),
-    sandbox: Type.Optional(
-      Type.Any({
-        description:
-          "Sandbox config object. Defaults to { mode: 'non-main' }. Only used when action='register_agent'.",
-      }),
-    ),
-    runtime: Type.Optional(
-      Type.Any({
-        description:
-          "Runtime config object. Defaults to { type: 'embedded' }. Only used when action='register_agent'.",
-      }),
-    ),
-    params: Type.Optional(
-      Type.Any({
-        description:
-          "Free-form agent params object (e.g. { memoryDbPath }). Only used when action='register_agent'.",
-      }),
-    ),
-    bindings: Type.Optional(
-      Type.Any({
-        description:
-          "Optional array of channel-binding objects to append to config.bindings[] in the SAME atomic config write. Each entry must include an agentId field. Only used when action='register_agent'.",
-      }),
-    ),
-    mcpServers: Type.Optional(
-      Type.Any({
-        description:
-          "Optional record of MCP server entries to merge under config.mcp.servers. Each key is the server name; each value is its config. Only used when action='register_agent'.",
-      }),
-    ),
-    overwrite: Type.Optional(
-      Type.Boolean({
-        description:
-          "If true, replaces an existing agents.list entry with the same id (deep-merging nested objects). Defaults to false. Only used when action='register_agent'.",
-      }),
-    ),
-    stampSetupCompleted: Type.Optional(
-      Type.Boolean({
-        description:
-          "If true (default), also stamp setupCompletedAt into <workspaceDir>/.openclaw/workspace-state.json so the new employee is not bootstrap-pending on first boot. Only used when action='register_agent'.",
-      }),
-    ),
+    },
+    relPath: {
+      type: "string",
+      description:
+        "Relative path under the agent's workspace. Either one of the native workspace files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) OR a subfile under skills/, ekg/, memory/users/. Example: 'AGENTS.md' or 'skills/billing-triage/SKILL.md'. Required for action='write' | 'read' | 'delete'. Ignored otherwise.",
+    },
+    content: {
+      type: "string",
+      description: "File contents (UTF-8). Required for action='write'.",
+    },
+    relDir: {
+      type: "string",
+      description:
+        "Optional subdirectory under the agent's workspace to restrict a 'list' action to (e.g. 'skills'). Only used when action='list'.",
+    },
+    service: {
+      type: "string",
+      description:
+        "Integration/service name used in Sentura's secret path convention. Required for action='put_secret' | 'has_secret'. Example: 'zendesk' or 'gradsale'.",
+    },
+    credential: {
+      type: "string",
+      description:
+        "Credential field name used in Sentura's secret path convention. Required for action='put_secret' | 'has_secret'. Example: 'api_key' or 'admin_token'.",
+    },
+    secretValue: {
+      type: "string",
+      description:
+        "Secret plaintext to store in the file provider. Required for action='put_secret'. Never echoed back in tool output.",
+    },
+    name: {
+      type: "string",
+      description:
+        "Human-friendly display name for the employee (e.g. 'Remy'). Only used when action='register_agent'. Falls back to agentId if omitted.",
+    },
+    model: {
+      type: "string",
+      description:
+        "Provider/model slug (e.g. 'openai/gpt-5.4'). Only used when action='register_agent'. If omitted, falls back to agents.defaults.model.",
+    },
+    workspaceDir: {
+      type: "string",
+      description:
+        "Absolute path (or '~/…') to the employee's workspace. Defaults to '<OPENCLAW_HOME>/workspace/<agentId>'. Only used when action='register_agent'.",
+    },
+    agentDir: {
+      type: "string",
+      description:
+        "Absolute path (or '~/…') to the agent's code directory. Defaults to '<OPENCLAW_HOME>/agents/<agentId>/agent'. Only used when action='register_agent'.",
+    },
+    identity: {
+      description:
+        "Identity metadata object (e.g. { name, emoji, role }) written into the agents.list entry. Only used when action='register_agent'.",
+    },
+    tools: {
+      description:
+        "Tools config object (profile, alsoAllow[], deny[], etc.). Only used when action='register_agent'.",
+    },
+    sandbox: {
+      description:
+        "Sandbox config object. Defaults to { mode: 'non-main' }. Only used when action='register_agent'.",
+    },
+    runtime: {
+      description:
+        "Runtime config object. Defaults to { type: 'embedded' }. Only used when action='register_agent'.",
+    },
+    params: {
+      description:
+        "Free-form agent params object (e.g. { memoryDbPath }). Only used when action='register_agent'.",
+    },
+    bindings: {
+      description:
+        "Optional array of channel-binding objects to append to config.bindings[] in the SAME atomic config write. Each entry must include an agentId field. Only used when action='register_agent'.",
+    },
+    mcpServers: {
+      description:
+        "Record of MCP server entries. For action='register_agent', merges under openclaw.json -> config.mcp.servers (shared/global Week 2 path). For action='upsert_mcp_servers', writes to the target workspace's config.json5 -> mcpServers (Week 3 per-agent path).",
+    },
+    serverNames: {
+      description:
+        "Array of MCP server names to remove from the target workspace's config.json5 -> mcpServers. Required for action='remove_mcp_servers'.",
+    },
+    overwrite: {
+      type: "boolean",
+      description:
+        "If true, replaces an existing agents.list entry with the same id (deep-merging nested objects). Defaults to false. Only used when action='register_agent'.",
+    },
+    stampSetupCompleted: {
+      type: "boolean",
+      description:
+        "If true (default), also stamp setupCompletedAt into <workspaceDir>/.openclaw/workspace-state.json so the new employee is not bootstrap-pending on first boot. Only used when action='register_agent'.",
+    },
   },
-  { additionalProperties: false },
-);
+  required: ["action", "agentId"],
+} as const;
 
-type ManageToolParams = Static<typeof ManageToolSchema>;
+type ManageToolAction =
+  | "create_agent"
+  | "write"
+  | "read"
+  | "delete"
+  | "list"
+  | "register_agent"
+  | "stamp_setup"
+  | "put_secret"
+  | "has_secret"
+  | "upsert_mcp_servers"
+  | "remove_mcp_servers";
+
+interface ManageToolParams {
+  action: ManageToolAction;
+  agentId: string;
+  relPath?: string;
+  content?: string;
+  relDir?: string;
+  service?: string;
+  credential?: string;
+  secretValue?: string;
+  name?: string;
+  model?: string;
+  workspaceDir?: string;
+  agentDir?: string;
+  identity?: unknown;
+  tools?: unknown;
+  sandbox?: unknown;
+  runtime?: unknown;
+  params?: unknown;
+  bindings?: unknown;
+  mcpServers?: unknown;
+  serverNames?: unknown;
+  overwrite?: boolean;
+  stampSetupCompleted?: boolean;
+}
 
 function renderResultText(action: string, result: unknown): string {
   if (action === "create_agent" && result && typeof result === "object" && "workspaceDir" in result) {
@@ -228,6 +297,28 @@ function renderResultText(action: string, result: unknown): string {
     return r.stamped
       ? `Stamped setupCompletedAt in ${r.workspaceDir}/.openclaw/workspace-state.json`
       : `Workspace at ${r.workspaceDir} was already marked setup-complete`;
+  }
+  if (action === "put_secret" && result && typeof result === "object" && "pointer" in result) {
+    const r = result as { pointer: string; created: boolean };
+    return `${r.created ? "Stored" : "Updated"} secret pointer ${r.pointer}`;
+  }
+  if (action === "has_secret" && result && typeof result === "object" && "exists" in result) {
+    const r = result as { pointer: string; exists: boolean };
+    return `${r.exists ? "Found" : "Missing"} secret pointer ${r.pointer}`;
+  }
+  if (action === "upsert_mcp_servers" && result && typeof result === "object" && "configPath" in result) {
+    const r = result as { upsertedServerNames: string[]; configPath: string; changed: boolean };
+    const names = r.upsertedServerNames.join(", ");
+    return r.changed
+      ? `Upserted per-agent MCP servers [${names}] in ${r.configPath}`
+      : `Per-agent MCP servers already up to date [${names}] in ${r.configPath}`;
+  }
+  if (action === "remove_mcp_servers" && result && typeof result === "object" && "configPath" in result) {
+    const r = result as { removedServerNames: string[]; configPath: string; changed: boolean };
+    const names = r.removedServerNames.join(", ");
+    return r.changed
+      ? `Removed per-agent MCP servers [${names}] from ${r.configPath}`
+      : `No matching per-agent MCP servers to remove from ${r.configPath}`;
   }
   if (action === "list" && result && typeof result === "object" && "entries" in result) {
     const entries = (result as { entries: Array<{ relPath: string; bytes: number }> }).entries;
@@ -335,18 +426,8 @@ export default definePluginEntry({
     api.registerGatewayMethod("sentura.agents.registerAgent", async ({ params, respond }) => {
       try {
         const openclawHomeDir = resolveOpenClawDir();
-        const rawBindings = (params ?? {}).bindings as unknown;
-        const normalizedBindings: BindingEntry[] | undefined = Array.isArray(rawBindings)
-          ? (rawBindings.filter(
-              (b): b is BindingEntry =>
-                typeof b === "object" && b !== null && typeof (b as { agentId?: unknown }).agentId === "string",
-            ) as BindingEntry[])
-          : undefined;
-        const rawMcp = (params ?? {}).mcpServers as unknown;
-        const normalizedMcp =
-          rawMcp && typeof rawMcp === "object" && !Array.isArray(rawMcp)
-            ? (rawMcp as Record<string, unknown>)
-            : undefined;
+        const normalizedBindings = normalizeBindings((params ?? {}).bindings as unknown);
+        const normalizedMcp = normalizeRecord((params ?? {}).mcpServers as unknown);
         const result = await registerAgentInRuntimeConfig(api, {
           agentId: params?.agentId,
           name: params?.name,
@@ -363,6 +444,76 @@ export default definePluginEntry({
           overwrite: params?.overwrite,
           stampSetupCompleted: params?.stampSetupCompleted,
           openclawHomeDir,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, toErrorShape(err));
+      }
+    });
+
+    api.registerGatewayMethod("sentura.agents.putSecret", async ({ params, respond }) => {
+      try {
+        const result = await putSenturaSecret({
+          agentId: String(params?.agentId ?? ""),
+          service: String(params?.service ?? ""),
+          credential: String(params?.credential ?? ""),
+          value: String(params?.secretValue ?? ""),
+          actor: "sentura.agents.putSecret",
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, toErrorShape(err));
+      }
+    });
+
+    api.registerGatewayMethod("sentura.agents.hasSecret", async ({ params, respond }) => {
+      try {
+        const result = await hasSenturaSecret({
+          agentId: String(params?.agentId ?? ""),
+          service: String(params?.service ?? ""),
+          credential: String(params?.credential ?? ""),
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, toErrorShape(err));
+      }
+    });
+
+    api.registerGatewayMethod("sentura.agents.upsertMcpServers", async ({ params, respond }) => {
+      try {
+        const normalizedMcp = normalizeRecord(params?.mcpServers);
+        if (!normalizedMcp) {
+          throw new PathValidationError(
+            "INVALID_MCP_SERVERS",
+            "mcpServers must be a record for sentura.agents.upsertMcpServers",
+          );
+        }
+        const result = await upsertPerAgentMcpServers({
+          agentId: String(params?.agentId ?? ""),
+          mcpServers: normalizedMcp,
+          workspaceRoot: config.workspaceRoot,
+          actor: "sentura.agents.upsertMcpServers",
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, toErrorShape(err));
+      }
+    });
+
+    api.registerGatewayMethod("sentura.agents.removeMcpServers", async ({ params, respond }) => {
+      try {
+        const serverNames = normalizeStringArray(params?.serverNames);
+        if (!serverNames) {
+          throw new PathValidationError(
+            "INVALID_SERVER_NAMES",
+            "serverNames must be a non-empty string array for sentura.agents.removeMcpServers",
+          );
+        }
+        const result = await removePerAgentMcpServers({
+          agentId: String(params?.agentId ?? ""),
+          serverNames,
+          workspaceRoot: config.workspaceRoot,
+          actor: "sentura.agents.removeMcpServers",
         });
         respond(true, result);
       } catch (err) {
@@ -394,7 +545,7 @@ export default definePluginEntry({
       name: "sentura_agents_manage",
       label: "Sentura: Manage Employee Workspace",
       description:
-        "Create and register an employee end-to-end on the HOST filesystem AND in openclaw.json, entirely in-process. This is the ONLY correct way for Forge to deploy a new employee, because: (a) fs_write cannot write to /workspace/.openclaw/workspace/<agent>/... (sandbox mount is read-only in 'non-main' mode); (b) the agent-callable `gateway` tool only supports the fixed GATEWAY_ACTIONS enum (restart, config.get, config.schema.lookup, config.apply, config.patch, update.run) — it does NOT expose agents.create or agents.files.set; and (c) gateway.call('config.patch', ...) requires operator.admin scope, and OpenClaw hard-codes silent=false for scope upgrades, so an embedded agent has no way to approve its own pairing prompt and the call hangs forever with 'pairing required'. Actions: 'create_agent' creates the workspace root directory (idempotent, AUTO-stamps setupCompletedAt so the new agent is not bootstrap-pending) — call this FIRST; 'write' creates/overwrites any file in the workspace, including the eight native files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) AND subfiles under skills/, ekg/, memory/users/; 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers, all in one atomic write) — use this INSTEAD OF gateway.call('config.patch', ...) to avoid the scope-upgrade pairing deadlock; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json for an existing workspace. Standard deploy order: create_agent → write (each of the 8 native files + skills/* + ekg/*) → register_agent.",
+        "Create and register an employee end-to-end on the HOST filesystem, secret store, and runtime config, entirely in-process. This is the ONLY correct way for Forge to deploy and evolve an employee, because: (a) fs_write cannot write to /workspace/.openclaw/workspace/<agent>/... (sandbox mount is read-only in 'non-main' mode); (b) the agent-callable `gateway` tool only supports the fixed GATEWAY_ACTIONS enum (restart, config.get, config.schema.lookup, config.apply, config.patch, update.run) — it does NOT expose agents.create or agents.files.set; and (c) gateway.call('config.patch', ...) requires operator.admin scope, and OpenClaw hard-codes silent=false for scope upgrades, so an embedded agent has no way to approve its own pairing prompt and the call hangs forever with 'pairing required'. Actions: 'create_agent' creates the workspace root directory (idempotent, AUTO-stamps setupCompletedAt so the new agent is not bootstrap-pending) — call this FIRST; 'write' creates/overwrites any file in the workspace, including the eight native files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) AND subfiles under skills/, ekg/, memory/users/; 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers, all in one atomic write) — keep this for shared/global MCP wiring; 'put_secret' and 'has_secret' manage per-agent secrets in the Sentura file provider and return only $secret pointers; 'upsert_mcp_servers' and 'remove_mcp_servers' manage Week 3 per-agent MCP servers in the target workspace's config.json5 -> mcpServers via the Sentura secret-pointer launcher; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json for an existing workspace.",
       parameters: ManageToolSchema,
       execute: async (_toolCallId, rawParams) => {
         const params = rawParams as ManageToolParams;
@@ -424,18 +575,8 @@ export default definePluginEntry({
           }
           if (action === "register_agent") {
             const openclawHomeDir = resolveOpenClawDir();
-            const rawBindings = params.bindings as unknown;
-            const normalizedBindings: BindingEntry[] | undefined = Array.isArray(rawBindings)
-              ? (rawBindings.filter(
-                  (b): b is BindingEntry =>
-                    typeof b === "object" && b !== null && typeof (b as { agentId?: unknown }).agentId === "string",
-                ) as BindingEntry[])
-              : undefined;
-            const rawMcp = params.mcpServers as unknown;
-            const normalizedMcp =
-              rawMcp && typeof rawMcp === "object" && !Array.isArray(rawMcp)
-                ? (rawMcp as Record<string, unknown>)
-                : undefined;
+            const normalizedBindings = normalizeBindings(params.bindings as unknown);
+            const normalizedMcp = normalizeRecord(params.mcpServers as unknown);
             const result = await registerAgentInRuntimeConfig(api, {
               agentId: params.agentId,
               name: params.name,
@@ -455,6 +596,84 @@ export default definePluginEntry({
             });
             return {
               content: [{ type: "text", text: renderResultText("register_agent", result) }],
+              details: result,
+            };
+          }
+          if (action === "put_secret") {
+            if (!params.service) {
+              throw new PathValidationError("MISSING_SERVICE", "service is required for action='put_secret'");
+            }
+            if (!params.credential) {
+              throw new PathValidationError("MISSING_CREDENTIAL", "credential is required for action='put_secret'");
+            }
+            if (typeof params.secretValue !== "string") {
+              throw new PathValidationError("MISSING_SECRET_VALUE", "secretValue is required for action='put_secret'");
+            }
+            const result = await putSenturaSecret({
+              agentId: params.agentId,
+              service: params.service,
+              credential: params.credential,
+              value: params.secretValue,
+              actor: "sentura_agents_manage.put_secret",
+            });
+            return {
+              content: [{ type: "text", text: renderResultText("put_secret", result) }],
+              details: {
+                ok: result.ok,
+                created: result.created,
+                secretId: result.secretId,
+                pointer: result.pointer,
+                ref: result.ref,
+                secretsFilePath: result.secretsFilePath,
+              },
+            };
+          }
+          if (action === "has_secret") {
+            if (!params.service) {
+              throw new PathValidationError("MISSING_SERVICE", "service is required for action='has_secret'");
+            }
+            if (!params.credential) {
+              throw new PathValidationError("MISSING_CREDENTIAL", "credential is required for action='has_secret'");
+            }
+            const result = await hasSenturaSecret({
+              agentId: params.agentId,
+              service: params.service,
+              credential: params.credential,
+            });
+            return {
+              content: [{ type: "text", text: renderResultText("has_secret", result) }],
+              details: result,
+            };
+          }
+          if (action === "upsert_mcp_servers") {
+            const normalizedMcp = normalizeRecord(params.mcpServers);
+            if (!normalizedMcp) {
+              throw new PathValidationError("MISSING_MCP_SERVERS", "mcpServers is required for action='upsert_mcp_servers'");
+            }
+            const result = await upsertPerAgentMcpServers({
+              agentId: params.agentId,
+              mcpServers: normalizedMcp,
+              workspaceRoot: config.workspaceRoot,
+              actor: "sentura_agents_manage.upsert_mcp_servers",
+            });
+            return {
+              content: [{ type: "text", text: renderResultText("upsert_mcp_servers", result) }],
+              details: result,
+            };
+          }
+          if (action === "remove_mcp_servers") {
+            const serverNames = normalizeStringArray(params.serverNames);
+            if (!serverNames) {
+              throw new PathValidationError("MISSING_SERVER_NAMES", "serverNames is required for action='remove_mcp_servers'");
+            }
+            const result = await removePerAgentMcpServers({
+              agentId: params.agentId,
+              serverNames,
+              workspaceRoot: config.workspaceRoot,
+              actor: "sentura_agents_manage.remove_mcp_servers",
+            });
+            return {
+              content: [{ type: "text", text: renderResultText("remove_mcp_servers", result) }],
               details: result,
             };
           }

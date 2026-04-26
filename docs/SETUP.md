@@ -153,7 +153,7 @@ Both scripts perform the same steps:
 1. Detect platform and verify prerequisites (Node.js 22.16+/24, pnpm, OpenClaw config)
 2. Copy meta-agent workspace files (Creator, Tuner, Orchestrator) to the OpenClaw workspace
 3. Register each meta-agent with the OpenClaw gateway via the CLI
-4. Apply tool permissions (Creator gets `gateway` access, etc.)
+4. Apply tool permissions and sandbox defaults (Creator gets `gateway` access, sandbox browser is enabled for dashboard-created sessions, etc.)
 5. Configure the gateway for dashboard access
 6. Install the `sentura-bootstrap` hook — this injects per-user memory (`memory/users/MEMORY_USER_{token}.md`) into the system prompt for sessions bound to a user token. Hard Rules and Enterprise Context are **not** hook-injected; they live natively inside `AGENTS.md` and `BOOTSTRAP.md`, which the runtime already loads at top priority.
 7. **Seed the first platform admin** (see below) — writes a `platform_admin` user into `sentura-rbac` so agents created after setup are no longer in RBAC bootstrap mode.
@@ -161,6 +161,8 @@ Both scripts perform the same steps:
 9. **Mark each meta-agent workspace as bootstrap-complete** (see "Meta-agent bootstrap convention" below) — stamps `setupCompletedAt` into `<workspace>/.openclaw/workspace-state.json` for `creator`, `tuner`, and `orchestrator` so OpenClaw stops treating the workspaces as `[Bootstrap pending]` and stops forcing non-primary runs (dashboard-spawned sessions) into "limited" mode. This is required because Sentura keeps `BOOTSTRAP.md` permanently as the Enterprise Context file, while OpenClaw's default convention is to delete `BOOTSTRAP.md` once setup is done.
 
 Both scripts are idempotent — safe to re-run if agents are added later.
+
+The setup scripts also enable `agents.defaults.sandbox.browser.enabled = true` for local/dev installs. Week 3 self-provisioning runs from dashboard-created Creator sessions, and those sessions use the sandbox browser path by default; without this flag, Forge can see the `browser` tool but every real dashboard probe fails at runtime with `Sandbox browser is unavailable`.
 
 ### Platform admin bootstrap (auto-seeded, no `curl` required)
 
@@ -311,6 +313,25 @@ If any row reports `0`, re-run `bash scripts/sentura-setup.sh` (or `.ps1` on Win
 **When adding a NEW meta-agent.** Any agent you add under `sentura/agents/<id>/config.json5` with `sandbox: { mode: "non-main" }` MUST also set `tools.sandbox.tools.alsoAllow` listing every plugin tool the agent will invoke. Mirror the same list into both setup scripts' override blocks. The runtime failure mode for forgetting this is silent: the tool just disappears from the model's visible toolset in dashboard sessions.
 
 **Further reading.** `docs/OPENCLAW.md` § "Sandbox tool-policy filter" documents the two-layer pipeline in detail. `docs/DESIGN.md` § "Sandbox runtime" lists the CLI-vs-dashboard divergence.
+
+---
+
+### Week 3 A runtime state
+
+Self-provisioning and communication-panel support add three new host-side artifacts:
+
+- `~/.openclaw/secrets.json` — Sentura's file-backed secret provider. It is bootstrapped automatically the first time `put_secret` runs and is referenced from `openclaw.json -> secrets.providers.default`.
+- `~/.openclaw/workspace/<agentId>/config.json5` — employee-local MCP wiring lives here under `mcpServers`, managed by `sentura_agents_manage { action: "upsert_mcp_servers" }` / `sentura.agents.upsertMcpServers`.
+- `~/.openclaw/logs/sentura-config-diffs.jsonl` — redacted before/after diff log for every Sentura-owned secret or config write.
+
+Week 3 contract rules:
+
+- Secret ids use `/sentura/agents/<agentId>/<service>/<credential>`.
+- MCP env values store secret pointers as strings, for example `"$secret:/sentura/agents/ap-clerk-finance/zendesk/api_key"`.
+- Only stdio MCP `env` supports `$secret:` pointers this round.
+- Remote HTTP/SSE MCP `headers` remain operator-managed.
+- Shared/global MCP servers may still live in `openclaw.json -> mcp.servers`, but self-provisioned employee-local integrations should default to `config.json5 -> mcpServers`.
+- Dashboard 1:1 chat sessions use keys shaped like `agent:<agentId>:dashboard:<uuid>`.
 
 ---
 

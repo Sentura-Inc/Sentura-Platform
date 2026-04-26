@@ -256,6 +256,22 @@ No code changes are needed between environments. Only environment variables chan
 
 The `NEXT_PUBLIC_CONTROL_UI_URL` is used by the Sentura Dashboard sidebar to generate external links to the OpenClaw Control UI for operational tasks (sessions, config, logs, debug, cron). The client ID stays `openclaw-control-ui` in all environments.
 
+## Week 3 Runtime State (Secrets + Per-Agent MCP)
+
+Production operators should account for three additional state files introduced by Week 3 A:
+
+- `~/.openclaw/secrets.json` stores Sentura's file-backed per-agent secrets. The main config only holds the provider descriptor under `openclaw.json -> secrets.providers.default`.
+- `~/.openclaw/workspace/<agentId>/config.json5` stores employee-local `mcpServers` written by `sentura.agents.upsertMcpServers` / `sentura_agents_manage { action: "upsert_mcp_servers" }`.
+- `~/.openclaw/logs/sentura-config-diffs.jsonl` stores redacted before/after diffs for Sentura-owned secret and config writes.
+
+Operational rules:
+
+- Secret pointers are strings shaped like `"$secret:/sentura/agents/<agentId>/<service>/<credential>"`.
+- Sentura resolves those pointers only for stdio MCP server `env` values, just before the child process is spawned.
+- Plaintext secrets are injected into the child process environment only; they are not written back into `config.json5`.
+- Remote HTTP/SSE MCP servers with secret-bearing `headers` remain operator-managed in this round.
+- Shared/global connectors can still live in `openclaw.json -> mcp.servers`, but employee self-provisioning should use per-agent `config.json5 -> mcpServers`.
+
 ## Security & Risk Analysis
 
 Sentura is not a typical web application. It runs AI agents with **shell execution, browser automation (Chromium), file system access, credential storage, and MCP connections to enterprise systems**. The attack surface and blast radius are significantly larger than a standard API server. This section covers risks per hosting type and platform-wide concerns.
@@ -270,7 +286,7 @@ Sentura is not a typical web application. It runs AI agents with **shell executi
 |------|----------|--------|
 | Data sovereignty | High | Enterprise data (prompts, tool outputs, credentials) resides on third-party infrastructure. May violate GDPR, HIPAA, or customer compliance policies. |
 | LLM data transit | High | Prompts containing enterprise context are sent to cloud LLM providers over the internet. Even with TLS, the data passes through the provider's systems. |
-| Provider access | Medium | VPS providers have physical/hypervisor access. A compromised or subpoenaed provider could access the OpenClaw secret store, LanceDB memory, and agent workspaces. |
+| Provider access | Medium | VPS providers have physical/hypervisor access. A compromised or subpoenaed provider could access Sentura's file-backed secrets, LanceDB memory, and agent workspaces. |
 | Shared infrastructure | Medium | Noisy-neighbor and hypervisor escape risks. Not isolated at the hardware level. |
 | Internet exposure | Medium | Port 443 is public. The reverse proxy is the perimeter. A vulnerability in Nginx/Caddy or the gateway's WebSocket handling is directly exploitable. |
 | Credential blast radius | High | If the VPS is compromised, the attacker gets all stored API keys, agent workspaces, and the ability to execute shell commands as the OpenClaw process. |
@@ -315,7 +331,7 @@ These risks apply regardless of where Sentura is hosted:
 |------|--------|------------|
 | Agent shell execution | AI employees can run arbitrary shell commands. A prompt injection or jailbreak could lead to data exfiltration, file deletion, or lateral movement. | OpenClaw's sandbox mode (`non-main`) is mandatory. The `## Hard Rules` section inside each employee's `AGENTS.md` defines top-priority boundaries the agent must not override. Tool denylists block `exec` and `gateway` tools for most employees. |
 | Browser automation | Playwright/Chromium can navigate to any URL. A compromised agent could exfiltrate data via HTTP requests or browser navigation. | Tool allowlists restrict browser access. Self-provisioning requires HITL approval for new accounts. Network-level egress filtering on the host. |
-| Credential store compromise | The OpenClaw secret store holds API keys for enterprise systems. Host compromise means access to all stored credentials. | Encrypt secrets at rest. Rotate credentials regularly. Limit per-employee MCP access to only the integrations they need. |
+| Credential store compromise | Sentura's file-backed secret provider (plus any operator-managed env vars) holds API keys for enterprise systems. Host compromise means access to all stored credentials. | Encrypt secrets at rest. Rotate credentials regularly. Limit per-employee MCP access to only the integrations they need. |
 | MCP server access | MCP servers connect to enterprise databases and APIs. An agent with MCP access can read/write enterprise data. | Minimize access scope per employee. Use read-only MCP tools where possible. Audit all MCP tool calls via `sentura-audit`. |
 | LLM prompt leakage | Every LLM call sends enterprise context (SOUL.md, `BOOTSTRAP.md` Enterprise Context, conversation history) to the provider. With cloud LLMs, this data is outside the customer's control. | Self-hosted LLMs (Ollama/vLLM/SGLang) eliminate this risk entirely. For cloud LLMs, use providers with enterprise data agreements (no training on customer data). |
 | Approval bypass | If the HITL approval system is misconfigured (auto-approve, short timeouts), high-risk actions could execute without human review. | `sentura-approval` extension enforces escalation chains and timeout policies. The `## Hard Rules` section inside each employee's `AGENTS.md` defines mandatory approval triggers per position. |

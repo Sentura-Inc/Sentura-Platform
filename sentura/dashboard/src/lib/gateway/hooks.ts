@@ -86,6 +86,13 @@ export function useSessions(): UseRpcResult<SessionSummary[]> {
   return useRpc((client) => client.listSessions());
 }
 
+export function useChatSessions(options?: {
+  agentId?: string;
+  includeMetaAgents?: boolean;
+}): UseRpcResult<SessionSummary[]> {
+  return useRpc((client) => client.listChatSessions(options));
+}
+
 export function useTranscript(sessionKey: string): UseRpcResult<TranscriptMessage[]> {
   return useRpc((client) => client.getTranscript(sessionKey));
 }

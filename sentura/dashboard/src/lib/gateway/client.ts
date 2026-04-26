@@ -18,6 +18,7 @@ import type {
   SessionSummary,
   TranscriptMessage,
 } from "./types";
+import { filterChatSessions } from "./chat-sessions";
 
 type EventHandler = (event: GatewayEvent) => void;
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
@@ -444,6 +445,15 @@ export class GatewayClient {
     return this.rpc<SessionCreateResult>("sessions.create", params);
   }
 
+  async createChatSession(
+    agentId: string,
+    options?: { initialMessage?: string; label?: string },
+  ): Promise<SessionCreateResult> {
+    return this.createSession(agentId, options?.initialMessage, {
+      label: options?.label,
+    });
+  }
+
   // --- Chat Methods ---
 
   async sendChat(
@@ -456,6 +466,14 @@ export class GatewayClient {
       sessionKey,
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
+  }
+
+  async sendChatMessage(
+    sessionKey: string,
+    message: string,
+    idempotencyKey?: string,
+  ): Promise<unknown> {
+    return this.sendChat(message, sessionKey, idempotencyKey);
   }
 
   async getChatHistory(
@@ -478,6 +496,16 @@ export class GatewayClient {
 
   async unsubscribeSessions(): Promise<void> {
     await this.rpc("sessions.unsubscribe");
+  }
+
+  async listChatSessions(options?: {
+    agentId?: string;
+    includeMetaAgents?: boolean;
+  }): Promise<SessionSummary[]> {
+    const sessions = await this.listSessions(
+      options?.agentId ? { agentId: options.agentId } : undefined,
+    );
+    return filterChatSessions(sessions, options);
   }
 
   // --- Agent Workspace Files ---

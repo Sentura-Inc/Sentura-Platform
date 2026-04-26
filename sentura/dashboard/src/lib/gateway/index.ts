@@ -4,10 +4,17 @@ export {
   useAgents,
   useAgent,
   useSessions,
+  useChatSessions,
   useTranscript,
   useApprovals,
   useGatewayEvent,
 } from "./hooks";
+export {
+  filterChatSessions,
+  isDashboardChatSessionKey,
+  isMetaAgentId,
+  parseDashboardChatSessionKey,
+} from "./chat-sessions";
 export type {
   AgentConfig,
   AgentFileContent,

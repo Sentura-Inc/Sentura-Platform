@@ -10,7 +10,13 @@
     "./channel-bindings": "./channel-bindings.ts",
     "./memory-isolation": "./memory-isolation.ts",
     "./user-token": "./user-token.ts",
-    "./mcp-loopback": "./mcp-loopback.ts"
+    "./mcp-loopback": "./mcp-loopback.ts",
+    "./openclaw-paths": "./openclaw-paths.ts",
+    "./json5-file": "./json5-file.ts",
+    "./config-versioning": "./config-versioning.ts",
+    "./secrets": "./secrets.ts",
+    "./per-agent-mcp": "./per-agent-mcp.ts",
+    "./chat-sessions": "./chat-sessions.ts"
   },
   "scripts": {
     "build": "tsdown src/index.ts --format esm --dts",

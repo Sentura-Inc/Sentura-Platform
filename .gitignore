@@ -1,0 +1,12 @@
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+dist/
+**/dist/
+dist-runtime/
+**/dist-runtime/
+*.tsbuildinfo
+.DS_Store
+**/.DS_Store
+sentura/dashboard/.env.local

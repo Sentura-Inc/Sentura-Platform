@@ -67,6 +67,49 @@ if (-not (Test-Path (Join-Path $OpenClawDir "src"))) {
 Log "OpenClaw config found at $OpenClawConfig"
 Log "Workspace base: $WorkspaceBase"
 
+# Prefer a meta-agent model that the local auth store can actually run.
+function Resolve-PreferredMetaAgentModel {
+    if ($env:SENTURA_META_AGENT_MODEL -is [string] -and $env:SENTURA_META_AGENT_MODEL.Contains('/')) {
+        return $env:SENTURA_META_AGENT_MODEL
+    }
+
+    if ($env:OPENAI_API_KEY -is [string] -and $env:OPENAI_API_KEY.Trim().Length -gt 0) {
+        return "openai/gpt-5.4"
+    }
+
+    $AuthProfilesPath = Join-Path $OpenClawState "agents" "main" "agent" "auth-profiles.json"
+
+    if (Test-Path $AuthProfilesPath) {
+        try {
+            $auth = Get-Content $AuthProfilesPath -Raw | ConvertFrom-Json -Depth 20
+            $profileIds = @($auth.profiles.PSObject.Properties.Name)
+            if ($profileIds | Where-Object { $_ -like 'openai:*' }) {
+                return "openai/gpt-5.4"
+            }
+            if ($profileIds | Where-Object { $_ -like 'deepseek:*' }) {
+                return "deepseek/deepseek-reasoner"
+            }
+        } catch {
+            Warn "Could not parse auth profiles at $AuthProfilesPath - falling back to config/default model."
+        }
+    }
+
+    try {
+        $config = Get-Content $OpenClawConfig -Raw | ConvertFrom-Json -Depth 20
+        $primary = $config.agents.defaults.model.primary
+        if ($primary -is [string] -and $primary.Contains('/')) {
+            return $primary
+        }
+    } catch {
+        Warn "Could not parse $OpenClawConfig while resolving preferred meta-agent model."
+    }
+
+    return "openai/gpt-5.4"
+}
+
+$MetaAgentModel = Resolve-PreferredMetaAgentModel
+Log "Preferred meta-agent model: $MetaAgentModel"
+
 # --- Helper: copy workspace files ---
 
 function Copy-Workspace {
@@ -104,8 +147,12 @@ function Copy-Workspace {
 function Register-Agent {
     param(
         [string]$AgentId,
-        [string]$Model = "openai/gpt-4o"
+        [string]$Model = $null
     )
+
+    if (-not $Model) {
+        $Model = $script:MetaAgentModel
+    }
 
     $WorkspaceDir = Join-Path $WorkspaceBase $AgentId
     Log "Registering agent: $AgentId"
@@ -244,6 +291,33 @@ $patchScript = @"
 const fs = require('fs');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.4';
+config.agents = config.agents || {};
+config.agents.defaults = config.agents.defaults || {};
+config.agents.defaults.models = config.agents.defaults.models || {};
+
+function ensurePreferredModelAllowlistEntry(modelRef) {
+  if (typeof modelRef !== 'string' || !modelRef.includes('/')) {
+    return;
+  }
+  const existing = config.agents.defaults.models[modelRef];
+  const [providerId, modelId] = modelRef.split('/', 2);
+  const entry =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...existing }
+      : {};
+  if (entry.alias === undefined) {
+    if (providerId === 'openai') entry.alias = 'GPT';
+    if (providerId === 'openai-codex') entry.alias = 'Codex';
+    if (providerId === 'deepseek' && modelId === 'deepseek-chat') entry.alias = 'DeepSeek';
+  }
+  config.agents.defaults.models[modelRef] = entry;
+  if (!existing) {
+    console.log('  Allowlisted preferred model: ' + modelRef);
+  }
+}
+
+ensurePreferredModelAllowlistEntry(preferredModel);
 
 // NOTE: we deliberately do NOT set agent.skills here. In OpenClaw,
 // agents.list[].skills is a NAME filter (array of skill names), not a
@@ -283,10 +357,10 @@ const mcpBuilderSandboxAlsoAllow = [
 ];
 
 const overrides = {
-  creator:       { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  tuner:         { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  orchestrator:  { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  'mcp-builder': { name: 'Socket',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  creator:       { name: 'Forge', model: preferredModel,     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:         { name: 'Refine', model: preferredModel,    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  orchestrator:  { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'mcp-builder': { name: 'Socket', model: preferredModel,    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -298,11 +372,20 @@ for (const agent of (config.agents?.list || [])) {
   }
 }
 
+config.agents.defaults.sandbox = config.agents.defaults.sandbox || {};
+config.agents.defaults.sandbox.browser = config.agents.defaults.sandbox.browser || {};
+if (config.agents.defaults.sandbox.browser.enabled !== true) {
+  config.agents.defaults.sandbox.browser.enabled = true;
+  console.log('  Enabled agents.defaults.sandbox.browser.enabled = true');
+}
+
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 "@
 
+$env:SENTURA_META_AGENT_MODEL = $MetaAgentModel
 node -e $patchScript
+Remove-Item Env:SENTURA_META_AGENT_MODEL -ErrorAction SilentlyContinue
 
 Ok "Agent configuration applied."
 
