@@ -34,7 +34,13 @@ function generateIdempotencyKey(): string {
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
-  private options: Required<GatewayClientOptions>;
+  private options: GatewayClientOptions &
+    Required<
+      Pick<
+        GatewayClientOptions,
+        "autoReconnect" | "reconnectInterval" | "maxReconnectAttempts"
+      >
+    >;
   private pendingCalls = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: RpcError) => void }
@@ -87,7 +93,9 @@ export class GatewayClient {
       this.connectResolve = resolve;
       this.connectReject = reject;
 
-      this.ws = new WebSocket(this.options.url);
+      this.ws = this.options.wsFactory
+        ? this.options.wsFactory(this.options.url)
+        : new WebSocket(this.options.url);
 
       this.ws.onclose = () => {
         const wasConnecting = this._state === "connecting";

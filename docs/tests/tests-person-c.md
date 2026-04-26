@@ -230,5 +230,20 @@ Backend-blocked surfaces shipped as honest empty-state placeholders per Week 4 D
 | C14.4 | "Will include" expectations published | Each page lists 4 bullets describing what the surface will eventually contain | Bullet copy is concrete (e.g. /orchestrator: "Task decomposition view — top-level goal → subtasks → assigned employees", /knowledge: "EKG browser — 4 pillars (org / rules / assets / workflows) per agent with provenance"). This sets reviewer expectations and gives the blocking owner a hint about the dashboard's input contract |
 | C14.5 | Zero mock data | Inspect page source | No fake numbers, no placeholder rows, no "lorem ipsum" data. Per Week 4 D5: a mock-data UI looks done; reviewers stop scrutinizing it; when real data has a different shape than the mock, both UI and tests need rewriting. Honest empty state is the choice |
 
+### C15. Group Chat fan-out (capability #16 Phase 2) — Week 4
+
+Per Week 4 D3 (Next.js Route Handler + SSE). First server-side code path on the dashboard. Group metadata persists at `~/.openclaw/sentura-group-chats/groups.json`; group transcripts are intentionally NOT persisted (each participant's underlying gateway session retains their slice — group view is a per-tab ephemeral merge of in-flight responses, simplifying the data model and keeping Phase 4 in 5 net new files).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C15.1 | Page renders new group button | Navigate to `/chat` | Sidebar header shows BOTH "+ New chat" (primary) AND "+ New group" (outline variant); existing 1:1 button styling unchanged |
+| C15.2 | Empty groups state | Fresh setup with no groups | Sidebar omits the "GROUPS" section entirely (no empty header); empty-state copy mentions both "New chat" and "New group" CTAs |
+| C15.3 | Group creation flow | Click "+ New group" → multi-select 2+ agents → name "QA Triage" → Create | `POST /api/groups` returns 201; sidebar gains "GROUPS · 1" section with "QA Triage · 2 agents"; URL changes to `?groupKey=<id>`; right pane swaps from `<AgentChat>` to `<GroupChat>` showing group name + participant chips + "Broadcast to N agents" empty state |
+| C15.4 | Group fan-out send | In group view, type "Status check" → Send | `POST /api/groups/[id]/send` opens SSE stream; user message appears immediately; for each participant: `started` frame logs the new sessionKey (recorded back to groups.json via `recordSessionKey`); per-agent assistant bubbles stream in parallel via `delta` frames; sender chip on each bubble identifies which agent (via `agents[agentId].name` lookup); each finalizes via `final` frame |
+| C15.5 | Best-effort partial failure | Configure one of the participating agents to be temporarily unhealthy (e.g. delete its workspace mid-flight) and send | Other agents still stream their replies normally; failing agent's bubble is replaced by an inline `agent-error` system message naming the agent and the error; the SSE `done` frame fires only after ALL participants reach terminal state (success OR error); does NOT abort the whole fan-out |
+| C15.6 | URL state survives refresh | After group send completes, hit browser refresh | `?groupKey=<id>` persists; `/api/groups` rehydrates the groups list on mount; sidebar reselects the group; right pane re-mounts `<GroupChat>` (transcript intentionally empty per MVP design — D3 follow-up may merge per-agent transcripts in W5) |
+| C15.7 | Stale groupKey cleanup | Open `/chat?groupKey=ghost-id` directly (id doesn't exist) | After `groupsLoaded` flag flips true and the id isn't found, `setUrlState({ groupKey: null })` strips the param; right pane shows the standard "No conversation selected" card. No infinite loading spinner |
+| C15.8 | Switch between group + 1:1 | While in group mode, click an existing 1:1 conversation in the sidebar | URL clears `groupKey` and sets `key`; `<GroupChat>` unmounts (clearing its in-memory transcript) and `<AgentChat>` mounts. Switching back to the group later starts a fresh group view (no stale state from prior session) |
+
 ---
 

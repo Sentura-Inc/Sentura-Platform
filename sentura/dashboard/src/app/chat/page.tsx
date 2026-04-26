@@ -14,9 +14,12 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AgentChat, type AgentChatHandle } from "@/components/agent-chat";
+import { GroupChat } from "@/components/group-chat";
 import { useAgentRosterStore } from "@/stores/use-agent-roster";
 import { ChatSidebar } from "./chat-sidebar";
 import { EmployeePickerDialog } from "./employee-picker-dialog";
+import { GroupPickerDialog } from "./group-picker-dialog";
+import type { GroupRecord } from "@/lib/groups/types";
 
 const CONTROL_UI_URL =
   process.env.NEXT_PUBLIC_CONTROL_UI_URL ?? "http://localhost:18789";
@@ -56,9 +59,30 @@ export default function ChatPage() {
   // --- Active conversation (URL-driven) ---
   const activeKey = searchParams.get("key");
   const draftAgentId = searchParams.get("draft");
+  const activeGroupId = searchParams.get("groupKey");
 
-  // --- Picker dialog ---
+  // --- Picker dialogs ---
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+
+  // --- Groups list (loaded once on mount + after creation) ---
+  const [groups, setGroups] = useState<GroupRecord[]>([]);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const refreshGroups = useCallback(async () => {
+    try {
+      const res = await fetch("/api/groups");
+      if (!res.ok) return;
+      const data = (await res.json()) as { groups?: GroupRecord[] };
+      setGroups(data.groups ?? []);
+    } catch (err) {
+      console.warn("[chat] failed to list groups:", err);
+    } finally {
+      setGroupsLoaded(true);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshGroups();
+  }, [refreshGroups]);
 
   // Imperative handle into AgentChat (no use today but reserved for future
   // suggestion-pill EmptyState).
@@ -66,7 +90,11 @@ export default function ChatPage() {
 
   // --- URL helpers ---
   const setUrlState = useCallback(
-    (next: { key?: string | null; draft?: string | null }) => {
+    (next: {
+      key?: string | null;
+      draft?: string | null;
+      groupKey?: string | null;
+    }) => {
       const params = new URLSearchParams(searchParams.toString());
       if ("key" in next) {
         if (next.key) params.set("key", next.key);
@@ -75,6 +103,10 @@ export default function ChatPage() {
       if ("draft" in next) {
         if (next.draft) params.set("draft", next.draft);
         else params.delete("draft");
+      }
+      if ("groupKey" in next) {
+        if (next.groupKey) params.set("groupKey", next.groupKey);
+        else params.delete("groupKey");
       }
       const qs = params.toString();
       router.replace(qs ? `/chat?${qs}` : "/chat", { scroll: false });
@@ -126,27 +158,60 @@ export default function ChatPage() {
     }
   }, [activeKey, sessions, sessionsLoading, setUrlState]);
 
+  // Same idea for groupKey — drop stale URL state after the groups list
+  // has loaded at least once and the referenced id isn't present.
+  useEffect(() => {
+    if (!activeGroupId) return;
+    if (!groupsLoaded) return;
+    const stillExists = groups.some((g) => g.id === activeGroupId);
+    if (!stillExists) {
+      setUrlState({ groupKey: null });
+    }
+  }, [activeGroupId, groups, groupsLoaded, setUrlState]);
+
   // --- Handlers ---
 
   const handleOpenPicker = useCallback(() => setPickerOpen(true), []);
+  const handleOpenGroupPicker = useCallback(
+    () => setGroupPickerOpen(true),
+    [],
+  );
 
   const handlePickAgent = useCallback(
     (agentId: string) => {
-      setUrlState({ key: null, draft: agentId });
+      setUrlState({ key: null, draft: agentId, groupKey: null });
     },
     [setUrlState],
   );
 
   const handleSelectConversation = useCallback(
     (key: string) => {
-      setUrlState({ key, draft: null });
+      setUrlState({ key, draft: null, groupKey: null });
     },
     [setUrlState],
   );
 
   const handleSelectDraft = useCallback(() => {
-    setUrlState({ key: null });
+    setUrlState({ key: null, groupKey: null });
   }, [setUrlState]);
+
+  const handleSelectGroup = useCallback(
+    (groupId: string) => {
+      setUrlState({ key: null, draft: null, groupKey: groupId });
+    },
+    [setUrlState],
+  );
+
+  const handleGroupCreated = useCallback(
+    (group: GroupRecord) => {
+      setGroups((prev) => [
+        group,
+        ...prev.filter((g) => g.id !== group.id),
+      ]);
+      setUrlState({ key: null, draft: null, groupKey: group.id });
+    },
+    [setUrlState],
+  );
 
   const handleDeleteConversation = useCallback(
     async (key: string) => {
@@ -206,24 +271,43 @@ export default function ChatPage() {
         agents?.find((a) => a.id === targetAgentId)
       : undefined;
 
-  const headerTitle = activeSession?.label?.trim()
-    ? activeSession.label
-    : targetAgent?.name ?? targetAgentId ?? "Chat";
+  const activeGroup =
+    activeGroupId !== null
+      ? groups.find((g) => g.id === activeGroupId) ?? null
+      : null;
+
+  const agentLookup = useMemo(() => {
+    const map: Record<string, typeof rosterAgents[number] | undefined> = {};
+    const source = rosterAgents.length > 0 ? rosterAgents : agents ?? [];
+    for (const a of source) map[a.id] = a;
+    return map;
+  }, [rosterAgents, agents]);
+
+  const headerTitle = activeGroup
+    ? activeGroup.name
+    : activeSession?.label?.trim()
+      ? activeSession.label
+      : targetAgent?.name ?? targetAgentId ?? "Chat";
 
   const disconnected = state === "disconnected" || state === "reconnecting";
-  const hasSomethingToShow = activeKey !== null || draftAgentId !== null;
+  const hasSomethingToShow =
+    activeKey !== null || draftAgentId !== null || activeGroupId !== null;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
       <ChatSidebar
         sessions={sessions}
         agents={rosterAgents.length > 0 ? rosterAgents : agents ?? []}
+        groups={groups}
         activeKey={activeKey}
+        activeGroupId={activeGroupId}
         draftAgentId={draftAgentId}
         loading={sessionsLoading}
         disabled={state !== "connected"}
         onNew={handleOpenPicker}
+        onNewGroup={handleOpenGroupPicker}
         onSelect={handleSelectConversation}
+        onSelectGroup={handleSelectGroup}
         onSelectDraft={handleSelectDraft}
         onDelete={handleDeleteConversation}
       />
@@ -244,9 +328,11 @@ export default function ChatPage() {
                 {hasSomethingToShow ? headerTitle : "Chat"}
               </h1>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                {hasSomethingToShow && targetAgentId
-                  ? `Talking with ${targetAgentId}`
-                  : "Select or start a conversation with an AI employee."}
+                {activeGroup
+                  ? `Broadcasting to ${activeGroup.participantAgentIds.length} agents`
+                  : hasSomethingToShow && targetAgentId
+                    ? `Talking with ${targetAgentId}`
+                    : "Select or start a conversation with an AI employee."}
               </p>
             </div>
           </div>
@@ -278,7 +364,9 @@ export default function ChatPage() {
           </div>
         )}
 
-        {!hasSomethingToShow ? (
+        {activeGroup ? (
+          <GroupChat group={activeGroup} agents={agentLookup} />
+        ) : !hasSomethingToShow ? (
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-2xl px-6 py-10">
               <Card>
@@ -324,6 +412,13 @@ export default function ChatPage() {
         onPick={handlePickAgent}
         agents={rosterAgents.length > 0 ? rosterAgents : agents ?? null}
         loading={!agents}
+      />
+      <GroupPickerDialog
+        open={groupPickerOpen}
+        onOpenChange={setGroupPickerOpen}
+        agents={rosterAgents.length > 0 ? rosterAgents : agents ?? null}
+        loading={!agents}
+        onCreated={handleGroupCreated}
       />
     </div>
   );
