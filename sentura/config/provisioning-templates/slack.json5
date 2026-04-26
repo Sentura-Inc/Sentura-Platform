@@ -1,0 +1,54 @@
+// Slack Provisioning Template
+// Tier: Auto (pre-approved for most enterprises; enterprise grid needs elevated approval).
+{
+  service: "slack",
+  displayName: "Slack",
+  tier: "auto",
+  registrationUrl: "https://api.slack.com/apps/new",
+  apiSettingsUrl: "https://api.slack.com/apps/{appId}/oauth",
+  docsUrl: "https://api.slack.com/docs",
+  formFields: {
+    fullName: "{Company} AI Integration",
+    email: "{enterprise_ai_email}",
+    company: "{Company}",
+    useCase: "Enterprise automation integration",
+    phone: null,
+  },
+  credentialKeys: [
+    {
+      secretKey: "slack_bot_token",
+      label: "Bot User OAuth Token",
+      location: "api.slack.com/apps/{appId}/oauth → 'Bot User OAuth Token' (starts with xoxb-)",
+      type: "token",
+    },
+    {
+      secretKey: "slack_signing_secret",
+      label: "Signing Secret",
+      location: "api.slack.com/apps/{appId}/basic-information → 'Signing Secret'",
+      type: "secret",
+    },
+    {
+      secretKey: "slack_app_id",
+      label: "App ID",
+      location: "api.slack.com/apps/{appId}/basic-information → 'App ID'",
+      type: "config",
+    },
+  ],
+  minimumScopes: [
+    "channels:history",
+    "channels:read",
+    "chat:write",
+    "im:history",
+    "im:read",
+    "im:write",
+    "users:read",
+  ],
+  mcpServerPackage: null,          // OpenClaw ships a native Slack channel extension — prefer it
+  notes: [
+    "OpenClaw has a built-in Slack channel extension — use that for channel bindings, not a custom MCP server.",
+    "Bot token (xoxb-) is for posting messages; signing secret is for verifying incoming event payloads.",
+    "App must be installed to the target workspace; workspace admin approval required if org restricts installs.",
+    "Enterprise Grid workspaces require org-level admin approval — re-classify as elevated in that case.",
+    "Slash commands and event subscriptions require a public HTTPS endpoint — not needed for bot-only use.",
+  ],
+}

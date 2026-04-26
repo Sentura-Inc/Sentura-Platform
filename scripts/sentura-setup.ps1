@@ -191,7 +191,7 @@ if (-not (Test-Path $WorkspaceBase)) {
 
 Log "Step 2: Copying meta-agent workspace files..."
 
-$MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder")
+$MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder", "data-scavenger")
 $SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
 
 foreach ($agent in $MetaAgents) {
@@ -355,12 +355,18 @@ const mcpBuilderSandboxAlsoAllow = [
   'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
   'memory_search','memory_get','update_plan','cron'
 ];
+const dataScavengerSandboxAlsoAllow = [
+  'pdf','web_fetch','web_search',
+  'sentura_agents_manage','memory_search','memory_get',
+  'canvas','cron','update_plan'
+];
 
 const overrides = {
-  creator:       { name: 'Forge', model: preferredModel,     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  tuner:         { name: 'Refine', model: preferredModel,    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  orchestrator:  { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  'mcp-builder': { name: 'Socket', model: preferredModel,    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:           { name: 'Refine',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
 };
 
 for (const agent of (config.agents?.list || [])) {

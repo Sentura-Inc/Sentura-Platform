@@ -16,7 +16,27 @@
         sandbox: { mode: "non-main" },
         tools: {
           profile: "coding",
-          alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch"],
+          // Agent-level filter runs BEFORE the sandbox-level filter. Both
+          // must allow a tool for it to be reachable at runtime. Tuner needs:
+          //   - gateway: config.get / config.patch (the agent-callable
+          //     gateway tool's restricted action enum supports these — but
+          //     does NOT support agents.files.get/set, so workspace edits
+          //     route through sentura_agents_manage instead).
+          //   - sentura_agents_manage: read/write target agent's workspace
+          //     files (workspace-edit skill).
+          //   - memory_search / memory_get: dedup + retrieval before edits.
+          //   - update_plan: track multi-step tuning operations.
+          //   - sessions_send / web_search / web_fetch: operator interaction.
+          alsoAllow: [
+            "gateway",
+            "sessions_send",
+            "web_search",
+            "web_fetch",
+            "sentura_agents_manage",
+            "memory_search",
+            "memory_get",
+            "update_plan",
+          ],
           // SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19). OpenClaw's non-main
           // sandbox applies a SECOND tool filter after agent-level alsoAllow.
           // Plugin tools (sentura_*, gateway, memory_*, update_plan, etc.) are
