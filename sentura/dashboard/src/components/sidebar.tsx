@@ -280,30 +280,43 @@ export function Sidebar() {
 
       {/* Bottom section */}
       <div className="flex flex-col gap-1 p-2">
-        {collapsed ? (
-          <Tooltip>
-            <TooltipTrigger>
-              <Link
-                href="#"
-                className="flex items-center justify-center rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground pointer-events-none opacity-40"
-              >
-                <Settings className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">Settings (W5)</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Link
-            href="#"
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 pointer-events-none opacity-40"
-          >
-            <Settings className="h-4 w-4" />
-            <span>Settings</span>
-            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              W5
-            </span>
-          </Link>
-        )}
+        {/* Settings — gated by settings.write so non-admin roles don't see
+            it. /settings itself is read-only for everyone (Gateway/About
+            tabs); the gate matches "who actually has reason to enter the
+            page" rather than "who can mutate inside" since today no tab
+            mutates. */}
+        {hasPermission(role, "settings.write") &&
+          (collapsed ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <Link
+                  href="/settings"
+                  className={cn(
+                    "flex items-center justify-center rounded-md px-2 py-2 text-sm transition-colors",
+                    pathname.startsWith("/settings")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+                  )}
+                >
+                  <Settings className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Link
+              href="/settings"
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                pathname.startsWith("/settings")
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+              )}
+            >
+              <Settings className="h-4 w-4" />
+              <span>Settings</span>
+            </Link>
+          ))}
 
         <Separator className="my-1" />
 

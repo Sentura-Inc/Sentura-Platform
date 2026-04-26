@@ -260,5 +260,21 @@ Per Week 5 D1 (hard-hide). Source-of-truth matrix mirrors `sentura/extensions/se
 | C16.7 | /403 redirect on direct URL access | As `viewer`, navigate directly to `/create` | `<RequirePermission>` wrapper checks `agents.create`, fails, redirects to `/403`. Page shows ShieldOff icon + "Access denied" + current role label + "Back to overview" link |
 | C16.8 | Role persistence across navigation | Switch to `manager` via switcher → click any sidebar item → refresh page | Selected role survives navigation (localStorage write); refresh re-reads localStorage; sidebar still shows manager-scoped nav set. Clearing site data resets to `platform_admin` |
 
+### C17. `/settings` 7-tab framework (Week 5 Phase 3)
+
+Per Week 5 D3 (tabs with `?tab=<id>` URL state). Top-tab nav: 7 categories (Gateway / RBAC / Scopes / SSO / Approvals / Audit retention / About). Each tab is its own component file under `src/app/settings/`. Real tabs read from gateway today; skeleton tabs use new `<SkeletonBlock>` helper (smaller in-tab cousin of full-page `<SkeletonShell>`). Sidebar `Settings` link gated by `usePermission("settings.write")` so non-admin roles don't see it.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C17.1 | `/settings` loads with default tab | Navigate to `/settings` (no `?tab=`) | Lands on Gateway tab; tab nav shows 7 pills with status markers (`partial` on RBAC, `skeleton` on Scopes / SSO / Audit retention, none on Gateway / Approvals / About) |
+| C17.2 | Gateway tab shows real connection data | Connected gateway | Connection card shows status `connected` (green badge), WebSocket URL `ws://localhost:18789`, Control UI link. Server card shows OpenClaw version (e.g. `2026.4.19-beta.2`), protocol `v3`, conn ID, payload/buffer limits. Capabilities card shows ≥ 100 RPC methods + ≥ 5 events as inline `<code>` chips |
+| C17.3 | Approvals tab graceful empty state | Connected to gateway with no `exec.approvals` / `plugins.approvals` configured (default dev setup) | Both cards show count `(0)` + helper copy explaining defaults apply ("every sensitive exec/plugin action prompts the operator") + path to configure (`~/.openclaw/openclaw.json` under `exec.approvals`); "Edit policy" button visible but disabled with W6-deferred title |
+| C17.4 | Approvals tab populated rows | Add at least one entry to `exec.approvals` in openclaw.json | Card count updates to N; row shows pattern as monospace `<code>`, optional reason as muted subtext, decision badge color-coded (green=auto-allow, amber=ask, red=deny) |
+| C17.5 | RBAC matrix renders 7 × 11 | Open `/settings?tab=rbac` | Table renders with columns for all 7 roles + rows for all 11 actions; checkmarks (✓ green) appear where `ROLE_PERMISSIONS[role].has(action)` is true, dashes (—) where not. Spot-check: `agents.delete` only has ✓ in `Platform Admin` column |
+| C17.6 | RBAC user-assignment skeleton block | Same tab, scroll down | Second card "User assignments" shows `<SkeletonBlock>` "Awaiting Person D" + `sentura-rbac user / role lookup RPC + dashboard wiring` (Week 5) + 4 willInclude bullets |
+| C17.7 | About tab versions + posture | Open `/settings?tab=about` | Versions card shows `Sentura dashboard v0.1.0` + `OpenClaw runtime 2026.4.19-beta.2` (live from server-info). Deployment posture card shows mode/cloud/data-residency. Resources card has 3 GitHub links (all open in new tab) |
+| C17.8 | Skeleton tabs name their blocker | Open each of `/settings?tab={scopes,sso,audit-retention}` | Each renders `<SkeletonBlock>` with explicit blocking owner (`Person A` for scopes/sso, `Person D` for audit-retention) + concrete deliverable copy + 4 willInclude bullets describing eventual functionality |
+| C17.9 | URL state survives refresh + tab clicks update URL | Open `/settings?tab=sso` → refresh → click "Approvals" tab button | After refresh URL `?tab=sso` persists, SSO tab still active. After tab click URL becomes `?tab=approvals` via `router.replace` (no scroll, no history pollution). Sidebar `Settings` link href = `/settings` so clicking it returns to default Gateway tab |
+
 ---
 
