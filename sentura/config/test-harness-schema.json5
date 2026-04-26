@@ -1,0 +1,139 @@
+// Pre-Deployment Test Harness Schema — Capability #15
+// Defines the format for test cases, mock tasks, run results, and pass/fail
+// thresholds used by the pre-deployment testing workflow.
+//
+// Referenced by:
+//   - sentura/skills/pre-deployment-testing/SKILL.md (Step 1)
+//   - Data Scavenger outputs historical tasks in this format
+//   - Test runner writes results in this format
+{
+  // -------------------------------------------------------------------------
+  // TestCase: a single scenario used to validate an AI employee before deploy
+  // -------------------------------------------------------------------------
+  testCase: {
+    id: "tc-<agentId>-<YYYYMMDD>-<N>",
+    agentId: "<target agent id>",
+    name: "<short human-readable name>",
+    scenario: "<description of the situation the employee should handle>",
+    inputMessage: "<the test prompt or task delivered to the employee>",
+
+    expectedActions: [
+      {
+        tool: "<tool name>",          // e.g. "gateway", "message", "browser"
+        description: "<what the call should accomplish>",
+        required: true,               // false = bonus credit only
+      }
+    ],
+
+    expectedOutcome: {
+      contains: ["<keyword or phrase the final reply must include>"],
+      doesNotContain: ["<phrase that must not appear>"],
+      sideEffects: [
+        {
+          type: "approval_request",   // "config_change" | "file_write" | "approval_request" | "message_sent"
+          description: "<what should have changed in the system>",
+          required: true,
+        }
+      ],
+    },
+
+    scoringRubric: {
+      criteria: [
+        {
+          name: "<criterion name>",   // e.g. "Correct tool sequence"
+          weight: 0.3,                // all weights must sum to 1.0
+          description: "<what earns full marks on this criterion>",
+        }
+      ],
+      passMark: 0.75,                 // minimum weighted score to PASS
+      autoTuneThreshold: 0.5,         // below this: human review required, no auto-tune
+    },
+
+    source: "historical_extraction",  // "historical_extraction" | "mock_generated" | "operator_authored"
+    sourceRef: "<ticket-ID / doc path / null>",
+    createdAt: "<ISO-8601>",          // e.g. "2026-04-26T00:00:00Z"
+    tags: ["finance", "approval-workflow"],
+  },
+
+  // -------------------------------------------------------------------------
+  // MockGeneratorConfig: parameters for synthesising test cases when
+  // historical data is sparse
+  // -------------------------------------------------------------------------
+  mockGeneratorConfig: {
+    agentId: "<target agent id>",
+    targetCount: 10,
+    domains: ["rules", "workflows"],  // EKG pillars to draw from
+    difficulty: "medium",             // "easy" | "medium" | "hard" | "adversarial"
+    includeEdgeCases: true,
+    includeHardRuleTests: true,       // generate cases that should trigger Hard Rule refusals
+  },
+
+  // -------------------------------------------------------------------------
+  // TestRunResult: produced by the runner after executing one test case
+  // -------------------------------------------------------------------------
+  testRunResult: {
+    testCaseId: "<testCase.id>",
+    agentId: "<target agent id>",
+    runAt: "<ISO-8601>",
+    sessionKey: "<OpenClaw session key used for the run>",
+    passed: true,
+    weightedScore: 0.82,              // 0.0–1.0
+
+    criteriaScores: [
+      {
+        name: "<criterion name>",
+        score: 0.9,
+        notes: "<brief explanation>",
+      }
+    ],
+
+    actionsMatched: [
+      {
+        tool: "<tool name>",
+        matched: true,
+        notes: "<diff if not matched>",
+      }
+    ],
+
+    outcomeChecks: {
+      containsAll: true,
+      containsNone: true,
+      sideEffectsVerified: false,
+      sideEffectsNotes: "<what was missing or different>",
+    },
+
+    summary: "<one-paragraph assessment>",
+    failureReason: null,              // string if passed === false, otherwise null
+    autoTuneRecommendation: null,     // { targetFile, suggestedChange } if score < passMark
+  },
+
+  // -------------------------------------------------------------------------
+  // TestSuite: named collection of test cases for a single agent
+  // -------------------------------------------------------------------------
+  testSuite: {
+    id: "suite-<agentId>-<YYYYMMDD>",
+    agentId: "<target agent id>",
+    name: "<suite name>",
+    testCaseIds: ["tc-ap-clerk-20260426-001", "tc-ap-clerk-20260426-002"],
+    createdAt: "<ISO-8601>",
+    maxAutoTuneIterations: 3,         // stop auto-tuning after this many cycles
+    overallPassMark: 0.75,            // fraction of cases that must pass for suite PASS
+  },
+
+  // -------------------------------------------------------------------------
+  // SuiteRunResult: aggregated result for a full suite run
+  // -------------------------------------------------------------------------
+  suiteRunResult: {
+    suiteId: "<testSuite.id>",
+    agentId: "<target agent id>",
+    runAt: "<ISO-8601>",
+    passed: true,
+    passRate: 0.83,
+    totalCases: 12,
+    passedCases: 10,
+    failedCases: 2,
+    autoTuneIteration: 0,             // increments on each auto-tune cycle
+    results: ["<testRunResult.testCaseId>"],
+    recommendation: "deploy",         // "deploy" | "auto-tune" | "human-review" | "block"
+  },
+}

@@ -116,6 +116,16 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | B11 | Creator helper unit tests (offline) | 49 | `test-creator-helpers.ts` | **49/49 PASS** | § B11 |
 | B12 | Live gateway integration | — | Harness runs against :18789 | PASS | § B12 |
 | B13 | Creator TRUE E2E live — headline | — | See B6.9 | PASS | § B13 |
+| B14 | Creator Phase 3 self-provisioning SKILL.md | 9 | `scripts/test-self-provisioning.ts T-OFF-1` — 9 pipeline steps, approval tiers, real `secrets.resolve` / `secrets.reload` RPC refs, browser nav, Safety section | PASS (2026-04-26) | [`tests/tests-person-b.md § B14`](tests/tests-person-b.md) |
+| B15 | Provisioning templates (5 SaaS services) | 15 | `scripts/test-self-provisioning.ts T-OFF-2` — zendesk/hubspot/salesforce/notion/slack; required fields, tier assertions, no plaintext creds | PASS (2026-04-26) | § B15 |
+| B16 | Self-provisioning E2E test script | 9 | `scripts/test-self-provisioning.ts T-OFF-3 through T-OFF-5 + T-LIVE-1 through T-LIVE-4` — offline structural + live gateway probe | PASS (2026-04-26) | § B16 |
+| B17 | Tuner Agent skills (nl-to-config + workspace-edit) | 6 | `scripts/test-tuner-e2e.ts T-OFF-1 through T-OFF-6` — skill files present, Hard Rules intact, sandbox config | PASS (2026-04-26) | § B17 |
+| B18 | Orchestrator Agent skills (task-decomposition + multi-agent-routing) | 4 | File presence + required section checks: sequential/parallel/conditional routing, T3/T4 data flow, traceable report | PASS (2026-04-26) | § B18 |
+| B19 | Data Scavenger workspace completeness | 13 | File presence: `sentura/agents/data-scavenger/` — config.json5 + 8 native files + 4 skills (ingestion, classification, structuring, ekg-merge) | PASS (2026-04-26) | § B19 |
+| B20 | Q&A Completion skill (capability #13 Tier 2) | 7 | `sentura/skills/qa-completion/SKILL.md` — gap types, 5-question cap, 7-day re-ask guard, pending MEMORY.md record format | PASS (2026-04-26) | § B20 |
+| B21 | Experience Link extraction skill (capability #13 Tier 3) | 6 | `sentura/skills/experience-extraction/SKILL.md` — link JSON5 fields, confidence formula, promotion thresholds (0.75/0.9), dedup check | PASS (2026-04-26) | § B21 |
+| B22 | Pre-deployment test harness (capability #15) | 8 | `sentura/config/test-harness-schema.json5` (5 schema types) + `sentura/skills/pre-deployment-testing/SKILL.md` (7 steps, passMark 0.75, block on Hard Rule failure) | PASS (2026-04-26) | § B22 |
+| B23 | Personal memory isolation skill | 6 | `sentura/skills/personal-memory/SKILL.md` — dual-scope read priority, personal/general write rules, dreaming promotion (≥3 users), consolidation, privacy boundary table | PASS (2026-04-26) | § B23 |
 
 ### Person C — Frontend & Dashboard
 
@@ -181,7 +191,7 @@ When running a full pass, fill this in:
 
 ```
 Person A: N/15 sections PASS (cases: ?/? )
-Person B: N/21 sections PASS (cases: ?/? — B11 49/49 offline)
+Person B: N/34 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3 added 2026-04-26)
 Person C: N/10 sections PASS
 Person D: N/14 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression — D14 expanded to 6 checks to cover all 4 meta-agents + setup-script parity + docs sync)
 Cross-team: N/6 scenarios PASS

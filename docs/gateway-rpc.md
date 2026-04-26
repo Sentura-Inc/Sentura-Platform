@@ -212,38 +212,86 @@ Subscribe to these events via WebSocket for real-time updates.
 
 ## Connection Example (TypeScript)
 
+> ⚠️ **OpenClaw does NOT use JSON-RPC 2.0 framing.** It uses a custom envelope
+> with a `connect.challenge` handshake. Sending `{ jsonrpc: "2.0", method, ... }`
+> will be rejected by the gateway with `code 1008: invalid request frame`.
+> Reference implementation: [`scripts/probe-creator-tools.ts:71-173`](../scripts/probe-creator-tools.ts).
+
+The protocol:
+
+1. Client opens WebSocket → gateway sends `{ type: "event", event: "connect.challenge", payload: { nonce } }`.
+2. Client replies with the `connect` request containing protocol version, client identity, role, scopes, and an auth token.
+3. Gateway responds `{ type: "res", id, ok: true, payload }` — the connection is now authenticated.
+4. Subsequent RPCs use the same `type: "req"` / `type: "res"` envelope. Replies carry results in `payload` (NOT `result`).
+
 ```typescript
+import { WebSocket } from "ws";
+import fs from "node:fs";
+
+// Operator token lives in ~/.openclaw/openclaw.json under gateway.auth.token.
+const config = JSON.parse(
+  fs.readFileSync(`${process.env.HOME}/.openclaw/openclaw.json`, "utf-8"),
+) as { gateway: { auth: { token: string } } };
+
 const ws = new WebSocket("ws://localhost:18789");
+const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+let nextId = 0;
 
-ws.onopen = () => {
-  // Authenticate
-  ws.send(JSON.stringify({
-    jsonrpc: "2.0",
-    method: "connect",
-    params: { token: process.env.OPENCLAW_GATEWAY_TOKEN },
-    id: 1,
-  }));
-};
+ws.on("message", (raw: Buffer) => {
+  const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
 
-// Send an RPC call
-function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
-  const id = Math.random().toString(36).slice(2);
-  return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      if (data.id === id) {
-        ws.removeEventListener("message", handler);
-        if (data.error) reject(data.error);
-        else resolve(data.result);
-      }
-    };
-    ws.addEventListener("message", handler);
-    ws.send(JSON.stringify({ jsonrpc: "2.0", method, params, id }));
+  // Step 1: respond to the handshake challenge
+  if (msg.type === "event" && msg.event === "connect.challenge") {
+    const id = String(++nextId);
+    ws.send(JSON.stringify({
+      type: "req",
+      id,
+      method: "connect",
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: "openclaw-tui",   // must be an allowed client id (see protocol schema)
+          displayName: "My Client",
+          version: "0.1.0",
+          platform: "node",
+          mode: "ui",
+        },
+        caps: [],
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.admin"],
+        auth: { token: config.gateway.auth.token },
+      },
+    }));
+    return;
+  }
+
+  // Step 2: route RPC responses (note: ok / payload, NOT result)
+  if (msg.type === "res") {
+    const handler = pending.get(msg.id as string);
+    if (!handler) return;
+    pending.delete(msg.id as string);
+    if (msg.ok) handler.resolve(msg.payload);
+    else handler.reject(new Error((msg.error as { message?: string })?.message ?? "rpc error"));
+  }
+});
+
+function rpc<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const id = String(++nextId);
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    ws.send(JSON.stringify({ type: "req", id, method, params }));
   });
 }
 
-// List all AI employees
-const employees = await rpc("config.get", { path: "agents.list" });
+// config.get returns a ConfigFileSnapshot:
+//   { hash, runtimeConfig: { agents: { list: [...] } }, config: { ... } (deprecated alias), ... }
+// Use payload.hash as the baseHash for subsequent config.patch calls.
+const snapshot = await rpc<{
+  hash: string;
+  runtimeConfig?: { agents?: { list?: Array<{ id: string }> } };
+}>("config.get", {});
+const employees = snapshot.runtimeConfig?.agents?.list ?? [];
 ```
 
 ---
