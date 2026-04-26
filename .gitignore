@@ -10,3 +10,4 @@ dist-runtime/
 .DS_Store
 **/.DS_Store
 sentura/dashboard/.env.local
+.claude/
