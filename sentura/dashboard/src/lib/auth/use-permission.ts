@@ -1,13 +1,16 @@
 "use client";
 
+import { hasPermission, ROLE_LABELS } from "./roles";
+import { useCurrentRole } from "./use-current-role";
+
 /**
  * Permission action vocabulary.
  *
  * Initial set co-designed with Person D (Extensions & Integrations) per
  * docs/memory/person-c/week-3.md § D3. D owns the canonical list — adding
- * an action here MUST be paired with a sentura-rbac mapping in Week 5
- * (otherwise the real impl will return `allowed: false` for the new action
- * and block the UI silently).
+ * an action here MUST be paired with a sentura-rbac mapping in
+ * `src/lib/auth/roles.ts` (otherwise the matrix returns `allowed: false`
+ * for the new action and the UI silently denies).
  */
 export type PermissionAction =
   | "audit.read"
@@ -34,9 +37,9 @@ export interface PermissionResult {
   /** Human-readable reason when denied. Stable enough to render in a tooltip. */
   reason?: string;
   /**
-   * True while the underlying lookup is in flight. The Week 3 stub never
-   * sets this — but consumers MUST still handle the loading branch so
-   * Week 5's real implementation is a drop-in (no caller-side refactor).
+   * True while the underlying lookup is in flight. The current implementation
+   * (client-side role lookup) is synchronous, but consumers MUST handle the
+   * loading branch so a future server-side lookup is a drop-in.
    */
   loading: boolean;
 }
@@ -44,23 +47,31 @@ export interface PermissionResult {
 /**
  * Check whether the current user may perform `action` in the optional `ctx`.
  *
- * **Week 3 stub.** Returns `{ allowed: true, loading: false }` unconditionally.
- * Wired into all surfaces day-1 so Person D's Week 5 `sentura-rbac` frontend
- * lookup drops in with zero caller-side refactor.
+ * **Week 5 implementation:** reads the current role from `useCurrentRole()`
+ * and looks up `action` in the `ROLE_PERMISSIONS` matrix
+ * (`src/lib/auth/roles.ts`). Resource-level scoping (dept-only, own-only) is
+ * still backend-enforced; this client-side gate hides UI but doesn't
+ * authorize — server is the source of truth.
  *
  * **Adoption rule:** any UI action that mutates server state (button click,
- * form submit, link to a mutation page) MUST be gated by usePermission, even
- * while the stub always returns true. Read-only views can call usePermission
- * with the corresponding `.read` action when the page itself should hide from
- * unauthorized users — that gating activates in Week 5.
+ * form submit, link to a mutation page) MUST be gated by usePermission. Per
+ * Week 5 D1: hard-hide enforcement — render `null` (not a disabled button)
+ * when `allowed: false` so the action surface disappears entirely from the
+ * unauthorized user's view.
  */
 export function usePermission(
   action: PermissionAction,
   ctx?: PermissionContext,
 ): PermissionResult {
-  // TODO(person-d, week-5): swap in real sentura-rbac lookup.
-  // Reference: docs/TeamPlan.md § Week 5 → Person D → "Frontend RBAC hooks"
-  void action;
-  void ctx;
-  return { allowed: true, loading: false };
+  const { role } = useCurrentRole();
+  void ctx; // resource-level scoping deferred to backend authorization
+
+  const allowed = hasPermission(role, action);
+  return {
+    allowed,
+    loading: false,
+    reason: allowed
+      ? undefined
+      : `${ROLE_LABELS[role]} role does not have permission for ${action}`,
+  };
 }

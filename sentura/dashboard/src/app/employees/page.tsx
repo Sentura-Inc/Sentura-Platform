@@ -122,7 +122,9 @@ export default function EmployeesPage() {
             />
             Refresh
           </Button>
-          {canCreate ? (
+          {/* Per Week 5 D1: hide the Create Employee CTA entirely if the
+              role lacks agents.create. Read roles still see the roster. */}
+          {canCreate && (
             <Link
               href="/create"
               className={buttonVariants({ size: "sm" })}
@@ -130,11 +132,6 @@ export default function EmployeesPage() {
               <Plus className="h-4 w-4 mr-2" />
               Create Employee
             </Link>
-          ) : (
-            <Button size="sm" disabled title="You don't have permission to create employees">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Employee
-            </Button>
           )}
         </div>
       </div>

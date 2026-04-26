@@ -295,35 +295,36 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
           )}
 
           <div className="mt-3 flex items-center flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="default"
-              disabled={!canResolve}
-              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
-              onClick={() => setConfirmDecision("allow-once")}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-              Approve once
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canResolve}
-              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
-              onClick={() => setConfirmDecision("allow-always")}
-            >
-              Always allow
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={!canResolve}
-              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
-              onClick={() => setConfirmDecision("deny")}
-            >
-              <XCircle className="h-3.5 w-3.5 mr-1" />
-              Deny
-            </Button>
+            {/* Per Week 5 D1: only roles with approvals.resolve see the
+                action triplet. Auditor / viewer roles can see the queue
+                read-only via Show details + View employee. */}
+            {canResolve && (
+              <>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => setConfirmDecision("allow-once")}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Approve once
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setConfirmDecision("allow-always")}
+                >
+                  Always allow
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setConfirmDecision("deny")}
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" />
+                  Deny
+                </Button>
+              </>
+            )}
             <Button
               size="sm"
               variant="ghost"

@@ -36,6 +36,10 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { useApprovals, useGatewayEvents, useSessions } from "@/lib/gateway";
+import { hasPermission, ROLE_LABELS } from "@/lib/auth/roles";
+import { useCurrentRole } from "@/lib/auth/use-current-role";
+import type { PermissionAction } from "@/lib/auth/use-permission";
+import { RoleSwitcher } from "@/components/role-switcher";
 
 const CONTROL_UI_URL =
   process.env.NEXT_PUBLIC_CONTROL_UI_URL ?? "http://localhost:18789";
@@ -48,6 +52,12 @@ interface NavItem {
   badge?: string;
   badgeTone?: "default" | "alert";
   external?: boolean;
+  /**
+   * Permission required to see this nav item. If omitted, the item shows for
+   * everyone. Per Week 5 D1 (hard-hide): items the current role can't access
+   * are filtered out entirely — sidebar surface tailored to the role.
+   */
+  requiresPermission?: PermissionAction;
 }
 
 interface NavSection {
@@ -59,34 +69,36 @@ const sections: NavSection[] = [
   {
     title: "Enterprise",
     items: [
-      { label: "Overview", href: "/", icon: LayoutDashboard },
-      { label: "Employees", href: "/employees", icon: Bot },
-      { label: "Create Employee", href: "/create", icon: Plus },
-      { label: "Chat", href: "/chat", icon: MessageSquare },
-      { label: "Tune Employee", href: "/tune", icon: Sliders },
-      { label: "Approvals", href: "/approvals", icon: ShieldCheck },
+      { label: "Overview", href: "/", icon: LayoutDashboard, requiresPermission: "agents.read" },
+      { label: "Employees", href: "/employees", icon: Bot, requiresPermission: "agents.read" },
+      { label: "Create Employee", href: "/create", icon: Plus, requiresPermission: "agents.create" },
+      { label: "Chat", href: "/chat", icon: MessageSquare, requiresPermission: "sessions.read" },
+      { label: "Tune Employee", href: "/tune", icon: Sliders, requiresPermission: "agents.tune" },
+      { label: "Approvals", href: "/approvals", icon: ShieldCheck, requiresPermission: "approvals.resolve" },
     ],
   },
   {
     title: "Management",
     items: [
-      { label: "Cost Center", href: "/cost", icon: DollarSign },
-      { label: "Audit Trail", href: "/audit", icon: ClipboardList, disabled: true, badge: "W5" },
-      { label: "Integrations", href: "/integrations", icon: Plug },
-      { label: "Orchestrator", href: "/orchestrator", icon: GitBranch },
-      { label: "Knowledge", href: "/knowledge", icon: BookOpen },
-      { label: "Testing", href: "/testing", icon: FlaskConical },
+      { label: "Cost Center", href: "/cost", icon: DollarSign, requiresPermission: "audit.read" },
+      { label: "Audit Trail", href: "/audit", icon: ClipboardList, requiresPermission: "audit.read", disabled: true, badge: "W5" },
+      { label: "Integrations", href: "/integrations", icon: Plug, requiresPermission: "ekg.read" },
+      { label: "Orchestrator", href: "/orchestrator", icon: GitBranch, requiresPermission: "agents.read" },
+      { label: "Knowledge", href: "/knowledge", icon: BookOpen, requiresPermission: "ekg.read" },
+      { label: "Testing", href: "/testing", icon: FlaskConical, requiresPermission: "agents.read" },
     ],
   },
   {
     title: "Operations",
     items: [
-      { label: "Control Panel", href: CONTROL_UI_URL, icon: PanelLeft, external: true },
-      { label: "Config Editor", href: `${CONTROL_UI_URL}/#config`, icon: FileCode, external: true },
-      { label: "Sessions & Chat", href: `${CONTROL_UI_URL}/#sessions`, icon: MessageSquare, external: true },
-      { label: "Logs", href: `${CONTROL_UI_URL}/#logs`, icon: ScrollText, external: true },
-      { label: "Debug Console", href: `${CONTROL_UI_URL}/#debug`, icon: Bug, external: true },
-      { label: "Cron Jobs", href: `${CONTROL_UI_URL}/#cron`, icon: Timer, external: true },
+      // Operations links jump to OpenClaw Control UI — admin-grade access.
+      // Gated by settings.write (only platform_admin today).
+      { label: "Control Panel", href: CONTROL_UI_URL, icon: PanelLeft, external: true, requiresPermission: "settings.write" },
+      { label: "Config Editor", href: `${CONTROL_UI_URL}/#config`, icon: FileCode, external: true, requiresPermission: "settings.write" },
+      { label: "Sessions & Chat", href: `${CONTROL_UI_URL}/#sessions`, icon: MessageSquare, external: true, requiresPermission: "settings.write" },
+      { label: "Logs", href: `${CONTROL_UI_URL}/#logs`, icon: ScrollText, external: true, requiresPermission: "settings.write" },
+      { label: "Debug Console", href: `${CONTROL_UI_URL}/#debug`, icon: Bug, external: true, requiresPermission: "settings.write" },
+      { label: "Cron Jobs", href: `${CONTROL_UI_URL}/#cron`, icon: Timer, external: true, requiresPermission: "settings.write" },
     ],
   },
 ];
@@ -96,6 +108,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { data: approvals } = useApprovals();
   const pendingApprovals = approvals?.length ?? 0;
+  const { role } = useCurrentRole();
 
   // Live count of all conversations for the /chat badge. `useSessions()` is
   // a one-shot fetch on connect; we re-fetch on `sessions.changed` so the
@@ -108,6 +121,11 @@ export function Sidebar() {
   });
 
   const renderNavItem = (item: NavItem) => {
+    // Per Week 5 D1 (hard-hide): drop nav items the current role cannot
+    // access. Items with no `requiresPermission` are always visible.
+    if (item.requiresPermission && !hasPermission(role, item.requiresPermission)) {
+      return null;
+    }
     if (item.href === "/approvals" && pendingApprovals > 0) {
       item = { ...item, badge: String(pendingApprovals), badgeTone: "alert" };
     }
@@ -230,21 +248,32 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Nav Sections */}
+      {/* Nav Sections — sections with no visible items (after permission
+          filtering) are dropped entirely so we never render an empty header. */}
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {sections.map((section, idx) => (
-          <div key={section.title}>
-            {idx > 0 && <Separator className="my-2" />}
-            {!collapsed && (
-              <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                {section.title}
-              </p>
-            )}
-            <ul className="flex flex-col gap-0.5">
-              {section.items.map(renderNavItem)}
-            </ul>
-          </div>
-        ))}
+        {sections
+          .map((section) => ({
+            section,
+            visibleItems: section.items.filter(
+              (item) =>
+                !item.requiresPermission ||
+                hasPermission(role, item.requiresPermission),
+            ),
+          }))
+          .filter(({ visibleItems }) => visibleItems.length > 0)
+          .map(({ section }, idx) => (
+            <div key={section.title}>
+              {idx > 0 && <Separator className="my-2" />}
+              {!collapsed && (
+                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  {section.title}
+                </p>
+              )}
+              <ul className="flex flex-col gap-0.5">
+                {section.items.map(renderNavItem)}
+              </ul>
+            </div>
+          ))}
       </nav>
 
       <Separator />
@@ -278,6 +307,10 @@ export function Sidebar() {
 
         <Separator className="my-1" />
 
+        {/* Dev role switcher — only renders when NEXT_PUBLIC_ENABLE_ROLE_SWITCHER=1.
+            Lets QA / reviewers preview each role's view without rebuilding. */}
+        <RoleSwitcher collapsed={collapsed} />
+
         {/* Auth placeholder */}
         <div
           className={cn(
@@ -292,7 +325,7 @@ export function Sidebar() {
             <div className="flex flex-col">
               <span className="text-xs font-medium">Admin User</span>
               <span className="text-[10px] text-muted-foreground">
-                Platform Admin
+                {ROLE_LABELS[role]}
               </span>
             </div>
           )}

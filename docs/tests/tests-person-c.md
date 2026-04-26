@@ -245,5 +245,20 @@ Per Week 4 D3 (Next.js Route Handler + SSE). First server-side code path on the 
 | C15.7 | Stale groupKey cleanup | Open `/chat?groupKey=ghost-id` directly (id doesn't exist) | After `groupsLoaded` flag flips true and the id isn't found, `setUrlState({ groupKey: null })` strips the param; right pane shows the standard "No conversation selected" card. No infinite loading spinner |
 | C15.8 | Switch between group + 1:1 | While in group mode, click an existing 1:1 conversation in the sidebar | URL clears `groupKey` and sets `key`; `<GroupChat>` unmounts (clearing its in-memory transcript) and `<AgentChat>` mounts. Switching back to the group later starts a fresh group view (no stale state from prior session) |
 
+### C16. 7-role RBAC enforcement (Week 5 Phase 2)
+
+Per Week 5 D1 (hard-hide). Source-of-truth matrix mirrors `sentura/extensions/sentura-rbac/DESIGN.md` § 4 — 7 roles × 11 actions encoded in `src/lib/auth/roles.ts`. Current role sourced from `useCurrentRole()`: localStorage value (set by dev `<RoleSwitcher>`) with `?as=<role>` URL param as one-shot override; default `platform_admin` for single-tenant local-dev. SSO swap (W6+) replaces the role source — hook signature stays identical.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C16.1 | Default role is platform_admin | Fresh setup, no localStorage, no `?as=` param | Sidebar shows ALL 18 nav items + 6 Operations links; sidebar bottom shows "Platform Admin" label; no surface is hidden |
+| C16.2 | Role switcher visibility gated | `NEXT_PUBLIC_ENABLE_ROLE_SWITCHER` unset | Switcher button does NOT appear in sidebar bottom; with env=`1` the switcher button appears with current role label + "dev" badge |
+| C16.3 | Hard-hide nav (viewer) | Switch to `viewer` via switcher | Sidebar shrinks: only Overview + Employees + Cost Center visible (the 4 read-only surfaces a viewer can access). Empty section headers (Operations, etc.) entirely dropped |
+| C16.4 | Hard-hide nav (end_user) | Switch to `end_user` | Sidebar shrinks further: only Chat + Approvals visible (end_user has `sessions.read` + `approvals.resolve` only). All `Management` and `Operations` sections hidden |
+| C16.5 | Hard-hide action buttons (auditor on /approvals) | Switch to `auditor`, navigate to `/approvals` | Page renders with the approval queue (auditor has `audit.read`). The Approve once / Always allow / Deny buttons are NOT rendered (no disabled stub). Show details + View employee links remain |
+| C16.6 | Hard-hide action buttons (auditor on /employees/[id]) | Open any employee detail as auditor | Retire button is NOT in DOM. Refresh + Edit in Control UI links remain |
+| C16.7 | /403 redirect on direct URL access | As `viewer`, navigate directly to `/create` | `<RequirePermission>` wrapper checks `agents.create`, fails, redirects to `/403`. Page shows ShieldOff icon + "Access denied" + current role label + "Back to overview" link |
+| C16.8 | Role persistence across navigation | Switch to `manager` via switcher → click any sidebar item → refresh page | Selected role survives navigation (localStorage write); refresh re-reads localStorage; sidebar still shows manager-scoped nav set. Clearing site data resets to `platform_admin` |
+
 ---
 

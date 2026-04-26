@@ -234,7 +234,9 @@ export default function EmployeeDetailPage() {
             />
             Refresh
           </Button>
-          {/* TODO(week-3): when /tune route ships, gate via usePermission("agents.tune") */}
+          {/* W3 placeholder kept disabled — /tune surface ships in W6 employee-detail
+              integration (see week-6 plan). Today /tune is its own surface and
+              this button stays as a teaser for inline access. */}
           <Button variant="outline" size="sm" disabled>
             <Sliders className="h-4 w-4 mr-1" />
             Tune
@@ -251,14 +253,16 @@ export default function EmployeeDetailPage() {
             <ExternalLink className="h-4 w-4 mr-1" />
             Edit in Control UI
           </a>
+          {/* Per Week 5 D1 (hard-hide): non-platform_admin roles don't see
+              the Retire surface at all — drops attack surface + removes
+              the "what does this disabled button do?" cognitive load. */}
+          {canDelete && (
           <Dialog open={retireOpen} onOpenChange={setRetireOpen}>
             <DialogTrigger
               render={
                 <Button
                   variant="destructive"
                   size="sm"
-                  disabled={!canDelete}
-                  title={!canDelete ? "You don't have permission to retire employees" : undefined}
                 >
                   <Trash2 className="h-4 w-4 mr-1" />
                   Retire
@@ -302,6 +306,7 @@ export default function EmployeeDetailPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </div>
 

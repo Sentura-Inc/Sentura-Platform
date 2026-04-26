@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AgentChat, type AgentChatHandle } from "@/components/agent-chat";
-import { usePermission } from "@/lib/auth/use-permission";
+import { RequirePermission } from "@/components/require-permission";
 import { ConversationSidebar } from "./conversation-sidebar";
 
 const CREATOR_AGENT_ID = "creator";
@@ -34,8 +34,17 @@ const DRAFT_STORAGE = "sentura.create.draftLabel";
  * shared `<AgentChat>` component (D2 contract).
  */
 export default function CreateEmployeePage() {
+  // The /create route is a mutation surface — gate the entire page so
+  // users without agents.create are redirected to /403 (per Week 5 D1).
+  return (
+    <RequirePermission action="agents.create">
+      <CreateEmployeePageBody />
+    </RequirePermission>
+  );
+}
+
+function CreateEmployeePageBody() {
   const { client, state } = useGateway();
-  const { allowed: canCreate } = usePermission("agents.create");
 
   // --- Conversation list ---
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -274,7 +283,7 @@ export default function CreateEmployeePage() {
         {!hasActiveConversation ? (
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
-              <WelcomeState onNew={handleNewConversation} canCreate={canCreate} />
+              <WelcomeState onNew={handleNewConversation} />
             </div>
           </div>
         ) : (
@@ -299,13 +308,7 @@ export default function CreateEmployeePage() {
   );
 }
 
-function WelcomeState({
-  onNew,
-  canCreate,
-}: {
-  onNew: () => void;
-  canCreate: boolean;
-}) {
+function WelcomeState({ onNew }: { onNew: () => void }) {
   return (
     <Card>
       <CardContent className="py-10 space-y-5">
@@ -319,12 +322,7 @@ function WelcomeState({
             Start a new one on the left, or pick an existing conversation to
             continue where you left off.
           </p>
-          <Button
-            className="mt-2"
-            onClick={onNew}
-            disabled={!canCreate}
-            title={!canCreate ? "You don't have permission to create employees" : undefined}
-          >
+          <Button className="mt-2" onClick={onNew}>
             <Sparkles className="h-4 w-4 mr-2" />
             New employee
           </Button>
