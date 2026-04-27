@@ -444,24 +444,24 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - [x] Add `/chat` link to dashboard sidebar navigation with live conversation-count badge (`useSessions().length` refetched on `sessions.changed`)
 
 ### Person D — Extensions & Integrations Engineer
-- [ ] Build `sentura-provisioner` extension: coordinates self-provisioning workflows
-- [ ] Implement approval integration for self-provisioning (new accounts need approval)
-- [ ] Build `sentura-approval` extension: enhanced HITL with escalation + timeout + decision-context
+- [x] Build `sentura-provisioner` extension: coordinates self-provisioning workflows _(completed 2026-04-26 — `sentura/extensions/sentura-provisioner/` ships `index.ts` + `src/{store,types}.ts` + `openclaw.plugin.json` with 2 tools (`sentura_provisioner_request`, `sentura_provisioner_complete`) and 3 dashboard RPCs (`sentura.provisioner.requests.list/get/cancel`).)_
+- [x] Implement approval integration for self-provisioning (new accounts need approval) _(completed 2026-04-26 — provisioner lazy-resolves `getApprovalRuntime()` and calls `fileApprovalImperative(...)` against the shared store; auto_approved/auto_denied/pending mapped onto provisioning status. `package.json` declares `@sentura/approval: workspace:*`.)_
+- [x] Build `sentura-approval` extension: enhanced HITL with escalation + timeout + decision-context _(completed 2026-04-26 — `sentura/extensions/sentura-approval/index.ts` (~445 lines) with `sentura_approval_request` tool, 6 dashboard RPCs (`requests.list/get/decide` + `policies.list/upsert/remove`), 60s sweep, builtin policies, cross-extension singleton via `getApprovalRuntime()`, `fileApprovalImperative()` helper, `ApprovalRequest.onTimeoutDecision` field for replay-safe policy intent.)_
   - Extends OpenClaw's binary exec.approval into context-aware approval (e.g., "approve if refund < $500")
   - Configurable escalation chains and timeout policies
-- [ ] **Expand MCP generation into MCP Builder Agent** (replaces standalone CLI tool):
+- [x] **Expand MCP generation into MCP Builder Agent** (replaces standalone CLI tool) _(completed 2026-04-27 — Person B shipped 4 SKILL.md files (`api-analysis`, `mcp-generation`, `register-server`, `smoke-test`) under `sentura/agents/mcp-builder/skills/`; Person D's Week-2 `config.json5` already wires the sandbox `tools.alsoAllow` block (Round 20 fix), and `sentura-rbac/DESIGN.md` line 13/42 documents `ekg_manager` as the trigger role for the MCP Catalog. Cross-team integration test will land when Person C adds the dashboard "Trigger MCP Builder" page.)_
   - Wire B's MCP Builder Agent workspace (`sentura/agents/mcp-builder/`) with API analysis + code generation skills
   - Input: OpenAPI/Swagger specs (JSON/YAML), markdown API docs (like ekg/*.md), database schema docs, or raw URL
   - Output: TypeScript MCP server project at `sentura/mcp-servers/{name}/` with `index.ts`, `tools/`, `package.json`, `config-snippet.json5`
   - Agent can ask clarifying questions to `ekg_manager` who triggers it
   - Access control: only `ekg_manager` role can trigger the MCP Builder Agent via dashboard
-- [ ] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools
-- [ ] **Build test data extraction tools for pre-deployment testing (capability #15)**:
+- [x] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools _(completed 2026-04-26 — `sentura/mcp-servers/{filesystem,slack}/` each ship `config-snippet.json5` (paste-ready under `mcp.servers.<name>`) and `README.md` with security checklist. Tier-1 = upstream `@modelcontextprotocol/server-{filesystem,slack}` via `npx -y` — no in-tree code.)_
+- [x] **Build test data extraction tools for pre-deployment testing (capability #15)** _(completed 2026-04-27 — `sentura/skills/test-data-extraction/SKILL.md` (agent-driven extraction in any session) + `scripts/extract-test-cases.ts` (operator-side runner). Output conforms to `sentura/config/test-harness-schema.json5` TestCase shape; supports `dispute`/`support_thread`/`report`/`verification` record types via `gradsale-admin` MCP tools; PII scrubbing masks emails and customer-name patterns; regulatory-tag rows (`legal_hold`/`gdpr_request`/`pci_violation`) are dropped before persisting.)_
   - MCP tool wrapper that queries enterprise data for historical task records (e.g., past support tickets, past invoices)
   - Output in standardized test case format (matching B's test harness schema)
   - Test with ekg/ GradSale: extract past dispute records and support threads as test cases
-- [ ] Test approval flow: AI employee triggers high-risk action → human approves on dashboard
-- [ ] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)**:
+- [x] Test approval flow: AI employee triggers high-risk action → human approves on dashboard _(completed 2026-04-27 — `scripts/test-approval-flow.ts` (21 offline structural assertions PASS + 5 live gateway-connected RPC checks that skip cleanly when gateway is unreachable). Dashboard `/approvals` page now wires the Sentura approval kind: `useApprovals()` seeds via `listSenturaApprovals({status:"pending"})` on connect, the resolve handler dispatches to `decideSenturaApproval(...)` for `kind === "sentura"`, and the card surfaces `riskLevel` and `policyId` badges.)_
+- [x] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)** _(completed 2026-04-26 — `sentura/hooks/sentura-bootstrap/handler.ts` walks `<workspaceDir>/ekg/{org,rules,assets,workflows}/` and synthesises a virtual `EKG_SUMMARY.md` (pillar inventory + per-file domain/entity/relation/rule counts + memory_search guidance). Dependency-free regex counters (no JSON5 parser in hot path). Co-exists with the existing per-user memory branch.)_
   - Update `sentura/hooks/sentura-bootstrap/handler.ts` to scan `ekg/` directory at agent startup
   - Inject EKG summary (pillar counts, key entities, rule count) into system prompt alongside AGENTS.md Hard Rules and BOOTSTRAP.md Enterprise Context (both already loaded natively by OpenClaw)
   - Ensure `ekg/` files are included in OpenClaw's workspace file scanning for vector indexing

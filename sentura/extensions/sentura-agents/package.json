@@ -10,7 +10,7 @@
     ]
   },
   "dependencies": {
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "^0.34.49"
   },
   "devDependencies": {
     "openclaw": "*"

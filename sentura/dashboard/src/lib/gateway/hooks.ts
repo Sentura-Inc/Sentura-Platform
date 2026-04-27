@@ -7,9 +7,39 @@ import type {
   ApprovalRequest,
   GatewayEvent,
   GatewayEventType,
+  SenturaApprovalRequestRaw,
   SessionSummary,
   TranscriptMessage,
 } from "./types";
+
+/**
+ * Translate a sentura-approval extension request into the flat
+ * dashboard ApprovalRequest shape used by the queue UI.
+ */
+function fromSenturaRaw(raw: SenturaApprovalRequestRaw): ApprovalRequest {
+  const status: ApprovalRequest["status"] =
+    raw.status === "pending"
+      ? "pending"
+      : raw.status === "approved" || raw.status === "auto_approved"
+        ? "approved"
+        : raw.status === "denied" || raw.status === "auto_denied"
+          ? "rejected"
+          : "expired";
+  return {
+    id: raw.id,
+    agentId: raw.agentId,
+    action: raw.action,
+    context: raw.context ?? {},
+    status,
+    createdAt: raw.requestedAt,
+    resolvedAt: raw.decidedAt,
+    resolvedBy: raw.decidedByUserId,
+    kind: "sentura",
+    expiresAtMs: raw.expiresAt ? Date.parse(raw.expiresAt) : undefined,
+    riskLevel: raw.riskLevel,
+    policyId: raw.policyId,
+  };
+}
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
@@ -115,14 +145,22 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
 
   // Initial seed — fetch any approvals already pending when this hook mounts
   // (e.g. raised before the user opened the app, or before this tab connected).
+  // Seeds three sources in parallel:
+  //   1. exec.approval.list      — OpenClaw native exec approvals
+  //   2. plugin.approval.list    — OpenClaw native plugin approvals
+  //   3. sentura.approval.requests.list { status: "pending" } — sentura-approval
+  //      extension's context-aware approvals (e.g. self-provisioning HITL)
   useEffect(() => {
     if (state !== "connected") return;
     let cancelled = false;
     (async () => {
       try {
-        const [execList, pluginList] = await Promise.all([
+        const [execList, pluginList, senturaList] = await Promise.all([
           client.listExecApprovals().catch(() => []),
           client.listPluginApprovals().catch(() => []),
+          client
+            .listSenturaApprovals({ status: "pending" })
+            .catch(() => [] as SenturaApprovalRequestRaw[]),
         ]);
         if (cancelled) return;
         const initial: ApprovalRequest[] = [
@@ -150,6 +188,7 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
             expiresAtMs: r.expiresAtMs,
             kind: "plugin" as const,
           })),
+          ...senturaList.map(fromSenturaRaw),
         ];
         setData((prev) => {
           const existing = new Set(prev.map((a) => a.id));

@@ -1,0 +1,37 @@
+{
+  "id": "sentura-approval",
+  "name": "Sentura Approval",
+  "description": "Context-aware HITL approval — evaluates policy rules to auto-approve, auto-deny, or route requests through configurable escalation chains with timeouts. Wraps OpenClaw's binary exec.approval / plugin.approval primitives with enterprise context (refund amounts, risk tiers, department ownership).",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": ["sentura_approval_request"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dataDir": {
+        "type": "string",
+        "description": "Directory for approval log + policy store. Defaults to ~/.openclaw/sentura-approval/"
+      },
+      "defaultTimeoutMs": {
+        "type": "number",
+        "default": 1800000,
+        "description": "Fallback timeout (ms) for approvals that don't specify one. Default 30 minutes."
+      },
+      "defaultOnTimeout": {
+        "type": "string",
+        "enum": ["deny", "approve"],
+        "default": "deny",
+        "description": "Decision applied when an approval expires without a human response."
+      },
+      "retention": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxAgeDays": { "type": "number", "default": 180 }
+        }
+      }
+    }
+  }
+}

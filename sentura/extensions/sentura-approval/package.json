@@ -1,0 +1,15 @@
+{
+  "name": "@sentura/approval",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentura context-aware approval extension for OpenClaw",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "openclaw": "*"
+  }
+}

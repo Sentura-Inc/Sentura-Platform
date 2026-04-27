@@ -96,6 +96,25 @@ Run via `pnpm --filter @sentura/mcp-gradsale-admin test` (same command as D7 —
 | D9.2 | README for the server | Read `sentura/mcp-servers/gradsale-admin/README.md` | Lists all 29 tools; documents env vars (`GRADSALE_API_URL`, `GRADSALE_ADMIN_TOKEN`, `GRADSALE_ADMIN_EMAIL`/`_PASSWORD`, `GRADSALE_READ_ONLY`, `GRADSALE_REQUEST_TIMEOUT_MS`); shows the `config.patch` snippet that wires the server into an employee workspace; notes that `mutates: true` tools emit `annotations.destructiveHint` so `sentura-approval` routes them through HITL by default |
 | D9.3 | Package wired into workspace | Read `pnpm-workspace.yaml` | `sentura/mcp-servers/*` is listed so `pnpm --filter @sentura/mcp-gradsale-admin ...` works from repo root |
 
+### D10. GradSale Web MCP Surface
+
+> Locks in the Week-2 carry-over deliverable at `sentura/mcp-servers/gradsale-web/`. Sibling package to `gradsale-admin/` covering sections 1, 3, 6 of `ekg/api-web.md` (Authentication, Listings, Messages). Hermetic — same `InMemoryTransport` + stubbed `fetch` rig as D7/D8.
+
+| # | Test File | Tests | What is Covered |
+|---|-----------|-------|-----------------|
+| D10.1 | `sentura/mcp-servers/gradsale-web/src/tools.test.ts` | 12 | Registry shape (`gradsale_web_` prefix invariant, exactly 32 tools, every tool has an `endpoint` string, every input field is a `z.ZodType`); `readOnly: true` strips mutating tools (excludes `create_listing`, `send_message`; keeps `list_listings`, `get_thread`); per-tool URL/method/body assertions for `register` (`auth: false`), `login` (caches token via subsequent `Authorization: Bearer fresh-token` check), `logout` (clears cached token), `list_listings` (multi-field query string), `create_listing` (full body POST), `update_listing` (PATCH only supplied fields, `listingId` in path not body), `set_listing_status` (only `status` in body), `send_message` (`threadId` in path, body trimmed), `complete_checkout` (`transactionId` in body); 4xx → `GradSaleWebError` with status + body |
+| D10.2 | `sentura/mcp-servers/gradsale-web/src/server.test.ts` | 4 | Catalog exposed via MCP `Client.listTools()` reports 32 tools; annotations correctly reflect `mutates` (`readOnlyHint`/`destructiveHint`); simulated Buyer Concierge walks `search_listings` → `create_thread` → `send_message` against stubbed responses, all three calls land at expected endpoints with expected method/body; 4xx surfaces as `isError` with text matching `/GradSale API 404/`; SDK-level UUID validation rejects `not-a-uuid` for `get_listing` before the handler runs (fetch never called) |
+
+**Run command:**
+
+```bash
+pnpm install                                     # one-time, picks up the new package
+pnpm --filter @sentura/mcp-gradsale-web test     # 16 tests
+pnpm --filter @sentura/mcp-gradsale-web build    # tsc → dist/
+```
+
+**Failure triage:** if D10.1 reports the tool count is wrong, an endpoint was added/removed in `src/tools.ts` without updating the assertion — keep them in sync. If D10.1 `login persists the access token` test fails, the handler stopped calling `client.setToken(...)` after a successful login (or `setToken` itself stopped being public — check `src/client.ts`). If D10.2 `Buyer Concierge` walk fails on the third call, confirm `send_message` is still embedding `threadId` in the path (`/api/messages/threads/${threadId}/messages`) rather than the body — a refactor that pulled it into the body would silently 404 on the live API too.
+
 ### D-CRE-19. Forge tool-visibility probe + E2E CLI deploy regression (Round 19)
 
 > This regression guards the Round 17 (in-process `register_agent`) + Round 18 (AGENTS.md 12k shrink) fixes and the Round 19 diagnosis (dashboard-session "I only have read/session tools" replies are **LLM context poisoning**, not a tool-pipeline regression). Run it whenever Forge in a dashboard session appears to refuse deployment, **before** touching code.
@@ -135,6 +154,76 @@ python3 -c "import json; p='/Users/henry/.openclaw/openclaw.json'; d=json.load(o
 **Failure triage**: if D-SAND-01.3 passes but D-SAND-01.4 fails, the top-level `alsoAllow` is correct but the sandbox layer is stripping tools — edit `sentura/agents/creator/config.json5` to add the missing tool under `tools.sandbox.tools.alsoAllow` and mirror into `~/.openclaw/openclaw.json`. If D-SAND-01.3 also fails, the top-level `tools.alsoAllow` is missing the tool — fix that first. If both pass but a dashboard session still claims "I only have read/session tools", it is LLM context poisoning (see D-CRE-19) — start a fresh webchat session.
 
 **When to extend**: Tuner, Orchestrator, and MCP Builder meta-agents MUST declare the same sandbox `alsoAllow` (or a superset) when they need plugin tools. Add a D-SAND-01.5+ row per additional meta-agent, mirroring the same 4 checks.
+
+---
+
+### D15. `sentura-bootstrap` EKG summary injection (capability #11)
+
+> Locks in the Week 3 extension to `sentura/hooks/sentura-bootstrap/handler.ts`: on every `agent:bootstrap` event the hook walks `<workspaceDir>/ekg/{org,rules,assets,workflows}/` and synthesises a virtual `EKG_SUMMARY.md` into `context.bootstrapFiles` so the agent knows the EKG exists. The full JSON5 stays on disk — OpenClaw's existing memory indexer is what makes the entries `memory_search`-able.
+
+| # | Test | Method | Expected result |
+|---|------|--------|-----------------|
+| D15.1 | **4-pillar walk only** | `rg -n 'EKG_PILLARS\\s*=' sentura/hooks/sentura-bootstrap/handler.ts` | Single hit; the constant is exactly `["org", "rules", "assets", "workflows"] as const` (in that order). No other pillar names. |
+| D15.2 | **Dependency-free counting** | Read `summarizeEkgFile` in `handler.ts` | Uses regexes `{\s*id:\s*["']entity:` (entities), `{\s*from:\s*["']entity:` (relations), `{\s*id:\s*["']rule:` (rules), and `^\s*domain:\s*["']([^"']+)["']` (top-level `domain:` capture). No `import` of `json5` / `JSON5.parse` / any third-party parser. |
+| D15.3 | **Virtual file shape** | Read `renderEkgSummary` in `handler.ts` | Returned `BootstrapFile` has `name: "EKG_SUMMARY.md"`, `path: <workspaceDir>/ekg`, `content` starting with `# Enterprise Knowledge Graph (EKG) — Summary`, and `missing: false`. Content lists pillar inventory with per-file domain/entity/relation/rule counts and includes a `memory_search` guidance line. |
+| D15.4 | **Per-user memory still works** | Read the hook's main handler | After running the user-token branch (existing behaviour), the EKG branch runs unconditionally — both append to the SAME `extraFiles` array, and the merge into `context.bootstrapFiles` happens once at the end. Workspaces with no `ekg/` dir return `null` from `renderEkgSummary` and add no extra file. |
+| D15.5 | **Raw JSON5 not duplicated into the prompt** | `rg -n 'readFileSync.*\\.json5' sentura/hooks/sentura-bootstrap/handler.ts` | Only `summarizeEkgFile` reads JSON5; the *content* of those files never lands in `context.bootstrapFiles`. Only `EKG_SUMMARY.md`'s synthesised text does. |
+
+**Failure triage**: if a workspace prints `EKG_SUMMARY.md` in its bootstrap log but counts are zero, the JSON5 file is using a non-canonical shape — the regexes only fire on the standard `{ id: "entity:...", ... }` / `{ from: "entity:...", ... }` / `{ id: "rule:...", ... }` patterns documented in `docs/DESIGN.md`. Either fix the JSON5 or extend the regexes (and add a row here).
+
+---
+
+### D16. `sentura-approval` extension entry-point (capability #4)
+
+> Locks in the Week 3 wiring of the existing `src/types.ts`, `src/policy.ts`, `src/store.ts` scaffolding into a real OpenClaw plugin via `sentura/extensions/sentura-approval/index.ts`.
+
+| # | Test | Method | Expected result |
+|---|------|--------|-----------------|
+| D16.1 | **Manifest contracts** | Read `sentura/extensions/sentura-approval/openclaw.plugin.json` | `id: "sentura-approval"`, `enabledByDefault: true`, `contracts.tools: ["sentura_approval_request"]`, configSchema for `dataDir` / `defaultTimeoutMs` / `defaultOnTimeout` / `retention`. |
+| D16.2 | **Config defaults resolved** | Read `resolveConfig` in `index.ts` | Defaults: `dataDir = ~/.openclaw/sentura-approval/`, `defaultTimeoutMs = 30 * 60 * 1000` (30 min), `defaultOnTimeout = "deny"`, `retention.maxAgeDays = 180`. |
+| D16.3 | **Built-in policies seeded** | Read `register()` in `index.ts` | `store.initialize(builtinPolicies())` is called; `builtinPolicies()` returns `builtin:critical-always-human` (priority 100, `riskLevels: ["critical"]`, require_human + chain `["department_admin","platform_admin"]`) and `builtin:low-risk-auto-approve` (priority 10, `riskLevels: ["low"]`, auto_approve). |
+| D16.4 | **Tool wiring** | Read `api.registerTool({ name: "sentura_approval_request", ... })` block | Parameters: `action` (string, required), `riskLevel` (enum `low|medium|high|critical`, required), `context` (object, optional), `sessionKey` (string, optional). Returns JSON-stringified `{ status, requestId, policyId, reason }` for terminal decisions or `{ status: "pending", requestId, policyId, reason, expiresAt, escalation, onTimeoutDecision }` for `require_human`. |
+| D16.5 | **`onTimeoutDecision` carries the policy fallback** | Read `sentura/extensions/sentura-approval/src/types.ts` | `ApprovalRequest.onTimeoutDecision?: "approve" \| "deny"` is declared. The `require_human` branch in `index.ts` sets it from `evaluation.outcome.onTimeout`. |
+| D16.6 | **60-second sweep** | Read `register()` in `index.ts` | `setInterval(() => store.sweepExpired()..., 60_000)` is registered. `clearInterval` is called in the `gateway_stop` hook. The sweep marks pending requests past `expiresAt` as `status: "expired"` with the literal reason `"Approval expired without a human response"`. |
+| D16.7 | **Six gateway RPCs** | `rg -n 'registerGatewayMethod\\("sentura\\.approval\\.' sentura/extensions/sentura-approval/index.ts` | Six matches: `requests.list`, `requests.get`, `requests.decide`, `policies.list`, `policies.upsert`, `policies.remove`. |
+| D16.8 | **State-transition guard on decide** | Read `sentura.approval.requests.decide` handler | When `existing.status !== "pending"` the handler responds `false` with `code: "CONFLICT"` and message `Request is already <status> — cannot re-decide`. `decision` must be `"approved"` or `"denied"` — anything else returns `code: "BAD_REQUEST"`. |
+| D16.9 | **Cross-extension singleton + helper exported** | Read the top of `index.ts` | `getApprovalRuntime(): { store, config } \| null` is exported; the value is set in `register()` and accessed lazily by callers (e.g. `sentura-provisioner`). `fileApprovalImperative(store, config, params)` is also exported and produces the same record shapes the tool's `execute()` writes. `ApprovalStore`, `evaluate`, `builtinPolicies` are re-exported from the package barrel. |
+
+**Failure triage**: if the dashboard's `/approvals` page is silent on a Sentura approval but `~/.openclaw/sentura-approval/requests-index.json` shows pending entries, Person C's gateway client is missing the `sentura.approval.*` wiring — file a Person C task, do NOT change the extension. If pending requests never expire, confirm the gateway process didn't lose its sweep timer (the 60s `setInterval` lives in the same node process and is cleared only on `gateway_stop`).
+
+---
+
+### D17. `sentura-provisioner` extension scaffold (capability #3)
+
+> Locks in the Week 3 build-out at `sentura/extensions/sentura-provisioner/`: the new extension that drives self-provisioning of external integrations through `sentura-approval` for HITL.
+
+| # | Test | Method | Expected result |
+|---|------|--------|-----------------|
+| D17.1 | **Manifest contracts** | Read `sentura/extensions/sentura-provisioner/openclaw.plugin.json` | `id: "sentura-provisioner"`, `enabledByDefault: true`, `contracts.tools: ["sentura_provisioner_request", "sentura_provisioner_complete"]`, configSchema for `dataDir` / `approvalDataDir` / `defaultRiskLevel` (default `"high"`) / `retention.maxAgeDays` (default 365). |
+| D17.2 | **Cross-extension dep declared** | Read `sentura/extensions/sentura-provisioner/package.json` | `dependencies` contains `"@sentura/approval": "workspace:*"`. `openclaw.extensions: ["./index.ts"]`. |
+| D17.3 | **`ProvisioningStatus` covers seven states** | Read `src/types.ts` | Exactly: `pending_approval \| approved \| denied \| in_progress \| completed \| failed \| cancelled`. `ProvisioningRequest` includes `service`, `role`, `justification`, `riskLevel`, `approvalRequestId`, `secretRef`, `mcpServerConfigPath`, `errorMessage`, `metadata`. |
+| D17.4 | **Store mirrors the approval JSONL pattern** | Read `src/store.ts` | `requests-index.json` snapshot + daily `requests-YYYY-MM-DD.jsonl` append-only log + retention-day rotation. `update(id, patch)` always sets `updatedAt` to `new Date().toISOString()` regardless of the patch. |
+| D17.5 | **`sentura_provisioner_request` files an approval** | Read `register()` in `index.ts` | The tool's `execute()` calls `resolveApprovalRuntime()` (lazy), then `fileApprovalImperative(store, config, { agentId: "", action: "provisioner.<service>.create", riskLevel, context: { service, role, justification, provisioningRequestId, ...metadata } })`. Falls back to a fresh `ApprovalStore` against `config.approvalDataDir` if the singleton is absent. |
+| D17.6 | **Status mapping is deterministic** | Read the same handler | `auto_approved → "approved"`, `auto_denied → "denied"`, `pending → "pending_approval"`. The provisioning record is appended with the linking `approvalRequestId` set to the approval store's request id. |
+| D17.7 | **Completion contract enforced** | Read `sentura_provisioner_complete` handler | `outcome === "completed"` requires non-empty `secretRef`; `outcome === "failed"` requires non-empty `errorMessage`. Already-terminal requests (status in `completed | failed | cancelled`) are rejected with `Request is already <status> — cannot re-complete`. |
+| D17.8 | **Three gateway RPCs** | `rg -n 'registerGatewayMethod\\("sentura\\.provisioner\\.' sentura/extensions/sentura-provisioner/index.ts` | Three matches: `requests.list`, `requests.get`, `requests.cancel`. Cancel rejects terminal-state requests with `code: "CONFLICT"` and stores the cancel reason as `errorMessage`. |
+
+**Failure triage**: if `sentura_provisioner_request` succeeds but the approval row never appears in `~/.openclaw/sentura-approval/requests-index.json`, the singleton is not resolving — check that `sentura-approval` registers BEFORE the provisioner's first tool call (it should, because the singleton is set in `register()` and the tool executes lazily). If two index files diverge, both extensions are accidentally running their own `ApprovalStore` instance — the fallback path in the provisioner is meant only for the case where `sentura-approval` is disabled entirely.
+
+---
+
+### D18. Tier-1 open-source MCP server configurations
+
+> Locks in the Week 3 deliverable at `sentura/mcp-servers/{filesystem,slack}/`: documentation-only directories that stage upstream open-source MCP servers for operators to apply via `config.patch`. There is intentionally no in-tree code or build step.
+
+| # | Test | Method | Expected result |
+|---|------|--------|-----------------|
+| D18.1 | **filesystem snippet** | Read `sentura/mcp-servers/filesystem/config-snippet.json5` | Lives under OpenClaw's native path `mcp.servers.filesystem`. Uses `command: "npx"`, `args: ["-y", "@modelcontextprotocol/server-filesystem", "<absolute-root>"]`. Includes `MCP_FS_MAX_FILE_BYTES` env var with a reasonable default (10 MiB). Comment warns against pointing roots at `$HOME` / `/`. |
+| D18.2 | **filesystem README** | Read `sentura/mcp-servers/filesystem/README.md` | Documents tool inventory (`read_file`, `write_file`, `edit_file`, `create_directory`, `list_directory`, `directory_tree`, `move_file`, `search_files`, `get_file_info`); security checklist (absolute paths only, no overlap with `workspaces/{id}/`, mutating tools route through `sentura-approval`, sandbox `tools.alsoAllow` reminder); explains the `npx -y` choice over a vendored copy. |
+| D18.3 | **slack snippet** | Read `sentura/mcp-servers/slack/config-snippet.json5` | Lives under `mcp.servers.slack`. Required scopes documented at the top (`channels:history channels:read chat:write groups:history groups:read im:history im:read mpim:history mpim:read reactions:write users:read users:read.email`). `SLACK_BOT_TOKEN` references `$secret:slack.bot_token`; `SLACK_TEAM_ID` references `$secret:slack.team_id`. Optional `SLACK_CHANNEL_IDS` allow-list line is present (commented). No raw token text. |
+| D18.4 | **slack README** | Read `sentura/mcp-servers/slack/README.md` | Documents tool inventory (`slack_list_channels`, `slack_post_message`, `slack_reply_to_thread`, `slack_add_reaction`, `slack_get_channel_history`, `slack_get_thread_replies`, `slack_get_users`, `slack_get_user_profile`); security checklist (token only via `$secret:`, audit-redaction prefixes `xoxb-/xoxp-/xapp-`, customer-facing posts route through `sentura-approval`, sandbox `tools.alsoAllow` reminder); explains the dedicated-Slack-app-per-tenant rule and the `not_in_channel` invite gotcha. |
+
+**Failure triage**: if either directory grows a `package.json` or a `dist/`, Tier 1 has been confused with Tier 2 — the Tier-2 reference is `sentura/mcp-servers/gradsale-admin/`. Tier-1 directories are config-only by design. If an operator pastes the snippet and the gateway still doesn't surface the tools to the agent, double-check the dashboard `chat.send` path (D-SAND-01) and confirm `tools.sandbox.tools.alsoAllow` lists each tool name from D18.2 / D18.4.
 
 ---
 

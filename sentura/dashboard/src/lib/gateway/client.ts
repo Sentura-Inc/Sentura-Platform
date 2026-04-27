@@ -14,6 +14,7 @@ import type {
   RequestFrame,
   ResponseFrame,
   RpcError,
+  SenturaApprovalRequestRaw,
   SessionCreateResult,
   SessionSummary,
   TranscriptMessage,
@@ -612,6 +613,62 @@ export class GatewayClient {
       decision,
       ...(options?.reason ? { reason: options.reason } : {}),
     });
+  }
+
+  // --- Sentura Approval (sentura-approval extension) ---
+  //
+  // Backed by the `sentura-approval` extension's gateway methods:
+  //   - sentura.approval.requests.list   { status?, riskLevel?, agentId? }
+  //   - sentura.approval.requests.get    { id }
+  //   - sentura.approval.requests.decide { requestId, decision, decidedByUserId, reason? }
+  // The RPC handlers wrap their payload in `{ requests, count }` /
+  // `{ request }`, so we unwrap to the flat shape the dashboard expects.
+
+  async listSenturaApprovals(query?: {
+    status?: SenturaApprovalRequestRaw["status"];
+    riskLevel?: SenturaApprovalRequestRaw["riskLevel"];
+    agentId?: string;
+  }): Promise<SenturaApprovalRequestRaw[]> {
+    const result = await this.rpc<{
+      requests?: SenturaApprovalRequestRaw[];
+      count?: number;
+    }>("sentura.approval.requests.list", query ?? {});
+    return result?.requests ?? [];
+  }
+
+  async getSenturaApproval(
+    id: string,
+  ): Promise<SenturaApprovalRequestRaw | null> {
+    try {
+      const result = await this.rpc<{
+        request?: SenturaApprovalRequestRaw;
+      }>("sentura.approval.requests.get", { id });
+      return result?.request ?? null;
+    } catch (err) {
+      const e = err as RpcError;
+      if (e?.code === "NOT_FOUND") return null;
+      throw err;
+    }
+  }
+
+  async decideSenturaApproval(
+    requestId: string,
+    decision: "approved" | "denied",
+    decidedByUserId: string,
+    reason?: string,
+  ): Promise<SenturaApprovalRequestRaw> {
+    const result = await this.rpc<{
+      request: SenturaApprovalRequestRaw;
+    }>("sentura.approval.requests.decide", {
+      requestId,
+      decision,
+      decidedByUserId,
+      ...(reason ? { reason } : {}),
+    });
+    if (!result?.request) {
+      throw new Error("sentura.approval.requests.decide returned no request");
+    }
+    return result.request;
   }
 
   // --- Discovery Methods ---
