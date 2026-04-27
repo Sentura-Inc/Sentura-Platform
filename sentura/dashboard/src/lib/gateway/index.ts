@@ -8,6 +8,7 @@ export {
   useTranscript,
   useApprovals,
   useGatewayEvent,
+  useGatewayEvents,
 } from "./hooks";
 export {
   filterChatSessions,
@@ -15,6 +16,8 @@ export {
   isMetaAgentId,
   parseDashboardChatSessionKey,
 } from "./chat-sessions";
+export type { GatewayEventHandlerMap } from "./hooks";
+export { parseAgentIdFromKey, getSessionAgentId } from "./helpers";
 export type {
   AgentConfig,
   AgentFileContent,

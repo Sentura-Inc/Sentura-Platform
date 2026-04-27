@@ -18,7 +18,7 @@ import type {
   SessionSummary,
   TranscriptMessage,
 } from "./types";
-import { filterChatSessions } from "./chat-sessions";
+import { filterChatSessions, isMetaAgentId } from "./chat-sessions";
 
 type EventHandler = (event: GatewayEvent) => void;
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
@@ -337,13 +337,15 @@ export class GatewayClient {
 
   // --- Agent Methods ---
 
-  private static readonly META_AGENT_IDS = new Set(["creator", "tuner", "orchestrator"]);
-
   async getAgents(): Promise<AgentConfig[]> {
     const config = await this.getConfig();
     const agents = config?.agents as { list?: AgentConfig[] } | undefined;
     const all = agents?.list ?? [];
-    return all.filter((a) => !GatewayClient.META_AGENT_IDS.has(a.id));
+    // Hide Sentura meta-agents and OpenClaw's default `main` fallback agent
+    // from any "employees" view — they are platform infrastructure, not
+    // user-deployed AI employees. Source of truth for the meta-agent set
+    // is `isMetaAgentId` in ./chat-sessions (kept in sync with sentura/lib).
+    return all.filter((a) => !isMetaAgentId(a.id) && a.id !== "main");
   }
 
   async getAllAgentsIncludingMeta(): Promise<AgentConfig[]> {

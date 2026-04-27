@@ -14,7 +14,13 @@ export interface FilterChatSessionsOptions {
   includeMetaAgents?: boolean;
 }
 
-const META_AGENT_IDS = new Set(["creator", "tuner", "orchestrator", "mcp-builder"]);
+const META_AGENT_IDS = new Set([
+  "creator",
+  "tuner",
+  "orchestrator",
+  "mcp-builder",
+  "data-scavenger",
+]);
 const DASHBOARD_CHAT_SESSION_RE = /^agent:([^:]+):dashboard:([0-9a-f-]+)$/i;
 
 export function isMetaAgentId(agentId: string | null | undefined): boolean {

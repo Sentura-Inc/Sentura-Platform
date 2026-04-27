@@ -99,25 +99,32 @@ export function useTranscript(sessionKey: string): UseRpcResult<TranscriptMessag
 
 /**
  * Accumulates pending approvals from gateway events.
+ *
  * OpenClaw has no "list pending approvals" RPC — approvals arrive as
  * `exec.approval.requested` / `plugin.approval.requested` events and
- * are removed when `exec.approval.resolved` / `plugin.approval.resolved`
- * events fire.
+ * are removed on `exec.approval.resolved` / `plugin.approval.resolved`.
+ *
+ * Subscriptions go through `useGatewayEvents` (4 event types in one
+ * call); the initial seed via `Promise.all` of the two list RPCs stays
+ * here because it's request-response, not event-driven.
  */
 export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
   const { client, state } = useGateway();
   const [data, setData] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Initial seed — fetch any approvals already pending when this hook mounts
+  // (e.g. raised before the user opened the app, or before this tab connected).
   useEffect(() => {
     if (state !== "connected") return;
-
-    const seed = async () => {
+    let cancelled = false;
+    (async () => {
       try {
         const [execList, pluginList] = await Promise.all([
           client.listExecApprovals().catch(() => []),
           client.listPluginApprovals().catch(() => []),
         ]);
+        if (cancelled) return;
         const initial: ApprovalRequest[] = [
           ...execList.map((r) => ({
             id: r.id,
@@ -149,12 +156,17 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
           return [...prev, ...initial.filter((a) => !existing.has(a.id))];
         });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-    void seed();
+  }, [client, state]);
 
-    const unsubExecReq = client.on("exec.approval.requested", (event) => {
+  // Live updates — single subscription effect for all 4 event types.
+  useGatewayEvents({
+    "exec.approval.requested": (event) => {
       const p = event.payload as {
         id?: string;
         request?: Record<string, unknown>;
@@ -183,9 +195,8 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
           },
         ];
       });
-    });
-
-    const unsubPluginReq = client.on("plugin.approval.requested", (event) => {
+    },
+    "plugin.approval.requested": (event) => {
       const p = event.payload as {
         id?: string;
         request?: Record<string, unknown>;
@@ -214,24 +225,18 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
           },
         ];
       });
-    });
-
-    const removeResolved = (event: GatewayEvent) => {
+    },
+    "exec.approval.resolved": (event) => {
       const p = event.payload as { id?: string };
       if (!p.id) return;
       setData((prev) => prev.filter((a) => a.id !== p.id));
-    };
-
-    const unsubExecRes = client.on("exec.approval.resolved", removeResolved);
-    const unsubPluginRes = client.on("plugin.approval.resolved", removeResolved);
-
-    return () => {
-      unsubExecReq();
-      unsubPluginReq();
-      unsubExecRes();
-      unsubPluginRes();
-    };
-  }, [client, state]);
+    },
+    "plugin.approval.resolved": (event) => {
+      const p = event.payload as { id?: string };
+      if (!p.id) return;
+      setData((prev) => prev.filter((a) => a.id !== p.id));
+    },
+  });
 
   return { data, loading, error: null, refetch: () => {} };
 }
@@ -247,4 +252,59 @@ export function useGatewayEvent(
   useEffect(() => {
     return client.on(type, (event) => handlerRef.current(event));
   }, [client, type]);
+}
+
+export type GatewayEventHandlerMap = Partial<{
+  [K in GatewayEventType | "*"]: (event: GatewayEvent) => void;
+}>;
+
+/**
+ * Subscribe to multiple gateway events via a per-type handler map.
+ *
+ * Generalizes the `client.on()` boilerplate that consumers (originally
+ * useApprovals) had to repeat for each event type. Single subscription
+ * effect, one cleanup, fresh handler closures captured via ref.
+ *
+ * @example
+ *   useGatewayEvents({
+ *     "exec.approval.requested": (e) => { ... },
+ *     "plugin.approval.resolved": (e) => { ... },
+ *   });
+ *
+ * The effect re-subscribes only when the SET of event types changes —
+ * not when handler closures change — so consumers can pass inline
+ * arrow functions without thrashing the underlying WS subscriptions.
+ *
+ * TODO(person-c, phase-3): on reconnect, replay missed events via the
+ * relevant *.list RPC backfill where available. Deferred until /chat
+ * surfaces a real consumer that needs reconnect resilience.
+ */
+export function useGatewayEvents(handlers: GatewayEventHandlerMap): void {
+  const { client, state } = useGateway();
+  const handlersRef = useRef(handlers);
+
+  // Refresh the captured handlers after every render so subscription
+  // closures pick up the latest values without resubscribing. React 19's
+  // strict refs rule disallows assigning to ref.current during render,
+  // so this lives in a no-deps effect instead.
+  useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
+  // Stable dep that changes only when the SET of subscribed types changes.
+  const typeKey = Object.keys(handlers).sort().join("|");
+
+  useEffect(() => {
+    if (state !== "connected") return;
+    const types = typeKey
+      ? (typeKey.split("|") as Array<GatewayEventType | "*">)
+      : [];
+    const unsubs = types.map((type) =>
+      client.on(type, (event) => {
+        const handler = handlersRef.current[type];
+        handler?.(event);
+      }),
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [client, state, typeKey]);
 }

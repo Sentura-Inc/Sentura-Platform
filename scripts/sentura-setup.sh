@@ -845,7 +845,7 @@ fi
 # auth; `actorId` / userToken is what the middleware checks against). We
 # upsert just those two keys and leave any existing gateway config intact.
 
-log "  Wiring dashboard .env.local with admin credentials..."
+log "  Wiring dashboard .env.local with admin credentials + gateway auth..."
 
 export SENTURA_ADMIN_USER_ID="$ADMIN_ID"
 export SENTURA_ADMIN_USER_TOKEN="$ADMIN_TOKEN"
@@ -889,17 +889,19 @@ if (gatewayToken) {
   next = upsertLine(next, 'NEXT_PUBLIC_GATEWAY_TOKEN', gatewayToken,
     'OpenClaw gateway token for local WebSocket auth (required when gateway.auth.mode=token)');
 }
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_CREATOR_HANDSHAKE_ENABLED', 'true',
+  'When true, dashboard auto-creates a welcome session for newly-deployed employees on /create. Set to false to disable.');
 
 if (next !== body) {
   fs.mkdirSync(require('path').dirname(p), { recursive: true });
   fs.writeFileSync(p, next, 'utf8');
   console.log('  → updated ' + p);
 } else {
-  console.log('  → ' + p + ' already has admin keys');
+  console.log('  → ' + p + ' already has all dashboard env keys');
 }
 "
 
-ok "Dashboard admin credentials wired."
+ok "Dashboard admin credentials + gateway auth wired."
 log "  The dashboard will pick these up on next \`pnpm dev\` (or restart). No curl step required."
 
 # --- Step 9: Summary ---

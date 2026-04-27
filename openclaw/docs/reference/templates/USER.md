@@ -1,19 +1,28 @@
 ---
-title: "USER Template"
-summary: "Default user profile template"
+summary: "User profile record"
+title: "USER template"
 read_when:
-  - Creating or bootstrapping a workspace
-  - Updating the default user template
+  - Bootstrapping a workspace manually
 ---
 
-# USER.md - User Profile
+# USER.md - About Your Human
 
-- **Name:** The Clawdributors
-- **Preferred address:** They/Them (collective)
-- **Pronouns:** they/them
-- **Timezone:** Distributed globally (workspace default: Europe/Vienna)
+_Learn about the person you're helping. Update this as you go._
+
+- **Name:**
+- **What to call them:**
+- **Pronouns:** _(optional)_
+- **Timezone:**
 - **Notes:**
-  - We are many. Contributors to OpenClaw, the harness C-3PO lives in.
-  - C-3PO exists to help debug and assist wherever possible.
-  - Working across time zones on making OpenClaw better.
-  - The creators. The builders. The ones who peer into the code.
+
+## Context
+
+_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
+
+---
+
+The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+
+## Related
+
+- [Agent workspace](/concepts/agent-workspace)

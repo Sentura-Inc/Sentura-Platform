@@ -2,12 +2,26 @@
 
 ## Prerequisites
 
-| Tool | Version | Check |
-|------|---------|-------|
-| Node.js | 22.16+ (Node 24 recommended) | `node --version` |
-| pnpm | 10.33+ | `pnpm --version` |
+| Tool | Version | Check | Required? |
+|------|---------|-------|-----------|
+| Node.js | 22.16+ (Node 24 recommended) | `node --version` | Yes |
+| pnpm | 10.33+ | `pnpm --version` | Yes |
+| Docker | any recent version | `docker --version` | Recommended (see note) |
 
 > OpenClaw `2026.4.19-beta.2` declares `"engines": { "node": ">=22.14.0" }` and its README recommends Node 24. The `@openclaw/plugin-sdk` is shipped as a workspace package, so pnpm 10.33+ is needed for correct workspace resolution.
+
+> **Docker for meta-agent sandboxes.** The Sentura meta-agents (Creator/Forge, Tuner/Refine, Orchestrator/Conductor, MCP Builder/Socket) are configured with `sandbox.mode: "non-main"`, which runs the agent in a Docker container for isolation. Without Docker on PATH, dashboard chat with any meta-agent fails with:
+>
+> ```
+> Sandbox mode requires Docker, but the "docker" command was not found in PATH.
+> ```
+>
+> Two ways to proceed:
+>
+> 1. **Install Docker** (`brew install --cask docker` on macOS, or Docker Desktop) — this matches the team's production path and is required to exercise the sandbox tool-policy double filter (see `docs/OPENCLAW.md` § Sandbox tool-policy filter), including reproducing the team's 2026-04-20 `billing-support-rep` 80-second E2E deployment.
+> 2. **Disable sandbox for local dev only** — edit `~/.openclaw/openclaw.json` and set `sandbox.mode: "off"` on every meta-agent in `agents.list`. Forge will deploy and chat normally, but Phase 5 smoke tests that need `sessions_spawn` with an `agentId` will be blocked (acceptable for dashboard-only work; not acceptable for CI or demo rehearsals).
+
+> **macOS note on paths with spaces:** if your project path contains a space (e.g. `~/Agent Factory/Sentura/`), the `@discordjs/opus` native module will fail to compile during `pnpm install` — its build script doesn't quote paths correctly. `pnpm install` continues past the error; only the Discord voice channel binding is affected. Core Sentura features (dashboard, Creator/Tuner/Orchestrator meta-agents, gateway, MCP tools) all work fine. For full Discord voice support, clone into a space-free path like `~/sentura/`.
 
 ### Installing prerequisites by platform
 
@@ -42,6 +56,43 @@ wsl --install   # if WSL2 is not yet installed (requires reboot)
 
 ---
 
+## Cleanup (if you previously installed OpenClaw)
+
+If you used OpenClaw standalone before switching to Sentura — via `sudo npm install -g openclaw@latest` following OpenClaw's own install guide, or by installing the OpenClaw macOS app — you likely have a global `openclaw` binary on PATH and/or a LaunchAgent auto-starting an older `openclaw-gateway`. Both will conflict with the locally-built `openclaw` in this repo:
+
+- Version-mismatch warnings in `sentura-setup.sh` output (config written by the newer local build, CLI is the older global one)
+- Port 18789 race between the LaunchAgent gateway and `pnpm gateway:watch`
+- Unexpected stderr output from `openclaw gateway status` can appear in setup-script eval contexts
+
+Clean up before building the local source:
+
+**macOS:**
+```bash
+# Stop and disable the LaunchAgent (OpenClaw macOS app installs this)
+launchctl unload -w ~/Library/LaunchAgents/ai.openclaw.gateway.plist 2>/dev/null
+
+# Kill any running gateway
+pkill -f openclaw-gateway
+
+# Uninstall the global CLI
+npm uninstall -g openclaw
+
+# Confirm cleanup
+which openclaw    # should print "openclaw not found"
+lsof -i :18789    # should be empty
+```
+
+**Linux / WSL2:** same `npm uninstall -g openclaw` + `pkill -f openclaw-gateway`. No LaunchAgent equivalent on these platforms.
+
+After the local OpenClaw source builds successfully (next section), expose it on PATH as the global `openclaw` so `scripts/sentura-setup.sh` picks up the matching version:
+
+```bash
+cd openclaw && npm link
+openclaw --version    # should match openclaw/package.json (2026.4.19-beta.2)
+```
+
+---
+
 ## OpenClaw Setup (from source)
 
 The OpenClaw source is included in the `openclaw/` directory. Build and run it locally — no Docker needed.
@@ -52,11 +103,13 @@ These commands work on **macOS, Linux, and WSL2**:
 cd openclaw
 
 pnpm install
-pnpm ui:build          # auto-installs UI deps on first run
-pnpm build
+pnpm ui:build                                    # auto-installs UI deps on first run
+OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build          # skip A2UI bundle (see note below)
 
 pnpm openclaw onboard
 ```
+
+> **Note on `OPENCLAW_A2UI_SKIP_MISSING=1`:** the `canvas:a2ui:bundle` build step requires Google's A2UI closed-source bundle, which isn't included in this distribution's `openclaw/vendor/a2ui/`. The env var is the officially-supported skip path (see `openclaw/scripts/bundle-a2ui.mjs`). A2UI powers the optional Canvas agent-to-agent UI — it's not needed for Sentura core (dashboard, meta-agents, MCP tools, gateway all work without it). If you have access to A2UI sources, drop the env var and the bundle will build normally.
 
 **Windows (native PowerShell):**
 ```powershell
@@ -163,6 +216,44 @@ Both scripts perform the same steps:
 Both scripts are idempotent — safe to re-run if agents are added later.
 
 The setup scripts also enable `agents.defaults.sandbox.browser.enabled = true` for local/dev installs. Week 3 self-provisioning runs from dashboard-created Creator sessions, and those sessions use the sandbox browser path by default; without this flag, Forge can see the `browser` tool but every real dashboard probe fails at runtime with `Sandbox browser is unavailable`.
+
+### Sandbox browser image (required for browser-tool flows)
+
+The `agents.defaults.sandbox.browser.enabled = true` flag tells OpenClaw to *try* to spawn the browser-enabled sandbox container. The container itself is a separate Docker image that must be built once before any agent invokes the `browser` tool from a dashboard session — Week 3 self-provisioning, the A20.1 live probe, and any future Creator/Tuner flow that drives Playwright all depend on it.
+
+**Symptom when the image is missing.** The gateway log shows:
+
+```
+[diagnostic] lane task error: lane=session:agent:creator:dashboard:<uuid>
+  Error: Sandbox browser image not found: openclaw-sandbox-browser:bookworm-slim.
+  Build it with scripts/sandbox-browser-setup.sh.
+[chat] Embedded agent failed before reply: Sandbox browser image not found...
+```
+
+**Fix — build the image once:**
+
+```bash
+# macOS / Linux / WSL2 — from the project root
+cd openclaw && bash scripts/sandbox-browser-setup.sh && cd ..
+```
+
+```powershell
+# Windows (PowerShell)
+cd openclaw
+bash scripts/sandbox-browser-setup.sh   # requires Git Bash / WSL bash on PATH
+cd ..
+```
+
+The script builds `openclaw-sandbox-browser:bookworm-slim` (~1.15 GB; ~3 minutes on first build, then cached). Verify:
+
+```bash
+docker images | grep openclaw-sandbox-browser
+# Expected: openclaw-sandbox-browser   bookworm-slim   <hash>   <date>   ~1.15GB
+```
+
+**When to rebuild.** Only after a Docker image prune, after a fresh OpenClaw clone, or when the upstream `openclaw/Dockerfile.sandbox-browser` changes. The image is not auto-rebuilt by `pnpm gateway:watch` or `sentura-setup.sh`; it is a one-time host-level prerequisite.
+
+**Recovery from a failed dashboard chat.** If the gateway hit the missing-image error and you have already built the image, do **not** retry the same chat session — the LLM transcript still contains the failure and Forge will pattern-match on it ("context poisoning", see `docs/MEMORY.md` Round 19). Start a fresh chat session in the dashboard (`/chat → New chat`) and the next sandbox spawn will pick up the freshly built image.
 
 ### Platform admin bootstrap (auto-seeded, no `curl` required)
 

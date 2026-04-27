@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/components/sidebar";
 import { ConnectionStatus } from "@/components/connection-status";
+import { MissingTokenBanner } from "@/components/missing-token-banner";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div />
           <ConnectionStatus />
         </header>
+        {/* Site-wide warning when env vars are missing — only renders if so */}
+        <MissingTokenBanner />
         {/* Main content */}
         <main className="flex-1 overflow-y-auto bg-background">
           {children}

@@ -611,6 +611,8 @@ next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
   'Sentura platform admin user id (seeded by scripts/sentura-setup.ps1, Step 7)');
 next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
   'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_CREATOR_HANDSHAKE_ENABLED', 'true',
+  'When true, dashboard auto-creates a welcome session for newly-deployed employees on /create. Set to false to disable.');
 
 if (next !== body) {
   fs.mkdirSync(path.dirname(p), { recursive: true });

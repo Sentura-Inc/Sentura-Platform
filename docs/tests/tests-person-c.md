@@ -164,5 +164,29 @@
 | C10.16 | Sidebar sync | Resolve an approval on this page | Sidebar badge count decrements via `useApprovals` (same source) without manual refresh |
 | C10.17 | Scope required | Verify client connects with `operator.approvals` scope | Events actually arrive; if scope is stripped, approvals never appear even when triggered (regression guard) |
 
+### C11. Chat — 1:1 (`/chat`) — Week 3
+
+The first surface that mounts the shared `<AgentChat>` component (D2 contract) outside of `/create`. Acceptance criteria from `docs/memory/person-c/week-3.md` Phase 3: fresh conversation streams, refresh resumes, multi-tab independent, sidebar badge updates live.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C11.1 | Page loads | Navigate to `/chat` | Two-pane layout renders: sidebar with "+ New chat" + conversation list, right pane with "No conversation selected" empty card |
+| C11.2 | Sidebar empty state | No prior sessions on the gateway | Sidebar shows "No conversations yet. Click New chat to start one with an AI employee." |
+| C11.3 | Picker opens | Click "+ New chat" | `EmployeePickerDialog` modal opens with title "Start a new conversation" |
+| C11.4 | Picker filters meta-agents | Inspect picker contents | Only real employees appear (`billing-support-rep`, `penny-ap`, etc.); meta-agents (`creator`, `tuner`, `orchestrator`, `mcp-builder`) are NOT listed — confirms `getAgents()` filter is in effect |
+| C11.5 | Pick agent → draft mode | Click an agent in picker | Picker closes; sidebar shows a draft row at top with the agent name + "Draft — send a message to start"; URL becomes `/chat?draft=<agentId>`; right pane shows AgentChat with "Say hello to {agent name}" empty state |
+| C11.6 | First send creates session | Type a message, hit Enter in draft mode | `client.createSession(agentId, message)` fires; on success URL updates to `/chat?key=<sessionKey>` (draft param dropped); user message + streaming assistant response appear in transcript; sidebar draft row replaced by real conversation row under the agent's group |
+| C11.7 | Conversation switching | Click a different conversation in sidebar | URL updates to `/chat?key=<otherKey>`; right pane re-mounts AgentChat (`key` prop forces remount) so prior message state doesn't bleed; new conversation's transcript hydrates |
+| C11.8 | Group + sort order | Have ≥ 2 sessions across ≥ 2 agents | Sidebar groups by agent (header shows agent name + count badge); within each group sessions sorted by `updatedAt` desc; groups themselves ordered by most-recent activity within the group |
+| C11.9 | Delete conversation | Click trash icon on a row → confirm | `client.deleteSession(key, { deleteTranscript: true })` fires; row disappears from sidebar; if it was the active conversation, URL drops `key` param and right pane returns to "No conversation selected" |
+| C11.10 | Stale URL key | Open `/chat?key=<deleted-or-bogus-key>` | Page loads; once `sessions.list` returns, the stale key is detected (`!sessions.some(s => s.key === activeKey)`) and dropped from URL gracefully (no permanent loading spinner in right pane) |
+| C11.11 | Disconnect banner | Stop the gateway with a session active | Red banner appears: "Gateway disconnected. Messages will queue once the connection is restored." AgentChat input becomes disabled but transcript remains visible |
+| C11.12 | **Acceptance #1** — fresh conversation streams in <5s | Pick `billing-support-rep` from picker, send "Hello, what can you help with?" | First streamed delta arrives within 5s; `chat` events accumulate visibly into the assistant bubble; final frame commits with the bubble fully rendered |
+| C11.13 | **Acceptance #2** — refresh restores conversation | Mid-conversation, hit browser refresh | Same `?key=` param in URL means same conversation reloads; `chat.history(sessionKey)` repopulates the full transcript; user can continue chatting without re-selecting anything |
+| C11.14 | **Acceptance #3** — multi-tab independence | Open `/chat?key=A` in tab 1 and `/chat?key=B` in tab 2 | Each tab shows its own conversation; sending in tab 1 doesn't disturb tab 2's transcript or input; `sessionKey` filtering in AgentChat's chat-event subscriber prevents cross-tab leak |
+| C11.15 | **Acceptance #4** — sidebar badge live update | Tab 1 viewing `/chat`; tab 2 creates a new conversation via `/chat` New button | Tab 1's sidebar `/chat` link badge increments within ~1s without manual refresh — proves `useGatewayEvents({ "sessions.changed": refetchSessions })` wires through to the dashboard's global Sidebar |
+| C11.16 | URL state survives navigation | Active conversation, navigate to `/employees` then back via browser-back | Browser-back returns to `/chat?key=<sessionKey>`; conversation pane restores from URL — confirms `router.replace` (not `push`) on selection means back button doesn't accumulate noise |
+| C11.17 | Permission stub gating | Inspect `usePermission` adoption (deferred to Week 5 swap-in) | `/chat` is a read+chat surface; no high-risk mutation buttons require gating today. When sentura-rbac lands in Week 5, gate the picker via `usePermission("sessions.read")` if the role lacks chat access entirely |
+
 ---
 

@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
-import { useApprovals } from "@/lib/gateway";
+import { useApprovals, useGatewayEvents, useSessions } from "@/lib/gateway";
 
 const CONTROL_UI_URL =
   process.env.NEXT_PUBLIC_CONTROL_UI_URL ?? "http://localhost:18789";
@@ -62,6 +62,7 @@ const sections: NavSection[] = [
       { label: "Overview", href: "/", icon: LayoutDashboard },
       { label: "Employees", href: "/employees", icon: Bot },
       { label: "Create Employee", href: "/create", icon: Plus },
+      { label: "Chat", href: "/chat", icon: MessageSquare },
       { label: "Tune Employee", href: "/tune", icon: Sliders, disabled: true, badge: "W3" },
       { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],
@@ -96,9 +97,25 @@ export function Sidebar() {
   const { data: approvals } = useApprovals();
   const pendingApprovals = approvals?.length ?? 0;
 
+  // Live count of all conversations for the /chat badge. `useSessions()` is
+  // a one-shot fetch on connect; we re-fetch on `sessions.changed` so the
+  // badge updates when a conversation is created/deleted in another tab
+  // (Week 3 acceptance criteria #4 — proves useGatewayEvents on real event).
+  const { data: sessionsData, refetch: refetchSessions } = useSessions();
+  const conversationCount = sessionsData?.length ?? 0;
+  useGatewayEvents({
+    "sessions.changed": () => refetchSessions(),
+  });
+
   const renderNavItem = (item: NavItem) => {
     if (item.href === "/approvals" && pendingApprovals > 0) {
       item = { ...item, badge: String(pendingApprovals), badgeTone: "alert" };
+    }
+    if (item.href === "/chat" && conversationCount > 0) {
+      item = {
+        ...item,
+        badge: conversationCount > 99 ? "99+" : String(conversationCount),
+      };
     }
     const isActive =
       !item.external &&

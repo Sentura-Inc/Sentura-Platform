@@ -6,7 +6,9 @@ import { Bot, ShieldCheck, Plus, ExternalLink, WifiOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { usePermission } from "@/lib/auth/use-permission";
 
 const CONTROL_UI_URL =
   process.env.NEXT_PUBLIC_CONTROL_UI_URL ?? "http://localhost:18789";
@@ -15,6 +17,7 @@ export default function DashboardPage() {
   const { state: gwState } = useGateway();
   const { data: agents, loading: agentsLoading, error: agentsError } = useAgents();
   const { data: approvals, loading: approvalsLoading } = useApprovals();
+  const { allowed: canCreate } = usePermission("agents.create");
 
   const pendingApprovals =
     approvals?.filter((a) => a.status === "pending") ?? [];
@@ -126,8 +129,19 @@ export default function DashboardPage() {
       <div>
         <h2 className="text-lg font-semibold mb-3">Quick Actions</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Link href="/create">
-            <Card className="p-4 hover:border-primary/30 transition-colors cursor-pointer">
+          <Link
+            href={canCreate ? "/create" : "#"}
+            aria-disabled={!canCreate}
+            tabIndex={canCreate ? undefined : -1}
+            title={!canCreate ? "You don't have permission to create employees" : undefined}
+            className={cn(!canCreate && "pointer-events-none")}
+          >
+            <Card className={cn(
+              "p-4 transition-colors",
+              canCreate
+                ? "hover:border-primary/30 cursor-pointer"
+                : "opacity-50",
+            )}>
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                   <Plus className="h-5 w-5 text-primary" />

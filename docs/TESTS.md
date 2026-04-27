@@ -103,6 +103,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | A18 | Week 3 Sentura config versioning | 4 | `test-week3-a.ts` — redacted before/after diff records, changedPaths only, no-op writes emit no log | **PASS 2026-04-24** | § A18 |
 | A19 | Week 3 dashboard chat-session helpers | 4 | `test-week3-a.ts` — `createChatSession`, `sendChatMessage`, `listChatSessions`, dashboard-key parser/filter | **PASS 2026-04-24** | § A19 |
 | A20 | Week 3 browser probe + doc sync | 2 | `probe-browser-self-provisioning.ts` + doc contract review (`HOSTING`, `SETUP`, `gateway-rpc`, self-provisioning, MCP README) | LIVE (attempted 2026-04-24; blocked by local Creator auth + Docker sandbox prerequisites) | § A20 |
+| A21 | Week 3 auto-handshake helper (new employee → operator welcome session) | 20 | `scripts/test-creator-handshake.ts` — prompt composition (operator-name addressing, 5-point template, T0/T1 guard, workspace-file grounding), label composition, `createChatSession` call args, `enabled:false` toggle, missing-agentId guard, email fallback | **PASS 2026-04-26** | § A21 |
 
 ### Person B — AI Employee & Skills (incl. Creator Bug-Fix Rounds)
 
@@ -155,6 +156,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | C8 | Employee Creator page (`/create`) | — | Streaming via `sessions.create` + `chat.send` + `chat` events (`state: "delta"`/`"final"`) | PASS | § C8 |
 | C9 | Employee Detail page (`/employees/[id]`) | — | 8 natives view (allow-list aware), bindings, lifecycle (Refresh / Tune (W3) / Edit in Control UI / Retire) | PASS | § C9 |
 | C10 | Approval Queue (`/approvals`) | — | Seeds `exec.approval.list` + `plugin.approval.list`; subscribes to `*.approval.requested/resolved`; Approve-once / Always-allow / Deny | PASS | § C10 |
+| C11 | Chat 1:1 (`/chat`) — Week 3 | 17 | `sessions.list` global + group by agent (key-prefix parsed via `getSessionAgentId`); URL `?key=` for sessionKey persistence (refresh + multi-tab); employee picker dialog (excludes meta-agents); draft mode → AgentChat creates session on first send; sidebar live conversation-count badge via `useGatewayEvents("sessions.changed")` | PASS (W3 dev) | § C11 |
 
 ### Person D — Extensions & Integrations
 
@@ -204,9 +206,9 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 When running a full pass, fill this in:
 
 ```
-Person A: N/20 sections PASS (cases: ?/? — A16-A19 offline 19/19; A20.1 live PASS 2026-04-26; A20.2 doc-sync PASS)
-Person B: N/23 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3 added 2026-04-26)
-Person C: N/10 sections PASS
+Person A: N/21 sections PASS (cases: ?/? — A16-A19 offline 19/19; A20.1 live PASS 2026-04-26; A20.2 doc-sync PASS; A21 auto-handshake offline 20/20 PASS 2026-04-26)
+Person B: N/23 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3 added 2026-04-26; live 4/4 PASS 2026-04-26)
+Person C: N/11 sections PASS (cases: C11 17 dashboard cases — manual verification on `/chat` route required)
 Person D: N/14 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression — D14 expanded to 6 checks to cover all 4 meta-agents + setup-script parity + docs sync)
 Cross-team: N/6 scenarios PASS
 Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via Forge's 4-call `sentura_agents_manage` sequence (openai/gpt-5.4); prior: 2026-04-19 — penny-ap deployed in ~110s
