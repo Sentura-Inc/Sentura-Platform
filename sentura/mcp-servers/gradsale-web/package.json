@@ -1,0 +1,35 @@
+{
+  "name": "@sentura/mcp-gradsale-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server exposing GradSale's web/user-facing API as tools for Sentura AI employees acting on behalf of (or as) end users — buyer-side concierge, seller inbox triage, support agent walking a user through a transaction.",
+  "type": "module",
+  "bin": {
+    "sentura-mcp-gradsale-web": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "sentura": {
+    "sourceDocs": ["ekg/api-web.md"],
+    "category": "enterprise-integration",
+    "generatedFrom": "ekg/api-web.md (GradSale Web API Reference — sections 1, 3, 6: Authentication, Listings, Messages)"
+  }
+}

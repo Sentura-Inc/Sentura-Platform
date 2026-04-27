@@ -1,0 +1,28 @@
+node_modules
+.gradle
+.next
+openclaw/dist*
+openclaw/packages
+CLAUDE.md
+
+# Generated TypeScript build output for in-tree MCP servers
+# (regenerable via `pnpm --filter @sentura/mcp-* build`). Glob covers
+# gradsale-admin, gradsale-web, and any future Tier-2 servers.
+sentura/mcp-servers/*/dist/
+
+# Next.js autogen + per-machine secrets. `sentura-setup.sh` re-creates
+# `.env.local` with each developer's own admin token — never commit it.
+sentura/dashboard/.env.local
+sentura/dashboard/next-env.d.ts
+
+# Vendored OpenClaw's local-only runtime state and re-pull-clobbered
+# lockfile. The whole `openclaw/` tree is wiped on upstream re-pull, so
+# anything in here would just add churn.
+openclaw/.local/
+openclaw/pnpm-lock.yaml
+
+# Person D's personal scratch space at the repo root (per
+# `memory/person-d/CLAUDE.md`). The leading slash anchors to the repo
+# root — bare `memory/` would also match `docs/memory/`, which is the
+# team-shared session log and MUST stay tracked.
+/memory/

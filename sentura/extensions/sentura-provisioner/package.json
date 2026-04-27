@@ -1,0 +1,18 @@
+{
+  "name": "@sentura/provisioner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentura self-provisioning extension — coordinates browser-driven service registration with HITL approval and credential harvesting.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@sentura/approval": "workspace:*"
+  },
+  "devDependencies": {
+    "openclaw": "*"
+  }
+}

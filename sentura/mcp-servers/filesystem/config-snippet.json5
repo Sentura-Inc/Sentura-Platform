@@ -1,0 +1,36 @@
+// Tier 1 — open-source MCP server. Paste this fragment under `mcp.servers` of
+// `~/.openclaw/openclaw.json` (or apply it via the gateway `config.patch` RPC
+// — never edit `openclaw.json` while the gateway is running). The path lives
+// at OpenClaw's native `mcp.servers.<name>` location; any other nesting is
+// invisible to the loader (`openclaw/src/agents/embedded-pi-mcp.ts` →
+// `normalizeConfiguredMcpServers`).
+{
+  mcp: {
+    servers: {
+      // Sandboxed filesystem access for AI employees that need to read or
+      // write enterprise documents (invoices, contracts, exports). The
+      // package spawns one process per allowed root; pass each root as an
+      // additional positional argument.
+      filesystem: {
+        command: "npx",
+        args: [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          // Replace this with the absolute path the employee should be allowed
+          // to read/write. Multiple roots can be added by appending more
+          // positional arguments. NEVER point this at $HOME or "/" — the
+          // server enforces its allow-list strictly, but a dangerous root
+          // makes the whole agent dangerous.
+          "/var/sentura/workspaces/shared-docs",
+        ],
+        env: {
+          // Optional: cap individual file size the agent can read (bytes).
+          // Defaults to no cap; set this for high-volume document workflows
+          // so a malicious or runaway agent cannot exhaust memory by reading
+          // a 10 GB log file in one tool call.
+          MCP_FS_MAX_FILE_BYTES: "10485760", // 10 MiB
+        },
+      },
+    },
+  },
+}

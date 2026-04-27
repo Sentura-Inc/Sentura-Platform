@@ -1,0 +1,37 @@
+// Tier 1 — open-source MCP server. Paste this fragment under `mcp.servers` of
+// `~/.openclaw/openclaw.json` (or apply via the gateway `config.patch` RPC —
+// never edit `openclaw.json` while the gateway is running).
+//
+// Required Slack OAuth scopes (apply to the bot user token referenced below):
+//   channels:history channels:read chat:write groups:history groups:read
+//   im:history im:read mpim:history mpim:read reactions:write users:read
+//   users:read.email
+//
+// All credentials must come from OpenClaw's secret store via `$secret`
+// references. Never inline a real bot token here — committing a token, even
+// transiently, is a notify-the-security-team incident.
+{
+  mcp: {
+    servers: {
+      slack: {
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-slack"],
+        env: {
+          // xoxb-... bot user OAuth token from the Slack app's "OAuth &
+          // Permissions" page. Stored under key `slack.bot_token` in the
+          // secret store; rotate via `openclaw secret set` and restart the
+          // gateway.
+          SLACK_BOT_TOKEN: "$secret:slack.bot_token",
+          // Workspace team ID (T-prefixed). Used by the server to scope
+          // channel/user lookups.
+          SLACK_TEAM_ID: "$secret:slack.team_id",
+          // Optional: comma-separated channel-ID allow-list. If set, the
+          // server refuses to read or post in any channel not in this list.
+          // Use this to keep an employee scoped to its department's
+          // channels (e.g. only #cs-disputes for a Dispute Resolver).
+          // SLACK_CHANNEL_IDS: "C0123456789,C0987654321",
+        },
+      },
+    },
+  },
+}
