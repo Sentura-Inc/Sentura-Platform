@@ -3,14 +3,12 @@
 /**
  * Current-role hook + provider.
  *
- * Today (W5 dev): role is sourced from localStorage with `?as=<role>` URL
- * param as a one-shot override (for sharing reproducible permission states).
- * Default = `DEFAULT_DEV_ROLE` (`platform_admin`) so single-tenant local
- * setup keeps the full experience until SSO lands.
+ * Dev mode: role lives in a cookie (`sentura_dev_role`) so the server can
+ * read it for SSR + API auth. localStorage is kept as a secondary mirror
+ * for legacy code paths and `?as=<role>` URL one-shot overrides.
  *
- * W6+ (post-SSO): swap the localStorage source for an SSO-asserted role
- * served via a server component or context. The hook signature stays the
- * same so callers don't refactor.
+ * Post-SSO: swap the cookie for an SSO-asserted session cookie. The hook
+ * signature stays the same so callers don't refactor.
  */
 
 import {
@@ -26,6 +24,7 @@ import {
   isRole,
   type Role,
 } from "./roles";
+import { writeRoleCookie } from "./role-cookie";
 
 const STORAGE_KEY = "sentura.dev.role";
 const URL_PARAM = "as";
@@ -60,19 +59,35 @@ function readPersistedRole(): Role {
   return DEFAULT_DEV_ROLE;
 }
 
-export function RoleProvider({ children }: { children: ReactNode }) {
-  // Initial render uses the default to avoid SSR/hydration mismatch.
-  // The mount effect immediately re-syncs from localStorage / URL.
-  const [role, setRoleState] = useState<Role>(DEFAULT_DEV_ROLE);
+export function RoleProvider({
+  children,
+  initialRole,
+}: {
+  children: ReactNode;
+  /**
+   * Server-resolved initial role (from `getServerRole(req)`). When provided,
+   * the first client render matches the server render — no hydration flash.
+   * Falls back to `DEFAULT_DEV_ROLE` for tests / pages mounted standalone.
+   */
+  initialRole?: Role;
+}) {
+  const [role, setRoleState] = useState<Role>(initialRole ?? DEFAULT_DEV_ROLE);
   useEffect(() => {
+    // Re-sync from localStorage / URL one-shot override after mount. If the
+    // server already resolved the cookie, this is a no-op for the common case.
     const persisted = readPersistedRole();
-    if (persisted !== role) setRoleState(persisted);
+    if (persisted !== role) {
+      setRoleState(persisted);
+      // Mirror to cookie too, in case localStorage drifted ahead of cookie.
+      writeRoleCookie(persisted);
+    }
     // intentionally only run on mount — subsequent role changes go through setRole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setRole = useCallback((next: Role) => {
     setRoleState(next);
+    writeRoleCookie(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {

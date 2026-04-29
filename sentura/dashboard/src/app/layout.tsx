@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/app-shell";
+import { getServerRoleFromHeaders } from "@/lib/auth/server-role";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,11 +20,14 @@ export const metadata: Metadata = {
   description: "Enterprise AI Employee Management Platform",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Resolve the role at the server so SSR renders the correct sidebar on
+  // first paint. Client mount effect re-syncs with `?as=<role>` URL overrides.
+  const initialRole = await getServerRoleFromHeaders();
   return (
     <html
       lang="en"
@@ -31,7 +35,7 @@ export default function RootLayout({
     >
       <body className="h-full">
         <TooltipProvider delay={0}>
-          <AppShell>{children}</AppShell>
+          <AppShell initialRole={initialRole}>{children}</AppShell>
         </TooltipProvider>
       </body>
     </html>

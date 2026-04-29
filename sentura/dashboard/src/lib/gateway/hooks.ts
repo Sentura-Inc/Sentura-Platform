@@ -18,7 +18,14 @@ export function useGateway(): {
   state: ConnectionState;
 } {
   const clientRef = useRef<GatewayClient>(getGatewayClient());
-  const [state, setState] = useState<ConnectionState>(clientRef.current.state);
+  // F1.12: default to 'connecting' on first paint so users don't see a
+  // red "Gateway Disconnected" flash for the 1-2s before the WebSocket
+  // handshake completes. The 'disconnected' label is reserved for
+  // post-attempt failures (no client yet OR retries exhausted).
+  const [state, setState] = useState<ConnectionState>(() => {
+    const initial = clientRef.current.state;
+    return initial === "disconnected" ? "connecting" : initial;
+  });
 
   useEffect(() => {
     const client = clientRef.current;
@@ -144,10 +151,13 @@ export function useApprovals(): UseRpcResult<ApprovalRequest[]> {
             kind: "plugin" as const,
           })),
         ];
-        setData((prev) => {
-          const existing = new Set(prev.map((a) => a.id));
-          return [...prev, ...initial.filter((a) => !existing.has(a.id))];
-        });
+        // F2.10: on reconnect, the state-change effect re-runs and we
+        // need to reconcile against fresh server truth — approvals
+        // resolved during the disconnect window won't fire any event.
+        // Replace the pending set with the freshly seeded one rather
+        // than dedup-merging into stale data.
+        if (cancelled) return;
+        setData(initial);
       } finally {
         if (!cancelled) setLoading(false);
       }

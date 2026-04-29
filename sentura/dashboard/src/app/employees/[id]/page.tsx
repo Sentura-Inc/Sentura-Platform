@@ -351,6 +351,12 @@ export default function EmployeeDetailPage() {
                   </span>
                 )}
               </CardTitle>
+              {/* OpenClaw's `agents.files.list` RPC hides BOOTSTRAP.md once
+                  workspace setup is marked complete (gateway-side policy at
+                  `openclaw/src/gateway/server-methods/agents.ts`). The file
+                  still exists on disk; only its tab is suppressed. Sentura
+                  conventions surface 8 files; reconciling this with the
+                  upstream policy is tracked as a Person A discussion. */}
             </CardHeader>
             <CardContent>
               {!files ? (
@@ -425,6 +431,11 @@ export default function EmployeeDetailPage() {
                   Per-skill SKILL.md files and per-user memory files are not
                   exposed via <code className="font-mono">agents.files.get</code>.
                   Use the Control UI&apos;s file editor to view or edit them.
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  <code className="font-mono">BOOTSTRAP.md</code> is on disk but
+                  hidden by OpenClaw once workspace setup is complete. Open the
+                  Control UI to inspect it.
                 </p>
               </div>
             </CardContent>

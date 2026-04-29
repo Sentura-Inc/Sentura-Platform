@@ -7,6 +7,10 @@
  *
  * Data file: ~/.openclaw/sentura-group-chats/groups.json
  * Format: { groups: GroupRecord[] }
+ *
+ * Concurrency: every mutation goes through `withLock` (F2.8). Without
+ * this, parallel `recordSessionKey` calls during a 3-agent fan-out's
+ * read-modify-write cycle would drop session-key records.
  */
 
 import { promises as fs } from "node:fs";
@@ -22,6 +26,23 @@ interface GroupsFile {
 
 const STORE_DIR = path.join(os.homedir(), ".openclaw", "sentura-group-chats");
 const STORE_FILE = path.join(STORE_DIR, "groups.json");
+
+/** F2.7: cap participants so a 100-agent group can't blast the gateway. */
+export const MAX_PARTICIPANTS = 8;
+
+/**
+ * Single in-process write queue. Read-only operations (listGroups, getGroup)
+ * don't need the lock; only mutations do. The lock is intentionally
+ * coarse — one writer at a time across the whole file — because the file
+ * is tiny and contention is bounded.
+ */
+let _writeQueue: Promise<unknown> = Promise.resolve();
+function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = _writeQueue.then(fn, fn);
+  // Keep the chain alive even if `fn` rejects, so the next caller can run.
+  _writeQueue = next.catch(() => {});
+  return next;
+}
 
 async function ensureFile(): Promise<void> {
   await fs.mkdir(STORE_DIR, { recursive: true });
@@ -79,40 +100,58 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupRecord>
   if (input.participantAgentIds.length < 2) {
     throw new Error("A group needs at least 2 participants");
   }
+  if (input.participantAgentIds.length > MAX_PARTICIPANTS) {
+    throw new Error(
+      `A group cannot have more than ${MAX_PARTICIPANTS} participants`,
+    );
+  }
 
-  const file = await readFileRaw();
-  const record: GroupRecord = {
-    id: generateId(),
-    name: trimmedName,
-    participantAgentIds: [...input.participantAgentIds],
-    underlyingSessionKeys: {},
-    createdAt: Date.now(),
-  };
-  file.groups.push(record);
-  await writeFileRaw(file);
-  return record;
+  return withLock(async () => {
+    const file = await readFileRaw();
+    const record: GroupRecord = {
+      id: generateId(),
+      name: trimmedName,
+      participantAgentIds: [...input.participantAgentIds],
+      underlyingSessionKeys: {},
+      createdAt: Date.now(),
+    };
+    file.groups.push(record);
+    await writeFileRaw(file);
+    return record;
+  });
 }
 
 /**
  * Persist a session key adopted for a participant. Called by the fan-out
  * route after the first message creates a session for a given agent.
+ *
+ * F2.8: serialized via `withLock` — without this, parallel calls during a
+ * 3-agent first fan-out would race on the read-modify-write cycle and
+ * silently drop one or more session-key records.
  */
 export async function recordSessionKey(
   groupId: string,
   agentId: string,
   sessionKey: string,
 ): Promise<void> {
-  const file = await readFileRaw();
-  const group = file.groups.find((g) => g.id === groupId);
-  if (!group) throw new Error(`Group ${groupId} not found`);
-  group.underlyingSessionKeys[agentId] = sessionKey;
-  await writeFileRaw(file);
+  await withLock(async () => {
+    const file = await readFileRaw();
+    const group = file.groups.find((g) => g.id === groupId);
+    if (!group) throw new Error(`Group ${groupId} not found`);
+    if (group.archivedAt) {
+      throw new Error(`Group ${groupId} is archived`);
+    }
+    group.underlyingSessionKeys[agentId] = sessionKey;
+    await writeFileRaw(file);
+  });
 }
 
 export async function archiveGroup(id: string): Promise<void> {
-  const file = await readFileRaw();
-  const group = file.groups.find((g) => g.id === id);
-  if (!group) return;
-  group.archivedAt = Date.now();
-  await writeFileRaw(file);
+  await withLock(async () => {
+    const file = await readFileRaw();
+    const group = file.groups.find((g) => g.id === id);
+    if (!group) return;
+    group.archivedAt = Date.now();
+    await writeFileRaw(file);
+  });
 }

@@ -21,6 +21,7 @@
 import { getGroup, recordSessionKey } from "@/lib/groups/store";
 import { getServerGatewayClient } from "@/lib/gateway/server-client";
 import type { ChatEventPayload } from "@/lib/gateway";
+import { checkServerPermission } from "@/lib/auth/server-role";
 
 interface SendBody {
   message?: string;
@@ -33,6 +34,11 @@ interface RouteContext {
 const FAN_OUT_TIMEOUT_MS = 120_000;
 
 export async function POST(request: Request, ctx: RouteContext) {
+  const denied = checkServerPermission(request, "agents.tune");
+  if (denied) {
+    return jsonError(`Forbidden: ${denied.role} lacks ${denied.action}`, 403);
+  }
+
   const { id: groupId } = await ctx.params;
 
   let body: SendBody;
@@ -66,6 +72,7 @@ export async function POST(request: Request, ctx: RouteContext) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let unsubscribe: (() => void) | null = null;
+      let unsubscribeState: (() => void) | null = null;
       let closed = false;
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -74,6 +81,7 @@ export async function POST(request: Request, ctx: RouteContext) {
         closed = true;
         if (timeoutHandle) clearTimeout(timeoutHandle);
         unsubscribe?.();
+        unsubscribeState?.();
         try {
           controller.enqueue(sseFrame({ type: "done" }));
           controller.close();
@@ -81,6 +89,28 @@ export async function POST(request: Request, ctx: RouteContext) {
           // Already closed by client cancel — ignore.
         }
       };
+
+      // F2.6: if the gateway disconnects mid-stream, the chat events stop
+      // arriving and we'd otherwise wait the full 120s timeout. Watch state
+      // changes and surface the disconnect to every still-pending agent.
+      unsubscribeState = client.onStateChange((nextState) => {
+        if (closed) return;
+        if (nextState === "connected") return;
+        for (const agentId of remaining) {
+          try {
+            controller.enqueue(
+              sseFrame({
+                type: "agent-error",
+                agentId,
+                error: `gateway ${nextState}`,
+              }),
+            );
+          } catch {
+            // ignore — closeOnce below will tidy up.
+          }
+        }
+        closeOnce();
+      });
 
       const markDone = (agentId: string) => {
         remaining.delete(agentId);
@@ -155,13 +185,20 @@ export async function POST(request: Request, ctx: RouteContext) {
               );
             }
           } catch (err) {
-            const errMessage =
-              err && typeof err === "object" && "message" in err
-                ? String((err as { message: unknown }).message)
-                : "Unknown send failure";
+            // S3.4: log full detail server-side, return sanitized public
+            // message. Forwarding raw err.message leaks gateway internals
+            // (paths, plugin error frames, deploy username via homedir).
+            console.error(
+              `[api/groups/${group.id}/send] agent=${agentId} fan-out failed:`,
+              err,
+            );
             try {
               controller.enqueue(
-                sseFrame({ type: "agent-error", agentId, error: errMessage }),
+                sseFrame({
+                  type: "agent-error",
+                  agentId,
+                  error: "send failed",
+                }),
               );
             } catch {
               // Stream already closed.

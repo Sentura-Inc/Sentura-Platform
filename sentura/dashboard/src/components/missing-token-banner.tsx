@@ -8,18 +8,21 @@ const ADMIN_TOKEN = process.env.NEXT_PUBLIC_SENTURA_ADMIN_TOKEN;
 /**
  * Site-wide banner that warns when required dashboard env vars are missing.
  *
- * The dashboard relies on `.env.local` having both `NEXT_PUBLIC_GATEWAY_TOKEN`
- * (for the OpenClaw connect handshake) and `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN`
- * (for RBAC-guarded RPCs). When either is missing, RPCs fail silently — the
- * gateway WebSocket either rejects with `device identity required` or a
- * dispatched RPC returns `unauthorized`, neither of which surface obviously
- * to the user. Without this banner the symptom is just an empty page or a
- * perpetual "Connecting..." badge.
+ * Dev posture (S3.2 INFO): the `NEXT_PUBLIC_GATEWAY_TOKEN` and
+ * `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` values are inlined into the client
+ * bundle by Next.js at build time. They are NOT secrets in the dev
+ * deployment — every browser tab can read them. Production deployments
+ * (post-W6 SSO) MUST replace this with: (a) a server-only `GATEWAY_TOKEN`
+ * read by route handlers, plus (b) an SSO-asserted session cookie that
+ * the dashboard server uses to derive the actorId — never inlined into
+ * the bundle. The server route handler at `lib/gateway/server-client.ts`
+ * already reads only `GATEWAY_TOKEN` (no NEXT_PUBLIC fallback) so the
+ * server side is ready for that migration.
  *
- * Detection happens at build time: Next.js inlines `process.env.NEXT_PUBLIC_*`
- * into the client bundle. If the user re-runs `sentura-setup.sh` after the
- * dashboard built, they need to restart `pnpm dev` for the new values to
- * take effect — the banner copy says exactly that.
+ * Banner detection: Next.js inlines `process.env.NEXT_PUBLIC_*` at build
+ * time. If the user re-runs `sentura-setup.sh` after the dashboard built,
+ * they need to restart `pnpm dev` for the new values to take effect —
+ * the banner copy says exactly that.
  */
 export function MissingTokenBanner() {
   const missing: string[] = [];

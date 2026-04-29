@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AgentChat } from "@/components/agent-chat";
+import { RequirePermission } from "@/components/require-permission";
 import { cn } from "@/lib/utils";
 
 const TUNER_AGENT_ID = "tuner";
@@ -42,6 +43,17 @@ const CONTROL_UI_URL =
  * event subtype the dashboard can intercept.
  */
 export default function TunePage() {
+  // /tune is a mutation surface (creates Tuner sessions, calls
+  // deleteSession/patchSession). Hard-hide via sidebar isn't enough —
+  // a direct URL hit must redirect unprivileged roles. Mirrors /create.
+  return (
+    <RequirePermission action="agents.tune">
+      <TunePageBody />
+    </RequirePermission>
+  );
+}
+
+function TunePageBody() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { client, state } = useGateway();
