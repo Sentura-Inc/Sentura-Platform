@@ -1,0 +1,39 @@
+{
+  "id": "sentura-provisioner",
+  "name": "Sentura Provisioner",
+  "description": "Coordinates self-provisioning of new SaaS integrations — files an approval request via sentura-approval, hands off to a browser-driven provisioning skill once approved, and records the credential reference returned by the skill into the secret store. Tracks every provisioning run as an auditable record.",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": [
+      "sentura_provisioner_request",
+      "sentura_provisioner_complete"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dataDir": {
+        "type": "string",
+        "description": "Directory for the provisioning request log. Defaults to ~/.openclaw/sentura-provisioner/"
+      },
+      "approvalDataDir": {
+        "type": "string",
+        "description": "Override for the sentura-approval data directory. Defaults to ~/.openclaw/sentura-approval/ (must match the sibling extension's dataDir)."
+      },
+      "defaultRiskLevel": {
+        "type": "string",
+        "enum": ["low", "medium", "high", "critical"],
+        "default": "high",
+        "description": "Risk level applied to provisioning requests when the caller does not specify one. Defaults to 'high' since creating new accounts is rarely safe to auto-approve."
+      },
+      "retention": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxAgeDays": { "type": "number", "default": 365 }
+        }
+      }
+    }
+  }
+}

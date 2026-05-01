@@ -1,0 +1,99 @@
+// Sentura Data Scavenger Agent ("Scout") — Agent Configuration
+//
+// Scout is a meta-agent that ingests enterprise documents (PDF, DOCX, Excel,
+// image) and classifies their content into the 4-pillar EKG structure
+// (org / rules / assets / workflows) for a target AI employee.
+//
+// Tool access rationale:
+//   - "pdf" / "web_fetch" / "web_search": document ingestion
+//   - "sentura_agents_manage": read + write to target agent's ekg/ directory
+//   - "memory_search": deduplication before merge
+//   - "sessions_spawn" / "subagents" / "sessions_yield" / "browser" are
+//     intentionally denied — Scout completes every ingest in a single session
+//     using only the tools above.  No subagent delegation needed.
+//
+// Sandbox note: mirror ALL alsoAllow entries into tools.sandbox.tools.alsoAllow
+// so plugin tools survive the sandbox filter
+// (openclaw/src/agents/sandbox/tool-policy.ts DEFAULT_TOOL_ALLOW).
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        // Relax the spawned-session clamp so Scout can resolve other agents'
+        // session keys when notifying them of knowledge updates.
+        sessionToolsVisibility: "all",
+      },
+    },
+    list: [
+      {
+        id: "data-scavenger",
+        name: "Scout",
+        // Model: gpt-5.4 via the openai (API-key) provider.
+        // Same choice as creator — strong tool-call compliance, no OAuth
+        // dependency.
+        model: "openai/gpt-5.4",
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main", workspaceAccess: "rw" },
+        tools: {
+          profile: "coding",
+          alsoAllow: [
+            "pdf",
+            "web_fetch",
+            "web_search",
+            "sentura_agents_manage",
+            "memory_search",
+          ],
+          // CRITICAL: sandbox tool policy strips plugin tools unless mirrored here.
+          // Also include memory_get, canvas, cron, update_plan per spec so Scout
+          // can read memory entries, draw diagrams, schedule ingestion runs, and
+          // update its classification plan.
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "pdf",
+                "web_fetch",
+                "web_search",
+                "sentura_agents_manage",
+                "memory_search",
+                "memory_get",
+                "canvas",
+                "cron",
+                "update_plan",
+              ],
+            },
+          },
+          // HARD DENY: Scout must never spawn subagents (forces single-session
+          // atomicity for the ingest+classify+merge pipeline), never open a
+          // browser (no self-provisioning scope), and never use exec/write/edit
+          // (all target-agent writes go through sentura_agents_manage).
+          deny: [
+            "sessions_spawn",
+            "subagents",
+            "sessions_yield",
+            "browser",
+            "exec",
+            "write",
+            "edit",
+            "apply_patch",
+          ],
+        },
+      },
+    ],
+  },
+
+  // Scout listens on webchat DMs by default; operators can add Slack/Teams
+  // bindings here to route document-drop conversations to Scout directly.
+  bindings: [
+    {
+      agentId: "data-scavenger",
+      match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
+    },
+  ],
+
+  // Cross-session visibility so Scout can send knowledge-update messages to
+  // the target agent's active sessions after a successful merge.
+  tools: {
+    sessions: { visibility: "all" },
+    agentToAgent: { enabled: true, allow: ["*"] },
+  },
+}

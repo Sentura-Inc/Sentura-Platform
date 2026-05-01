@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig, OpenClawPluginApi } from "../api.js";
+import {
+  appendSenturaConfigDiff,
+  resolveSenturaConfigDiffLogPathFromOpenClawDir,
+} from "../../../lib/config-versioning.ts";
 import { PathValidationError, validateAgentId } from "./paths.js";
 
 /**
@@ -312,6 +316,25 @@ export async function registerAgentInRuntimeConfig(
   } as OpenClawConfig;
 
   await api.runtime.config.writeConfigFile(nextConfig);
+  await appendSenturaConfigDiff({
+    operation: "sentura.register_agent",
+    actor: "sentura-agents.registerAgent",
+    note: `Register or update agent ${agentId} in openclaw.json.`,
+    targetType: "openclaw.config",
+    targetPath: path.join(openclawHomeDir, "openclaw.json"),
+    agentId,
+    beforeValue: {
+      agents: cfg.agents ?? {},
+      bindings: cfg.bindings ?? [],
+      mcp: cfg.mcp ?? {},
+    },
+    afterValue: {
+      agents: nextConfig.agents ?? {},
+      bindings: nextConfig.bindings ?? [],
+      mcp: nextConfig.mcp ?? {},
+    },
+    logPath: resolveSenturaConfigDiffLogPathFromOpenClawDir(openclawHomeDir),
+  });
 
   let stamped = false;
   if (params.stampSetupCompleted !== false) {

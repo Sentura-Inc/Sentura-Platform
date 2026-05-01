@@ -7,11 +7,22 @@ When you need access to an external service or API that you don't currently have
 - A tool or service needed to complete an assigned task
 - An MCP server that requires credentials not yet in the secret store
 
+## Week 3 A Contracts
+
+- Per-agent secrets live under `/sentura/agents/<agentId>/<service>/<credential>`.
+- MCP env entries store secret references as strings such as `"$secret:/sentura/agents/<agentId>/<service>/<credential>"`.
+- Only stdio MCP servers may use `$secret:` pointers, and only inside the server's `env` block.
+- Remote HTTP/SSE MCP `headers` remain operator-managed this round. Do not place `$secret:` pointers there.
+- For employee-local integrations, do **not** use `gateway.config.patch`. Use `sentura_agents_manage` actions `has_secret`, `put_secret`, `upsert_mcp_servers`, and `remove_mcp_servers`.
+
 ## Procedure
 
 ### Step 1: Check Existing Credentials
 
-1. Query the OpenClaw secret store for credentials matching the service name
+1. Call `sentura_agents_manage` with `action: "has_secret"` for each credential you need:
+   - `agentId`
+   - `service`
+   - `credential`
 2. If credentials exist:
    - Verify they're still valid (test API call)
    - If valid → skip to Step 6 (configure MCP server)
@@ -72,9 +83,11 @@ If approval is required:
    - API secret (if applicable)
    - Base URL / endpoint
    - Any other required configuration values
-4. Store credentials in OpenClaw's encrypted secret store:
-   - Key naming convention: `{service_name}_{credential_type}` (e.g., `zendesk_api_key`)
-   - NEVER store credentials in workspace files, conversation history, or logs
+4. Store each secret via `sentura_agents_manage { action: "put_secret", ... }`:
+   - `service` should be the integration id (for example `zendesk`)
+   - `credential` should be the credential field name (for example `api_key`)
+   - Save the returned pointer string; never copy the plaintext secret into any file
+5. NEVER store credentials in workspace files, conversation history, or logs
 
 ### Step 6: Configure MCP Server
 
@@ -83,23 +96,25 @@ If approval is required:
    - **Tier 2 (Sentura-generated)**: Use a generated MCP server from enterprise API docs
    - **Tier 3 (custom config)**: Configure with the service's API directly
 
-2. Add MCP server to agent config via `config.patch`:
+2. Register the employee-local MCP server via `sentura_agents_manage { action: "upsert_mcp_servers", ... }` so it lands in the target workspace's `config.json5 -> mcpServers`:
    ```json5
    {
-     mcp: {
-       servers: {
-         "{service_name}": {
-           command: "npx",
-           args: ["-y", "@mcp-servers/{service}"],
-           env: {
-             "{SERVICE}_API_KEY": { $secret: "{service_name}_api_key" },
-             "{SERVICE}_BASE_URL": "{base_url}"
-           }
+     action: "upsert_mcp_servers",
+     agentId: "{agent_id}",
+     mcpServers: {
+       "{service_name}": {
+         command: "npx",
+         args: ["-y", "@mcp-servers/{service}"],
+         env: {
+           "{SERVICE}_API_KEY": "$secret:/sentura/agents/{agent_id}/{service_name}/api_key",
+           "{SERVICE}_BASE_URL": "{base_url}"
          }
        }
      }
    }
    ```
+3. Keep secret pointers as strings inside `env`. Do **not** use object form `{ $secret: ... }`.
+4. If you need to remove a broken integration, call `sentura_agents_manage { action: "remove_mcp_servers", agentId, serverNames: ["{service_name}"] }`.
 
 ### Step 7: Verify Connection
 
@@ -121,12 +136,13 @@ If approval is required:
    - MCP server configuration (redacted credentials)
    - Verification result (pass/fail)
    - Timestamp and agent ID
-2. Update TOOLS.md in the employee's workspace with the new MCP server reference
+2. Sentura automatically records redacted config/secrets diffs in `~/.openclaw/logs/sentura-config-diffs.jsonl` for `put_secret` and `upsert_mcp_servers`.
+3. Update `TOOLS.md` in the employee's workspace with the new MCP server reference if your role has workspace-write privileges.
 
 ## Tools Needed
 
 - `browser` — navigate registration pages, extract credentials
-- `fs_write` — update workspace TOOLS.md
+- `sentura_agents_manage` — secret checks/storage and per-agent MCP registration
 - `message` — notify humans of approval requests, escalations, and completion
 - `web_search` — find service documentation and API setup guides
 - `web_fetch` — read API documentation
@@ -134,6 +150,9 @@ If approval is required:
 ## Safety
 
 - NEVER store credentials in workspace files or conversation history
+- NEVER echo plaintext secrets back to the user after `put_secret`
+- NEVER use `{ $secret: ... }` object syntax in MCP env — use the string pointer form
+- NEVER place `$secret:` pointers in remote HTTP/SSE MCP `headers`
 - NEVER bypass CAPTCHAs — escalate to human
 - NEVER use personal email addresses — always use the enterprise AI email
 - NEVER sign up for paid plans without explicit human approval

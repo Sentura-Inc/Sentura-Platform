@@ -1,0 +1,44 @@
+// HubSpot Provisioning Template
+// Tier: Standard (free CRM tier available; paid hubs need elevated approval).
+{
+  service: "hubspot",
+  displayName: "HubSpot CRM",
+  tier: "standard",
+  registrationUrl: "https://app.hubspot.com/signup/crm",
+  apiSettingsUrl: "https://app.hubspot.com/private-apps/{portalId}",
+  docsUrl: "https://developers.hubspot.com/docs/api/overview",
+  formFields: {
+    fullName: "{Company} AI Integration",
+    email: "{enterprise_ai_email}",
+    company: "{Company}",
+    useCase: "Enterprise automation integration",
+    phone: null,
+  },
+  credentialKeys: [
+    {
+      secretKey: "hubspot_private_app_token",
+      label: "Private App Access Token",
+      location: "Settings → Integrations → Private Apps → Create → copy 'Access token'",
+      type: "token",
+    },
+    {
+      secretKey: "hubspot_portal_id",
+      label: "Portal ID",
+      location: "Shown in every HubSpot URL: app.hubspot.com/contacts/{portalId}",
+      type: "config",
+    },
+  ],
+  minimumScopes: [
+    "crm.objects.contacts.read",
+    "crm.objects.contacts.write",
+    "crm.objects.deals.read",
+    "crm.objects.companies.read",
+  ],
+  mcpServerPackage: null,
+  notes: [
+    "Use Private App tokens (not OAuth) for server-to-server integrations — no redirect URI needed.",
+    "Free CRM tier supports Private Apps; Marketing/Sales Hub features require paid plans (elevated approval).",
+    "Portal ID is always numeric and visible in every HubSpot URL — store as config, not secret.",
+    "Token starts with 'pat-'; sent as Authorization: Bearer header.",
+  ],
+}

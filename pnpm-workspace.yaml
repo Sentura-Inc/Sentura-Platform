@@ -2,3 +2,11 @@ packages:
   - "sentura/dashboard"
   - "sentura/extensions/*"
   - "sentura/mcp-servers/*"
+allowBuilds:
+  esbuild: true
+  koffi: true
+  msw: true
+  openclaw: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true

@@ -24,6 +24,7 @@ import type {
   AgentFileEntry,
   BindingConfig,
 } from "@/lib/gateway";
+import { usePermission } from "@/lib/auth/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -99,6 +100,7 @@ export default function EmployeeDetailPage() {
   );
 
   const { client, state } = useGateway();
+  const { allowed: canDelete } = usePermission("agents.delete");
 
   const [agent, setAgent] = useState<AgentConfig | undefined>(undefined);
   const [files, setFiles] = useState<AgentFileEntry[] | null>(null);
@@ -232,6 +234,7 @@ export default function EmployeeDetailPage() {
             />
             Refresh
           </Button>
+          {/* TODO(week-3): when /tune route ships, gate via usePermission("agents.tune") */}
           <Button variant="outline" size="sm" disabled>
             <Sliders className="h-4 w-4 mr-1" />
             Tune
@@ -251,7 +254,12 @@ export default function EmployeeDetailPage() {
           <Dialog open={retireOpen} onOpenChange={setRetireOpen}>
             <DialogTrigger
               render={
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={!canDelete ? "You don't have permission to retire employees" : undefined}
+                >
                   <Trash2 className="h-4 w-4 mr-1" />
                   Retire
                 </Button>

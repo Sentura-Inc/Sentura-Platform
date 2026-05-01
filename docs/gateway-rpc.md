@@ -15,9 +15,8 @@ Used by: **Person A** (infra), **Person B** (Creator/Tuner agents), **Person C**
 | Method | Description | Params | Returns |
 |--------|-------------|--------|---------|
 | `config.get` | Read current gateway config | `{ path?: string }` | Full or partial config object |
-| `config.patch` | Merge-patch config (hot-reload) | `{ patch: object, hash?: string }` | Updated config + new hash |
+| `config.patch` | Merge-patch shared gateway config (hot-reload) | `{ patch: object, hash?: string }` | Updated config + new hash |
 | `config.apply` | Replace full config | `{ config: object }` | New config |
-| `config.revert` | Revert to previous config state | `{}` | Reverted config |
 
 ### Key Usage Patterns
 
@@ -26,9 +25,9 @@ Used by: **Person A** (infra), **Person B** (Creator/Tuner agents), **Person C**
 { "method": "config.get", "params": { "path": "agents.list" } }
 ```
 
-**Add a new AI employee (Creator Agent uses the `gateway` tool with action `config.patch`):**
+**Operator-side direct patch example (not the Week 2/3 Forge path):**
 
-Note: `config.patch` takes a `raw` param (JSON5 string), not a `patch` object. The patch is a merge-patch applied to the current config. `agents.list` is an **array** — the merge patch engine handles array-of-objects by matching on `id`.
+Note: `config.patch` takes a `raw` param (JSON5 string), not a `patch` object. The patch is a merge-patch applied to the current config. `agents.list` is an **array** — the merge patch engine handles array-of-objects by matching on `id`. Embedded agents should use `sentura_agents_manage { action: "register_agent" }` / `sentura.agents.registerAgent` instead of patching `agents.list` themselves.
 ```json5
 // Payload sent via the gateway tool's config.patch action
 {
@@ -65,6 +64,8 @@ Note: `config.patch` takes a `raw` param (JSON5 string), not a `patch` object. T
 }
 ```
 
+> Week 3 A rule: use `sentura.agents.putSecret`, `sentura.agents.hasSecret`, `sentura.agents.upsertMcpServers`, and `sentura.agents.removeMcpServers` (or the matching `sentura_agents_manage` tool actions) for per-agent self-provisioning. `config.patch` remains the shared/global config path; it is not the default path for employee-local MCP registration.
+
 ---
 
 ## Session Methods
@@ -73,6 +74,7 @@ Used by: **Person B** (agents), **Person C** (dashboard conversation view)
 
 | Method | Description | Params | Returns |
 |--------|-------------|--------|---------|
+| `sessions.create` | Create a new session | `{ agentId?: string, message?: string, label?: string }` | Session key + session summary |
 | `sessions.list` | List all active sessions | `{}` | Array of session summaries |
 | `sessions.get` | Get session state | `{ sessionKey: string }` | Session object |
 | `sessions.transcript` | Get full conversation transcript | `{ sessionKey: string }` | Message array |
@@ -82,10 +84,17 @@ Used by: **Person B** (agents), **Person C** (dashboard conversation view)
 
 ### Key Usage Patterns
 
+**Start a dashboard 1:1 conversation with an employee:**
+```json
+{ "method": "sessions.create", "params": { "agentId": "ap-clerk-finance", "label": "AP Clerk chat" } }
+```
+
 **View an employee's conversation:**
 ```json
-{ "method": "sessions.transcript", "params": { "sessionKey": "slack:acme:ap-clerk-finance" } }
+{ "method": "sessions.transcript", "params": { "sessionKey": "agent:ap-clerk-finance:dashboard:8d2a5dc8-97af-45cf-8bd4-7ccfc6f4d9d2" } }
 ```
+
+Dashboard chat helpers (`createChatSession`, `listChatSessions`, `sendChatMessage`) use the `agent:<agentId>:dashboard:<uuid>` session-key contract, filter to dashboard sessions only, sort by `updatedAt` descending, and exclude meta-agents by default.
 
 ---
 
@@ -102,16 +111,59 @@ Used by: **Person B** (meta-agents), **Person C** (dashboard chat UI)
 
 ### Key Usage Patterns
 
-**Dashboard: send message to Creator Agent:**
+**Dashboard: send message to an existing employee session:**
 ```json
 {
   "method": "chat.send",
   "params": {
-    "message": "Create an AI employee for customer support that monitors Zendesk and responds on Slack",
-    "sessionKey": "webchat:sentura-creator"
+    "message": "Summarize the open AP exceptions for this week.",
+    "sessionKey": "agent:ap-clerk-finance:dashboard:8d2a5dc8-97af-45cf-8bd4-7ccfc6f4d9d2"
   }
 }
 ```
+
+---
+
+## Sentura Agent Host Methods
+
+Used by: **Person A** (infra), **Person B** (Creator/Tuner/self-provisioning), **Person C** (dashboard helpers)
+
+| Method | Description | Params | Returns |
+|--------|-------------|--------|---------|
+| `sentura.agents.putSecret` | Store a per-agent secret in Sentura's file-backed secret provider | `{ agentId, service, credential, secretValue }` | Pointer + redacted metadata |
+| `sentura.agents.hasSecret` | Check whether a per-agent secret already exists | `{ agentId, service, credential }` | `{ exists, pointer, ... }` |
+| `sentura.agents.upsertMcpServers` | Write per-agent MCP servers into `~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers` | `{ agentId, mcpServers }` | Changed flag + config path + diff metadata |
+| `sentura.agents.removeMcpServers` | Remove named per-agent MCP servers from `config.json5 -> mcpServers` | `{ agentId, serverNames }` | Changed flag + config path + diff metadata |
+
+### Week 3 A Contracts
+
+- Secret ids use the canonical path `/sentura/agents/<agentId>/<service>/<credential>`.
+- MCP env values store secret pointers as strings, for example `"$secret:/sentura/agents/ap-clerk-finance/zendesk/api_key"`.
+- Secret pointer resolution is supported only for stdio MCP servers and only in the server's `env` map.
+- Remote HTTP/SSE MCP servers remain operator-managed this round; do not place `$secret:` pointers in `headers`.
+- `register_agent(..., mcpServers)` remains available for shared/global `openclaw.json -> mcp.servers` wiring, but self-provisioning defaults to per-agent `config.json5 -> mcpServers`.
+
+**Per-agent MCP registration example:**
+```json5
+{
+  "method": "sentura.agents.upsertMcpServers",
+  "params": {
+    "agentId": "ap-clerk-finance",
+    "mcpServers": {
+      "zendesk": {
+        "command": "npx",
+        "args": ["-y", "@mcp-servers/zendesk"],
+        "env": {
+          "ZENDESK_API_KEY": "$secret:/sentura/agents/ap-clerk-finance/zendesk/api_key",
+          "ZENDESK_SUBDOMAIN": "acme"
+        }
+      }
+    }
+  }
+}
+```
+
+The host helper preserves the pointer in `config.json5`, wraps stdio servers with Sentura's launcher, and resolves the plaintext secret only when the child MCP process is spawned.
 
 ---
 
@@ -212,38 +264,86 @@ Subscribe to these events via WebSocket for real-time updates.
 
 ## Connection Example (TypeScript)
 
+> ⚠️ **OpenClaw does NOT use JSON-RPC 2.0 framing.** It uses a custom envelope
+> with a `connect.challenge` handshake. Sending `{ jsonrpc: "2.0", method, ... }`
+> will be rejected by the gateway with `code 1008: invalid request frame`.
+> Reference implementation: [`scripts/probe-creator-tools.ts:71-173`](../scripts/probe-creator-tools.ts).
+
+The protocol:
+
+1. Client opens WebSocket → gateway sends `{ type: "event", event: "connect.challenge", payload: { nonce } }`.
+2. Client replies with the `connect` request containing protocol version, client identity, role, scopes, and an auth token.
+3. Gateway responds `{ type: "res", id, ok: true, payload }` — the connection is now authenticated.
+4. Subsequent RPCs use the same `type: "req"` / `type: "res"` envelope. Replies carry results in `payload` (NOT `result`).
+
 ```typescript
+import { WebSocket } from "ws";
+import fs from "node:fs";
+
+// Operator token lives in ~/.openclaw/openclaw.json under gateway.auth.token.
+const config = JSON.parse(
+  fs.readFileSync(`${process.env.HOME}/.openclaw/openclaw.json`, "utf-8"),
+) as { gateway: { auth: { token: string } } };
+
 const ws = new WebSocket("ws://localhost:18789");
+const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+let nextId = 0;
 
-ws.onopen = () => {
-  // Authenticate
-  ws.send(JSON.stringify({
-    jsonrpc: "2.0",
-    method: "connect",
-    params: { token: process.env.OPENCLAW_GATEWAY_TOKEN },
-    id: 1,
-  }));
-};
+ws.on("message", (raw: Buffer) => {
+  const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
 
-// Send an RPC call
-function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
-  const id = Math.random().toString(36).slice(2);
-  return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      if (data.id === id) {
-        ws.removeEventListener("message", handler);
-        if (data.error) reject(data.error);
-        else resolve(data.result);
-      }
-    };
-    ws.addEventListener("message", handler);
-    ws.send(JSON.stringify({ jsonrpc: "2.0", method, params, id }));
+  // Step 1: respond to the handshake challenge
+  if (msg.type === "event" && msg.event === "connect.challenge") {
+    const id = String(++nextId);
+    ws.send(JSON.stringify({
+      type: "req",
+      id,
+      method: "connect",
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: "openclaw-tui",   // must be an allowed client id (see protocol schema)
+          displayName: "My Client",
+          version: "0.1.0",
+          platform: "node",
+          mode: "ui",
+        },
+        caps: [],
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.admin"],
+        auth: { token: config.gateway.auth.token },
+      },
+    }));
+    return;
+  }
+
+  // Step 2: route RPC responses (note: ok / payload, NOT result)
+  if (msg.type === "res") {
+    const handler = pending.get(msg.id as string);
+    if (!handler) return;
+    pending.delete(msg.id as string);
+    if (msg.ok) handler.resolve(msg.payload);
+    else handler.reject(new Error((msg.error as { message?: string })?.message ?? "rpc error"));
+  }
+});
+
+function rpc<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const id = String(++nextId);
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    ws.send(JSON.stringify({ type: "req", id, method, params }));
   });
 }
 
-// List all AI employees
-const employees = await rpc("config.get", { path: "agents.list" });
+// config.get returns a ConfigFileSnapshot:
+//   { hash, runtimeConfig: { agents: { list: [...] } }, config: { ... } (deprecated alias), ... }
+// Use payload.hash as the baseHash for subsequent config.patch calls.
+const snapshot = await rpc<{
+  hash: string;
+  runtimeConfig?: { agents?: { list?: Array<{ id: string }> } };
+}>("config.get", {});
+const employees = snapshot.runtimeConfig?.agents?.list ?? [];
 ```
 
 ---
@@ -252,7 +352,7 @@ const employees = await rpc("config.get", { path: "agents.list" });
 
 | Team Member | Primary RPC Methods | Purpose |
 |-------------|-------------------|---------|
-| **A (Platform)** | `config.*`, `health`, `models.list` | Gateway management, provider config |
-| **B (AI/Skills)** | `config.patch`, `sessions.*`, `chat.*`, `cron.*`, `skills.*` | Agent lifecycle, skill management |
-| **C (Dashboard)** | All read methods + `chat.send` + `exec.approval.*` | UI data, chat, approvals |
+| **A (Platform)** | `config.*`, `sentura.agents.*`, `health`, `models.list` | Gateway management, secret/MCP host helpers, provider config |
+| **B (AI/Skills)** | `sentura.agents.*`, `sessions.*`, `chat.*`, `cron.*`, `skills.*` | Agent lifecycle, self-provisioning, communication-panel plumbing |
+| **C (Dashboard)** | All read methods + `sessions.create` + `chat.send` + `exec.approval.*` | UI data, 1:1 chat, approvals |
 | **D (Extensions)** | `config.get`, `tools.catalog`, `plugin.approval.*` | Extension integration, approval flows |

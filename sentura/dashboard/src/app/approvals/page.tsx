@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useApprovals, useGateway } from "@/lib/gateway";
 import type { ApprovalRequest } from "@/lib/gateway";
+import { usePermission } from "@/lib/auth/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -54,6 +55,23 @@ function describeApproval(a: ApprovalRequest): {
   commandText?: string;
 } {
   const ctx = a.context ?? {};
+  if (a.kind === "sentura") {
+    // Context-aware approval from the sentura-approval extension. The
+    // `action` string is the stable identifier (e.g. "refund.issue",
+    // "provisioner.zendesk.create"); the context carries justification,
+    // amount, customer id, etc.
+    const title =
+      (typeof ctx.justification === "string" && ctx.justification) ||
+      a.action ||
+      "Sentura approval";
+    const subtitleParts: string[] = [];
+    if (a.policyId) subtitleParts.push(`policy: ${a.policyId}`);
+    if (a.riskLevel) subtitleParts.push(`risk: ${a.riskLevel}`);
+    return {
+      title,
+      subtitle: subtitleParts.length > 0 ? subtitleParts.join(" · ") : a.action,
+    };
+  }
   if (a.kind === "plugin") {
     const title =
       (typeof ctx.title === "string" && ctx.title) ||
@@ -177,12 +195,12 @@ export default function ApprovalsPage() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Approvals are event-driven: the gateway broadcasts
-        {" "}
+        Approvals come from three sources: OpenClaw native{" "}
         <code className="font-mono">exec.approval.requested</code> and{" "}
-        <code className="font-mono">plugin.approval.requested</code>. The list
-        shows only approvals observed during this session. Historical approvals
-        are available in the Audit Trail (W5).
+        <code className="font-mono">plugin.approval.requested</code> events
+        (event-driven), plus pending Sentura context-aware approvals seeded
+        from <code className="font-mono">sentura.approval.requests.list</code>{" "}
+        on connect. Historical approvals are available in the Audit Trail (W5).
       </p>
     </div>
   );
@@ -212,6 +230,7 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const { client } = useGateway();
+  const { allowed: canResolve } = usePermission("approvals.resolve");
 
   const description = describeApproval(approval);
   const countdown = formatCountdown(approval.expiresAtMs);
@@ -222,10 +241,32 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
       setSubmitting(true);
       setError(null);
       try {
-        await client.resolveApproval(approval.id, decision, {
-          kind: approval.kind,
-          reason: reason.trim() || undefined,
-        });
+        if (approval.kind === "sentura") {
+          // Sentura approvals only accept binary approved/denied (the
+          // policy-store has no "always allow" concept — that's expressed
+          // by editing a policy). Map the UI's three-decision shape down.
+          const senturaDecision: "approved" | "denied" =
+            decision === "deny" ? "denied" : "approved";
+          // The actor's user id rides in NEXT_PUBLIC_SENTURA_ADMIN_USER_ID
+          // — auto-seeded by sentura-setup.{sh,ps1}. RBAC enforcement on
+          // sentura.approval.requests.decide is wired in once Person C's
+          // platform-admin token middleware lands.
+          const actorUserId =
+            (typeof process !== "undefined" &&
+              process.env?.NEXT_PUBLIC_SENTURA_ADMIN_USER_ID) ||
+            "platform-admin";
+          await client.decideSenturaApproval(
+            approval.id,
+            senturaDecision,
+            actorUserId,
+            reason.trim() || undefined,
+          );
+        } else {
+          await client.resolveApproval(approval.id, decision, {
+            kind: approval.kind === "plugin" ? "plugin" : "exec",
+            reason: reason.trim() || undefined,
+          });
+        }
         setConfirmDecision(null);
       } catch (err: unknown) {
         const msg =
@@ -240,8 +281,9 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
     [client, approval, reason],
   );
 
-  const isExec = approval.kind !== "plugin";
+  const isExec = approval.kind !== "plugin" && approval.kind !== "sentura";
   const KindIcon = isExec ? Terminal : ShieldCheck;
+  const kindLabel: string = approval.kind === "sentura" ? "sentura" : isExec ? "exec" : "plugin";
 
   return (
     <div className="rounded-lg border border-border bg-card">
@@ -257,8 +299,20 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap gap-2">
             <Badge variant="outline" className="text-[10px] uppercase">
-              {isExec ? "exec" : "plugin"}
+              {kindLabel}
             </Badge>
+            {approval.riskLevel && (
+              <Badge
+                variant={
+                  approval.riskLevel === "critical" || approval.riskLevel === "high"
+                    ? "destructive"
+                    : "secondary"
+                }
+                className="text-[10px] uppercase"
+              >
+                {approval.riskLevel}
+              </Badge>
+            )}
             <h3 className="text-sm font-semibold truncate">{description.title}</h3>
             <Badge variant="secondary" className="font-mono text-[10px]">
               {approval.agentId}
@@ -296,6 +350,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="default"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("allow-once")}
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
@@ -304,6 +360,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="outline"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("allow-always")}
             >
               Always allow
@@ -311,6 +369,8 @@ function ApprovalCard({ approval }: { approval: ApprovalRequest }) {
             <Button
               size="sm"
               variant="destructive"
+              disabled={!canResolve}
+              title={!canResolve ? "You don't have permission to resolve approvals" : undefined}
               onClick={() => setConfirmDecision("deny")}
             >
               <XCircle className="h-3.5 w-3.5 mr-1" />

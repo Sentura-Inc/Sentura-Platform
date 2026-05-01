@@ -81,6 +81,64 @@ fi
 log "OpenClaw config found at $OPENCLAW_CONFIG"
 log "Workspace base: $WORKSPACE_BASE"
 
+# Prefer a meta-agent model that the local auth store can actually run.
+# Fresh installs often have only DeepSeek configured; hard-coding
+# openai/gpt-5.4 makes Forge fail before it can even reach the browser tool.
+resolve_meta_agent_model() {
+  OPENCLAW_STATE="$OPENCLAW_STATE" OPENCLAW_CONFIG="$OPENCLAW_CONFIG" node <<'NODE_EOF'
+const fs = require("fs");
+
+function readJson(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+const explicitModel = process.env.SENTURA_META_AGENT_MODEL?.trim();
+if (explicitModel && explicitModel.includes("/")) {
+  process.stdout.write(explicitModel);
+  process.exit(0);
+}
+
+const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+if (openAiApiKey) {
+  process.stdout.write("openai/gpt-5.4");
+  process.exit(0);
+}
+
+const stateDir = process.env.OPENCLAW_STATE;
+const configPath = process.env.OPENCLAW_CONFIG;
+const authProfiles = readJson(`${stateDir}/agents/main/agent/auth-profiles.json`);
+const profileIds = authProfiles?.profiles && typeof authProfiles.profiles === "object"
+  ? Object.keys(authProfiles.profiles)
+  : [];
+
+if (profileIds.some((id) => id.startsWith("openai:"))) {
+  process.stdout.write("openai/gpt-5.4");
+  process.exit(0);
+}
+
+if (profileIds.some((id) => id.startsWith("deepseek:"))) {
+  process.stdout.write("deepseek/deepseek-reasoner");
+  process.exit(0);
+}
+
+const config = readJson(configPath);
+const primary = config?.agents?.defaults?.model?.primary;
+if (typeof primary === "string" && primary.includes("/")) {
+  process.stdout.write(primary);
+  process.exit(0);
+}
+
+process.stdout.write("openai/gpt-5.4");
+NODE_EOF
+}
+
+META_AGENT_MODEL="$(resolve_meta_agent_model)"
+log "Preferred meta-agent model: $META_AGENT_MODEL"
+
 # --- Helper: copy workspace files ---
 
 copy_workspace() {
@@ -112,7 +170,7 @@ copy_workspace() {
 
 register_agent() {
   local agent_id="$1"
-  local model="${2:-openai/gpt-5.4}"
+  local model="${2:-$META_AGENT_MODEL}"
   local workspace_dir="$WORKSPACE_BASE/$agent_id"
 
   log "Registering agent: $agent_id"
@@ -145,7 +203,7 @@ mkdir -p "$WORKSPACE_BASE"
 
 log "Step 2: Copying meta-agent workspace files..."
 
-META_AGENTS=("creator" "tuner" "orchestrator" "mcp-builder")
+META_AGENTS=("creator" "tuner" "orchestrator" "mcp-builder" "data-scavenger")
 SENTURA_AGENTS_DIR="$PROJECT_ROOT/sentura/agents"
 
 for agent in "${META_AGENTS[@]}"; do
@@ -269,11 +327,37 @@ if (config.agents.defaults.workspace !== '~/.openclaw/workspace') {
 # Apply per-agent tool overrides by patching the config JSON directly.
 # The CLI's `config set` doesn't support array-element addressing like
 # agents.list[id=creator].tools, so we use node to patch the file.
-node -e "
+SENTURA_META_AGENT_MODEL="$META_AGENT_MODEL" node -e "
 const fs = require('fs');
 const configPath = '$OPENCLAW_CONFIG';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.4';
+config.agents = config.agents || {};
+config.agents.defaults = config.agents.defaults || {};
+config.agents.defaults.models = config.agents.defaults.models || {};
 
+function ensurePreferredModelAllowlistEntry(modelRef) {
+  if (typeof modelRef !== 'string' || !modelRef.includes('/')) {
+    return;
+  }
+  const existing = config.agents.defaults.models[modelRef];
+  const [providerId, modelId] = modelRef.split('/', 2);
+  const entry =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...existing }
+      : {};
+  if (entry.alias === undefined) {
+    if (providerId === 'openai') entry.alias = 'GPT';
+    if (providerId === 'openai-codex') entry.alias = 'Codex';
+    if (providerId === 'deepseek' && modelId === 'deepseek-chat') entry.alias = 'DeepSeek';
+  }
+  config.agents.defaults.models[modelRef] = entry;
+  if (!existing) {
+    console.log('  Allowlisted preferred model: ' + modelRef);
+  }
+}
+
+ensurePreferredModelAllowlistEntry(preferredModel);
 // NOTE: we deliberately do NOT set \`agent.skills\` here.
 // In OpenClaw, \`agents.list[].skills\` is a name filter (array of skill
 // names), not a path glob. Writing a path like \`{workspace}/skills/*\`
@@ -346,12 +430,18 @@ const mcpBuilderSandboxAlsoAllow = [
   'gateway','sessions_send','web_search','web_fetch','browser','pdf','canvas',
   'memory_search','memory_get','update_plan','cron'
 ];
+const dataScavengerSandboxAlsoAllow = [
+  'pdf','web_fetch','web_search',
+  'sentura_agents_manage','memory_search','memory_get',
+  'canvas','cron','update_plan'
+];
 
 const overrides = {
-  creator:       { name: 'Forge',     tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  tuner:         { name: 'Refine',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  orchestrator:  { name: 'Conductor', tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  'mcp-builder': { name: 'Socket',    tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:           { name: 'Refine',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -386,7 +476,7 @@ if (!Array.isArray(config.commands.ownerAllowFrom) || config.commands.ownerAllow
 //   exec host not allowed (requested gateway; configured host is auto; ...)
 // (see openclaw/src/agents/bash-tools.exec-runtime.ts
 //  isRequestedExecTargetAllowed). Forge's deployment skill and its
-// self-diagnostic calls (e.g. `openclaw gateway status`) need
+// self-diagnostic calls (for example, the openclaw gateway status probe) need
 // gateway-host execution, so we pin the configured host to 'gateway'
 // for local dev. This does NOT grant exec any additional capabilities;
 // it only removes the ambiguous auto-routing rejection. Production
@@ -397,6 +487,18 @@ config.tools.exec = config.tools.exec || {};
 if (config.tools.exec.host !== 'gateway') {
   config.tools.exec.host = 'gateway';
   console.log('  Set tools.exec.host = gateway (allow exec host override)');
+}
+
+// Enable the sandbox browser for non-main sessions. Week 3's live
+// self-provisioning path runs from dashboard-created Creator sessions,
+// which use target="sandbox" by default when Forge calls the browser tool.
+// Without this flag, the exact A20 probe path fails with:
+//   Sandbox browser is unavailable. Enable agents.defaults.sandbox.browser.enabled...
+config.agents.defaults.sandbox = config.agents.defaults.sandbox || {};
+config.agents.defaults.sandbox.browser = config.agents.defaults.sandbox.browser || {};
+if (config.agents.defaults.sandbox.browser.enabled !== true) {
+  config.agents.defaults.sandbox.browser.enabled = true;
+  console.log('  Enabled agents.defaults.sandbox.browser.enabled = true');
 }
 
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
@@ -743,20 +845,31 @@ fi
 # auth; `actorId` / userToken is what the middleware checks against). We
 # upsert just those two keys and leave any existing gateway config intact.
 
-log "  Wiring dashboard .env.local with admin credentials..."
+log "  Wiring dashboard .env.local with admin credentials + gateway auth..."
 
 export SENTURA_ADMIN_USER_ID="$ADMIN_ID"
 export SENTURA_ADMIN_USER_TOKEN="$ADMIN_TOKEN"
 export SENTURA_DASHBOARD_ENV_FILE="$DASHBOARD_ENV_FILE"
+export SENTURA_OPENCLAW_CONFIG="$OPENCLAW_CONFIG"
 
 node -e "
 const fs = require('fs');
 const p = process.env.SENTURA_DASHBOARD_ENV_FILE;
 const adminId = process.env.SENTURA_ADMIN_USER_ID;
 const adminToken = process.env.SENTURA_ADMIN_USER_TOKEN;
+const openclawConfigPath = process.env.SENTURA_OPENCLAW_CONFIG;
 
 let body = '';
 try { body = fs.readFileSync(p, 'utf8'); } catch (_) { body = ''; }
+
+let gatewayToken = '';
+try {
+  const config = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
+  gatewayToken =
+    typeof config?.gateway?.auth?.token === 'string' ? config.gateway.auth.token.trim() : '';
+} catch (_) {
+  gatewayToken = '';
+}
 
 function upsertLine(src, key, value, comment) {
   const re = new RegExp('^' + key.replace(/[.*+?^\${}()|[\\\\]\\\\\\\\]/g, '\\\\\$&') + '=.*$', 'm');
@@ -772,17 +885,23 @@ next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
   'Sentura platform admin user id (seeded by scripts/sentura-setup.sh, Step 8)');
 next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
   'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+if (gatewayToken) {
+  next = upsertLine(next, 'NEXT_PUBLIC_GATEWAY_TOKEN', gatewayToken,
+    'OpenClaw gateway token for local WebSocket auth (required when gateway.auth.mode=token)');
+}
+next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_CREATOR_HANDSHAKE_ENABLED', 'true',
+  'When true, dashboard auto-creates a welcome session for newly-deployed employees on /create. Set to false to disable.');
 
 if (next !== body) {
   fs.mkdirSync(require('path').dirname(p), { recursive: true });
   fs.writeFileSync(p, next, 'utf8');
   console.log('  → updated ' + p);
 } else {
-  console.log('  → ' + p + ' already has admin keys');
+  console.log('  → ' + p + ' already has all dashboard env keys');
 }
 "
 
-ok "Dashboard admin credentials wired."
+ok "Dashboard admin credentials + gateway auth wired."
 log "  The dashboard will pick these up on next \`pnpm dev\` (or restart). No curl step required."
 
 # --- Step 9: Summary ---

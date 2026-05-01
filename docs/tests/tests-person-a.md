@@ -186,3 +186,56 @@ After A14 landed, Forge could design an employee but deployment failed with `San
 | A15.10 | Live wiring — extension loaded | After `scripts/sentura-setup.sh` + gateway restart, `cat ~/.openclaw/openclaw.json` | `plugins.load.paths` contains the absolute path to `sentura/extensions/sentura-agents`; `plugins.entries["sentura-agents"].enabled === true` |
 | A15.11 | Live — gateway advertises new methods | Call `gateway.methods.list` | Response includes `sentura.agents.writeSubfile`, `readSubfile`, `deleteSubfile`, `listSubfiles` |
 | A15.12 | Live — subfile write round-trip | `gateway.call("sentura.agents.writeSubfile", { agentId, subpath: "skills/test/SKILL.md", content: "# test" })` then `listSubfiles` | File appears in host `~/.openclaw/workspace/<agentId>/skills/test/SKILL.md`; listing returns it |
+
+### A16. Week 3 — Secrets File Provider + Host Helpers
+
+Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/test-week3-a.ts`
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A16.1 | Default file provider bootstraps | `scripts/test-week3-a.ts` Part A16 | `openclaw.json` gains `secrets.providers.default = { source: "file", path: "~/.openclaw/secrets.json", mode: "json" }` |
+| A16.2 | `put_secret` stores only pointer metadata | Same | Return payload includes pointer / ref / created flag but never plaintext secret |
+| A16.3 | `has_secret` resolves existing secret | Same | Returns `exists: true` after the write and the same pointer contract |
+| A16.4 | No plaintext in logs | Same | Secret value never appears in `sentura-config-diffs.jsonl` or tool results |
+
+### A17. Week 3 — Per-Agent MCP Registration
+
+Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/test-week3-a.ts`
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A17.1 | `upsert_mcp_servers` writes workspace config | `scripts/test-week3-a.ts` Part A17 | Target agent's `~/.openclaw/workspace/<agentId>/config.json5` gets `mcpServers.<name>` |
+| A17.2 | Pointer stays in config; launcher handles runtime | Same | Config retains `"$secret:/sentura/agents/..."`; command/args are wrapped for `sentura-mcp-launcher.mjs` |
+| A17.3 | `remove_mcp_servers` is idempotent | Same | Removing a missing server is a no-op and does not corrupt config |
+| A17.4 | Agent configs stay isolated | Same | Editing one agent's `config.json5` does not touch another agent's MCP block |
+
+### A18. Week 3 — Sentura Config Versioning
+
+Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/test-week3-a.ts`
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A18.1 | Redacted diff log written | `scripts/test-week3-a.ts` Part A18 | `~/.openclaw/logs/sentura-config-diffs.jsonl` gets one line per changed Sentura-owned write |
+| A18.2 | Secret fields redacted | Same | Secret-bearing values are replaced/redacted in `before` / `after` payloads |
+| A18.3 | Diff is scoped | Same | Record captures only changed subtree + `changedPaths`, not an unrelated full-config dump |
+| A18.4 | No-op writes emit no diff | Same | Re-applying identical secret/MCP state does not append a new log line |
+
+### A19. Week 3 — Dashboard Chat-Session Helpers
+
+Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/test-week3-a.ts`
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A19.1 | `createChatSession` proxies to `sessions.create` | `scripts/test-week3-a.ts` Part A19 | Wrapper passes `agentId` + optional `label`/`initialMessage` and returns session key |
+| A19.2 | `sendChatMessage` proxies to `chat.send` | Same | Wrapper sends `sessionKey`, message, and idempotency key correctly |
+| A19.3 | Dashboard session-key parser works | Same | `parseDashboardChatSessionKey("agent:<agentId>:dashboard:<uuid>")` extracts the right pieces |
+| A19.4 | `listChatSessions` filters and sorts | Same | Only dashboard sessions are returned, sorted by `updatedAt`, meta-agents excluded by default |
+
+### A20. Week 3 — Browser Probe + Doc Sync
+
+Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/probe-browser-self-provisioning.ts` (requires gateway live, browser extension loaded, `agents.defaults.sandbox.browser.enabled=true`, Creator auth/profile or env-backed provider available for its model, and Docker daemon available for sandbox startup)
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A20.1 | Live browser self-provisioning probe | `scripts/probe-browser-self-provisioning.ts` | Creates a Creator session, uses the browser tool on the real dashboard path, observes a browser tool event, and finishes with `BROWSER_OK: Example Domain` |
+| A20.2 | Contract docs updated | Read `docs/HOSTING.md`, `docs/SETUP.md`, `docs/gateway-rpc.md`, `sentura/skills/self-provisioning/SKILL.md`, `sentura/mcp-servers/gradsale-admin/README.md` | Docs show string `$secret:/...` pointers, per-agent `config.json5 -> mcpServers`, no `config.revert`, and dashboard chat session key rules |

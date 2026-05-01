@@ -35,31 +35,33 @@ All config is environment-variable driven (the MCP server process is spawned by 
 | `GRADSALE_REQUEST_TIMEOUT_MS` | no (default `30000`) | Per-request timeout in ms |
 | `GRADSALE_READ_ONLY` | no (`true` / `1` to enable) | Strip all mutating tools — used for auditor / analyst personas |
 
-Credentials should come from OpenClaw's secret store (`$secret` references) — never inline them in agent config.
+Credentials should come from Sentura's file-backed secret provider as `$secret:/sentura/agents/<agentId>/gradsale/<credential>` pointers — never inline them in agent config.
 
 ## Wiring into an AI employee
 
-Add this MCP server to an employee's agent config via the OpenClaw gateway RPC `config.patch`. The entry **must** live under OpenClaw's native path `mcp.servers.<name>` — that is exactly the path OpenClaw's MCP loader (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`) walks at runtime. Any other nesting (e.g. `mcp.servers.entries.<name>`) is invisible to OpenClaw and the server will silently never start.
+For Week 3 self-provisioning, register this server with `sentura_agents_manage { action: "upsert_mcp_servers", ... }` (or the matching gateway RPC `sentura.agents.upsertMcpServers`). That writes to the target employee's `~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers`, keeps secrets as pointers, and wraps stdio servers with Sentura's launcher at write time. Shared/operator-managed MCPs can still live in global `openclaw.json -> mcp.servers`, but employee-local provisioning should default to the per-agent path.
 
 ```json5
 {
-  mcp: {
-    servers: {
-      "gradsale-admin": {
-        command: "node",
-        args: ["./sentura/mcp-servers/gradsale-admin/dist/index.js"],
-        env: {
-          GRADSALE_API_URL: "https://admin.gradsale.example",
-          GRADSALE_ADMIN_TOKEN: "$secret:gradsale.admin_token",
-          GRADSALE_READ_ONLY: "false",
-        },
+  action: "upsert_mcp_servers",
+  agentId: "gradsale-dispute-resolver",
+  mcpServers: {
+    "gradsale-admin": {
+      command: "node",
+      args: ["./sentura/mcp-servers/gradsale-admin/dist/index.js"],
+      env: {
+        GRADSALE_API_URL: "https://admin.gradsale.example",
+        GRADSALE_ADMIN_TOKEN: "$secret:/sentura/agents/gradsale-dispute-resolver/gradsale/admin_token",
+        GRADSALE_READ_ONLY: "false",
       },
     },
   },
 }
 ```
 
-Use `command: "node"` with a direct path to the compiled entry (`dist/index.js`) rather than `pnpm --filter ... start`. OpenClaw spawns the MCP server as a child process; going through `pnpm` adds a parent process and pulls pnpm's workspace resolution into every agent start, which is neither needed nor reliable once the repo is containerised.
+Use `command: "node"` with a direct path to the compiled entry (`dist/index.js`) rather than `pnpm --filter ... start`. Sentura's per-agent MCP helper preserves that command/args pair, stores the `$secret:` pointer string in `config.json5`, and resolves the plaintext secret only when `scripts/sentura-mcp-launcher.mjs` spawns the child process.
+
+This round supports `$secret:` pointers only for stdio MCP server `env` values. Remote HTTP/SSE servers with secret-bearing `headers` remain operator-managed.
 
 For auditor or analyst employees, set `GRADSALE_READ_ONLY: "true"` — write tools disappear from the catalog entirely, so the agent cannot even try to call them.
 
@@ -76,4 +78,4 @@ Tests use `InMemoryTransport` from the MCP SDK plus a stubbed `fetch`, so they a
 
 ## Pattern
 
-This package is the reference implementation of the **API-docs → MCP-server → `config.patch`** pattern — see [`docs/DESIGN.md` › Enterprise MCP Server Pattern](../../../docs/DESIGN.md#enterprise-mcp-server-pattern) for the full recipe.
+This package is the reference implementation of the **API-docs → MCP-server → employee wiring** pattern — see [`docs/DESIGN.md` › Enterprise MCP Server Pattern](../../../docs/DESIGN.md#enterprise-mcp-server-pattern) for the shared/global and per-agent registration paths.

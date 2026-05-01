@@ -65,10 +65,51 @@ export interface ApprovalRequest {
   createdAt: string;
   resolvedAt?: string;
   resolvedBy?: string;
-  /** Source of the approval, drives which resolve RPC to call. */
-  kind?: "exec" | "plugin";
+  /**
+   * Source of the approval. Drives which resolve RPC the dashboard calls:
+   * - `exec`/`plugin`: OpenClaw native approvals (`*.approval.resolve`).
+   * - `sentura`: Sentura context-aware approvals from the `sentura-approval`
+   *   extension (`sentura.approval.requests.decide`).
+   */
+  kind?: "exec" | "plugin" | "sentura";
   /** Optional expiration (epoch ms). */
   expiresAtMs?: number;
+  /** Sentura-only: risk level surfaced for prioritisation. */
+  riskLevel?: "low" | "medium" | "high" | "critical";
+  /** Sentura-only: policy id that produced the require_human verdict. */
+  policyId?: string;
+}
+
+/**
+ * Raw shape returned by the `sentura.approval.requests.list` RPC — mirrors
+ * `sentura/extensions/sentura-approval/src/types.ts` ApprovalRequest. The
+ * dashboard normalises this into the flat ApprovalRequest in the hook layer.
+ */
+export interface SenturaApprovalRequestRaw {
+  id: string;
+  agentId: string;
+  sessionKey?: string;
+  action: string;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  context: Record<string, unknown>;
+  requestedAt: string;
+  policyId?: string;
+  status:
+    | "pending"
+    | "approved"
+    | "denied"
+    | "auto_approved"
+    | "auto_denied"
+    | "expired";
+  expiresAt?: string;
+  onTimeoutDecision?: "approve" | "deny";
+  decisionReason?: string;
+  decidedAt?: string;
+  decidedByUserId?: string;
+  escalation?: {
+    chain: string[];
+    currentIndex: number;
+  };
 }
 
 /** Workspace file metadata returned by agents.files.list. */

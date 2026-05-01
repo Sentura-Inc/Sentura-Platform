@@ -1,0 +1,57 @@
+// Salesforce Provisioning Template
+// Tier: Elevated (all production plans paid; free Developer Edition for testing only).
+{
+  service: "salesforce",
+  displayName: "Salesforce CRM",
+  tier: "elevated",
+  registrationUrl: "https://developer.salesforce.com/signup",
+  apiSettingsUrl: "https://{instance}.salesforce.com/lightning/setup/NavigationMenus/home",
+  docsUrl: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/",
+  formFields: {
+    fullName: "{Company} AI Integration",
+    email: "{enterprise_ai_email}",
+    company: "{Company}",
+    useCase: "Enterprise automation integration",
+    phone: null,
+  },
+  credentialKeys: [
+    {
+      secretKey: "salesforce_client_id",
+      label: "Connected App Consumer Key",
+      location: "Setup → App Manager → New Connected App → Consumer Key",
+      type: "oauth_client_id",
+    },
+    {
+      secretKey: "salesforce_client_secret",
+      label: "Connected App Consumer Secret",
+      location: "Setup → App Manager → [app] → Manage Consumer Details → Consumer Secret",
+      type: "oauth_client_secret",
+    },
+    {
+      secretKey: "salesforce_instance_url",
+      label: "Instance URL",
+      location: "https://{instance}.salesforce.com — visible in browser URL after login",
+      type: "config",
+    },
+    {
+      secretKey: "salesforce_username",
+      label: "Integration Username",
+      location: "The email used during signup ({enterprise_ai_email})",
+      type: "config",
+    },
+    {
+      secretKey: "salesforce_password_token",
+      label: "Password + Security Token (concatenated)",
+      location: "Settings → Personal → Reset My Security Token; concatenate password+token",
+      type: "token",
+    },
+  ],
+  minimumScopes: ["api", "refresh_token"],
+  mcpServerPackage: null,
+  notes: [
+    "Developer Edition is free and suitable for dev/testing; production requires paid license (elevated approval).",
+    "Server-to-server auth: username + password + securityToken (no browser OAuth redirect needed).",
+    "Security token resets whenever account password changes — re-provision when that happens.",
+    "Connected App requires admin approval in production orgs — coordinate with Salesforce admin first.",
+  ],
+}

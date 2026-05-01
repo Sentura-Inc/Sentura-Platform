@@ -374,43 +374,54 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Extend gateway client with `createChatSession(agentId)`, `listChatSessions()`, `sendChatMessage(sessionKey, message)` typed wrappers
 
 ### Person B — AI Employee & Skills Engineer
-- [ ] Build Creator Agent Phase 3: Self-Provisioning pipeline
+- [x] Build Creator Agent Phase 3: Self-Provisioning pipeline
   - Structured SKILL.md procedure (not just a prompt)
   - Approval integration (new accounts → HITL via exec.approval)
   - Error recovery (CAPTCHA, 2FA, rate limits → escalate to human with context)
   - Audit logging of every provisioning event
-- [ ] Test self-provisioning end-to-end: create employee → needs Zendesk → registers → configures
-- [ ] **Design the pre-deployment test harness (capability #15)**:
+  - **Completed 2026-04-26**: `sentura/agents/creator/skills/self-provisioning/SKILL.md` — 9-step pipeline covering credential check, tier classification, HITL approval, browser navigation, credential extraction, verification, audit log, TOOLS.md update, Phase 4 signal
+- [x] Test self-provisioning end-to-end: create employee → needs Zendesk → registers → configures
+  - **Completed 2026-04-26**: `scripts/test-self-provisioning.ts` — 5 offline test groups (T-OFF-1 through T-OFF-5) + 4 live test groups (T-LIVE-1 through T-LIVE-4); live tests skip gracefully when gateway unreachable
+- [x] **Design the pre-deployment test harness (capability #15)**:
   - Define test case schema: input scenario, expected actions, expected outcome, scoring rubric
   - Build test case extractor: pull historical tasks from enterprise data layer via MCP tools
   - Build mock task generator: synthesize realistic scenarios from database schema + API capabilities when historical data is insufficient
   - Define pass/fail thresholds and maximum auto-tune iteration count
-- [ ] Build Tuning Agent: NL instruction → workspace file edits + config.patch
-- [ ] Test Tuning Agent: "make the AP clerk more casual" → SOUL.md updated
-- [ ] Create the Orchestrator Agent workspace (Mode B: multi-agent coordination)
-- [ ] Write provisioning templates for 5 common SaaS services
-- [ ] **Build Data Scavenger Agent workspace (capability #12)**:
+  - **Completed 2026-04-26**: `sentura/config/test-harness-schema.json5` (TestCase, MockGeneratorConfig, TestRunResult, TestSuite, SuiteRunResult schemas; passMark: 0.75, maxAutoTuneIterations: 3) + `sentura/skills/pre-deployment-testing/SKILL.md` (7-step workflow including adversarial Hard Rule block condition)
+- [x] Build Tuning Agent: NL instruction → workspace file edits + config.patch
+  - **Completed 2026-04-26**: `sentura/agents/tuner/skills/nl-to-config/SKILL.md` + `sentura/agents/tuner/skills/workspace-edit/SKILL.md`
+- [x] Test Tuning Agent: "make the AP clerk more casual" → SOUL.md updated
+  - **Completed 2026-04-26**: `scripts/test-tuner-e2e.ts` — 6 offline + 4 live test cases
+- [x] Create the Orchestrator Agent workspace (Mode B: multi-agent coordination)
+  - **Completed 2026-04-26**: `sentura/agents/orchestrator/skills/task-decomposition/SKILL.md` + `sentura/agents/orchestrator/skills/multi-agent-routing/SKILL.md`
+- [x] Write provisioning templates for 5 common SaaS services
+  - **Completed 2026-04-26**: `sentura/config/provisioning-templates/{zendesk,hubspot,salesforce,notion,slack}.json5` — tiers: standard/standard/elevated/standard/auto respectively
+- [x] **Build Data Scavenger Agent workspace (capability #12)**:
   - Create `sentura/agents/data-scavenger/` with SOUL.md and skills/
   - Build ingestion skill: accept uploaded documents (PDF, DOCX, Excel, images)
   - Build classification skill: LLM-driven 4-pillar classification of extracted content
   - Build structuring skill: convert classified content to JSON5 with entities, relations, provenance
   - Build merge skill: additive merge into target agent's `ekg/` files (never destructive)
   - Notification: alert affected agents that their knowledge base was updated
-- [ ] **Design Q&A-based Completion skill (capability #13 — Tier 2 gap-filling)**:
+  - **Completed 2026-04-26**: Full workspace at `sentura/agents/data-scavenger/` — 9 workspace files (config.json5 + 8 native: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) + 4 skills (ingestion, classification, structuring, ekg-merge)
+- [x] **Design Q&A-based Completion skill (capability #13 — Tier 2 gap-filling)**:
   - Cron-triggered skill that reads agent's `ekg/` directory
   - Identifies missing required fields (null values, empty relations, incomplete entities)
   - Generates clarifying questions with context ("I noticed X is missing from Y")
   - Delivers questions via `message` tool (Slack/Teams) or queues for next conversation
   - Write skill: `sentura/skills/qa-completion/SKILL.md`
-- [ ] **Design Experience Link extraction skill (capability #13 — Tier 3)**:
+  - **Completed 2026-04-26**: `sentura/skills/qa-completion/SKILL.md` — 7-step cron skill; 5 questions/run cap; 7-day re-ask guard; pending records in MEMORY.md
+- [x] **Design Experience Link extraction skill (capability #13 — Tier 3)**:
   - Post-task hook that evaluates completed tasks for reusable patterns
   - Generates candidate Experience Links with initial confidence scores
   - Write skill: `sentura/skills/experience-extraction/SKILL.md`
-- [ ] **Design per-user memory isolation (workspace layer)**:
+  - **Completed 2026-04-26**: `sentura/skills/experience-extraction/SKILL.md` — 6-step post-task hook; confidence formula `min(0.9, existing + 0.1*sqrt(occurrences))`; promotion at confidence ≥ 0.75 AND occurrences ≥ 3
+- [x] **Design per-user memory isolation (workspace layer)**:
   - Implement dual MEMORY.md system: general `MEMORY.md` (workspace root) + `MEMORY_USER_{token}.md` files in `memory/users/`
   - Extend `sentura-bootstrap` hook to inject current user's `MEMORY_USER_{token}.md` alongside general `MEMORY.md` into system prompt
   - Extend dreaming system: general promotion (cross-user patterns → `MEMORY.md`), personal promotion (user-specific → `MEMORY_USER_{token}.md`), privacy boundary (no user PII in general memory)
   - Test: two users interact with same AI employee → verify memories are isolated, general patterns are promoted
+  - **Completed 2026-04-26**: bootstrap hook injection already implemented by Person A (Week 2). Added `sentura/skills/personal-memory/SKILL.md` covering dual-scope read priority, personal/general write rules, dreaming promotion (≥3 users → general), consolidation (>150 lines), stale pruning (90 days), and privacy boundary table
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] **Wire the auto-seeded platform admin into the dashboard gateway client** (unblocks every RBAC-guarded RPC) — `scripts/sentura-setup.{sh,ps1}` now writes `NEXT_PUBLIC_SENTURA_ADMIN_USER_ID` and `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` into `sentura/dashboard/.env.local` automatically (Week 2 wrap-up, Person D, 2026-04-19). The dashboard's gateway client must:
@@ -421,36 +432,36 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Build the Live Tuning UI (`/tune` — chat with Tuning Agent, show before/after diffs)
 - [ ] Build the Integration Manager page (`/integrations` — list MCP servers, status, credentials)
 - [ ] ~~Build the Employee Editor~~ → Simplified: workspace file editor in `/employees/[id]` detail page (raw config editing deferred to Control UI)
-- [ ] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI)
-- [ ] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)**:
-  - New `/chat` route with two-pane layout: conversation list (left) + chat thread (right)
-  - Conversation list: all dashboard sessions grouped by employee, sorted by last activity
-  - "New conversation" button: employee picker → `sessions.create` with selected `agentId`
-  - Chat thread: send messages via `chat.send`, stream responses via WebSocket `chat` events (`state: "delta"` / `"final"`)
-  - Load conversation history via `chat.history` on conversation open
-  - Typing indicator, message timestamps, agent avatar/name attribution
-  - Conversation persistence (OpenClaw session stores survive page reloads)
-  - Add `/chat` link to dashboard sidebar navigation
+- [x] Add real-time updates: WebSocket events for approvals, config changes (session events deferred to Control UI) _(completed 2026-04-25 — `useGatewayEvents(handlerMap)` primitive in `sentura/dashboard/src/lib/gateway/hooks.ts` (commit `42e98f5e`); `useApprovals` refactored as first consumer with 4 event types collapsed to 1 handler map; `config.changed` exposed in `GatewayEventType` union ready for use; sidebar `/chat` badge live-updates via `sessions.changed`)_
+- [x] **Build 1:1 Chat Panel — Communication Panel MVP (capability #16)** _(completed 2026-04-25 — `sentura/dashboard/src/app/chat/` (commits `6af96df7` + `3468afcc`); 17 sub-tests in `docs/tests/tests-person-c.md` C11; all 4 acceptance criteria from `docs/memory/person-c/week-3.md` Phase 3 verified end-to-end via Playwright)_:
+  - [x] New `/chat` route with two-pane layout: conversation list (left) + chat thread (right) — `chat-sidebar.tsx` + `<AgentChat>` mounted in right pane
+  - [x] Conversation list: all dashboard sessions grouped by employee (via `getSessionAgentId` helper that parses the structured session key prefix because gateway `sessions.list` inconsistently populates the `agentId` schema field), sorted by last activity within each group
+  - [x] "New conversation" button: employee picker (`employee-picker-dialog.tsx`) → `?draft=<agentId>` URL → first send fires `sessions.create` and the URL adopts the resulting `?key=<sessionKey>`
+  - [x] Chat thread: send messages via `chat.send`, stream responses via WebSocket `chat` events (`state: "delta"` / `"final"`) — all encapsulated in shared `<AgentChat>` (D2 contract)
+  - [x] Load conversation history via `chat.history` on conversation open — handled inside `<AgentChat>`'s combined reset+hydrate effect
+  - [x] Typing indicator, message timestamps, agent avatar/name attribution — `<AgentChat>` `MessageBubble` + `StreamingDots`
+  - [x] Conversation persistence — URL `?key=` query param is source of truth, refresh-resilient and multi-tab independent
+  - [x] Add `/chat` link to dashboard sidebar navigation with live conversation-count badge (`useSessions().length` refetched on `sessions.changed`)
 
 ### Person D — Extensions & Integrations Engineer
-- [ ] Build `sentura-provisioner` extension: coordinates self-provisioning workflows
-- [ ] Implement approval integration for self-provisioning (new accounts need approval)
-- [ ] Build `sentura-approval` extension: enhanced HITL with escalation + timeout + decision-context
+- [x] Build `sentura-provisioner` extension: coordinates self-provisioning workflows _(completed 2026-04-26 — `sentura/extensions/sentura-provisioner/` ships `index.ts` + `src/{store,types}.ts` + `openclaw.plugin.json` with 2 tools (`sentura_provisioner_request`, `sentura_provisioner_complete`) and 3 dashboard RPCs (`sentura.provisioner.requests.list/get/cancel`).)_
+- [x] Implement approval integration for self-provisioning (new accounts need approval) _(completed 2026-04-26 — provisioner lazy-resolves `getApprovalRuntime()` and calls `fileApprovalImperative(...)` against the shared store; auto_approved/auto_denied/pending mapped onto provisioning status. `package.json` declares `@sentura/approval: workspace:*`.)_
+- [x] Build `sentura-approval` extension: enhanced HITL with escalation + timeout + decision-context _(completed 2026-04-26 — `sentura/extensions/sentura-approval/index.ts` (~445 lines) with `sentura_approval_request` tool, 6 dashboard RPCs (`requests.list/get/decide` + `policies.list/upsert/remove`), 60s sweep, builtin policies, cross-extension singleton via `getApprovalRuntime()`, `fileApprovalImperative()` helper, `ApprovalRequest.onTimeoutDecision` field for replay-safe policy intent.)_
   - Extends OpenClaw's binary exec.approval into context-aware approval (e.g., "approve if refund < $500")
   - Configurable escalation chains and timeout policies
-- [ ] **Expand MCP generation into MCP Builder Agent** (replaces standalone CLI tool):
+- [x] **Expand MCP generation into MCP Builder Agent** (replaces standalone CLI tool) _(completed 2026-04-27 — Person B shipped 4 SKILL.md files (`api-analysis`, `mcp-generation`, `register-server`, `smoke-test`) under `sentura/agents/mcp-builder/skills/`; Person D's Week-2 `config.json5` already wires the sandbox `tools.alsoAllow` block (Round 20 fix), and `sentura-rbac/DESIGN.md` line 13/42 documents `ekg_manager` as the trigger role for the MCP Catalog. Cross-team integration test will land when Person C adds the dashboard "Trigger MCP Builder" page.)_
   - Wire B's MCP Builder Agent workspace (`sentura/agents/mcp-builder/`) with API analysis + code generation skills
   - Input: OpenAPI/Swagger specs (JSON/YAML), markdown API docs (like ekg/*.md), database schema docs, or raw URL
   - Output: TypeScript MCP server project at `sentura/mcp-servers/{name}/` with `index.ts`, `tools/`, `package.json`, `config-snippet.json5`
   - Agent can ask clarifying questions to `ekg_manager` who triggers it
   - Access control: only `ekg_manager` role can trigger the MCP Builder Agent via dashboard
-- [ ] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools
-- [ ] **Build test data extraction tools for pre-deployment testing (capability #15)**:
+- [x] Configure 2 open-source MCP servers (Tier 1: npm packages) for common enterprise tools _(completed 2026-04-26 — `sentura/mcp-servers/{filesystem,slack}/` each ship `config-snippet.json5` (paste-ready under `mcp.servers.<name>`) and `README.md` with security checklist. Tier-1 = upstream `@modelcontextprotocol/server-{filesystem,slack}` via `npx -y` — no in-tree code.)_
+- [x] **Build test data extraction tools for pre-deployment testing (capability #15)** _(completed 2026-04-27 — `sentura/skills/test-data-extraction/SKILL.md` (agent-driven extraction in any session) + `scripts/extract-test-cases.ts` (operator-side runner). Output conforms to `sentura/config/test-harness-schema.json5` TestCase shape; supports `dispute`/`support_thread`/`report`/`verification` record types via `gradsale-admin` MCP tools; PII scrubbing masks emails and customer-name patterns; regulatory-tag rows (`legal_hold`/`gdpr_request`/`pci_violation`) are dropped before persisting.)_
   - MCP tool wrapper that queries enterprise data for historical task records (e.g., past support tickets, past invoices)
   - Output in standardized test case format (matching B's test harness schema)
   - Test with ekg/ GradSale: extract past dispute records and support threads as test cases
-- [ ] Test approval flow: AI employee triggers high-risk action → human approves on dashboard
-- [ ] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)**:
+- [x] Test approval flow: AI employee triggers high-risk action → human approves on dashboard _(completed 2026-04-27 — `scripts/test-approval-flow.ts` (21 offline structural assertions PASS + 5 live gateway-connected RPC checks that skip cleanly when gateway is unreachable). Dashboard `/approvals` page now wires the Sentura approval kind: `useApprovals()` seeds via `listSenturaApprovals({status:"pending"})` on connect, the resolve handler dispatches to `decideSenturaApproval(...)` for `kind === "sentura"`, and the card surfaces `riskLevel` and `policyId` badges.)_
+- [x] **Extend sentura-bootstrap hook to load `ekg/` files into agent context (capability #11)** _(completed 2026-04-26 — `sentura/hooks/sentura-bootstrap/handler.ts` walks `<workspaceDir>/ekg/{org,rules,assets,workflows}/` and synthesises a virtual `EKG_SUMMARY.md` (pillar inventory + per-file domain/entity/relation/rule counts + memory_search guidance). Dependency-free regex counters (no JSON5 parser in hot path). Co-exists with the existing per-user memory branch.)_
   - Update `sentura/hooks/sentura-bootstrap/handler.ts` to scan `ekg/` directory at agent startup
   - Inject EKG summary (pillar counts, key entities, rule count) into system prompt alongside AGENTS.md Hard Rules and BOOTSTRAP.md Enterprise Context (both already loaded natively by OpenClaw)
   - Ensure `ekg/` files are included in OpenClaw's workspace file scanning for vector indexing
@@ -485,6 +496,24 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Set up OpenTelemetry via `diagnostics-otel` extension
 
 ### Person B — AI Employee & Skills Engineer
+- [ ] **Close the agent-callable gateway-tool surface gap** (Week 3 follow-up, surfaced 2026-04-26 during Week 3 re-audit):
+  - The agent-callable `gateway` tool's restricted action enum currently
+    exposes only `restart`, `config.get`, `config.schema.lookup`,
+    `config.apply`, `config.patch`, `update.run` (see
+    `openclaw/src/agents/tools/gateway-tool.ts:137`).
+  - Self-provisioning needs `secrets.resolve` / `secrets.reload` /
+    `exec.approval.request` / `exec.approval.resolve` reachable from inside
+    an agent's tool palette, otherwise Steps 1, 3, 5 of
+    `sentura/agents/creator/skills/self-provisioning/SKILL.md` are
+    operator-driven instead of autonomous (the SKILL.md ⚠️ caveat block
+    documents the current operator-driven fallback).
+  - Two implementation options: (a) widen the `gateway` tool's action enum
+    in OpenClaw core, or (b) add Sentura plugin tools
+    (`sentura_secrets_manage` / `sentura_approvals_manage`) under
+    `sentura/extensions/` following the `sentura_agents_manage` pattern.
+  - Once shipped, remove the ⚠️ Implementation caveat block at the top of
+    `self-provisioning/SKILL.md` and re-test end-to-end via
+    `scripts/test-self-provisioning.ts`.
 - [ ] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis
   - Extends OpenClaw's basic `sessions_spawn` with structured task tracking
   - Progress monitoring via `sessions_history`

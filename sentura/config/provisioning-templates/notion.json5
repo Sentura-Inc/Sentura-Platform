@@ -1,0 +1,34 @@
+// Notion Provisioning Template
+// Tier: Standard (free tier supports integrations; paid plans for advanced features).
+{
+  service: "notion",
+  displayName: "Notion",
+  tier: "standard",
+  registrationUrl: "https://www.notion.so/signup",
+  apiSettingsUrl: "https://www.notion.so/my-integrations",
+  docsUrl: "https://developers.notion.com/docs",
+  formFields: {
+    fullName: "{Company} AI Integration",
+    email: "{enterprise_ai_email}",
+    company: "{Company}",
+    useCase: "Enterprise automation integration",
+    phone: null,
+  },
+  credentialKeys: [
+    {
+      secretKey: "notion_api_key",
+      label: "Internal Integration Secret",
+      location: "notion.so/my-integrations → New integration → copy 'Internal Integration Secret'",
+      type: "token",
+    },
+  ],
+  minimumScopes: ["read_content", "update_content", "insert_content"],
+  mcpServerPackage: "@notionhq/notion-mcp-server",  // Tier 1 official npm package
+  notes: [
+    "Notion uses Internal Integrations for server-to-server access — no OAuth redirect URI needed.",
+    "Token starts with 'secret_'; sent as Authorization: Bearer header.",
+    "Pages and databases must be explicitly shared with the integration inside Notion UI — cannot be automated.",
+    "The official @notionhq/notion-mcp-server is Tier 1 (npm); verify latest version before deploying.",
+    "Free plan supports API integrations; Notion AI features require a paid plan (elevated approval).",
+  ],
+}

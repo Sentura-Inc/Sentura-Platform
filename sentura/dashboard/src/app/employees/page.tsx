@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAgents } from "@/lib/gateway";
 import type { AgentConfig } from "@/lib/gateway";
+import { usePermission } from "@/lib/auth/use-permission";
+import { useAgentRosterStore } from "@/stores/use-agent-roster";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +72,14 @@ export default function EmployeesPage() {
   const router = useRouter();
   const { data: agents, loading, error, refetch } = useAgents();
   const [search, setSearch] = useState("");
+  const { allowed: canCreate } = usePermission("agents.create");
+
+  // Mirror the fetched roster into the global store so other surfaces
+  // (e.g. /chat employee picker in Phase 3) can subscribe without re-fetching.
+  const setRosterAgents = useAgentRosterStore((s) => s.setAgents);
+  useEffect(() => {
+    if (agents) setRosterAgents(agents);
+  }, [agents, setRosterAgents]);
 
   const filtered = agents?.filter((agent) => {
     const q = search.toLowerCase();
@@ -112,13 +122,20 @@ export default function EmployeesPage() {
             />
             Refresh
           </Button>
-          <Link
-            href="/create"
-            className={buttonVariants({ size: "sm" })}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create Employee
-          </Link>
+          {canCreate ? (
+            <Link
+              href="/create"
+              className={buttonVariants({ size: "sm" })}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Employee
+            </Link>
+          ) : (
+            <Button size="sm" disabled title="You don't have permission to create employees">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Employee
+            </Button>
+          )}
         </div>
       </div>
 

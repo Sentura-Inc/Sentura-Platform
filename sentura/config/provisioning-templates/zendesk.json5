@@ -1,0 +1,47 @@
+// Zendesk Provisioning Template
+// Used by the Creator Agent Phase 3 self-provisioning skill and the platform
+// self-provisioning skill (sentura/skills/self-provisioning/SKILL.md).
+// Tier: Standard (free trial available; paid plans need elevated approval).
+{
+  service: "zendesk",
+  displayName: "Zendesk Support",
+  tier: "standard",                // "auto" | "standard" | "elevated"
+  registrationUrl: "https://www.zendesk.com/register/",
+  apiSettingsUrl: "https://{subdomain}.zendesk.com/admin/apps-integrations/apis/zendesk-api/settings",
+  docsUrl: "https://developer.zendesk.com/api-reference/",
+  formFields: {
+    fullName: "{Company} AI Integration",
+    email: "{enterprise_ai_email}",
+    company: "{Company}",
+    useCase: "Enterprise automation integration",
+    phone: null,
+  },
+  credentialKeys: [
+    {
+      secretKey: "zendesk_api_key",
+      label: "API Token",
+      location: "Admin → Apps & Integrations → APIs → Zendesk API → API token",
+      type: "token",
+    },
+    {
+      secretKey: "zendesk_subdomain",
+      label: "Subdomain",
+      location: "Extracted from account URL: {subdomain}.zendesk.com",
+      type: "config",
+    },
+    {
+      secretKey: "zendesk_admin_email",
+      label: "Admin Email",
+      location: "The email address used during registration ({enterprise_ai_email})",
+      type: "config",
+    },
+  ],
+  minimumScopes: ["tickets:read", "tickets:write", "users:read"],
+  mcpServerPackage: null,          // use Sentura-generated MCP server; no npm package
+  notes: [
+    "Zendesk requires email verification — check the enterprise inbox or escalate to human.",
+    "API token auth requires email + token pair, not just the token alone.",
+    "Free trial lasts 14 days; request elevated approval before upgrading to paid plan.",
+    "The subdomain is set during signup and cannot be changed — record it as a config secret.",
+  ],
+}

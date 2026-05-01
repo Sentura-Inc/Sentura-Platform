@@ -424,7 +424,7 @@ The Creator Agent can read the new employee's session transcripts via `sessions_
 
 Traditional enterprise AI requires manual integration: a developer writes API connectors, an admin provisions credentials, a DevOps engineer deploys the connector. Sentura eliminates this entire workflow.
 
-> **What OpenClaw provides**: The browser tool (Playwright-based) for web automation, the encrypted secret store for credential management, and `config.patch` RPC for runtime configuration changes. **What Sentura builds**: The self-provisioning *system* — structured SKILL.md procedures, approval integration, error recovery, audit logging, and the orchestration layer that turns raw browser + secrets primitives into a reliable autonomous provisioning pipeline.
+> **What OpenClaw provides**: The browser tool (Playwright-based) for web automation, workspace-local MCP config loading, and the underlying config/runtime hooks. **What Sentura builds**: the self-provisioning *system* — a file-backed secret provider, host actions for secret/MCP mutation, redacted config-diff logging, approval integration, error recovery, and the orchestration layer that turns raw browser + credential primitives into a reliable autonomous provisioning pipeline.
 
 When an AI employee needs a tool or service it doesn't yet have access to, the Sentura self-provisioning system:
 
@@ -433,8 +433,8 @@ When an AI employee needs a tool or service it doesn't yet have access to, the S
 3. Determines if approval is needed (new accounts, paid services → HITL)
 4. Executes the provisioning skill (browser automation for registration)
 5. Handles errors gracefully (CAPTCHA, 2FA, rate limits → escalate to human)
-6. Stores credentials in OpenClaw's encrypted secret store
-7. Configures the MCP server or tool via `config.patch`
+6. Stores credentials through Sentura's host-side secret helper
+7. Configures the MCP server via per-agent `config.json5 -> mcpServers`
 8. Verifies the connection with a test call
 9. Logs the entire provisioning event for enterprise audit
 
@@ -464,13 +464,13 @@ When an AI employee needs a tool or service it doesn't yet have access to, the S
         │                                          ▼
         │                                  ┌──────────────────────┐
         │                                  │ Store credentials in │
-        │                                  │ OpenClaw secrets     │
+        │                                  │ Sentura secrets.json │
         │                                  └───────┬──────────────┘
         │                                          │
         ▼                                          ▼
 ┌────────────────────────────────────────────────────────┐
 │ Configure MCP server with credentials                  │
-│ Add to agent's mcp.servers config via config.patch     │
+│ Upsert agent config.json5 -> mcpServers via host action│
 │ Verify connection with a test API call                 │
 └────────────────────────────────────────────────────────┘
 ```
@@ -508,34 +508,40 @@ The self-provisioning capability leverages OpenClaw's existing tools:
 }
 ```
 
-**Secret storage** — credentials are stored in OpenClaw's encrypted secret store:
+**Secret storage** — credentials are stored in Sentura's file-backed provider:
 ```json5
-// Stored via gateway RPC or secrets CLI
+// `put_secret` ensures the default provider exists and writes the secret
 {
   secrets: {
-    "zendesk_api_key": { source: "env", provider: "zendesk", id: "api_key" }
+    providers: {
+      default: {
+        source: "file",
+        path: "~/.openclaw/secrets.json",
+        mode: "json"
+      }
+    }
   }
 }
 ```
 
 **MCP server configuration** — the new integration is registered:
 ```json5
-// Added to config.json5 → mcp.servers
+// Added to ~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers
 {
-  mcp: {
-    servers: {
-      "zendesk": {
-        command: "npx",
-        args: ["-y", "@mcp-servers/zendesk"],
-        env: {
-          ZENDESK_API_KEY: { $secret: "zendesk_api_key" },
-          ZENDESK_SUBDOMAIN: "acme"
-        }
+  mcpServers: {
+    "zendesk": {
+      command: "npx",
+      args: ["-y", "@mcp-servers/zendesk"],
+      env: {
+        ZENDESK_API_KEY: "$secret:/sentura/agents/ap-clerk-finance/zendesk/api_key",
+        ZENDESK_SUBDOMAIN: "acme"
       }
     }
   }
 }
 ```
+
+The `$secret:` pointer stays in `config.json5`; Sentura's stdio launcher resolves it only when spawning the MCP child process. Remote HTTP/SSE `headers` do not support `$secret:` pointers in this round.
 
 ### Human Approval for Sensitive Provisioning
 
@@ -1641,7 +1647,7 @@ The Tuning Agent enforces safety boundaries:
 - **Cannot remove safety rules** — modifications to the `## Hard Rules` section of `AGENTS.md` require admin approval
 - **Cannot escalate tool access** — adding dangerous tools requires admin approval
 - **Version history** — every change is tracked with before/after diffs
-- **Rollback** — any change can be reverted via `config.revert` RPC
+- **Recovery** — Sentura-owned writes leave redacted diff records in `~/.openclaw/logs/sentura-config-diffs.jsonl`, and OpenClaw still keeps its native config backups/audit trail for operator-led rollback
 
 ---
 
@@ -1651,7 +1657,7 @@ The Tuning Agent enforces safety boundaries:
 
 MCP is the primary integration mechanism. Enterprise systems are exposed as **MCP servers** that AI employees can call as tools.
 
-> **What OpenClaw provides**: The `mcp.servers` config section that accepts manual JSON5 entries, `@modelcontextprotocol/sdk` for stdio/SSE/streamable-HTTP transports, and the MCP loopback server for exposing OpenClaw's own tools. **What Sentura builds**: The entire enterprise integration pipeline — discovering an enterprise's internal APIs, organizing endpoints into typed MCP tools, generating MCP server code or config, wiring credentials from the secret store, and deploying servers for each AI employee. OpenClaw contains **zero enterprise-specific connectors** (no Salesforce, SAP, Zendesk, Workday, etc.) — all of these must be built, sourced from open-source MCP servers, or auto-generated by Sentura during onboarding.
+> **What OpenClaw provides**: The global `mcp.servers` config section, per-workspace `config.json5 -> mcpServers`, `@modelcontextprotocol/sdk` for stdio/SSE/streamable-HTTP transports, and the MCP loopback server for exposing OpenClaw's own tools. **What Sentura builds**: The enterprise integration pipeline — discovering internal APIs, organizing endpoints into typed MCP tools, generating MCP server code or config, wiring credentials from the secret store, and deploying servers for each AI employee. OpenClaw contains **zero enterprise-specific connectors** (no Salesforce, SAP, Zendesk, Workday, etc.) — all of these must be built, sourced from open-source MCP servers, or auto-generated by Sentura during onboarding.
 
 ### Enterprise MCP Strategy
 
@@ -1822,28 +1828,20 @@ Two non-obvious rules:
 
 **Step 2 — MCP server wiring.** A single `server.ts` loads config from env vars, instantiates an `McpServer`, and calls `server.registerTool()` for each entry in `listTools({ readOnly })`. The handler returns `{ content: [{ type: "text", text: JSON.stringify(result) }] }` on success or `{ isError: true, content: [...] }` on failure. All HTTP plumbing (JWT auth, timeouts, error envelopes) is isolated in a small `client.ts` so the tools remain thin facades.
 
-**Step 3 — `config.patch` into an employee.** Once the server exists, an AI employee picks it up via OpenClaw's `mcp.servers` config section — patched at runtime through the gateway RPC, never hand-edited in the agent's JSON5 file. The entry **must** live directly at `mcp.servers.<name>`; this is the exact path OpenClaw's MCP loader reads (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)` and `openclaw/src/config/mcp-config.ts` → `sourceConfig.mcp?.servers`). Any other nesting (a historically-mentioned `mcp.servers.entries.<name>` shape) is silently invisible to OpenClaw — the server never spawns and the employee appears to have no tools, with no runtime error. Spawn with `command: "node"` pointing at the compiled entry (`dist/index.js`) rather than `pnpm --filter ... start`; OpenClaw launches MCP servers as child processes, so going through `pnpm` adds an unnecessary parent process and pulls workspace resolution into every agent start.
+**Step 3 — wire the server into the right scope.** Shared/operator-managed servers still belong in global `openclaw.json -> mcp.servers.<name>`. Employee-local self-provisioned servers now default to `~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers.<name>` via `sentura.agents.upsertMcpServers` / `sentura_agents_manage { action: "upsert_mcp_servers" }`. In both cases, the entry must be a flat map keyed by server name — not `mcp.servers.entries.<name>` or any other nested shape. Spawn with `command: "node"` pointing at the compiled entry (`dist/index.js`) rather than `pnpm --filter ... start`; OpenClaw launches MCP servers as child processes, so going through `pnpm` adds an unnecessary parent process and pulls workspace resolution into every agent start.
 
 ```ts
-await gateway.rpc("config.patch", {
-  scope: "agent",
+await gateway.rpc("sentura.agents.upsertMcpServers", {
   agentId: "dispute-resolver",
-  patch: {
-    mcp: {
-      servers: {
-        "gradsale-admin": {
-          command: "node",
-          args: ["./sentura/mcp-servers/gradsale-admin/dist/index.js"],
-          env: {
-            GRADSALE_API_URL: "https://admin.gradsale.example",
-            GRADSALE_ADMIN_TOKEN: { $secret: "gradsale.admin_token" },
-            GRADSALE_READ_ONLY: "false",
-          },
-        },
+  mcpServers: {
+    "gradsale-admin": {
+      command: "node",
+      args: ["./sentura/mcp-servers/gradsale-admin/dist/index.js"],
+      env: {
+        GRADSALE_API_URL: "https://admin.gradsale.example",
+        GRADSALE_ADMIN_TOKEN: "$secret:/sentura/agents/dispute-resolver/gradsale/admin_token",
+        GRADSALE_READ_ONLY: "false",
       },
-    },
-    tools: {
-      allow: ["gradsale_admin_*"],
     },
   },
 });

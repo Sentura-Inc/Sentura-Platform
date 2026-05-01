@@ -14,10 +14,12 @@ import type {
   RequestFrame,
   ResponseFrame,
   RpcError,
+  SenturaApprovalRequestRaw,
   SessionCreateResult,
   SessionSummary,
   TranscriptMessage,
 } from "./types";
+import { filterChatSessions, isMetaAgentId } from "./chat-sessions";
 
 type EventHandler = (event: GatewayEvent) => void;
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
@@ -336,13 +338,15 @@ export class GatewayClient {
 
   // --- Agent Methods ---
 
-  private static readonly META_AGENT_IDS = new Set(["creator", "tuner", "orchestrator"]);
-
   async getAgents(): Promise<AgentConfig[]> {
     const config = await this.getConfig();
     const agents = config?.agents as { list?: AgentConfig[] } | undefined;
     const all = agents?.list ?? [];
-    return all.filter((a) => !GatewayClient.META_AGENT_IDS.has(a.id));
+    // Hide Sentura meta-agents and OpenClaw's default `main` fallback agent
+    // from any "employees" view — they are platform infrastructure, not
+    // user-deployed AI employees. Source of truth for the meta-agent set
+    // is `isMetaAgentId` in ./chat-sessions (kept in sync with sentura/lib).
+    return all.filter((a) => !isMetaAgentId(a.id) && a.id !== "main");
   }
 
   async getAllAgentsIncludingMeta(): Promise<AgentConfig[]> {
@@ -444,6 +448,15 @@ export class GatewayClient {
     return this.rpc<SessionCreateResult>("sessions.create", params);
   }
 
+  async createChatSession(
+    agentId: string,
+    options?: { initialMessage?: string; label?: string },
+  ): Promise<SessionCreateResult> {
+    return this.createSession(agentId, options?.initialMessage, {
+      label: options?.label,
+    });
+  }
+
   // --- Chat Methods ---
 
   async sendChat(
@@ -456,6 +469,14 @@ export class GatewayClient {
       sessionKey,
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
+  }
+
+  async sendChatMessage(
+    sessionKey: string,
+    message: string,
+    idempotencyKey?: string,
+  ): Promise<unknown> {
+    return this.sendChat(message, sessionKey, idempotencyKey);
   }
 
   async getChatHistory(
@@ -478,6 +499,16 @@ export class GatewayClient {
 
   async unsubscribeSessions(): Promise<void> {
     await this.rpc("sessions.unsubscribe");
+  }
+
+  async listChatSessions(options?: {
+    agentId?: string;
+    includeMetaAgents?: boolean;
+  }): Promise<SessionSummary[]> {
+    const sessions = await this.listSessions(
+      options?.agentId ? { agentId: options.agentId } : undefined,
+    );
+    return filterChatSessions(sessions, options);
   }
 
   // --- Agent Workspace Files ---
@@ -582,6 +613,62 @@ export class GatewayClient {
       decision,
       ...(options?.reason ? { reason: options.reason } : {}),
     });
+  }
+
+  // --- Sentura Approval (sentura-approval extension) ---
+  //
+  // Backed by the `sentura-approval` extension's gateway methods:
+  //   - sentura.approval.requests.list   { status?, riskLevel?, agentId? }
+  //   - sentura.approval.requests.get    { id }
+  //   - sentura.approval.requests.decide { requestId, decision, decidedByUserId, reason? }
+  // The RPC handlers wrap their payload in `{ requests, count }` /
+  // `{ request }`, so we unwrap to the flat shape the dashboard expects.
+
+  async listSenturaApprovals(query?: {
+    status?: SenturaApprovalRequestRaw["status"];
+    riskLevel?: SenturaApprovalRequestRaw["riskLevel"];
+    agentId?: string;
+  }): Promise<SenturaApprovalRequestRaw[]> {
+    const result = await this.rpc<{
+      requests?: SenturaApprovalRequestRaw[];
+      count?: number;
+    }>("sentura.approval.requests.list", query ?? {});
+    return result?.requests ?? [];
+  }
+
+  async getSenturaApproval(
+    id: string,
+  ): Promise<SenturaApprovalRequestRaw | null> {
+    try {
+      const result = await this.rpc<{
+        request?: SenturaApprovalRequestRaw;
+      }>("sentura.approval.requests.get", { id });
+      return result?.request ?? null;
+    } catch (err) {
+      const e = err as RpcError;
+      if (e?.code === "NOT_FOUND") return null;
+      throw err;
+    }
+  }
+
+  async decideSenturaApproval(
+    requestId: string,
+    decision: "approved" | "denied",
+    decidedByUserId: string,
+    reason?: string,
+  ): Promise<SenturaApprovalRequestRaw> {
+    const result = await this.rpc<{
+      request: SenturaApprovalRequestRaw;
+    }>("sentura.approval.requests.decide", {
+      requestId,
+      decision,
+      decidedByUserId,
+      ...(reason ? { reason } : {}),
+    });
+    if (!result?.request) {
+      throw new Error("sentura.approval.requests.decide returned no request");
+    }
+    return result.request;
   }
 
   // --- Discovery Methods ---
