@@ -100,7 +100,7 @@
           // openclaw/src/agents/tool-catalog.ts:168-191 & :320-322). The
           // `coding` profile is the source of these tools in Forge's toolkit;
           // `alsoAllow` is purely additive.
-          alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch", "browser", "pdf", "canvas", "sentura_agents_manage", "sentura_rbac_manage", "sentura_audit_query"],
+          alsoAllow: ["gateway", "sessions_send", "web_search", "web_fetch", "browser", "pdf", "canvas", "sentura_agents_manage", "sentura_rbac_manage", "sentura_audit_query", "sentura_approval_request"],
           // CRITICAL: The sandbox tool policy (openclaw/src/agents/sandbox/tool-policy.ts)
           // is a SEPARATE filter applied *after* agent-level `alsoAllow`. It uses a
           // narrow hardcoded `DEFAULT_TOOL_ALLOW` that only contains exec/read/write/
@@ -133,6 +133,7 @@
                 "sentura_agents_manage",
                 "sentura_rbac_manage",
                 "sentura_audit_query",
+                "sentura_approval_request",
                 "memory_search",
                 "memory_get",
                 "cron",

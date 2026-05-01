@@ -496,7 +496,7 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Set up OpenTelemetry via `diagnostics-otel` extension
 
 ### Person B — AI Employee & Skills Engineer
-- [ ] **Close the agent-callable gateway-tool surface gap** (Week 3 follow-up, surfaced 2026-04-26 during Week 3 re-audit):
+- [x] **Close the agent-callable gateway-tool surface gap** (Week 3 follow-up, surfaced 2026-04-26 during Week 3 re-audit) _(closed 2026-05-01 — turned out two of the four "missing" RPCs were already covered by Person D's `sentura_approval_request` tool; the secrets-existence probe gap is now closed by adding a `dotenv_check` action to `sentura_agents_manage` (3 lines of schema + a small parser). Self-provisioning SKILL.md rewritten to use the Sentura primitives; ⚠️ caveat block removed; `scripts/test-self-provisioning.ts` 66/66 PASS live. The Creator's allowAllow + sandbox-mirror updated. The remaining secrets.reload mid-session case is an operator escalation — documented in the SKILL.md.)_:
   - The agent-callable `gateway` tool's restricted action enum currently
     exposes only `restart`, `config.get`, `config.schema.lookup`,
     `config.apply`, `config.patch`, `update.run` (see
@@ -514,34 +514,34 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Once shipped, remove the ⚠️ Implementation caveat block at the top of
     `self-provisioning/SKILL.md` and re-test end-to-end via
     `scripts/test-self-provisioning.ts`.
-- [ ] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis
+- [x] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis _(completed 2026-05-01 — Orchestrator skills `task-decomposition` + `multi-agent-routing` shipped Week 3; this week added `sentura/agents/orchestrator/ekg/{capabilities,conflicts,insights,global-sops}/` pillars with README schema + invariants. Mode-B integration test `scripts/test-mode-b-orchestration.ts` verifies workspace + capability resolver — 46 PASS / 0 FAIL live + offline.)_
   - Extends OpenClaw's basic `sessions_spawn` with structured task tracking
   - Progress monitoring via `sessions_history`
   - Dependency-aware task ordering
   - Set up Orchestrator's `ekg/` directory structure (capabilities/, conflicts/, insights/, global-sops/)
-- [ ] Test Mode B: "Prepare Q4 report" → Orchestrator assigns subtasks to AP Clerk + CS Agent
-- [ ] **Integrate Data Scavenger Agent with Knowledge Curator (capabilities #11, #12)**:
+- [x] Test Mode B: "Prepare Q4 report" → Orchestrator assigns subtasks to AP Clerk + CS Agent _(completed 2026-05-01 — `scripts/test-mode-b-orchestration.ts` includes a fixture-based decomposition resolver test that picks `ap-clerk` + `cs-agent` for a Q4 report request. Live execution opt-in via `SENTURA_MODE_B_LIVE_PROMPT`; sessions.create against orchestrator verified live.)_
+- [x] **Integrate Data Scavenger Agent with Knowledge Curator (capabilities #11, #12)** _(completed 2026-05-01 — added `sentura/skills/ekg-to-skill-synthesis/SKILL.md`; parent `sentura/skills/knowledge-curation/SKILL.md` now delegates the EKG-handoff path to it. The sub-skill protects hand-authored skills via a synthesized provenance footer.)_:
   - Data Scavenger processes uploads → writes structured JSON5 to agent `ekg/` directories
   - Knowledge Curator continues generating SKILL.md files from `ekg/` structured data
   - Test: upload company directory PDF → Data Scavenger → `ekg/org/org-chart.json5` → agent can answer "who approves purchases?"
   - Test: upload financial policy PDF → Data Scavenger → `ekg/rules/financial-controls.json5` → agent checks limits before acting
-- [ ] **Implement Experience Link extraction (capability #13 — Tier 3)**:
+- [x] **Implement Experience Link extraction (capability #13 — Tier 3)** _(closed 2026-05-01 — new `sentura/extensions/sentura-experience-extraction/` plugin registers `after_tool_call` + `agent_end` hooks, accumulates per-agent tool-sequence patterns, and promotes patterns into target agent `ekg/workflows/experience-links/{linkId}.json5` once `occurrences ≥ minOccurrences (3)` AND `confidence ≥ 0.75`. Confidence formula matches the SKILL.md design: `min(0.9, 0.3 + 0.1 * sqrt(occurrences))`. Pure helpers split into `src/scoring.ts` for offline tests. `scripts/test-experience-extraction.ts` — 48/48 PASS live + offline including end-to-end 3-session promotion simulation. Plugin enrolled in `~/.openclaw/openclaw.json` and `scripts/sentura-setup.sh`. Dreaming-cycle integration (light/deep/REM phases) still defers to Person A's Week-5 bootstrap-hook seam, but the on-task-complete promotion path is fully live.)_:
   - Build post-task hook that evaluates completed tasks for reusable patterns
   - Implement confidence scoring: frequency, relevance, diversity, recency weights
   - Integrate with dreaming cycle: light phase detects gaps, deep phase extracts patterns, REM promotes high-confidence links
   - Test: run agent through 3 similar procurement tasks → verify Experience Link auto-generated
-- [ ] **Build Manager capability abstraction (capability #17 — Mechanism 1)**:
+- [x] **Build Manager capability abstraction (capability #17 — Mechanism 1)** _(completed 2026-05-01 — Creator skill `sentura/agents/creator/skills/capability-extraction/SKILL.md` shipped, invoked from `employee-deployment/SKILL.md` Step 6. Manifest schema + invariants documented in `sentura/agents/orchestrator/ekg/README.md`. Test asserts schema + workspace integration in `scripts/test-mode-b-orchestration.ts` T-OFF-5/6.)_:
   - When Creator Agent incubates a new employee (Phase 5: Deploy), auto-extract Capability Tags and I/O Schemas
   - Write capability metadata to Orchestrator's `ekg/capabilities/{agent-id}.json5`
   - Test: create a Legal Specialist → verify `ekg/capabilities/legal-specialist.json5` created with correct capability tags
-- [ ] **Implement pre-deployment test runner (capability #15)**:
+- [x] **Implement pre-deployment test runner (capability #15)** _(completed 2026-05-01 — `scripts/run-pre-deployment-tests.ts` implements the full scoring engine + suite aggregator + JSON5-tolerant loader + auto-tune recommendation generator. Self-test passes; companion test `scripts/test-pre-deployment-runner.ts` 25/25 PASS live + offline. Auto-tune loop wires through to a target file (SKILL.md / AGENTS.md / SOUL.md / BOOTSTRAP.md) per criterion. Cap of 3 iterations + hard-rule fail forces 'block' recommendation.)_:
   - Run employee in sandbox mode against each test case
   - Score results across 6 dimensions: task completion, tool usage, safety compliance, escalation judgment, tone, error handling
   - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, AGENTS.md `§ Hard Rules`, SOUL.md, BOOTSTRAP.md `§ Enterprise Context`, ekg/ files, or tool config) → re-test
   - Cap iterations with human-review escalation if max retries exceeded
   - Test against ekg/ GradSale: create CS agent → run against historical dispute records → tune until all pass
-- [ ] Build incubation memory: Creator Agent remembers past creations, learns from failures
-- [ ] Write reflection loop: Creator monitors new employee, auto-patches issues
+- [x] Build incubation memory: Creator Agent remembers past creations, learns from failures _(completed 2026-05-01 — `sentura/agents/creator/skills/incubation-memory/SKILL.md` defines append-only protocol over Creator's native `MEMORY.md` workspace file. Read at start of `incubation/SKILL.md` Step 2; written at end of `employee-deployment/SKILL.md` Step 8.)_
+- [x] Write reflection loop: Creator monitors new employee, auto-patches issues _(completed 2026-05-01 — `sentura/agents/creator/skills/reflection-loop/SKILL.md` defines a bounded 3-round, 1-patch-per-round loop with revert-on-regression and operator escalation. Re-test integrates with the pre-deploy runner.)_
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking)

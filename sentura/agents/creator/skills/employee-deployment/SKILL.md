@@ -191,23 +191,102 @@ If the agent id already exists and you intend to replace it, pass `"overwrite": 
 
 The RPC form (for non-agent callers — tests, scripts, platform admin dashboards) is `sentura.agents.registerAgent` with the same params. It is also callable via `sentura.agents.stampSetupCompleted` if you only need the workspace-state.json stamp.
 
-### Step 6: Register Capabilities with the Orchestrator
+### Step 6: Register Capabilities with the Orchestrator (MANDATORY)
 
-Write a capability manifest into the Orchestrator's EKG — same tool as Step 4, just a different `agentId`:
+**You cannot proceed to Step 7 without writing the capability manifest.** Without it, the Orchestrator's `task-decomposition` skill cannot find the new employee, Mode-B routing breaks, and the deploy is incomplete.
 
-```json
-{
-  "tool": "sentura_agents_manage",
-  "args": {
-    "action": "write",
-    "agentId": "orchestrator",
-    "relPath": "ekg/capabilities/remy-billing-support.json5",
-    "content": "{\n  schemaVersion: '1.0',\n  agentId: 'remy-billing-support',\n  capabilities: [...],\n  ...\n}"
-  }
+The procedure for THIS step is inlined here so you do not have to context-switch to a sibling skill mid-deploy. (For the full extraction guidance — including tag-style rules, confidence scoring, and what to do on under-specification — see `sentura/agents/creator/skills/capability-extraction/SKILL.md`. The schema is documented in `sentura/agents/orchestrator/ekg/README.md`.)
+
+#### 6.1: Read the new agent's workspace files (read-only)
+
+```
+sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "IDENTITY.md" }
+sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "SOUL.md" }
+sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "BOOTSTRAP.md" }
+sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "TOOLS.md" }
+sentura_agents_manage { action: "list", agentId: "<new-agent-id>", relDir: "skills" }
+// Then for each skill returned by `list`:
+sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "skills/<name>/SKILL.md" }
+```
+
+#### 6.2: Extract the manifest fields
+
+| Field | Source | Rules |
+|-------|--------|-------|
+| `agentId` | `register_agent` response | lowercase kebab-case |
+| `name` | `IDENTITY.md` | display name |
+| `department` | `IDENTITY.md` "Dept: …" | lowercase, single word preferred |
+| `deployedAt` | `new Date().toISOString()` | ISO-8601 UTC, e.g. `"2026-04-30T10:14:00.000Z"` |
+| `deployedBy` | literal `"creator"` | always |
+| `capabilityTags` | skill folder names + "When to Use" verbs + `BOOTSTRAP.md` Enterprise Context | 3-10 entries, kebab-case, NO proper nouns (`marketplace-listing-management` ✅, `gradsale-listings` ❌) |
+| `ioSchemas.accepts` | each `SKILL.md` Procedure inputs | array of `{ kind, description, required?, values? }` |
+| `ioSchemas.produces` | each `SKILL.md` Procedure outputs | same shape; use `values: [...]` for closed enums |
+| `invokableSkills` | result of `list` | folder names |
+| `approvalsRequired` | `BOOTSTRAP.md` Enterprise Context "approval-required:" lines + `AGENTS.md` Hard Rules | array of strings naming each escalation rule |
+| `costEstimate.tokensPerTask` | heuristic: 4000 (read-only) / 8000 (transactional) / 12000 (research-heavy) | matches the role's complexity |
+| `costEstimate.model` | `register_agent` `model` field | as registered |
+| `provenance.source` | literal `"creator.phase-5.capability-extraction"` | always |
+| `provenance.extractedAt` | same ISO-8601 timestamp as `deployedAt` | UTC |
+| `provenance.confidence` | 0.85 if every field came from explicit text; 0.7 if any tag was implicit; 0.5 if any field is under-specified | floor for routing is 0.7 — below that, set `reviewRequired: true` |
+
+#### 6.3: Write the manifest
+
+```
+sentura_agents_manage {
+  action: "write",
+  agentId: "orchestrator",
+  relPath: "ekg/capabilities/<new-agent-id>.json5",
+  content: "<the JSON5-formatted manifest>"
 }
 ```
 
-This lets the Orchestrator dispatch tasks to this agent in Mode B.
+Concrete example for an AP Clerk:
+
+```json5
+{
+  agentId: "ap-clerk-finance",
+  name: "Avery (AP Clerk)",
+  department: "finance",
+  deployedAt: "2026-04-30T10:14:00.000Z",
+  deployedBy: "creator",
+  capabilityTags: ["invoice-processing", "vendor-payment", "expense-reconciliation", "finance-reporting"],
+  ioSchemas: {
+    accepts: [
+      { kind: "invoice-pdf", description: "Vendor invoice", required: ["vendor", "amount", "dueDate"] },
+      { kind: "purchase-order-id", description: "Existing PO reference" },
+    ],
+    produces: [
+      { kind: "payment-decision", values: ["approve", "hold-for-review", "reject"] },
+      { kind: "audit-event", description: "Mirrored into sentura-audit log" },
+    ],
+  },
+  invokableSkills: ["invoice-triage", "vendor-lookup", "payment-runs"],
+  approvalsRequired: ["payment-amount-over-threshold", "new-vendor-onboarding"],
+  costEstimate: { tokensPerTask: 8000, model: "openai/gpt-5.4" },
+  provenance: {
+    source: "creator.phase-5.capability-extraction",
+    extractedAt: "2026-04-30T10:14:00.000Z",
+    confidence: 0.85,
+  },
+  reviewRequired: false,
+}
+```
+
+#### 6.4: Verify the write before proceeding
+
+Read back what you just wrote:
+
+```
+sentura_agents_manage {
+  action: "read",
+  agentId: "orchestrator",
+  relPath: "ekg/capabilities/<new-agent-id>.json5"
+}
+```
+
+If the file is absent or empty → STOP. The deploy is in a half-state: agent registered but unrouteable. Do NOT advance to Step 7 until the manifest is on disk and parseable.
+
+This step is the seam between Phase 5 (Deploy) and capability #17 Mechanism 1 (Manager EKG aggregation). Skipping it means the Orchestrator cannot dispatch tasks to this agent in Mode B.
 
 ### Step 7: Wait for Hot-Reload
 
@@ -218,6 +297,21 @@ OpenClaw hot-reloads on every in-process `writeConfigFile` (same listeners that 
 3. `gateway.call("config.get", { path: "mcp.servers" })` should show any merged servers.
 
 ### Step 8: Smoke Test
+
+#### 8.0: Deploy-complete probe (run BEFORE telling the user "deployment complete")
+
+Before announcing the deploy, verify the four artifacts that constitute a complete deploy. If any check fails, the deploy is incomplete — do NOT tell the user "deployment complete"; either fix the gap on the spot or roll back per the Rollback section.
+
+| Check | How |
+|-------|-----|
+| Workspace files written | `sentura_agents_manage { action: "list", agentId: "<new-agent-id>" }` returns at least the 8 native files + every `skills/<name>/SKILL.md` you wrote in Phase 4 |
+| Agent registered | `gateway.call("config.get", {})` → `runtimeConfig.agents.list` contains an entry with `id: "<new-agent-id>"` |
+| Capability manifest written | `sentura_agents_manage { action: "read", agentId: "orchestrator", relPath: "ekg/capabilities/<new-agent-id>.json5" }` returns content with `agentId`, `capabilityTags`, `provenance.source: "creator.phase-5.capability-extraction"` — if this returns empty or errors, Step 6 was skipped → re-run Step 6 NOW |
+| `setupCompletedAt` stamped | `sentura_agents_manage { action: "read", agentId: "<new-agent-id>", relPath: "../workspace-state.json" }` (or rely on the `create_agent` auto-stamp from Step 4) — without this the new agent boots in bootstrap-pending mode |
+
+If the capability-manifest check fails: re-run Step 6 in full (read workspace files → extract fields → write manifest → verify). Do NOT fabricate the manifest from memory — read the actual workspace files first, since pre-deploy intent and post-deploy reality can differ.
+
+#### 8.1: User-visible smoke test
 
 The `sessions.*` RPCs are NOT exposed via the `gateway` tool. The smoke test is therefore a user-visible step:
 

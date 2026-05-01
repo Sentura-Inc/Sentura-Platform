@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { definePluginEntry, resolveOpenClawDir, type OpenClawPluginApi } from "./api.js";
 import {
@@ -90,6 +91,38 @@ function normalizeStringArray(raw: unknown): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
+/**
+ * Read OPENCLAW_HOME/.env and report whether the requested key has a non-empty
+ * value WITHOUT returning the value itself. Used by self-provisioning to
+ * verify a global credential is configured before invoking a tool that
+ * depends on it.
+ *
+ * Parser is the standard dotenv format: lines of `KEY=value` or `KEY="value"`
+ * or `KEY='value'`. Lines starting with `#` and blank lines are skipped.
+ */
+function checkDotenvKey(dotenvPath: string, key: string): { exists: boolean; length: number } {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(dotenvPath, "utf-8");
+  } catch {
+    return { exists: false, length: 0 };
+  }
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const k = trimmed.slice(0, eq).trim();
+    if (k !== key) continue;
+    let v = trimmed.slice(eq + 1).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    return { exists: v.length > 0, length: v.length };
+  }
+  return { exists: false, length: 0 };
+}
+
 // JSON schema for the agent-facing tool. Permissive optional fields cover
 // several actions; per-action required fields are enforced in `execute`. Writes
 // may target either a subfile (skills/, ekg/, memory/users/) OR one of the
@@ -114,9 +147,10 @@ const ManageToolSchema = {
         "has_secret",
         "upsert_mcp_servers",
         "remove_mcp_servers",
+        "dotenv_check",
       ],
       description:
-        "Operation: 'create_agent' creates the agent workspace directory (idempotent, auto-stamps setupCompletedAt so the agent is not bootstrap-pending); 'write' creates/overwrites a file (either a native top-level workspace file like AGENTS.md OR a subfile under skills/, ekg/, memory/users/); 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files under the workspace (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers) IN-PROCESS, bypassing the gateway's scope-upgrade pairing requirement; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json so the agent is not bootstrap-pending on first boot; 'put_secret' stores a per-agent secret in Sentura's file-backed secret store and returns only a $secret pointer; 'has_secret' checks whether a per-agent secret already exists; 'upsert_mcp_servers' writes per-agent MCP servers into the target workspace's config.json5 -> mcpServers using the Sentura secret-pointer launcher; 'remove_mcp_servers' removes named per-agent MCP servers from config.json5.",
+        "Operation: 'create_agent' creates the agent workspace directory (idempotent, auto-stamps setupCompletedAt so the agent is not bootstrap-pending); 'write' creates/overwrites a file (either a native top-level workspace file like AGENTS.md OR a subfile under skills/, ekg/, memory/users/); 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files under the workspace (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers) IN-PROCESS, bypassing the gateway's scope-upgrade pairing requirement; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json so the agent is not bootstrap-pending on first boot; 'put_secret' stores a per-agent secret in Sentura's file-backed secret store and returns only a $secret pointer; 'has_secret' checks whether a per-agent secret already exists; 'upsert_mcp_servers' writes per-agent MCP servers into the target workspace's config.json5 -> mcpServers using the Sentura secret-pointer launcher; 'remove_mcp_servers' removes named per-agent MCP servers from config.json5; 'dotenv_check' reads ~/.openclaw/.env and reports whether the given dotenv key has a non-empty value WITHOUT returning the value itself (used by self-provisioning to verify a global credential is configured before invoking a tool that depends on it).",
     },
     agentId: {
       type: "string",
@@ -152,6 +186,11 @@ const ManageToolSchema = {
       type: "string",
       description:
         "Secret plaintext to store in the file provider. Required for action='put_secret'. Never echoed back in tool output.",
+    },
+    dotenvKey: {
+      type: "string",
+      description:
+        "Dotenv key name (e.g. 'OPENAI_API_KEY'). Required for action='dotenv_check'. The check returns only existence + value length — never the value itself.",
     },
     name: {
       type: "string",
@@ -230,7 +269,8 @@ type ManageToolAction =
   | "put_secret"
   | "has_secret"
   | "upsert_mcp_servers"
-  | "remove_mcp_servers";
+  | "remove_mcp_servers"
+  | "dotenv_check";
 
 interface ManageToolParams {
   action: ManageToolAction;
@@ -241,6 +281,7 @@ interface ManageToolParams {
   service?: string;
   credential?: string;
   secretValue?: string;
+  dotenvKey?: string;
   name?: string;
   model?: string;
   workspaceDir?: string;
@@ -545,7 +586,7 @@ export default definePluginEntry({
       name: "sentura_agents_manage",
       label: "Sentura: Manage Employee Workspace",
       description:
-        "Create and register an employee end-to-end on the HOST filesystem, secret store, and runtime config, entirely in-process. This is the ONLY correct way for Forge to deploy and evolve an employee, because: (a) fs_write cannot write to /workspace/.openclaw/workspace/<agent>/... (sandbox mount is read-only in 'non-main' mode); (b) the agent-callable `gateway` tool only supports the fixed GATEWAY_ACTIONS enum (restart, config.get, config.schema.lookup, config.apply, config.patch, update.run) — it does NOT expose agents.create or agents.files.set; and (c) gateway.call('config.patch', ...) requires operator.admin scope, and OpenClaw hard-codes silent=false for scope upgrades, so an embedded agent has no way to approve its own pairing prompt and the call hangs forever with 'pairing required'. Actions: 'create_agent' creates the workspace root directory (idempotent, AUTO-stamps setupCompletedAt so the new agent is not bootstrap-pending) — call this FIRST; 'write' creates/overwrites any file in the workspace, including the eight native files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) AND subfiles under skills/, ekg/, memory/users/; 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers, all in one atomic write) — keep this for shared/global MCP wiring; 'put_secret' and 'has_secret' manage per-agent secrets in the Sentura file provider and return only $secret pointers; 'upsert_mcp_servers' and 'remove_mcp_servers' manage Week 3 per-agent MCP servers in the target workspace's config.json5 -> mcpServers via the Sentura secret-pointer launcher; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json for an existing workspace.",
+        "Create and register an employee end-to-end on the HOST filesystem, secret store, and runtime config, entirely in-process. This is the ONLY correct way for Forge to deploy and evolve an employee, because: (a) fs_write cannot write to /workspace/.openclaw/workspace/<agent>/... (sandbox mount is read-only in 'non-main' mode); (b) the agent-callable `gateway` tool only supports the fixed GATEWAY_ACTIONS enum (restart, config.get, config.schema.lookup, config.apply, config.patch, update.run) — it does NOT expose agents.create or agents.files.set; and (c) gateway.call('config.patch', ...) requires operator.admin scope, and OpenClaw hard-codes silent=false for scope upgrades, so an embedded agent has no way to approve its own pairing prompt and the call hangs forever with 'pairing required'. Actions: 'create_agent' creates the workspace root directory (idempotent, AUTO-stamps setupCompletedAt so the new agent is not bootstrap-pending) — call this FIRST; 'write' creates/overwrites any file in the workspace, including the eight native files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md) AND subfiles under skills/, ekg/, memory/users/; 'read' returns a file's content; 'delete' removes a file; 'list' enumerates files (optionally scoped by relDir); 'register_agent' registers the agent in openclaw.json (agents.list + optional bindings + optional mcp.servers, all in one atomic write) — keep this for shared/global MCP wiring; 'put_secret' and 'has_secret' manage per-agent secrets in the Sentura file provider and return only $secret pointers; 'upsert_mcp_servers' and 'remove_mcp_servers' manage Week 3 per-agent MCP servers in the target workspace's config.json5 -> mcpServers via the Sentura secret-pointer launcher; 'stamp_setup' idempotently stamps setupCompletedAt in the workspace-state.json for an existing workspace; 'dotenv_check' reads ~/.openclaw/.env and reports whether a given dotenv key has a non-empty value WITHOUT returning the value itself — used by self-provisioning to verify a global credential is configured before invoking a tool that depends on it.",
       parameters: ManageToolSchema,
       execute: async (_toolCallId, rawParams) => {
         const params = rawParams as ManageToolParams;
@@ -727,6 +768,26 @@ export default definePluginEntry({
             const result = await deleteSubfile(params.agentId, params.relPath, deleteOpts);
             return {
               content: [{ type: "text", text: renderResultText("delete", result) }],
+              details: result,
+            };
+          }
+          if (action === "dotenv_check") {
+            if (!params.dotenvKey) {
+              throw new PathValidationError("MISSING_DOTENV_KEY", "dotenvKey is required for action='dotenv_check'");
+            }
+            const dotenvPath = path.join(resolveOpenClawDir(), ".env");
+            const probe = checkDotenvKey(dotenvPath, params.dotenvKey);
+            const result = {
+              ok: true,
+              exists: probe.exists,
+              length: probe.length,
+              dotenvFilePath: dotenvPath,
+            };
+            const text = probe.exists
+              ? `dotenv key '${params.dotenvKey}' is set (length=${probe.length})`
+              : `dotenv key '${params.dotenvKey}' is NOT set`;
+            return {
+              content: [{ type: "text", text }],
               details: result,
             };
           }

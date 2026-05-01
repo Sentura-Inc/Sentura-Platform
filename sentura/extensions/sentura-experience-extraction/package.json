@@ -1,0 +1,15 @@
+{
+  "name": "@sentura/experience-extraction",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentura experience-link extraction extension for OpenClaw — detects recurring task patterns via post-task hooks and promotes high-confidence patterns into the target agent's ekg/workflows/experience-links/ pillar (capability #13 Tier 3).",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "openclaw": "*"
+  }
+}

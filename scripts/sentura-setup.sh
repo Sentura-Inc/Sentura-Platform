@@ -623,7 +623,7 @@ SENTURA_EXTENSIONS_DIR="$PROJECT_ROOT/sentura/extensions"
 # Extensions to wire in. Only those that actually exist on disk AND have
 # both openclaw.plugin.json + index.ts are added — missing extensions are
 # reported as warnings so Person A/D can see what's pending.
-SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner")
+SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner" "sentura-experience-extraction")
 
 # Build a newline-separated list of "<id>|<absolute-dir>" pairs for the
 # Node patcher below. We only include extensions that have a manifest AND

@@ -1,30 +1,6 @@
 # Self-Provisioning Pipeline
 
-> ## ⚠️ Implementation caveat (2026-04-26)
->
-> Several steps of this pipeline reference gateway RPCs (`secrets.resolve`,
-> `secrets.reload`, `exec.approval.request`, `exec.approval.resolve`) that are
-> **not** in the agent-callable `gateway` tool's restricted action enum (only
-> `restart`, `config.get`, `config.schema.lookup`, `config.apply`,
-> `config.patch`, `update.run` are reachable from inside an agent's tool
-> palette — see `openclaw/src/agents/tools/gateway-tool.ts:137`). Those RPCs
-> exist on the gateway server but are reachable only from typed clients
-> (dashboard, CLI).
->
-> Until the agent-callable surface grows, the steps below describe the
-> intended autonomous flow alongside an **operator-driven fallback** for
-> each blocked sub-step:
->
-> | Blocked sub-step | Operator-driven fallback |
-> |--|--|
-> | `secrets.resolve` precheck | Ask operator: "Do you already have `<KEY>` in `~/.openclaw/.env`?" |
-> | `exec.approval.request` submit | Approval flow auto-triggers when Creator invokes the `browser` tool (per `approvals.tools` policy). Creator does not submit approvals directly. |
-> | `secrets.reload` after .env edit | Operator runs `openclaw secrets reload` (CLI) or clicks "Reload secrets" on the dashboard after pasting the credential into `~/.openclaw/.env`. |
-> | `agents.files.get/set` for `TOOLS.md` append | Use `sentura_agents_manage { action: "read"/"write" }` (already covered in Step 8). |
->
-> A Week-4 follow-up should either widen the `gateway` tool's action enum or
-> add a `sentura_secrets_manage` plugin tool to close the gap and make this
-> pipeline fully autonomous. Tracked in `docs/TeamPlan.md` Week 4.
+> **Autonomy note (2026-05-01)** — this pipeline is now agent-callable end-to-end via three Sentura tools: `sentura_agents_manage` (workspace + secret writes + `dotenv_check`), `sentura_approval_request` (HITL approvals with policy-based auto-approve/deny), and the `browser` tool (Playwright automation). Earlier versions of this skill described an operator-driven fallback because the agent-callable `gateway` tool's enum doesn't expose `exec.approval.*`/`secrets.*` directly; those gaps are now closed by the Sentura-named primitives below. The only remaining operator touchpoint is the gateway's secret-cache reload after a `.env` write, which is handled by either (a) a session restart (next session re-reads `.env`) or (b) the operator running `openclaw secrets reload`.
 
 ## When to Use
 
@@ -43,28 +19,23 @@ Do NOT run Phase 3 if all required credentials are already provisioned (credenti
    - Extract all `$secret.*` references from the `env` map.
    - Record: `{ service, secretKey, description, tier }`.
 2. Probe whether each `$secret.<key>` already resolves to a non-empty value.
-   OpenClaw exposes `secrets.resolve` (for known target IDs registered with the
-   secret target registry) and `secrets.reload` (warm-reload after .env edits).
-   There is **no** `secrets.exists` and **no** `secrets.set` RPC — secret writes
-   happen on disk (see Step 5).
-
-   For credentials whose secret target IDs are registered:
+   For PER-AGENT credentials (already in the Sentura file provider):
    ```
-   gateway.call("secrets.resolve", {
-     commandName: "self-provisioning-precheck",
-     targetIds: ["<knownTargetId>", ...],
-   })
+   sentura_agents_manage { action: "has_secret", agentId: "<targetAgentId>", service: "<service>", credential: "<credential-key>" }
    ```
-   The result has `assignments[]` (resolved paths/values), `inactiveRefPaths[]`
-   (declared `$secret.*` references that did not resolve), and `diagnostics[]`.
-
-   For ad-hoc keys that are not yet in the target registry, read
-   `~/.openclaw/.env` directly via the `read` tool and look for the
-   `KEY=` line. A missing or empty value means the key needs provisioning.
+   For GLOBAL credentials in `~/.openclaw/.env` (anything matched by a
+   `$secret.<KEY>` reference where the key is the dotenv key name):
+   ```
+   sentura_agents_manage { action: "dotenv_check", agentId: "creator", dotenvKey: "<KEY>" }
+   // → { ok: true, exists: true, length: 51, dotenvFilePath: "/Users/.../.openclaw/.env" }
+   ```
+   The `dotenv_check` action returns only existence + value length — never the
+   value itself. (The `agentId: "creator"` is a no-op caller field for
+   schema-required validation; the dotenv file is global.)
 
 3. Separate into two lists:
-   - `alreadyProvisioned` — key resolves to a non-empty value (or `KEY=...` is present in `.env`)
-   - `needsProvisioning` — key missing, empty, or surfaced in `inactiveRefPaths`
+   - `alreadyProvisioned` — `has_secret` returned `true` OR `dotenv_check.exists` is `true`
+   - `needsProvisioning` — both probes returned absent/empty
 
 If `needsProvisioning` is empty, skip to Step 7 (smoke-test).
 
@@ -85,29 +56,39 @@ read file: sentura/config/approval-policies.json5
 
 ### Step 3: Submit Approval Requests
 
-For each service requiring approval (Standard or Elevated):
+For each service requiring approval (Standard or Elevated), submit via Sentura's policy-based HITL approval tool:
 
-1. Construct approval request body:
-   ```json5
-   {
-     action: "self_provisioning",
-     agentId: "<target employee id>",
-     service: "<service name>",
-     url: "<registration URL>",
-     reason: "<why this access is needed — from design brief>",
-     tier: "<plan/tier name>",
-     estimatedCostUSD: null,           // or a number for paid plans
-     requestingAgent: "creator",
-     escalateTo: "<operator from design brief>",
-   }
-   ```
-2. Submit via the gateway approval tool:
-   ```
-   gateway.call("exec.approval.request", <above>)
-   ```
-3. Inform the operator: "Awaiting approval for [service] provisioning. You will receive an approval request on the dashboard."
-4. Wait for the approval event (`exec.approval.resolved` with `decision: "approve"`).
-   - If rejected: log the rejection, notify operator, mark the service as "needs manual provisioning". Continue with remaining services.
+```
+sentura_approval_request {
+  action: "self_provisioning.<service>",       // stable identifier for policy matching
+  riskLevel: "high" | "critical",              // Standard tier → "high"; Elevated → "critical"
+  context: {
+    agentId: "<target employee id>",
+    service: "<service name>",
+    url: "<registration URL>",
+    reason: "<why this access is needed — from design brief>",
+    tier: "<plan/tier name>",
+    estimatedCostUSD: null,                    // or a number for paid plans
+    requestingAgent: "creator",
+    escalateTo: "<operator from design brief>",
+  },
+}
+```
+
+The reply is one of three shapes (no waiting required for the first two):
+
+- `{ status: "auto_approved", requestId, policyId, reason }` — a matching policy in `sentura/config/approval-policies.json5` allowed this combination; proceed to Step 4.
+- `{ status: "auto_denied", requestId, policyId, reason }` — a policy explicitly blocked it; mark the service as "manual-only" and continue.
+- `{ status: "pending", requestId, policyId, reason, expiresAt, escalation, onTimeoutDecision }` — human review required; inform the operator: *"Awaiting approval for `<service>` provisioning. You will receive an approval request on the dashboard. Pending request id: `<requestId>` (expires `<expiresAt>`)."*
+
+For pending approvals, poll the decision via `sentura.approval.requests.get` (gateway RPC, available via the `gateway` tool):
+
+```
+gateway.call("sentura.approval.requests.get", { requestId: "<requestId>" })
+// → { request: { status: "pending" | "approved" | "denied" | ... } }
+```
+
+Poll every 30s up to 10 minutes. On `approved` → continue to Step 4. On `denied` → log the rejection and continue with remaining services. On `expired` → escalate to operator with a fresh request having `escalation.currentIndex + 1`.
 
 ### Step 4: Navigate and Register
 
@@ -157,12 +138,17 @@ For each approved (or auto-approved) service, use the `browser` tool:
    with the secret payload. Refer to the operator's SOP for the exact
    contract — never assume a default vault path.
 
-5. After writing, reload the gateway's secret cache so subsequent tools see
-   the new value:
-   ```
-   gateway.call("secrets.reload", {})
-   // → { ok: true, warningCount: 0 }
-   ```
+5. After writing, the gateway's secret cache must pick up the new value. The
+   agent-callable `gateway` tool's enum does not include `secrets.reload`, so:
+   - **Default path**: do nothing further — OpenClaw's MCP loader spawns
+     server processes that read `~/.openclaw/.env` directly on launch, and
+     the next session start re-reads `.env` for in-process tool resolution.
+     Write the credential, register the MCP server (Step 6), and the next
+     `sessions.create` against the target agent will see the new value.
+   - **Mid-session escalation path**: if a still-running session must use the
+     new credential immediately, ask the operator to run
+     `openclaw secrets reload` (CLI) or click "Reload secrets" on the
+     dashboard. Do not retry the dependent tool until the operator confirms.
 
 **NEVER** log the raw credential value, echo it in agent replies, or place it in
 conversation history. The dotenv write is a tool call with the value as the
@@ -263,9 +249,10 @@ If `status === "partial"`, continue to Phase 4 but note in the deployment record
 ## Tools Needed
 
 - `browser` — navigate registration pages, extract credentials from web UI
-- `gateway` — `secrets.resolve` / `secrets.reload`, `tools.effective` (post-provisioning tool-palette refresh), `exec.approval.request` / `exec.approval.resolve`. Secret writes use the file-system (`~/.openclaw/.env`) or a configured `secrets.providers.<name>.command` — there is no `secrets.set` RPC. MCP-server tool verification is a normal tool call against the freshly-registered tool name (no `mcp.invoke` RPC exists).
-- `sentura_agents_manage` — `write` (update TOOLS.md)
-- `message` — notify operators of approval requests, CAPTCHA blocks, 2FA prompts, and completion
+- `sentura_approval_request` — submit Standard / Elevated tier approval requests with policy-based auto-approve / auto-deny / require-human routing
+- `sentura_agents_manage` — `dotenv_check` (probe global credentials in `~/.openclaw/.env`), `has_secret` / `put_secret` (per-agent secret store), `read` / `write` (workspace files, including TOOLS.md), `upsert_mcp_servers` (per-agent MCP wiring)
+- `gateway` — `config.get` (snapshot read), `tools.effective` (post-provisioning tool-palette refresh). Note: `secrets.*` and `exec.approval.*` are NOT in the agent-callable enum; use the `sentura_*` tools above instead. MCP-server tool verification is a normal tool call against the freshly-registered tool name (no `mcp.invoke` RPC exists).
+- `message` — notify operators of pending approvals, CAPTCHA blocks, 2FA prompts, and completion
 - `web_search` — find service API documentation when template is missing
 - `web_fetch` — read API docs directly
 
