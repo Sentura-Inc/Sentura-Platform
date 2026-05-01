@@ -563,19 +563,18 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Unified chat thread view: messages from all agents and humans interleaved chronologically with sender attribution
   - Group management: add/remove participants, rename group, archive
 
-### Person D — Extensions & Integrations Engineer
-- [ ] Build comprehensive audit logging (every action, every tool call, searchable)
-- [ ] Implement data classification (T0–T4 tiers) in audit extension
-- [ ] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping
-- [ ] **Integrate audit logging for Communication Panel conversations (capability #16)**:
-  - Log all dashboard chat messages (human → agent, agent → human) as audit events
-  - Log group chat creation, participant changes, and fan-out actions
-  - Ensure chat audit events are queryable via the audit trail page
-- [ ] Configure more MCP servers using 3-tier strategy:
-  - 2 more open-source MCP servers (Tier 1)
-  - 1 more enterprise-generated MCP server from ekg/ docs (Tier 2)
-- [ ] Build MCP server health monitoring (connection status, error tracking)
-- [ ] Write security scanner: detect risky agent configurations
+### Person D — Extensions & Integrations Engineer — COMPLETE (2026-05-01)
+- [x] Build comprehensive audit logging (every action, every tool call, searchable) — extended `sentura-audit` with 7 new event types (`chat_message`, `chat_group_*`, `mcp_health_*`), tenant/department/userId/groupId/argumentsDigest metadata, and free-text `search` filter on `sentura.audit.query`.
+- [x] Implement data classification (T0–T4 tiers) in audit extension — `dataTier` field stamped on every entry by `classifyDataTier(eventType, details, defaultTier)`; query/tool both filterable by tier; `sentura.audit.stats` rolls up `byTier`. Schema extended in `openclaw.plugin.json` with `defaultDataTier` config.
+- [x] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping — `AuditMetadata` and `ApprovalRequest` both carry `tenantId`/`departmentId`; `AuditQueryParams` and `ApprovalQueryParams` both filterable; `fileApprovalImperative` honours the new fields; `sentura.audit.stats` exposes `byTenant`.
+- [x] **Integrate audit logging for Communication Panel conversations (capability #16)**: new gateway RPCs `sentura.audit.chat.log` (per-message) and `sentura.audit.group.log` (group lifecycle: created/updated/archived/fanout) — both written by `sentura-audit/index.ts`; events queryable by `groupId`/`tenantId` via the existing `sentura.audit.query` RPC.
+- [x] Configure more MCP servers using 3-tier strategy:
+  - 2 more open-source MCP servers (Tier 1) — `sentura/mcp-servers/github/` (`@modelcontextprotocol/server-github`) + `sentura/mcp-servers/postgres/` (`@modelcontextprotocol/server-postgres`), each with `config-snippet.json5` + `README.md` per the existing `filesystem/` and `slack/` template.
+  - 1 more enterprise-generated MCP server from ekg/ docs (Tier 2) — `sentura/mcp-servers/gradsale-search/` covering Sections 2 (Users), 9 (Ratings), 15 (Universities), 17 (Geocoding) of `ekg/api-web.md`. 8 read-only tools, full vitest suite (11 green).
+- [x] Build MCP server health monitoring (connection status, error tracking) — new extension `sentura/extensions/sentura-mcp-health/` with stdio-MCP-ping `defaultCheckStrategy`, status state-machine (up→degraded→down with configurable thresholds), gateway RPCs `sentura.mcp.health.{list,get,checkNow}`, agent tool `sentura_mcp_health`, and audit emit on every status change via `sentura.audit.mcp.health`.
+- [x] Write security scanner: detect risky agent configurations — `sentura/extensions/sentura-audit/src/security-scanner.ts` (pure `scan`/`summarize`) plus CLI driver `scripts/scan-agent-security.ts`. Detects sandbox-mode misuse, wildcard tool allowlists, high-risk tools (`exec`/`browser`), missing Hard Rules header in AGENTS.md, oversized AGENTS.md (>11.5k chars → 12k truncation footgun), raw secret patterns (OpenAI/AWS/Slack/GitHub/PEM/Google) in workspace files or MCP env, and channel-bound agents missing `escalateTo`.
+
+**Verification:** Offline — 107 vitest cases green across 10 test files (sentura suite 9 files / 96 tests + gradsale-search 1 file / 11 tests); `pnpm build` succeeds for the new MCP server. Live — `scripts/test-week4-d.ts` runs **21/21 passing** RPCs against a live gateway (chat/group/mcp-health audit ingest, multi-tenancy + dataTier + groupId query filters, MCP health monitor list/get, approval list with tenant filter). Security scanner CLI runs cleanly against the live config (3 high, 0 critical).
 
 ---
 

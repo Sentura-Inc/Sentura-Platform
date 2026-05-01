@@ -52,6 +52,12 @@
         "type": "boolean",
         "default": false,
         "description": "Include full tool arguments and results in audit entries (caution: may contain sensitive data)"
+      },
+      "defaultDataTier": {
+        "type": "string",
+        "enum": ["T0", "T1", "T2", "T3", "T4"],
+        "default": "T1",
+        "description": "Default data classification tier for events whose type does not have an explicit mapping (T0=public, T1=internal, T2=confidential, T3=restricted/PII, T4=secret/credentials)."
       }
     }
   }

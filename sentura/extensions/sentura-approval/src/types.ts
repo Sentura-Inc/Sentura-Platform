@@ -36,6 +36,14 @@ export interface ApprovalRequest {
     chain: EscalationRole[];
     currentIndex: number;
   };
+  /**
+   * Multi-tenancy fields (Week 4 Person D). Tenants are isolation boundaries
+   * — approvals filed in one tenant must never appear in another tenant's
+   * dashboard. Department drives RBAC `department`-scope filters so a
+   * `manager` of `support` only sees `support` approvals.
+   */
+  tenantId?: string;
+  departmentId?: string;
 }
 
 export type PolicyOutcome =
@@ -92,4 +100,7 @@ export interface ApprovalQueryParams {
   agentId?: string;
   riskLevel?: RiskLevel;
   limit?: number;
+  /** Multi-tenancy filters (Week 4 Person D). */
+  tenantId?: string;
+  departmentId?: string;
 }

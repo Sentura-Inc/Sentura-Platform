@@ -11,6 +11,7 @@ function makeEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {
     timestamp: new Date().toISOString(),
     eventType: "tool_call",
     severity: "info",
+    dataTier: "T1",
     details: { toolName: "test_tool" },
     ...overrides,
   };
@@ -105,5 +106,122 @@ describe("AuditStore", () => {
     const results = await nestedStore.query({});
     expect(results.length).toBe(1);
     await nestedStore.close();
+  });
+
+  // -----------------------------------------------------------------
+  // Week 4 Person D — multi-tenancy + data-tier filters
+  // -----------------------------------------------------------------
+
+  it("filters by tenantId", async () => {
+    await store.append(makeEntry({ metadata: { tenantId: "acme" } }));
+    await store.append(makeEntry({ metadata: { tenantId: "globex" } }));
+    await store.append(makeEntry({ metadata: { tenantId: "acme" } }));
+
+    const acme = await store.query({ tenantId: "acme" });
+    expect(acme.length).toBe(2);
+    expect(acme.every((e) => e.metadata?.tenantId === "acme")).toBe(true);
+  });
+
+  it("filters by departmentId", async () => {
+    await store.append(makeEntry({ metadata: { tenantId: "acme", departmentId: "support" } }));
+    await store.append(makeEntry({ metadata: { tenantId: "acme", departmentId: "finance" } }));
+
+    const support = await store.query({ departmentId: "support" });
+    expect(support.length).toBe(1);
+    expect(support[0].metadata?.departmentId).toBe("support");
+  });
+
+  it("filters by userId and groupId", async () => {
+    await store.append(
+      makeEntry({
+        eventType: "chat_message",
+        metadata: { userId: "u_001", groupId: "grp_a" },
+      }),
+    );
+    await store.append(
+      makeEntry({
+        eventType: "chat_message",
+        metadata: { userId: "u_002", groupId: "grp_a" },
+      }),
+    );
+    await store.append(
+      makeEntry({
+        eventType: "chat_message",
+        metadata: { userId: "u_001", groupId: "grp_b" },
+      }),
+    );
+
+    expect((await store.query({ userId: "u_001" })).length).toBe(2);
+    expect((await store.query({ groupId: "grp_a" })).length).toBe(2);
+    expect((await store.query({ userId: "u_001", groupId: "grp_a" })).length).toBe(1);
+  });
+
+  it("filters by dataTier", async () => {
+    await store.append(makeEntry({ dataTier: "T0" }));
+    await store.append(makeEntry({ dataTier: "T2" }));
+    await store.append(makeEntry({ dataTier: "T4" }));
+
+    const t4 = await store.query({ dataTier: "T4" });
+    expect(t4.length).toBe(1);
+    expect(t4[0].dataTier).toBe("T4");
+  });
+
+  it("filters by free-text search across details and metadata", async () => {
+    await store.append(makeEntry({ details: { toolName: "browser_navigate" } }));
+    await store.append(makeEntry({ details: { toolName: "fs_read" } }));
+    await store.append(
+      makeEntry({
+        details: { toolName: "fs_read" },
+        metadata: { mcpServer: "filesystem-shared" },
+      }),
+    );
+
+    const browserHits = await store.query({ search: "browser" });
+    expect(browserHits.length).toBe(1);
+
+    const sharedHits = await store.query({ search: "shared" });
+    expect(sharedHits.length).toBe(1);
+    expect(sharedHits[0].metadata?.mcpServer).toBe("filesystem-shared");
+  });
+
+  it("supports composite filters (tenant + tier + eventType)", async () => {
+    await store.append(
+      makeEntry({
+        eventType: "approval_requested",
+        dataTier: "T3",
+        metadata: { tenantId: "acme" },
+      }),
+    );
+    await store.append(
+      makeEntry({
+        eventType: "approval_requested",
+        dataTier: "T2",
+        metadata: { tenantId: "acme" },
+      }),
+    );
+    await store.append(
+      makeEntry({
+        eventType: "tool_call",
+        dataTier: "T3",
+        metadata: { tenantId: "acme" },
+      }),
+    );
+    await store.append(
+      makeEntry({
+        eventType: "approval_requested",
+        dataTier: "T3",
+        metadata: { tenantId: "globex" },
+      }),
+    );
+
+    const result = await store.query({
+      tenantId: "acme",
+      dataTier: "T3",
+      eventType: "approval_requested",
+    });
+    expect(result.length).toBe(1);
+    expect(result[0].metadata?.tenantId).toBe("acme");
+    expect(result[0].dataTier).toBe("T3");
+    expect(result[0].eventType).toBe("approval_requested");
   });
 });

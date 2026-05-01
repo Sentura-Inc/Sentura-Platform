@@ -112,9 +112,15 @@ Each row links to the detail file where that session's prose, code diffs, verifi
 | 2026-04-26 | D | Week 2 carry-over closed: `sentura/mcp-servers/gradsale-web/` (sibling to `gradsale-admin/`) — 32 tools across sections 1/3/6 of `ekg/api-web.md` (Authentication × 10, Listings × 11, Messages × 11) with cached-token persistence on `login`/`google_oauth`/`reset_password`, `auth: false` opt-out for unauthenticated endpoints, `gradsale_web_` prefix for coexistence with admin server; 16 tests (12 unit + 4 e2e via `InMemoryTransport`) | [`memory/person-d/week-3.md`](memory/person-d/week-3.md) |
 | 2026-04-27 | shared | Merge `origin/person-d` PR #4 into `merge` (7 conflict resolutions: `.gitignore` union, `MEMORY.md`/`TESTS.md` paired-rows, OpenClaw template trivial-newline, `pnpm-lock.yaml` take-theirs, `setup.sh` keep-HEAD-prose). Fixed pre-existing duplicate `dependencies` key in `sentura-agents/package.json`. Closed Person D's three Week-3 deferrals: (a) **MCP Builder skills** verified (B shipped 4 skills, D config wires sandbox + RBAC docs `ekg_manager`); (b) **test data extraction tool** built — `sentura/skills/test-data-extraction/SKILL.md` + `scripts/extract-test-cases.ts` with TestCase output conforming to `test-harness-schema.json5`, PII scrubbing, regulatory-tag drop; (c) **approval flow E2E** — `scripts/test-approval-flow.ts` (21 offline + 5 live RPC checks). Dashboard `/approvals` page extended to seed Sentura approvals (`listSenturaApprovals`) and dispatch `decideSenturaApproval` for `kind === "sentura"`; client/types/hooks all extended; new `riskLevel`/`policyId` badges. All 8 Person D Week-3 TeamPlan checkboxes flipped. | [`memory/shared/person-d-week3-merge-2026-04-27.md`](memory/shared/person-d-week3-merge-2026-04-27.md) |
 
-### Weeks 4–8 (not yet started)
+### Week 4 (Multi-Tenancy, Orchestration & Knowledge Pipeline)
 
-No sessions logged. See `docs/TeamPlan.md` for the planned scope. When sessions start, add rows here and create `docs/memory/person-*/week-{4..8}.md` detail files as needed.
+| Date | Owner | Session | Detail file |
+|---|---|---|---|
+| 2026-05-01 | D | Week 4 Person D — COMPLETE: T0–T4 data classification + tenant/department/userId/groupId/argumentsDigest metadata + 7 new audit event types (chat_message, chat_group_*, mcp_health_*) + free-text search filter on `sentura.audit.query`; tenant fields on `ApprovalRequest`/`ApprovalQueryParams`; new `sentura-mcp-health` extension (stdio-ping monitor, 3 RPCs + agent tool + audit emit on transitions); 2 Tier-1 MCP snippets (`github/`, `postgres/`); 1 Tier-2 server `sentura/mcp-servers/gradsale-search/` (8 read-only tools, 11 green tests); security scanner `sentura-audit/src/security-scanner.ts` + CLI `scripts/scan-agent-security.ts`; **107 offline vitest cases green + 21/21 live gateway RPC checks** | [`memory/person-d/week-4.md`](memory/person-d/week-4.md) |
+
+### Weeks 5–8 (not yet started)
+
+No sessions logged. See `docs/TeamPlan.md` for the planned scope. When sessions start, add rows here and create `docs/memory/person-*/week-{5..8}.md` detail files as needed.
 
 ---
 
