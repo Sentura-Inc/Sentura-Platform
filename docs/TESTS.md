@@ -60,6 +60,17 @@ npx tsx scripts/test-hot-reload.sh               # A6
 npx tsx scripts/repair-sandbox-seeding.ts        # A14.12 (fixer for existing installs)
 ```
 
+### Week 4 Test Runners (offline; Person A)
+
+```bash
+npx tsx scripts/test-week4-tenancy.ts            # A16 — 24/24 PASS
+npx tsx scripts/test-week4-memory.ts             # A17 — 21/21 PASS
+npx tsx scripts/test-week4-cost.ts               # A18 — 26/26 PASS
+npx tsx scripts/test-week4-health.ts             # A19 — 22/22 PASS
+npx tsx scripts/test-week4-otel.ts               # A20 — 19/19 PASS
+npx tsx scripts/test-concurrent-employees.ts     # A21 — live gateway required
+```
+
 ### Live Verification
 
 Gateway at `http://localhost:18789`; Control UI at same URL.
@@ -89,6 +100,12 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | A13 | Gateway integration (live) | 11 | `test-gateway-integration.ts` — handshake, `config.get`/`config.patch`, memory isolation, Hard Rules + Enterprise Context present, `/health` | PASS | § A13 |
 | A14 | Sandbox seed hook | 12 | `test-week2.ts` Part 11 — skills mirror, BOOTSTRAP.md overwrite, MEMORY.md / config.json5 / memory-users / ekg union-copy, host no-op, stale-install repair | PASS | § A14 |
 | A15 | `sentura-agents` extension + setup wiring | 12 | `test-week2.ts` Part 12 — manifest, 4 RPC methods, `sentura_agents_manage` tool, `safeJoin` path-guard, native-file block, setup `plugins.load.paths` / `plugins.entries` patching, live subfile round-trip | PASS | § A15 |
+| A16 | Week 4 Multi-tenancy (`sentura/lib/tenancy.ts` + RBAC `tenancy-store`) | 24 | `test-week4-tenancy.ts` — `TenancyStore` upsert idempotency, `getAgentTenancy` / `setAgentTenancy` defaults, `resolveTenantContext` session-key combine, `applyDefaultTenancyOnDisk` Step 4b semantics | PASS | § A16 |
+| A17 | Week 4 sentura-memory-lancedb fork (per-user partitioning) | 21 | `test-week4-memory.ts` — `applyUserTokenScope` (user-plus-global / user-only / global-only / pre-migration fallback), two-user isolation, session-key parser | PASS | § A17 |
+| A18 | Week 4 sentura-cost extension | 26 | `test-week4-cost.ts` — aggregator (by agent / dept / tenant / model / user), unpriced events, summarize, JSONL store round-trip with query/limit/offset | PASS | § A18 |
+| A19 | Week 4 sentura-monitoring extension | 22 | `test-week4-health.ts` — checkGateway / checkEmployees / checkProviders / buildSummary, status escalation (ok / degraded / down) | PASS | § A19 |
+| A20 | Week 4 OpenTelemetry wiring (Step 7c) | 19 | `test-week4-otel.ts` — env-var driven enable, idempotent re-run, endpoint change re-stamps, operator serviceName preserved, docs example compose present | PASS | § A20 |
+| A21 | Week 4 Gateway concurrency perf harness | live | `test-concurrent-employees.ts` — N concurrent WebSocket clients × M RPC calls; verdict bar = concurrent p95 ≤ 2× single-session mean per method | LIVE | § A21 |
 
 ### Person B — AI Employee & Skills (incl. Creator Bug-Fix Rounds)
 

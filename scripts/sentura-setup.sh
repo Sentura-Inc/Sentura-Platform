@@ -405,6 +405,68 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 
 ok "Agent configuration applied."
 
+# --- Step 4b: Apply default tenancy to every registered agent ---
+#
+# Sentura's multi-tenancy model lives in `~/.openclaw/sentura-rbac/agent-tenancy.json`,
+# NOT inside `agents.list[]` — we never mutate undocumented OpenClaw config
+# fields. Every registered agent gets a record so downstream extensions
+# (`sentura-cost`, `sentura-monitoring`) can attribute events without falling
+# back to "unknown tenant". Single-tenant deployments use
+# `tenantId="default"`, `departmentId=null`; Week 5+ multi-department wiring
+# updates the records via `sentura.rbac.tenancy.set`.
+#
+# Idempotent: existing records are preserved; only agents missing a record
+# receive the default.
+
+log "Step 4b: Applying default tenancy to registered meta-agents..."
+
+RBAC_DATA_DIR_FOR_TENANCY="$OPENCLAW_STATE/sentura-rbac"
+mkdir -p "$RBAC_DATA_DIR_FOR_TENANCY"
+
+node -e "
+const fs = require('fs');
+const path = require('path');
+const configPath = '$OPENCLAW_CONFIG';
+const tenancyPath = path.join('$RBAC_DATA_DIR_FOR_TENANCY', 'agent-tenancy.json');
+
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const agents = (config.agents && config.agents.list) || [];
+if (agents.length === 0) {
+  console.log('  No registered agents — skipping tenancy seed.');
+  process.exit(0);
+}
+
+let records = [];
+try {
+  records = JSON.parse(fs.readFileSync(tenancyPath, 'utf8'));
+} catch (_) {}
+
+const seen = new Set(records.map((r) => r.agentId));
+const now = new Date().toISOString();
+let added = 0;
+for (const agent of agents) {
+  if (!seen.has(agent.id)) {
+    records.push({
+      agentId: agent.id,
+      tenantId: 'default',
+      departmentId: null,
+      updatedAt: now,
+    });
+    added++;
+  }
+}
+
+if (added > 0) {
+  records.sort((a, b) => a.agentId.localeCompare(b.agentId));
+  fs.writeFileSync(tenancyPath, JSON.stringify(records, null, 2));
+  console.log('  Seeded default tenancy for ' + added + ' agent(s)');
+} else {
+  console.log('  All agents already have tenancy records');
+}
+"
+
+ok "Agent tenancy applied."
+
 # --- Step 5: Configure per-agent LanceDB memory isolation ---
 
 log "Step 5: Configuring per-agent LanceDB memory isolation..."
@@ -521,7 +583,7 @@ SENTURA_EXTENSIONS_DIR="$PROJECT_ROOT/sentura/extensions"
 # Extensions to wire in. Only those that actually exist on disk AND have
 # both openclaw.plugin.json + index.ts are added — missing extensions are
 # reported as warnings so Person A/D can see what's pending.
-SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner")
+SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner" "sentura-memory-lancedb" "sentura-cost" "sentura-monitoring")
 
 # Build a newline-separated list of "<id>|<absolute-dir>" pairs for the
 # Node patcher below. We only include extensions that have a manifest AND
@@ -569,10 +631,27 @@ for (const tuple of tuples) {
   }
 }
 
+// If sentura-memory-lancedb is enabled, disable the upstream memory-lancedb
+// plugin in the same write — both register `kind: "memory"`, so leaving the
+// upstream one enabled would either double-register or non-deterministically
+// pick one. Idempotent: only flips the flag when currently true.
+let memoryLancedbDisabled = false;
+const senturaMem = config.plugins.entries['sentura-memory-lancedb'];
+if (senturaMem && senturaMem.enabled === true) {
+  const upstream = config.plugins.entries['memory-lancedb'];
+  if (upstream && upstream.enabled === true) {
+    config.plugins.entries['memory-lancedb'] = { ...upstream, enabled: false };
+    memoryLancedbDisabled = true;
+  }
+}
+
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('  plugins.load.paths additions: ' + pathsChanged);
 console.log('  plugins.entries enable ops:   ' + entriesChanged);
 console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
+if (memoryLancedbDisabled) {
+  console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');
+}
 "
   ok "Sentura extensions wired."
 else
@@ -605,6 +684,87 @@ if [[ -d "$SANDBOX_ROOT" ]]; then
   done
 else
   log "  No sandbox root at $SANDBOX_ROOT yet — nothing to clear."
+fi
+
+# --- Step 7c: Wire OpenTelemetry via OpenClaw's diagnostics-otel extension ---
+#
+# Sentura piggybacks on the upstream `diagnostics-otel` plugin to export
+# traces / metrics / logs via OTLP. We do NOT spin up a collector here —
+# Docker is intentionally not a hard prereq. Operators who want a local
+# collector can use the example compose snippet at
+# `docs/otel/docker-compose.example.yml`.
+#
+# Behavior:
+#   - If $OTEL_EXPORTER_OTLP_ENDPOINT is set, enable `diagnostics-otel` and
+#     stamp `diagnostics.otel.enabled = true` + the endpoint into the live
+#     OpenClaw config. Operators can override service name, sample rate,
+#     and protocol via the standard OTEL_* env vars (the upstream plugin
+#     reads them at start time).
+#   - If $OTEL_EXPORTER_OTLP_ENDPOINT is unset, skip silently with a clear
+#     "OTel disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable" log line.
+#     The plugin entry stays disabled so we don't leak traces to a
+#     non-existent collector.
+#
+# Idempotent: re-runs flip nothing when the live config already matches
+# the requested state.
+
+log "Step 7c: Wiring OpenTelemetry (diagnostics-otel)..."
+
+if [[ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
+  export OTEL_EXPORTER_OTLP_ENDPOINT
+  node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const serviceName = process.env.OTEL_SERVICE_NAME || 'openclaw-sentura';
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+const current = config.plugins.entries['diagnostics-otel'] ?? {};
+let entryFlipped = false;
+if (current.enabled !== true) {
+  config.plugins.entries['diagnostics-otel'] = { ...current, enabled: true };
+  entryFlipped = true;
+}
+
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+let diagFlipped = false;
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  diagFlipped = true;
+}
+const otelBlock = config.diagnostics.otel ?? {};
+const desiredOtel = {
+  ...otelBlock,
+  enabled: true,
+  endpoint,
+  serviceName: otelBlock.serviceName ?? serviceName,
+};
+let otelFlipped = false;
+if (
+  otelBlock.enabled !== true ||
+  otelBlock.endpoint !== endpoint ||
+  (otelBlock.serviceName ?? '') !== desiredOtel.serviceName
+) {
+  config.diagnostics.otel = desiredOtel;
+  otelFlipped = true;
+}
+
+if (entryFlipped || diagFlipped || otelFlipped) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics-otel (endpoint=' + endpoint + ', service=' + desiredOtel.serviceName + ')');
+} else {
+  console.log('  diagnostics-otel already configured (no change)');
+}
+"
+  ok "OpenTelemetry wired."
+else
+  log "  OTel disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace/metric export."
 fi
 
 # --- Step 8: Seed the first platform admin ---

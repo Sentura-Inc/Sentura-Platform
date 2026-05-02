@@ -9,6 +9,12 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setAgentTenancy } from "./tenancy.js";
+
+export interface AgentTenancyAssignment {
+  tenantId?: string;
+  departmentId?: string | null;
+}
 
 export interface AgentToolsConfig {
   profile?: "minimal" | "coding" | "full";
@@ -55,6 +61,14 @@ export interface FullAgentRegistration {
   bindings?: BindingConfig[];
   mcpServers?: Record<string, McpServerConfig>;
   memoryLanceDbPath?: string;
+  /**
+   * Optional tenancy assignment. Written to the Sentura-side
+   * `agent-tenancy.json` (NOT to OpenClaw's `agents.list[]`) so we never
+   * mutate undocumented OpenClaw config fields. Defaults to
+   * `tenantId="default"`, `departmentId=null` when omitted, matching
+   * the behaviour of `applyDefaultTenancyOnDisk()`.
+   */
+  tenancy?: AgentTenancyAssignment;
 }
 
 /**
@@ -199,6 +213,14 @@ export async function registerAgentOnDisk(
   }
 
   await fs.writeFile(cfgPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+
+  // Tenancy record lives outside OpenClaw config (Sentura-side
+  // `agent-tenancy.json`). Always upsert so registrations carry an
+  // explicit scope; defaults are applied when `tenancy` is omitted.
+  await setAgentTenancy(registration.agent.id, {
+    tenantId: registration.tenancy?.tenantId,
+    departmentId: registration.tenancy?.departmentId ?? null,
+  });
 }
 
 /**

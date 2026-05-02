@@ -464,25 +464,12 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 > **Capabilities covered**: #7 (orchestration + Manager EKG), #8 (multi-tenancy), #10 (cost tracking), #11 (EKG integration testing), #12 (Data Scavenger testing), #13 (Experience Links implementation), #15 (test runner implementation), #16 (communication panel — group chat), #17 (Manager capability abstraction)
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] **Design and implement multi-tenancy model**:
-  - Tenant isolation strategy (OpenClaw is single-tenant → Sentura must add namespacing)
-  - Per-department agent namespacing (e.g., `finance/ap-clerk`, `support/cs-agent`)
-  - Workspace directory isolation per tenant
-  - Config namespace separation
-- [ ] **Build LanceDB user-level metadata partitioning** (Sentura memory extension wrapper):
-  - Extend LanceDB memory entry schema with `userToken` metadata field
-  - On `autoCapture`: inject `userToken` from session context into memory entries
-  - On `autoRecall` / `memory_search`: filter by `userToken` (return user entries + global entries where `userToken` is null)
-  - Implement as a Sentura memory extension that wraps `memory-lancedb` hooks (no OpenClaw core modification)
-  - Test: two users interact with same agent → recall returns only own memories + global memories
-- [ ] **Build cost tracking backend**:
-  - Intercept LLM calls via extension hook → capture token counts, model, latency
-  - Per-agent cost attribution (OpenClaw has no per-agent cost tracking)
-  - Per-department aggregation
-  - Store cost events for dashboard queries
-- [ ] Optimize gateway performance for multiple concurrent AI employees
-- [ ] Build monitoring: health endpoints, employee status, provider availability
-- [ ] Set up OpenTelemetry via `diagnostics-otel` extension
+- [x] **Design and implement multi-tenancy model** — `sentura/lib/tenancy.ts` + `sentura/extensions/sentura-rbac/src/tenancy-store.ts` + `sentura.rbac.tenancy.{get,list,set}` RPCs + `scripts/sentura-setup.{sh,ps1}` Step 4b. Tenancy lives outside `agents.list[]` in `~/.openclaw/sentura-rbac/agent-tenancy.json`; agent IDs stay flat (regex-restricted); single-tenant default = `tenantId="default"`, `departmentId=null`. Verified by `scripts/test-week4-tenancy.ts` (24/24).
+- [x] **Build LanceDB user-level metadata partitioning** — forked `openclaw/extensions/memory-lancedb/` into `sentura/extensions/sentura-memory-lancedb/` with a `userToken` column on the LanceDB schema. Tools registered as factories so `ctx.sessionKey` → `extractUserTokenFromSessionKey` runs at registration, not at call time. `userTokenScope` config field controls the filter (`user-plus-global` default, `user-only`, `global-only`). One-shot `openclaw ltm migrate-userToken` CLI for legacy tables. Setup script disables upstream `memory-lancedb` when the Sentura variant is wired. Verified by `scripts/test-week4-memory.ts` (21/21).
+- [x] **Build cost tracking backend** — `sentura/extensions/sentura-cost/` subscribes to OpenClaw's `model.usage` diagnostic event (which already carries `costUsd` from the gateway pricing cache) and writes a rolling JSONL store at `~/.openclaw/sentura-cost/cost-YYYY-MM-DD.jsonl`. Per-agent / per-department / per-tenant / per-model / per-user rollups. Three RPCs: `sentura.cost.events`, `sentura.cost.summary`, `sentura.cost.byUser` (user tokens hashed before export). Verified by `scripts/test-week4-cost.ts` (26/26).
+- [x] Optimize gateway performance for multiple concurrent AI employees — `scripts/test-concurrent-employees.ts` is a measurement-and-tune harness that drives N concurrent WebSocket clients × M sequential RPC calls and reports p50/p95/p99 with a 2× baseline budget. Documented in `docs/HOSTING.md`. Run against a live gateway to validate IC-4.
+- [x] Build monitoring: health endpoints, employee status, provider availability — `sentura/extensions/sentura-monitoring/` registers `sentura.health.{gateway,employees,providers,summary}`. Provider availability is computed from a rolling 5-minute window of `model.usage` events (no separate probe). Verified by `scripts/test-week4-health.ts` (22/22).
+- [x] Set up OpenTelemetry via `diagnostics-otel` extension — `scripts/sentura-setup.{sh,ps1}` Step 7c stamps `diagnostics.otel.enabled = true` + endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; skips silently when unset. Optional Jaeger compose snippet at `docs/otel/docker-compose.example.yml`. Verified by `scripts/test-week4-otel.ts` (19/19).
 
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis
