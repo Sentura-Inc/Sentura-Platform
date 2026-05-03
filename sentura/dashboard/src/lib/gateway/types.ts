@@ -263,4 +263,12 @@ export interface GatewayClientOptions {
   autoReconnect?: boolean;
   reconnectInterval?: number;
   maxReconnectAttempts?: number;
+  /**
+   * Optional WebSocket factory. Browser callers should leave this unset
+   * (default: `new WebSocket(url)`). Server-side callers (Next.js Route
+   * Handlers, etc.) can inject a factory that sets headers like `Origin`
+   * — Node 22+'s native WebSocket constructor accepts a second-argument
+   * options object (`{ headers: { Origin: '...' } }`) the browser does not.
+   */
+  wsFactory?: (url: string) => WebSocket;
 }

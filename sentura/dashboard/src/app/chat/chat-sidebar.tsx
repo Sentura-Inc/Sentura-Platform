@@ -7,9 +7,11 @@ import {
   MessageSquarePlus,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react";
 import type { AgentConfig, SessionSummary } from "@/lib/gateway";
 import { getSessionAgentId } from "@/lib/gateway";
+import type { GroupRecord } from "@/lib/groups/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,14 +26,19 @@ import { cn } from "@/lib/utils";
 export interface ChatSidebarProps {
   sessions: SessionSummary[];
   agents: AgentConfig[];
+  groups: GroupRecord[];
   /** Currently-active session key, or null if a draft / no selection. */
   activeKey: string | null;
+  /** Currently-active group id, or null. */
+  activeGroupId: string | null;
   /** Currently-drafted agentId (picker selection awaiting first send). */
   draftAgentId: string | null;
   loading: boolean;
   disabled?: boolean;
   onNew: () => void;
+  onNewGroup: () => void;
   onSelect: (key: string) => void;
+  onSelectGroup: (groupId: string) => void;
   onSelectDraft: () => void;
   onDelete: (key: string) => Promise<void> | void;
 }
@@ -87,19 +94,23 @@ function previewFor(session: SessionSummary): string | undefined {
 export function ChatSidebar({
   sessions,
   agents,
+  groups,
   activeKey,
+  activeGroupId,
   draftAgentId,
   loading,
   disabled,
   onNew,
+  onNewGroup,
   onSelect,
+  onSelectGroup,
   onSelectDraft,
   onDelete,
 }: ChatSidebarProps) {
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const groups: AgentGroup[] = useMemo(() => {
+  const agentGroups: AgentGroup[] = useMemo(() => {
     const agentLookup = new Map(agents.map((a) => [a.id, a]));
     const grouped = new Map<string, SessionSummary[]>();
     for (const s of sessions) {
@@ -146,11 +157,11 @@ export function ChatSidebar({
       : undefined;
 
   const showEmpty =
-    !loading && groups.length === 0 && draftAgentId === null;
+    !loading && agentGroups.length === 0 && draftAgentId === null;
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-card/40">
-      <div className="border-b border-border p-3">
+      <div className="border-b border-border p-3 space-y-1.5">
         <Button
           type="button"
           variant="default"
@@ -161,6 +172,17 @@ export function ChatSidebar({
         >
           <MessageSquarePlus className="h-4 w-4 mr-2" />
           New chat
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start"
+          onClick={onNewGroup}
+          disabled={disabled}
+        >
+          <Users className="h-4 w-4 mr-2" />
+          New group
         </Button>
       </div>
 
@@ -191,22 +213,44 @@ export function ChatSidebar({
           </div>
         )}
 
-        {loading && groups.length === 0 && draftAgentId === null && (
+        {loading && agentGroups.length === 0 && draftAgentId === null && (
           <div className="flex items-center justify-center gap-2 p-6 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading conversations…
           </div>
         )}
 
-        {showEmpty && (
+        {showEmpty && groups.length === 0 && (
           <div className="p-4 text-xs text-muted-foreground">
             No conversations yet. Click{" "}
             <span className="font-medium text-foreground">New chat</span>{" "}
-            to start one with an AI employee.
+            to start one with an AI employee, or{" "}
+            <span className="font-medium text-foreground">New group</span>{" "}
+            to broadcast to multiple at once.
           </div>
         )}
 
-        {groups.map((group) => (
+        {groups.length > 0 && (
+          <div className="px-2 py-2">
+            <div className="flex items-center gap-2 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <Users className="h-3 w-3" />
+              <span>Groups</span>
+              <span className="ml-auto tabular-nums">{groups.length}</span>
+            </div>
+            <ul className="space-y-0.5">
+              {groups.map((g) => (
+                <GroupRow
+                  key={g.id}
+                  group={g}
+                  isActive={g.id === activeGroupId}
+                  onSelect={() => onSelectGroup(g.id)}
+                />
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {agentGroups.map((group) => (
           <AgentGroupSection
             key={group.agentId}
             group={group}
@@ -305,6 +349,39 @@ function AgentGroupSection({
         ))}
       </ul>
     </div>
+  );
+}
+
+function GroupRow({
+  group,
+  isActive,
+  onSelect,
+}: {
+  group: GroupRecord;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={cn(
+          "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm",
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-accent/50",
+        )}
+      >
+        <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{group.name}</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {group.participantAgentIds.length} agents
+          </p>
+        </div>
+      </button>
+    </li>
   );
 }
 
