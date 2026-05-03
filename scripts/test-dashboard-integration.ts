@@ -420,7 +420,7 @@ async function testPagesRender(baseUrl: string): Promise<void> {
 }
 
 async function testNoSkeletonOnGraduated(baseUrl: string): Promise<void> {
-  group("T-9: Graduated pages no longer use SkeletonShell copy");
+  group("T-9: All graduated pages no longer use SkeletonShell copy");
 
   // Next.js' React renderer inserts `<!-- -->` HTML comments between
   // adjacent text fragments (e.g. `Awaiting {blockingOwner}` becomes
@@ -432,18 +432,35 @@ async function testNoSkeletonOnGraduated(baseUrl: string): Promise<void> {
     "will fill in once",
   ];
 
-  for (const route of ["/orchestrator", "/testing", "/knowledge"]) {
+  // /cost graduated to real Cost Center after Person A's W4 merge — it
+  // no longer renders the SkeletonShell. All four formerly-skeleton
+  // routes are now real surfaces.
+  for (const route of ["/orchestrator", "/testing", "/knowledge", "/cost"]) {
     const html = stripFragments(await (await fetch(`${baseUrl}${route}`)).text());
     const stale = stalePhrases.find((p) => html.includes(p));
     assert(stale === undefined, `${route} HTML has no SkeletonShell stale copy`, stale);
   }
+}
 
-  // /cost SHOULD still have it — it's the one legitimately blocked surface
-  const costHtml = stripFragments(await (await fetch(`${baseUrl}/cost`)).text());
+async function testCostCenter(baseUrl: string): Promise<void> {
+  group("T-11: /cost — Cost Center renders + handles missing extension");
+
+  const html = await (await fetch(`${baseUrl}/cost`)).text();
+  assert(html.includes("Cost Center"), "/cost HTML contains 'Cost Center' page title");
   assert(
-    costHtml.includes("Awaiting Person"),
-    "/cost still uses SkeletonShell (blocked on Person A — intentional)",
+    html.toLowerCase().includes("sentura-cost"),
+    "/cost HTML mentions the sentura-cost extension (descriptive copy)",
   );
+  assert(
+    html.includes("Last 7 days") || html.includes("Today"),
+    "/cost HTML contains range-switcher labels (renders the real surface, not the skeleton)",
+  );
+
+  // The page itself does not call the gateway server-side (it's a client
+  // component); instead it issues `client.getCostSummary()` from the
+  // browser. Without a live gateway connection, the page's useEffect is
+  // a no-op and the empty/error card is shown — both are valid
+  // healthy outcomes we can't differentiate via SSR HTML.
 }
 
 async function testTuneSuspenseFix(baseUrl: string): Promise<void> {
@@ -481,6 +498,7 @@ async function main(): Promise<void> {
     await testPagesRender(srv.baseUrl);
     await testNoSkeletonOnGraduated(srv.baseUrl);
     await testTuneSuspenseFix(srv.baseUrl);
+    await testCostCenter(srv.baseUrl);
   } finally {
     cleanup();
   }

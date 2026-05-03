@@ -157,6 +157,38 @@ export interface GatewayHealth {
   version?: string;
 }
 
+// Person A's sentura-cost extension RPCs (Week 4).
+// Source of truth: sentura/extensions/sentura-cost/src/types.ts.
+// Mirrored here so dashboard pages can be typed without depending on
+// the extension's internal types (which would require a cross-package
+// import path that breaks when the dashboard ships standalone).
+
+export interface CostQuerySummaryParams {
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface CostAggregateBucket {
+  key: string;
+  totalCalls: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  /** Number of events whose costUsd was null (provider didn't price the call). */
+  unpricedCalls: number;
+}
+
+export interface CostSummary {
+  period: { start: string; end: string };
+  totalCalls: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  unpricedCalls: number;
+  byAgent: CostAggregateBucket[];
+  byDepartment: CostAggregateBucket[];
+  byTenant: CostAggregateBucket[];
+  byModel: CostAggregateBucket[];
+}
+
 // OpenClaw Gateway Protocol frames (NOT JSON-RPC 2.0)
 // See: openclaw/src/gateway/protocol/schema/frames.ts
 

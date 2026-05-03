@@ -5,6 +5,8 @@ import type {
   ApprovalRequest,
   BindingConfig,
   ConnectParams,
+  CostQuerySummaryParams,
+  CostSummary,
   EventFrame,
   GatewayClientOptions,
   GatewayEvent,
@@ -693,6 +695,18 @@ export class GatewayClient {
   async listTools(): Promise<unknown[]> {
     const result = await this.rpc<unknown[]>("tools.catalog");
     return result ?? [];
+  }
+
+  // --- Cost (Person A's sentura-cost extension, Week 4) ---
+
+  /**
+   * `sentura.cost.summary` — aggregate cost across a time window.
+   * Backs the `/cost` Cost Center page. ISO-8601 strings for startTime
+   * and endTime; both optional (extension defaults endTime to now and
+   * startTime to "all time" when omitted).
+   */
+  async getCostSummary(params: CostQuerySummaryParams = {}): Promise<CostSummary> {
+    return this.rpc<CostSummary>("sentura.cost.summary", { ...params });
   }
 }
 

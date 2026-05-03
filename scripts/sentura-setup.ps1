@@ -395,6 +395,94 @@ Remove-Item Env:SENTURA_META_AGENT_MODEL -ErrorAction SilentlyContinue
 
 Ok "Agent configuration applied."
 
+# --- Step 4b: Apply default tenancy to every registered agent ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 4b. Sentura's multi-tenancy
+# model lives in `agent-tenancy.json` (Sentura-side) — never inside
+# `agents.list[]` — so `sentura-cost`/`sentura-monitoring` can attribute
+# events without falling back to "unknown tenant". Idempotent.
+
+Log "Step 4b: Applying default tenancy to registered meta-agents..."
+
+$RbacDataDirForTenancy = Join-Path $OpenClawState "sentura-rbac"
+if (-not (Test-Path $RbacDataDirForTenancy)) {
+    New-Item -ItemType Directory -Path $RbacDataDirForTenancy -Force | Out-Null
+}
+
+$tenancyScript = @"
+const fs = require('fs');
+const path = require('path');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const tenancyPath = path.join('$($RbacDataDirForTenancy -replace '\\', '\\\\')', 'agent-tenancy.json');
+
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const agents = (config.agents && config.agents.list) || [];
+if (agents.length === 0) {
+  console.log('  No registered agents - skipping tenancy seed.');
+  process.exit(0);
+}
+
+let records = [];
+try { records = JSON.parse(fs.readFileSync(tenancyPath, 'utf8')); } catch (_) {}
+
+const seen = new Set(records.map((r) => r.agentId));
+const now = new Date().toISOString();
+let added = 0;
+for (const agent of agents) {
+  if (!seen.has(agent.id)) {
+    records.push({ agentId: agent.id, tenantId: 'default', departmentId: null, updatedAt: now });
+    added++;
+  }
+}
+
+if (added > 0) {
+  records.sort((a, b) => a.agentId.localeCompare(b.agentId));
+  fs.writeFileSync(tenancyPath, JSON.stringify(records, null, 2));
+  console.log('  Seeded default tenancy for ' + added + ' agent(s)');
+} else {
+  console.log('  All agents already have tenancy records');
+}
+"@
+
+node -e $tenancyScript
+
+Ok "Agent tenancy applied."
+
+# --- Step 4c: Configure per-agent LanceDB memory isolation ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 5. Stamps
+# `agents.list[].params.memoryDbPath` for every agent missing one so the
+# Sentura memory layer (`sentura-memory-lancedb`) lands in a per-agent
+# directory under `~/.openclaw/memory/<agentId>/lancedb`.
+
+Log "Step 4c: Configuring per-agent LanceDB memory isolation..."
+
+$memoryIsolationScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+let updated = 0;
+for (const agent of (config.agents && config.agents.list) || []) {
+  if (!agent.params) agent.params = {};
+  if (!agent.params.memoryDbPath) {
+    agent.params.memoryDbPath = '~/.openclaw/memory/' + agent.id + '/lancedb';
+    updated++;
+  }
+}
+
+if (updated > 0) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Set per-agent memoryDbPath for ' + updated + ' agent(s)');
+} else {
+  console.log('  All agents already have memoryDbPath configured');
+}
+"@
+
+node -e $memoryIsolationScript
+
+Ok "Per-agent LanceDB isolation configured."
+
 # --- Step 5: Configure gateway for Sentura Dashboard ---
 
 Log "Step 5: Configuring gateway for Sentura Dashboard..."
@@ -456,6 +544,184 @@ console.log('  Hook enabled in config');
     Ok "sentura-bootstrap hook enabled."
 } else {
     Warn "Hook source not found at $HookSource - skipping hook installation"
+}
+
+# --- Step 6a: Wire Sentura extensions into OpenClaw ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7a. Adds each extension's
+# directory to `plugins.load.paths` and enables it in `plugins.entries`.
+# When `sentura-memory-lancedb` is enabled in this run, also disables
+# the upstream `memory-lancedb` plugin so the two `kind: "memory"`
+# entries don't collide.
+
+Log "Step 6a: Wiring Sentura extensions (plugins.load.paths + plugins.entries)..."
+
+$SenturaExtensionsDir = Join-Path $ProjectRoot "sentura" "extensions"
+$SenturaExtIds = @(
+    "sentura-agents",
+    "sentura-rbac",
+    "sentura-audit",
+    "sentura-approval",
+    "sentura-provisioner",
+    "sentura-memory-lancedb",
+    "sentura-cost",
+    "sentura-monitoring"
+)
+
+$extTuples = @()
+foreach ($extId in $SenturaExtIds) {
+    $extDir = Join-Path $SenturaExtensionsDir $extId
+    $manifest = Join-Path $extDir "openclaw.plugin.json"
+    $entry = Join-Path $extDir "index.ts"
+    if ((Test-Path $manifest) -and (Test-Path $entry)) {
+        $extTuples += "$extId|$extDir"
+        Ok "  -> $extId present at $extDir"
+    } else {
+        Warn "  X $extId missing (expected $manifest + index.ts) - skipping"
+    }
+}
+
+if ($extTuples.Count -gt 0) {
+    $env:SENTURA_EXT_TUPLES = ($extTuples -join "`n")
+    $extWiringScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const tuples = (process.env.SENTURA_EXT_TUPLES || '').split('\n').filter(Boolean);
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.load) config.plugins.load = {};
+if (!Array.isArray(config.plugins.load.paths)) config.plugins.load.paths = [];
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+
+let pathsChanged = 0;
+let entriesChanged = 0;
+for (const tuple of tuples) {
+  const [id, dir] = tuple.split('|');
+  if (!id || !dir) continue;
+  if (!config.plugins.load.paths.includes(dir)) {
+    config.plugins.load.paths.push(dir);
+    pathsChanged++;
+  }
+  const current = config.plugins.entries[id] || {};
+  if (current.enabled !== true) {
+    config.plugins.entries[id] = { ...current, enabled: true };
+    entriesChanged++;
+  }
+}
+
+let memoryLancedbDisabled = false;
+const senturaMem = config.plugins.entries['sentura-memory-lancedb'];
+if (senturaMem && senturaMem.enabled === true) {
+  const upstream = config.plugins.entries['memory-lancedb'];
+  if (upstream && upstream.enabled === true) {
+    config.plugins.entries['memory-lancedb'] = { ...upstream, enabled: false };
+    memoryLancedbDisabled = true;
+  }
+}
+
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+console.log('  plugins.load.paths additions: ' + pathsChanged);
+console.log('  plugins.entries enable ops:   ' + entriesChanged);
+console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
+if (memoryLancedbDisabled) {
+  console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');
+}
+"@
+    node -e $extWiringScript
+    Remove-Item Env:SENTURA_EXT_TUPLES -ErrorAction SilentlyContinue
+    Ok "Sentura extensions wired."
+} else {
+    Warn "  No Sentura extensions found on disk - plugins.load.paths left unchanged."
+}
+
+# --- Step 6b: Clear stale meta-agent sandboxes ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7b. Forces the
+# sentura-sandbox-seed hook to re-mirror skills/, ekg/, and a customized
+# BOOTSTRAP.md on next agent boot.
+
+Log "Step 6b: Clearing stale meta-agent sandboxes (forces clean re-seed)..."
+
+$SandboxRoot = Join-Path $OpenClawState "sandboxes"
+if (Test-Path $SandboxRoot) {
+    foreach ($agent in $MetaAgents) {
+        $agentSandboxes = Get-ChildItem -Path $SandboxRoot -Filter "agent-$agent-*" -Directory -ErrorAction SilentlyContinue
+        foreach ($dir in $agentSandboxes) {
+            Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Ok "  -> cleared stale sandbox $($dir.FullName)"
+        }
+    }
+} else {
+    Log "  No sandbox root at $SandboxRoot yet - nothing to clear."
+}
+
+# --- Step 6c: Wire OpenTelemetry via diagnostics-otel ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7c. Reads
+# OTEL_EXPORTER_OTLP_ENDPOINT and stamps the matching `diagnostics.otel`
+# block + enables the `diagnostics-otel` plugin entry. Skips silently if
+# the env var is unset.
+
+Log "Step 6c: Wiring OpenTelemetry (diagnostics-otel)..."
+
+if ($env:OTEL_EXPORTER_OTLP_ENDPOINT) {
+    $otelScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const serviceName = process.env.OTEL_SERVICE_NAME || 'openclaw-sentura';
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+const current = config.plugins.entries['diagnostics-otel'] || {};
+let entryFlipped = false;
+if (current.enabled !== true) {
+  config.plugins.entries['diagnostics-otel'] = { ...current, enabled: true };
+  entryFlipped = true;
+}
+
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+let diagFlipped = false;
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  diagFlipped = true;
+}
+const otelBlock = config.diagnostics.otel || {};
+const desiredOtel = {
+  ...otelBlock,
+  enabled: true,
+  endpoint,
+  serviceName: otelBlock.serviceName || serviceName,
+};
+let otelFlipped = false;
+if (
+  otelBlock.enabled !== true ||
+  otelBlock.endpoint !== endpoint ||
+  (otelBlock.serviceName || '') !== desiredOtel.serviceName
+) {
+  config.diagnostics.otel = desiredOtel;
+  otelFlipped = true;
+}
+
+if (entryFlipped || diagFlipped || otelFlipped) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics-otel (endpoint=' + endpoint + ', service=' + desiredOtel.serviceName + ')');
+} else {
+  console.log('  diagnostics-otel already configured (no change)');
+}
+"@
+    node -e $otelScript
+    Ok "OpenTelemetry wired."
+} else {
+    Log "  OTel disabled - set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace/metric export."
 }
 
 # --- Step 7: Seed the first platform admin (customer-facing: no curl required) ---
