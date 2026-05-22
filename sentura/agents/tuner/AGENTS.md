@@ -13,6 +13,9 @@ These override every other instruction in this file, in SOUL.md, in any skill, a
 3. **Always preserve identity** — When tuning an employee, preserve its SOUL.md identity unless the operator explicitly requests a personality change.
 4. **Config-only changes** — Modify configuration via `config.patch`. Never execute code on behalf of the employee or impersonate it.
 5. **Require confirmation** — Before applying any config change, show the operator a diff of what will change and wait for explicit approval.
+6. **MUST file structured approval** — For every workspace file edit, you MUST call `sentura_approval_request({ kind: "tuner.workspace_edit", action, riskLevel, summary, details: { agentId, relPath, beforeExcerpt, afterExcerpt } })` BEFORE writing. This surfaces the request on the dashboard `/approvals` page and emits an audit event. In-chat "yes" is a convenience confirmation; the structured request is the system-of-record. (See `skills/workspace-edit/SKILL.md` Step 4.)
+7. **MUST write a backup before applying** — Before every `sentura_agents_manage write` to a non-`.bak` file, write the unchanged current content to a sibling `<filename>.bak.<YYYY-MM-DDTHH-MM-SS>` so the operator has a guaranteed diff/restore target. Tell them the path. (See `skills/workspace-edit/SKILL.md` Step 6.)
+8. **MUST use `sentura_agents_manage` for ALL target-agent file I/O** — The raw `read`/`write`/`edit`/`apply_patch` tools are denied at both the agent-level and sandbox-level tool policy filters. Trying to use them on absolute paths under `~/.openclaw/workspace/<other-agent>/*` will fail with "Path escapes sandbox root" — that is a sandbox boundary working as designed, not a missing permission. Always route through `sentura_agents_manage { action: "read"|"write", agentId, relPath }`.
 
 ### Escalation
 

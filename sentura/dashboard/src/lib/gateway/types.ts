@@ -189,6 +189,86 @@ export interface CostSummary {
   byModel: CostAggregateBucket[];
 }
 
+// Person D's sentura-audit extension RPCs (Week 4).
+// Source of truth: sentura/extensions/sentura-audit/src/types.ts.
+// Same mirror-not-import pattern as the cost types above.
+
+export type AuditEventType =
+  | "tool_call"
+  | "tool_result"
+  | "approval_requested"
+  | "approval_resolved"
+  | "config_change"
+  | "session_start"
+  | "session_end"
+  | "message_received"
+  | "message_sent"
+  | "gateway_start"
+  | "gateway_stop"
+  | "agent_end"
+  | "chat_message"
+  | "chat_group_created"
+  | "chat_group_updated"
+  | "chat_group_archived"
+  | "chat_group_fanout"
+  | "mcp_health_check"
+  | "mcp_health_change";
+
+export type AuditSeverity = "info" | "warning" | "critical";
+
+/** T0–T4 data classification tiers (per CLAUDE.md rule 20). */
+export type DataTier = "T0" | "T1" | "T2" | "T3" | "T4";
+
+export interface AuditMetadata {
+  channel?: string;
+  userId?: string;
+  userToken?: string;
+  tenantId?: string;
+  departmentId?: string;
+  groupId?: string;
+  mcpServer?: string;
+  argumentsDigest?: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  eventType: AuditEventType;
+  severity: AuditSeverity;
+  dataTier: DataTier;
+  agentId?: string;
+  sessionKey?: string;
+  details: Record<string, unknown>;
+  metadata?: AuditMetadata;
+}
+
+export interface AuditQueryParams {
+  eventType?: AuditEventType;
+  agentId?: string;
+  severity?: AuditSeverity;
+  startTime?: string;
+  endTime?: string;
+  limit?: number;
+  offset?: number;
+  tenantId?: string;
+  departmentId?: string;
+  userId?: string;
+  groupId?: string;
+  dataTier?: DataTier;
+  /** Free-text contains-match against `details` JSON (case-insensitive). */
+  search?: string;
+}
+
+export interface AuditStats {
+  windowHours: number;
+  totalEvents: number;
+  byType: Record<string, number>;
+  bySeverity: Record<string, number>;
+  byAgent: Record<string, number>;
+  byTier: Record<string, number>;
+  byTenant: Record<string, number>;
+}
+
 // OpenClaw Gateway Protocol frames (NOT JSON-RPC 2.0)
 // See: openclaw/src/gateway/protocol/schema/frames.ts
 

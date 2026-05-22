@@ -71,7 +71,7 @@ const sections: NavSection[] = [
     title: "Management",
     items: [
       { label: "Cost Center", href: "/cost", icon: DollarSign },
-      { label: "Audit Trail", href: "/audit", icon: ClipboardList, disabled: true, badge: "W5" },
+      { label: "Audit Trail", href: "/audit", icon: ClipboardList },
       { label: "Integrations", href: "/integrations", icon: Plug },
       { label: "Orchestrator", href: "/orchestrator", icon: GitBranch },
       { label: "Knowledge", href: "/knowledge", icon: BookOpen },

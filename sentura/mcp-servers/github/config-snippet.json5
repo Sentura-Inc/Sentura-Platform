@@ -1,0 +1,31 @@
+// Tier 1 — open-source MCP server. Paste this fragment under `mcp.servers` of
+// `~/.openclaw/openclaw.json` (or apply it via the gateway `config.patch` RPC
+// — never edit `openclaw.json` while the gateway is running). The path lives
+// at OpenClaw's native `mcp.servers.<name>` location; any other nesting is
+// invisible to the loader.
+{
+  mcp: {
+    servers: {
+      // Read/write GitHub access for AI employees that need to triage
+      // issues, draft PR comments, manage labels/milestones, or read
+      // repository contents (e.g. an Engineering Triage employee, a Release
+      // Notes Drafter, a Code Review Reminder bot). The upstream package
+      // covers the full GitHub REST + GraphQL surface and respects the
+      // token's existing OAuth scopes — narrow the token, not the server.
+      github: {
+        command: "npx",
+        args: [
+          "-y",
+          "@modelcontextprotocol/server-github",
+        ],
+        env: {
+          // Personal access token (classic) or fine-grained PAT scoped to
+          // the SPECIFIC repos the employee should touch. Resolved through
+          // OpenClaw's secret store via `$secret:` reference (see
+          // `docs/OPENCLAW.md § Secrets`). NEVER paste a raw token here.
+          GITHUB_PERSONAL_ACCESS_TOKEN: "$secret:GITHUB_TOKEN",
+        },
+      },
+    },
+  },
+}

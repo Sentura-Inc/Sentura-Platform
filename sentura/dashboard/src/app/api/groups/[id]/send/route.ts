@@ -18,7 +18,7 @@
  * on a transient single-agent failure.
  */
 
-import { getGroup, recordSessionKey } from "@/lib/groups/store";
+import { appendUserMessage, getGroup, recordSessionKey } from "@/lib/groups/store";
 import { getServerGatewayClient } from "@/lib/gateway/server-client";
 import type { ChatEventPayload } from "@/lib/gateway";
 
@@ -47,6 +47,20 @@ export async function POST(request: Request, ctx: RouteContext) {
   const group = await getGroup(groupId);
   if (!group) return jsonError(`Group ${groupId} not found`, 404);
   if (group.archivedAt) return jsonError(`Group ${groupId} is archived`, 410);
+
+  // Persist the user-typed message BEFORE fan-out so the group transcript
+  // survives page navigation. We deliberately persist before any agent
+  // call: a partial fan-out failure (one agent's session failing to
+  // initialize) still leaves the user's intent on disk so the merged
+  // history view is complete on the next mount.
+  try {
+    await appendUserMessage(groupId, message);
+  } catch (err) {
+    return jsonError(
+      `Failed to persist user message: ${err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "unknown"}`,
+      500,
+    );
+  }
 
   const client = await getServerGatewayClient();
 

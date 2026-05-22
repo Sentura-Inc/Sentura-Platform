@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  MessageSquare,
   Network,
   RefreshCw,
   Shield,
@@ -234,14 +235,20 @@ export default function EmployeeDetailPage() {
             />
             Refresh
           </Button>
-          {/* TODO(week-3): when /tune route ships, gate via usePermission("agents.tune") */}
-          <Button variant="outline" size="sm" disabled>
+          <Link
+            href={`/chat?draft=${encodeURIComponent(agentId)}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <MessageSquare className="h-4 w-4 mr-1" />
+            Chat
+          </Link>
+          <Link
+            href={`/tune?agent=${encodeURIComponent(agentId)}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
             <Sliders className="h-4 w-4 mr-1" />
             Tune
-            <Badge variant="secondary" className="ml-2 text-[10px]">
-              W3
-            </Badge>
-          </Button>
+          </Link>
           <a
             href={`${CONTROL_UI_URL}/#agents`}
             target="_blank"

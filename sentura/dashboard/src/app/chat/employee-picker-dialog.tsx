@@ -20,6 +20,12 @@ export interface EmployeePickerDialogProps {
   /** Roster of selectable agents. Excludes meta-agents (creator/tuner/etc). */
   agents: AgentConfig[] | null;
   loading: boolean;
+  /** Custom dialog title — defaults to "Start a new conversation". Used by
+   * `/tune` so the same picker can ask "which employee to tune" without
+   * forking the component. */
+  title?: string;
+  /** Custom dialog description shown under the title. */
+  description?: string;
 }
 
 /**
@@ -39,6 +45,8 @@ export function EmployeePickerDialog({
   onPick,
   agents,
   loading,
+  title,
+  description,
 }: EmployeePickerDialogProps) {
   const handlePick = (agentId: string) => {
     onPick(agentId);
@@ -49,10 +57,10 @@ export function EmployeePickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Start a new conversation</DialogTitle>
+          <DialogTitle>{title ?? "Start a new conversation"}</DialogTitle>
           <DialogDescription>
-            Pick an AI employee to chat with. Your message history with each
-            employee is independent.
+            {description ??
+              "Pick an AI employee to chat with. Your message history with each employee is independent."}
           </DialogDescription>
         </DialogHeader>
 

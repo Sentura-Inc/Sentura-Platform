@@ -613,12 +613,42 @@ for (const tuple of tuples) {
 }
 
 let memoryLancedbDisabled = false;
+let memoryLancedbEmbeddingSeeded = false;
 const senturaMem = config.plugins.entries['sentura-memory-lancedb'];
 if (senturaMem && senturaMem.enabled === true) {
   const upstream = config.plugins.entries['memory-lancedb'];
   if (upstream && upstream.enabled === true) {
     config.plugins.entries['memory-lancedb'] = { ...upstream, enabled: false };
     memoryLancedbDisabled = true;
+  }
+  // sentura-memory-lancedb's configSchema requires embedding.apiKey, so a
+  // freshly-enabled entry without a config block fails ajv validation and
+  // the plugin never boots. Seed a default embedding block on first install
+  // using the documented `${OPENAI_API_KEY}` env-interpolation token (per
+  // the plugin's own uiHints.embedding.apiKey.help). The inner config
+  // nests under entry.config — that is the path OpenClaw's plugin loader
+  // feeds into the plugin's configSchema. Idempotent: only seeds when
+  // config.embedding is missing — operators can hand-edit either field
+  // afterward and re-runs of setup will leave their values alone.
+  const existingPluginConfig =
+    senturaMem.config && typeof senturaMem.config === 'object'
+      ? senturaMem.config
+      : {};
+  if (
+    !existingPluginConfig.embedding ||
+    typeof existingPluginConfig.embedding !== 'object'
+  ) {
+    config.plugins.entries['sentura-memory-lancedb'] = {
+      ...senturaMem,
+      config: {
+        ...existingPluginConfig,
+        embedding: {
+          apiKey: '`${OPENAI_API_KEY}`',
+          model: 'text-embedding-3-small',
+        },
+      },
+    };
+    memoryLancedbEmbeddingSeeded = true;
   }
 }
 
@@ -628,6 +658,9 @@ console.log('  plugins.entries enable ops:   ' + entriesChanged);
 console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
 if (memoryLancedbDisabled) {
   console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');
+}
+if (memoryLancedbEmbeddingSeeded) {
+  console.log('  seeded sentura-memory-lancedb.embedding (`${OPENAI_API_KEY}` + text-embedding-3-small)');
 }
 "@
     node -e $extWiringScript
@@ -657,6 +690,38 @@ if (Test-Path $SandboxRoot) {
 } else {
     Log "  No sandbox root at $SandboxRoot yet - nothing to clear."
 }
+
+# --- Step 6b2: Ensure the diagnostic-event bus is on ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7b2. OpenClaw gates `model.usage`
+# (and every other diagnostic event) behind `config.diagnostics.enabled === true`.
+# If unset, NO events fire and Sentura's `sentura-cost` + `sentura-monitoring`
+# extensions stay silent - the dashboard's `/cost` page reads as "zero
+# activity" even when users are chatting. Step 6c (OTel) used to be the
+# only place that flipped this, but it only ran when
+# OTEL_EXPORTER_OTLP_ENDPOINT was set, so operators without OTel silently
+# lost cost tracking. This step decouples the bus from the OTel sink:
+# diagnostics are now ALWAYS on after setup. Idempotent.
+
+Log "Step 6b2: Ensuring diagnostic-event bus is enabled..."
+
+$diagBusScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics.enabled = true (cost + monitoring events will now fire)');
+} else {
+  console.log('  diagnostics.enabled already true (no change)');
+}
+"@
+node -e $diagBusScript
+Ok "Diagnostic-event bus enabled."
 
 # --- Step 6c: Wire OpenTelemetry via diagnostics-otel ---
 #

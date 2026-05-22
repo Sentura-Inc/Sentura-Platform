@@ -302,7 +302,7 @@ function ChatPageInner() {
     activeKey !== null || draftAgentId !== null || activeGroupId !== null;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
       <ChatSidebar
         sessions={sessions}
         agents={rosterAgents.length > 0 ? rosterAgents : agents ?? []}
@@ -320,7 +320,7 @@ function ChatPageInner() {
         onDelete={handleDeleteConversation}
       />
 
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3 min-w-0">

@@ -3,6 +3,9 @@ import type {
   AgentFileContent,
   AgentFileEntry,
   ApprovalRequest,
+  AuditEntry,
+  AuditQueryParams,
+  AuditStats,
   BindingConfig,
   ConnectParams,
   CostQuerySummaryParams,
@@ -707,6 +710,32 @@ export class GatewayClient {
    */
   async getCostSummary(params: CostQuerySummaryParams = {}): Promise<CostSummary> {
     return this.rpc<CostSummary>("sentura.cost.summary", { ...params });
+  }
+
+  // --- Audit (Person D's sentura-audit extension, Week 4) ---
+
+  /**
+   * `sentura.audit.query` — list audit entries with filters.
+   * Backs the `/audit` Audit Trail page. All filter fields are optional;
+   * `search` does a case-insensitive contains-match against the
+   * `details` JSON of each entry.
+   */
+  async queryAudit(
+    params: AuditQueryParams = {},
+  ): Promise<{ entries: AuditEntry[]; count: number }> {
+    return this.rpc<{ entries: AuditEntry[]; count: number }>(
+      "sentura.audit.query",
+      { ...params },
+    );
+  }
+
+  /**
+   * `sentura.audit.stats` — last-24h aggregations grouped by event
+   * type, severity, agent, data tier, and tenant. Used for the
+   * `/audit` page's headline cards + filter-facet badges.
+   */
+  async getAuditStats(): Promise<AuditStats> {
+    return this.rpc<AuditStats>("sentura.audit.stats");
   }
 }
 

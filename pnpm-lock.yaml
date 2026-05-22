@@ -116,6 +116,16 @@ importers:
         specifier: '*'
         version: 2026.4.24
 
+  sentura/extensions/sentura-mcp-health:
+    dependencies:
+      '@sentura/audit':
+        specifier: workspace:*
+        version: link:../sentura-audit
+    devDependencies:
+      openclaw:
+        specifier: '*'
+        version: 2026.4.24
+
   sentura/extensions/sentura-memory-lancedb:
     dependencies:
       '@lancedb/lancedb':
@@ -155,6 +165,28 @@ importers:
         version: 2026.4.24
 
   sentura/mcp-servers/gradsale-admin:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.17
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(msw@2.13.6(@types/node@22.19.17)(typescript@5.9.3))(tsx@4.21.0)(yaml@2.8.3)
+
+  sentura/mcp-servers/gradsale-search:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0

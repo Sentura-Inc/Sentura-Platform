@@ -319,5 +319,19 @@ Replaces the C14 skeleton at `/cost` after Person A's `sentura-cost` extension l
 | C20.5 | 4-tab breakdown with share-bar | After traffic exists | Tabs `By agent` / `By department` / `By tenant` / `By model` each render a table with cols `Key` / `Calls` / `Tokens` / `USD` / `Share`; share is computed as `bucket.totalCostUsd / Σ totalCostUsd × 100`; rendered as a 16px progress bar + "%" label. Bucket-level `unpricedCalls > 0` shows an inline `AlertCircle` chip on the row |
 | C20.6 | Friendly fallback when extension is not registered | Disable `sentura-cost` in `~/.openclaw/openclaw.json`, restart gateway, visit `/cost` | Error card displays "sentura-cost extension is not registered. Re-run `./scripts/sentura-setup.sh` and restart the gateway." instead of raw `method not found` |
 
+### C21. Audit Trail (`/audit`) — real Person-D-backed surface — Week 4
+
+New surface graduating from the disabled-W5 sidebar placeholder to a real Audit Trail page. Person D's `sentura-audit` extension (Week 4) added T0–T4 data classification, 7 new event types (chat/group/mcp-health), and a free-text `search` filter on the existing `sentura.audit.query` RPC. The page is a thin client over two RPCs: `client.queryAudit({...filters})` and `client.getAuditStats()`.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C21.1 | Two new gateway-client methods exist | `client.queryAudit` + `client.getAuditStats` | `queryAudit(params: AuditQueryParams = {}) → Promise<{entries: AuditEntry[]; count: number}>` dispatches `sentura.audit.query`; `getAuditStats() → Promise<AuditStats>` dispatches `sentura.audit.stats`. All `AuditQueryParams` fields are optional |
+| C21.2 | New types re-exported from gateway barrel | `lib/gateway/index.ts` | `AuditEntry`, `AuditEventType` (string union of 19), `AuditMetadata`, `AuditQueryParams`, `AuditSeverity`, `AuditStats`, `DataTier` (string union T0-T4) are all `export type` re-exports |
+| C21.3 | Sidebar `/audit` link enabled | Visit any page; inspect sidebar | "Audit Trail" entry no longer has `disabled: true` styling (no `pointer-events-none opacity-40`) and no `W5` placeholder badge. Routes to `/audit` on click |
+| C21.4 | Headline stat cards | Visit `/audit` after traffic exists | 4 cards: "Events / last Nh" (`stats.totalEvents`), "Critical" (`stats.bySeverity.critical`, destructive accent if > 0), "Warnings" (amber accent if > 0), "High-tier (T3+T4)" (sum + sublabel "N T3 · N T4") |
+| C21.5 | Filter bar | Apply each filter in turn | Free-text `search` field (Enter triggers Apply); `eventType` dropdown lists all 19 types; `severity` dropdown {info / warning / critical}; `dataTier` dropdown {T0 T1 T2 T3 T4}; `agentId` text input. "Clear all" button appears only when filters are active and resets all five fields. Apply button or Enter key triggers a fresh `queryAudit` call with only the populated fields |
+| C21.6 | Entries table — severity + tier badges | Inspect any row | Time col uses tabular-nums + locale formatting; Event col shows monospace event-type + tenant/dept sublabel when present; Severity badge: critical → destructive variant + ShieldAlert icon, warning → amber + AlertTriangle, info → secondary + ShieldCheck; Tier badge: T3/T4 in destructive variant (high-tier flag), title attribute shows full tier label ("T3 — restricted (PII / customer / financial)" etc.) |
+| C21.7 | `summarizeDetails` extracts human-readable fields | Inspect Details column for various event types | Prefers known scalar keys (`message`/`action`/`tool`/`summary`/`reason`/`name`) and renders `key: value` (truncated at 120 chars). Falls back to `key=val, key=val, key=val` compact form for the first 3 keys when no preferred field exists. Empty details renders "—" |
+
 ---
 

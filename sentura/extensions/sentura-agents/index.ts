@@ -254,6 +254,10 @@ const ManageToolSchema = {
       description:
         "If true (default), also stamp setupCompletedAt into <workspaceDir>/.openclaw/workspace-state.json so the new employee is not bootstrap-pending on first boot. Only used when action='register_agent'.",
     },
+    tenancy: {
+      description:
+        "Optional tenancy assignment object: { tenantId?: string, departmentId?: string | null }. Written to ~/.openclaw/sentura-rbac/agent-tenancy.json (NOT to OpenClaw config). Defaults to { tenantId: 'default', departmentId: null } when omitted. Idempotent on identical scope. Only used when action='register_agent'.",
+    },
   },
   required: ["action", "agentId"],
 } as const;
@@ -296,6 +300,7 @@ interface ManageToolParams {
   serverNames?: unknown;
   overwrite?: boolean;
   stampSetupCompleted?: boolean;
+  tenancy?: { tenantId?: string; departmentId?: string | null };
 }
 
 function renderResultText(action: string, result: unknown): string {
@@ -321,7 +326,11 @@ function renderResultText(action: string, result: unknown): string {
       bindingsAdded: number;
       mcpServersMerged: number;
       setupCompletedStamped: boolean;
+      tenancy?: { tenantId: string; departmentId: string | null; wrote: boolean };
     };
+    const tenancyTag = r.tenancy
+      ? ` tenancy=${r.tenancy.tenantId}${r.tenancy.departmentId ? `/${r.tenancy.departmentId}` : ""}${r.tenancy.wrote ? " (new)" : ""}`
+      : "";
     const parts = [
       `${r.mode === "created" ? "Registered" : "Updated"} agent ${r.agentId} in openclaw.json`,
       r.model ? ` model=${r.model}` : "",
@@ -330,6 +339,7 @@ function renderResultText(action: string, result: unknown): string {
       r.bindingsAdded > 0 ? ` bindings+=${r.bindingsAdded}` : "",
       r.mcpServersMerged > 0 ? ` mcp.servers+=${r.mcpServersMerged}` : "",
       r.setupCompletedStamped ? " (setupCompletedAt stamped)" : "",
+      tenancyTag,
     ];
     return parts.filter(Boolean).join("");
   }
@@ -484,6 +494,9 @@ export default definePluginEntry({
           mcpServers: normalizedMcp,
           overwrite: params?.overwrite,
           stampSetupCompleted: params?.stampSetupCompleted,
+          tenancy: params?.tenancy as
+            | { tenantId?: string; departmentId?: string | null }
+            | undefined,
           openclawHomeDir,
         });
         respond(true, result);
@@ -633,6 +646,7 @@ export default definePluginEntry({
               mcpServers: normalizedMcp,
               overwrite: params.overwrite,
               stampSetupCompleted: params.stampSetupCompleted,
+              tenancy: params.tenancy,
               openclawHomeDir,
             });
             return {

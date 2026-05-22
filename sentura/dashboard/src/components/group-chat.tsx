@@ -48,6 +48,15 @@ interface AgentErrorMsg {
 
 type GroupMessage = UserMsg | AssistantMsg | AgentErrorMsg;
 
+/**
+ * Wire shape returned by `GET /api/groups/[id]/history`. Persisted user
+ * messages are rebuilt by reading the group's `messages[]` plus each
+ * per-agent OpenClaw `chat.history`, merged by timestamp on the server.
+ */
+type GroupHistoryEntry =
+  | { kind: "user"; id: string; text: string; timestamp: number }
+  | { kind: "assistant"; id: string; agentId: string; text: string; timestamp: number };
+
 interface SseFrame {
   type: "started" | "delta" | "final" | "agent-error" | "done";
   agentId?: string;
@@ -90,7 +99,12 @@ export function GroupChat({ group, agents }: GroupChatProps) {
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // Reset transcript when switching to a different group.
+  // Reset transcript when switching to a different group, then fetch the
+  // persisted history. Persisted user messages live on the group record
+  // (`~/.openclaw/sentura-group-chats/groups.json`); assistant replies are
+  // joined in by the route from each per-agent OpenClaw session via
+  // `chat.history`. Until 2026-05-04 the group transcript was purely
+  // in-memory React state and was lost on every re-mount.
   useEffect(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -98,6 +112,52 @@ export function GroupChat({ group, agents }: GroupChatProps) {
     setError(null);
     setSubmitting(false);
     userScrolledUpRef.current = false;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`/api/groups/${group.id}/history`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return; // Best-effort — fall through to empty state.
+        const data = (await res.json()) as { messages?: GroupHistoryEntry[] };
+        if (cancelled || !data?.messages) return;
+        const seeded: GroupMessage[] = data.messages
+          .map((m): GroupMessage | null => {
+            if (m.kind === "user") {
+              return {
+                kind: "user",
+                id: m.id,
+                text: m.text,
+                timestamp: m.timestamp,
+              };
+            }
+            if (m.kind === "assistant") {
+              return {
+                kind: "assistant",
+                id: m.id,
+                agentId: m.agentId,
+                runId: m.id, // No runId from history; reuse id as a stable React key.
+                text: m.text,
+                streaming: false,
+                timestamp: m.timestamp,
+              };
+            }
+            return null;
+          })
+          .filter((m): m is GroupMessage => m !== null);
+        if (!cancelled) setMessages(seeded);
+      } catch {
+        // Aborted or transient failure — leave transcript empty; live SSE
+        // path will start fresh on the next user message.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [group.id]);
 
   // Cancel any in-flight stream on unmount.
@@ -245,7 +305,7 @@ export function GroupChat({ group, agents }: GroupChatProps) {
   );
 
   return (
-    <div className="flex flex-1 flex-col min-w-0">
+    <div className="flex flex-1 flex-col min-w-0 min-h-0">
       {/* Header */}
       <div className="border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3">

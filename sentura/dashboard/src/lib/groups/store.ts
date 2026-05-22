@@ -1,9 +1,15 @@
 /**
  * Server-only file-based store for group-chat metadata.
  *
- * Group transcripts are NOT persisted here — each participant agent's
- * gateway session retains its own slice of the conversation. The group
- * view is a per-tab ephemeral merge of in-flight responses.
+ * Assistant replies are NOT persisted here — each participant agent's
+ * gateway session retains its own slice of the conversation in OpenClaw's
+ * session JSONL, and the group transcript is rebuilt at mount time by
+ * fetching each per-agent `chat.history` and merging by timestamp.
+ *
+ * What IS persisted here: group-level user messages. A group user message
+ * is a single typed input fan-out to N agents, so storing it once on the
+ * group record (instead of N times across per-agent transcripts) avoids
+ * duplicate-rendering on the merged view.
  *
  * Data file: ~/.openclaw/sentura-group-chats/groups.json
  * Format: { groups: GroupRecord[] }
@@ -12,9 +18,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { GroupRecord } from "./types";
+import type { GroupRecord, PersistedUserMessage } from "./types";
 
-export type { GroupRecord } from "./types";
+export type { GroupRecord, PersistedUserMessage } from "./types";
 
 interface GroupsFile {
   groups: GroupRecord[];
@@ -115,4 +121,46 @@ export async function archiveGroup(id: string): Promise<void> {
   if (!group) return;
   group.archivedAt = Date.now();
   await writeFileRaw(file);
+}
+
+/**
+ * Append a single user-typed message to a group's persisted transcript.
+ * Called by the SSE fan-out route AFTER the group exists but BEFORE the
+ * per-agent send so a partial fan-out failure still leaves the user's
+ * intent preserved (and re-deliverable on retry).
+ */
+export async function appendUserMessage(
+  groupId: string,
+  text: string,
+): Promise<PersistedUserMessage> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("user message text is required");
+
+  const file = await readFileRaw();
+  const group = file.groups.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Group ${groupId} not found`);
+
+  const message: PersistedUserMessage = {
+    id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    text: trimmed,
+    timestamp: Date.now(),
+  };
+  const existing = group.messages ?? [];
+  group.messages = [...existing, message].sort((a, b) => a.timestamp - b.timestamp);
+  await writeFileRaw(file);
+  return message;
+}
+
+/**
+ * Read the persisted user-message slice of a group's transcript. Returns
+ * an empty array for groups created before the persistence fix (where
+ * `messages` is undefined on disk).
+ */
+export async function getGroupMessages(
+  groupId: string,
+): Promise<PersistedUserMessage[]> {
+  const file = await readFileRaw();
+  const group = file.groups.find((g) => g.id === groupId);
+  if (!group) throw new Error(`Group ${groupId} not found`);
+  return group.messages ?? [];
 }

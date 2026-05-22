@@ -12,14 +12,16 @@ import {
   WifiOff,
 } from "lucide-react";
 import {
+  useAgents,
   useGateway,
   useGatewayEvents,
 } from "@/lib/gateway";
-import type { SessionSummary } from "@/lib/gateway";
+import type { AgentConfig, SessionSummary } from "@/lib/gateway";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AgentChat } from "@/components/agent-chat";
+import { EmployeePickerDialog } from "@/app/chat/employee-picker-dialog";
 import { cn } from "@/lib/utils";
 
 const TUNER_AGENT_ID = "tuner";
@@ -57,22 +59,84 @@ function TunePageInner() {
   const searchParams = useSearchParams();
   const { client, state } = useGateway();
 
+  // Pull the deployable employee roster so operators can pick which agent
+  // to tune. useAgents() already excludes meta-agents (creator/tuner/
+  // orchestrator/mcp-builder/data-scavenger) via isMetaAgentId.
+  const { data: agents, loading: agentsLoading } = useAgents();
+
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  // Picker dialog visibility — opens when "+ New tuning" is clicked.
+  // Replaces the deprecated header-dropdown TargetAgentPicker.
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const activeKey = searchParams.get("key");
+  // `?agent=` is set when the operator picks a target through the dialog.
+  // It only matters until the first send creates a session — once `?key=`
+  // exists, the session itself owns the target context (via `label`), and
+  // the resolved agent for header display comes from session-key parsing.
+  const targetAgentId = searchParams.get("agent");
 
-  // URL helper — tuning surface only writes the `key` param.
-  const setActiveKey = useCallback(
-    (next: string | null) => {
+  // URL helper — write `?key=` (selected tuning conversation) and/or
+  // `?agent=` (which employee the new tuning will target).
+  const setUrlState = useCallback(
+    (next: { key?: string | null; agent?: string | null }) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (next) params.set("key", next);
-      else params.delete("key");
+      if ("key" in next) {
+        if (next.key) params.set("key", next.key);
+        else params.delete("key");
+      }
+      if ("agent" in next) {
+        if (next.agent) params.set("agent", next.agent);
+        else params.delete("agent");
+      }
       const qs = params.toString();
       router.replace(qs ? `/tune?${qs}` : "/tune", { scroll: false });
     },
     [router, searchParams],
   );
+
+  const setActiveKey = useCallback(
+    (next: string | null) => setUrlState({ key: next }),
+    [setUrlState],
+  );
+
+  // Resolved target agent — preferred sources, in order:
+  //   1. `?agent=` URL param (set by the picker dialog before first send).
+  //   2. Active session's label parsed for "Tuning <name>" then matched to
+  //      an agent by display name. Survives page navigation: as long as
+  //      the active session was created via the picker dialog, the label
+  //      tells us which employee it targets even when `?agent=` is gone.
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.key === activeKey),
+    [sessions, activeKey],
+  );
+  const targetAgent: AgentConfig | undefined = useMemo(() => {
+    if (!agents) return undefined;
+    if (targetAgentId) return agents.find((a) => a.id === targetAgentId);
+    const label = activeSession?.label?.trim() ?? "";
+    const match = /^Tuning\s+(.+)$/i.exec(label);
+    if (!match) return undefined;
+    const name = match[1].trim();
+    return agents.find((a) => a.name === name || a.id === name);
+  }, [agents, targetAgentId, activeSession]);
+
+  // Seed the AgentChat textarea with a `Tune <agentId>: ` prefix so the
+  // Tuner LLM has unambiguous target context on first send. Only seeds
+  // for fresh tuning conversations (no activeKey) so we don't clobber
+  // the operator's continuation of an existing session.
+  const initialPrompt =
+    !activeKey && targetAgent ? `Tune ${targetAgent.id}: ` : undefined;
+
+  // Label that AgentChat will pass to `sessions.create` on first send.
+  // Sidebar reads `session.label` first when rendering the row, so this
+  // is the single source of truth for "Tuning Penny" vs "Untitled tuning".
+  const sessionLabel = useMemo(() => {
+    if (activeKey) return undefined; // Existing session — don't relabel.
+    if (!targetAgent) return undefined;
+    const display = targetAgent.name?.trim() || targetAgent.id;
+    return `Tuning ${display}`;
+  }, [activeKey, targetAgent]);
 
   // Fetch only Tuner sessions — `sessions.list` accepts an agentId filter.
   const refreshSessions = useCallback(async () => {
@@ -100,6 +164,11 @@ function TunePageInner() {
   });
 
   // If the URL key references a session that no longer exists, drop it.
+  // Skip the prune while sessions are still loading on a fresh mount —
+  // otherwise a transiently-empty list (state=connected but list pending)
+  // would strip a perfectly valid `?key=` from the URL and the user would
+  // see an empty AgentChat instead of their resumed transcript. This was
+  // the cause of the 2026-05-04 "history not loading on return" report.
   useEffect(() => {
     if (!activeKey) return;
     if (sessionsLoading) return;
@@ -110,28 +179,54 @@ function TunePageInner() {
   }, [activeKey, sessions, sessionsLoading, setActiveKey]);
 
   const handleNewTuning = useCallback(() => {
-    setActiveKey(null);
-  }, [setActiveKey]);
+    // Clear active session and open the picker. The dialog drives target
+    // selection; URL state changes only after the user picks an employee.
+    setUrlState({ key: null, agent: null });
+    setPickerOpen(true);
+  }, [setUrlState]);
+
+  const handleAgentPicked = useCallback(
+    (agentId: string) => {
+      // No `?key=` yet — AgentChat will create the session on first send,
+      // labeled "Tuning <Employee name>" via the `sessionLabel` prop.
+      setUrlState({ key: null, agent: agentId });
+    },
+    [setUrlState],
+  );
 
   const handleSelectConversation = useCallback(
     (key: string) => {
-      setActiveKey(key);
+      // Selecting a past tuning drops `?agent=` so the active session's
+      // label drives header / empty-state target rendering — avoids a
+      // mismatch between the picker's stale `?agent=` and what the
+      // session was actually opened against.
+      setUrlState({ key, agent: null });
     },
-    [setActiveKey],
+    [setUrlState],
   );
 
   const handleSessionCreated = useCallback(
     (key: string) => {
       // Optimistically prepend so the new conversation appears in the
-      // sidebar immediately; refresh reconciles with the server.
+      // sidebar immediately; refresh reconciles with the server. We
+      // include the optimistic label so the row reads "Tuning <name>"
+      // until the gateway echo confirms it.
+      const optimisticLabel = sessionLabel;
       setSessions((prev) => [
-        { key, agentId: TUNER_AGENT_ID, updatedAt: Date.now() },
+        {
+          key,
+          agentId: TUNER_AGENT_ID,
+          updatedAt: Date.now(),
+          ...(optimisticLabel ? { label: optimisticLabel } : {}),
+        },
         ...prev.filter((s) => s.key !== key),
       ]);
-      setActiveKey(key);
+      // Drop `?agent=` once the session exists — the session label is
+      // now authoritative for the target.
+      setUrlState({ key, agent: null });
       void refreshSessions();
     },
-    [refreshSessions, setActiveKey],
+    [refreshSessions, setUrlState, sessionLabel],
   );
 
   const handleDeleteConversation = useCallback(
@@ -156,8 +251,14 @@ function TunePageInner() {
 
   const disconnected = state === "disconnected" || state === "reconnecting";
 
+  // Header title: derived from the resolved target agent. Falls back to
+  // "Tune Employee" when the operator hasn't picked anyone yet.
+  const headerTitle = targetAgent
+    ? `Tuning ${targetAgent.name?.trim() || targetAgent.id}`
+    : "Tune Employee";
+
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
       <TuneSidebar
         sessions={sortedSessions}
         activeKey={activeKey}
@@ -168,7 +269,7 @@ function TunePageInner() {
         onDelete={handleDeleteConversation}
       />
 
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -177,7 +278,7 @@ function TunePageInner() {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-tight truncate">
-                Tune Employee
+                {headerTitle}
               </h1>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">
                 Adjust deployed AI employees through natural language.
@@ -216,10 +317,22 @@ function TunePageInner() {
         <AgentChat
           agentId={TUNER_AGENT_ID}
           sessionKey={activeKey ?? undefined}
+          initialPrompt={initialPrompt}
+          sessionLabel={sessionLabel}
           onSessionCreated={handleSessionCreated}
-          emptyState={<TuneEmptyState />}
+          emptyState={<TuneEmptyState targetAgent={targetAgent} />}
         />
       </div>
+
+      <EmployeePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={handleAgentPicked}
+        agents={agents ?? null}
+        loading={agentsLoading ?? false}
+        title="Pick an employee to tune"
+        description="Choose which AI employee this tuning conversation is about. The session will be named 'Tuning {Employee name}' and the Tuner will scope its proposed changes to that employee only."
+      />
     </div>
   );
 }
@@ -386,14 +499,20 @@ function formatRelative(updatedAt: number): string {
 // Empty state — Tuner-specific suggestion pills
 // =============================================================================
 
-const TUNER_SUGGESTIONS = [
-  "Make billing-support-rep more friendly in tone, but keep the read-only constraint.",
-  "Add the meeting-notes skill to penny-ap and bind it to the Slack #ap-team channel.",
-  "Switch the model on creator to openai/gpt-5.4 and tighten the tools allow-list to design tools only.",
-  "Lower the approval threshold for refunds on billing-support-rep from $500 to $200.",
+const GENERIC_TUNER_SUGGESTIONS = [
+  "Make {AGENT} more friendly in tone, but keep the read-only constraint.",
+  "Add the meeting-notes skill to {AGENT} and bind it to the Slack #ap-team channel.",
+  "Switch the model on {AGENT} to openai/gpt-5.4 and tighten the tools allow-list.",
+  "Lower the approval threshold for refunds on {AGENT} from $500 to $200.",
 ];
 
-function TuneEmptyState() {
+function tunerSuggestionsFor(agentId: string | undefined): string[] {
+  if (!agentId) return GENERIC_TUNER_SUGGESTIONS.map((s) => s.replace("{AGENT}", "<agent-id>"));
+  return GENERIC_TUNER_SUGGESTIONS.map((s) => s.replace(/\{AGENT\}/g, agentId));
+}
+
+function TuneEmptyState({ targetAgent }: { targetAgent?: AgentConfig }) {
+  const suggestions = tunerSuggestionsFor(targetAgent?.id);
   return (
     <Card>
       <CardContent className="py-8 space-y-5">
@@ -401,19 +520,36 @@ function TuneEmptyState() {
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Sparkles className="h-6 w-6 text-primary" />
           </div>
-          <h2 className="text-lg font-semibold">What needs tuning?</h2>
+          <h2 className="text-lg font-semibold">
+            {targetAgent
+              ? `What needs tuning on ${targetAgent.name ?? targetAgent.id}?`
+              : "Pick an employee to tune"}
+          </h2>
           <p className="text-sm text-muted-foreground max-w-md">
-            Describe the change in plain English. The Tuner will inspect the
-            target employee&apos;s config + workspace files, propose a diff,
-            and wait for your approval before applying.
+            {targetAgent ? (
+              <>
+                Describe the change in plain English. The Tuner will inspect{" "}
+                <code className="font-mono text-xs">{targetAgent.id}</code>&apos;s
+                config + workspace files, propose a diff, and wait for your
+                approval before applying.
+              </>
+            ) : (
+              <>
+                Use the picker in the header above to choose which AI employee
+                you want to tune. Once selected, the chat input will be seeded
+                with the right target context.
+              </>
+            )}
           </p>
         </div>
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">
-            Common adjustments:
+            {targetAgent
+              ? `Common adjustments for ${targetAgent.id}:`
+              : "Common adjustments (pick an employee first):"}
           </p>
           <div className="grid grid-cols-1 gap-2">
-            {TUNER_SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <div
                 key={s}
                 className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground"

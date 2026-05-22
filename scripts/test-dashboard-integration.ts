@@ -403,6 +403,7 @@ async function testPagesRender(baseUrl: string): Promise<void> {
     { path: "/integrations", mustContain: "Integrations" },
     { path: "/tune", mustContain: "Tune" },
     { path: "/chat", mustContain: "Chat" },
+    { path: "/audit", mustContain: "Audit Trail" },
   ];
 
   for (const p of pages) {
@@ -440,6 +441,29 @@ async function testNoSkeletonOnGraduated(baseUrl: string): Promise<void> {
     const stale = stalePhrases.find((p) => html.includes(p));
     assert(stale === undefined, `${route} HTML has no SkeletonShell stale copy`, stale);
   }
+}
+
+async function testAuditTrail(baseUrl: string): Promise<void> {
+  group("T-12: /audit — Audit Trail renders + handles missing extension");
+
+  const html = await (await fetch(`${baseUrl}/audit`)).text();
+  assert(html.includes("Audit Trail"), "/audit HTML contains 'Audit Trail' page title");
+  assert(
+    html.toLowerCase().includes("sentura-audit"),
+    "/audit HTML mentions the sentura-audit extension (descriptive copy)",
+  );
+  assert(
+    html.toLowerCase().includes("data tier") ||
+      html.includes("T0") ||
+      html.includes("T4"),
+    "/audit HTML contains data-tier vocabulary (proves Person D's T0–T4 schema is rendered)",
+  );
+
+  // The page itself does not call the gateway server-side (it's a client
+  // component); instead it issues client.queryAudit() + client.getAuditStats()
+  // from the browser via useEffect. Without a live gateway, the empty
+  // entries card or error card displays — both healthy outcomes the SSR
+  // HTML can't differentiate.
 }
 
 async function testCostCenter(baseUrl: string): Promise<void> {
@@ -499,6 +523,7 @@ async function main(): Promise<void> {
     await testNoSkeletonOnGraduated(srv.baseUrl);
     await testTuneSuspenseFix(srv.baseUrl);
     await testCostCenter(srv.baseUrl);
+    await testAuditTrail(srv.baseUrl);
   } finally {
     cleanup();
   }

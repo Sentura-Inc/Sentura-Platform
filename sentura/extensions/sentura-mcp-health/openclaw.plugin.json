@@ -1,0 +1,48 @@
+{
+  "id": "sentura-mcp-health",
+  "name": "Sentura MCP Health",
+  "description": "MCP server health monitoring — periodically pings configured MCP servers, tracks connection status / errors / latency, exposes the live snapshot via gateway RPC and an agent-callable tool, and emits audit events on every status change.",
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": ["sentura_mcp_health"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "checkIntervalMs": {
+        "type": "number",
+        "minimum": 5000,
+        "default": 60000,
+        "description": "How often to ping each configured MCP server (milliseconds)."
+      },
+      "checkTimeoutMs": {
+        "type": "number",
+        "minimum": 1000,
+        "default": 5000,
+        "description": "Per-server check timeout. Servers that don't reply within this window are flagged as 'down'."
+      },
+      "degradedAfterErrors": {
+        "type": "number",
+        "minimum": 1,
+        "default": 3,
+        "description": "After this many consecutive failed checks, the status is reported as 'degraded' before fully transitioning to 'down'."
+      },
+      "downAfterErrors": {
+        "type": "number",
+        "minimum": 1,
+        "default": 5,
+        "description": "After this many consecutive failed checks, the status is reported as 'down'."
+      },
+      "emitAuditOnEveryCheck": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, every health check (not just transitions) emits a `mcp_health_check` audit event. Default false to keep audit volume manageable."
+      },
+      "stateFile": {
+        "type": "string",
+        "description": "Path to the health snapshot JSON file. Defaults to ~/.openclaw/sentura-mcp-health/health.json."
+      }
+    }
+  }
+}
