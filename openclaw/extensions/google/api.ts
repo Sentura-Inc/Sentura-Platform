@@ -7,7 +7,6 @@ export { parseGeminiAuth };
 export { applyGoogleGeminiModelDefault, GOOGLE_GEMINI_DEFAULT_MODEL } from "./onboard.js";
 import {
   DEFAULT_GOOGLE_API_BASE_URL,
-  normalizeGoogleApiBaseUrl,
   normalizeGoogleGenerativeAiBaseUrl,
 } from "./provider-policy.js";
 export { normalizeAntigravityModelId, normalizeGoogleModelId } from "./model-id.js";
@@ -31,6 +30,8 @@ export {
 export {
   DEFAULT_GOOGLE_API_BASE_URL,
   isGoogleGenerativeAiApi,
+  isGoogleVertexBaseUrl,
+  isGoogleVertexHostname,
   normalizeGoogleApiBaseUrl,
   normalizeGoogleGenerativeAiBaseUrl,
   normalizeGoogleProviderConfig,
@@ -41,6 +42,10 @@ export {
 } from "./provider-policy.js";
 export { buildGoogleGeminiCliProvider } from "./gemini-cli-provider.js";
 export { buildGoogleProvider } from "./provider-registration.js";
+
+type GoogleGenerativeAiRequestOverrides = ProviderRequestTransportOverrides & {
+  allowPrivateNetwork?: boolean;
+};
 
 function resolveTrustedGoogleGenerativeAiBaseUrl(baseUrl?: string): string {
   const normalized =
@@ -69,14 +74,14 @@ export function resolveGoogleGenerativeAiHttpRequestConfig(params: {
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;
-  request?: ProviderRequestTransportOverrides;
+  request?: GoogleGenerativeAiRequestOverrides;
   capability: "image" | "audio" | "video";
   transport: "http" | "media-understanding";
 }) {
   return resolveProviderHttpRequestConfig({
     baseUrl: resolveTrustedGoogleGenerativeAiBaseUrl(params.baseUrl),
     defaultBaseUrl: DEFAULT_GOOGLE_API_BASE_URL,
-    allowPrivateNetwork: false,
+    allowPrivateNetwork: params.request?.allowPrivateNetwork,
     headers: params.headers,
     request: params.request,
     defaultHeaders: parseGeminiAuth(params.apiKey).headers,
