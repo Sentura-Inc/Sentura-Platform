@@ -5,10 +5,13 @@ import { Authorizer } from "./src/authorizer.js";
 import { withRbac } from "./src/middleware.js";
 import { ROLE_DEFINITIONS, getOperatorScopesForRole } from "./src/roles.js";
 import { RbacStore } from "./src/store.js";
-import type { RbacConfig, SenturaRole, SenturaUser } from "./src/types.js";
+import { DEFAULT_TENANT_ID, TenancyStore } from "./src/tenancy-store.js";
+import type { AgentTenancy, RbacConfig, SenturaRole, SenturaUser } from "./src/types.js";
 
 export { withRbac, createImperativeAuthorize, resolveActorUser } from "./src/middleware.js";
 export type { HandlerArgs, MiddlewareOptions, RbacHandler, GuardedHandler } from "./src/middleware.js";
+export { DEFAULT_TENANT_ID } from "./src/tenancy-store.js";
+export type { AgentTenancy } from "./src/types.js";
 
 function resolveConfig(pluginConfig: Record<string, unknown>): RbacConfig {
   const raw = pluginConfig as Partial<RbacConfig>;
@@ -26,10 +29,14 @@ export default definePluginEntry({
   register(api: OpenClawPluginApi) {
     const config = resolveConfig(api.pluginConfig ?? {});
     const store = new RbacStore(config.dataDir);
+    const tenancyStore = new TenancyStore(config.dataDir);
     const authorizer = new Authorizer(store);
 
     store.initialize().catch((err) => {
       api.logger.error("[sentura-rbac] Failed to initialize RBAC store:", err);
+    });
+    tenancyStore.initialize().catch((err) => {
+      api.logger.error("[sentura-rbac] Failed to initialize tenancy store:", err);
     });
 
     // --- Gateway RPC: List role definitions ---
@@ -180,6 +187,73 @@ export default definePluginEntry({
         respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
       }
     });
+
+    // --- Gateway RPC: Get agent tenancy ---
+    // Returns the {tenantId, departmentId} record for an agent, or null if
+    // the agent has no tenancy assigned yet (callers should treat this as
+    // tenantId="default", departmentId=null).
+    api.registerGatewayMethod("sentura.rbac.tenancy.get", async ({ params, respond }) => {
+      try {
+        const agentId = params?.agentId as string;
+        if (!agentId) {
+          respond(false, undefined, { code: "BAD_REQUEST", message: "agentId required" });
+          return;
+        }
+        const record = await tenancyStore.get(agentId);
+        respond(true, { tenancy: record ?? null });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
+    });
+
+    // --- Gateway RPC: List agent tenancy (optional filters) ---
+    api.registerGatewayMethod("sentura.rbac.tenancy.list", async ({ params, respond }) => {
+      try {
+        const tenantId = params?.tenantId as string | undefined;
+        const departmentId = params?.departmentId as string | undefined;
+        let records: AgentTenancy[];
+        if (departmentId) {
+          records = await tenancyStore.listByDepartment(departmentId);
+        } else if (tenantId) {
+          records = await tenancyStore.listByTenant(tenantId);
+        } else {
+          records = await tenancyStore.list();
+        }
+        respond(true, { tenancy: records, count: records.length });
+      } catch (err) {
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+      }
+    });
+
+    // --- Gateway RPC: Set agent tenancy (RBAC-guarded — agent_manager scope) ---
+    // tenantId defaults to "default". departmentId may be null.
+    api.registerGatewayMethod(
+      "sentura.rbac.tenancy.set",
+      withRbac(
+        authorizer,
+        store,
+        {
+          method: "sentura.rbac.users.assign",
+          enforce: config.enforceOnPluginMethods,
+          userIdField: "actorId",
+        },
+        async ({ params, respond }) => {
+          try {
+            const agentId = params?.agentId as string;
+            if (!agentId) {
+              respond(false, undefined, { code: "BAD_REQUEST", message: "agentId required" });
+              return;
+            }
+            const tenantId = (params?.tenantId as string | undefined) ?? DEFAULT_TENANT_ID;
+            const departmentId = (params?.departmentId as string | null | undefined) ?? null;
+            const record = await tenancyStore.set({ agentId, tenantId, departmentId });
+            respond(true, { tenancy: record });
+          } catch (err) {
+            respond(false, undefined, { code: "INTERNAL_ERROR", message: String(err) });
+          }
+        },
+      ),
+    );
 
     // --- Gateway RPC: Resolve visible employees for a user ---
     api.registerGatewayMethod("sentura.rbac.scope.employees", async ({ params, respond }) => {

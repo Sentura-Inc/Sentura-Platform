@@ -82,6 +82,10 @@ export interface AgentChatProps {
   sessionKey?: string;
   /** Optional prefilled draft for the input box on mount. */
   initialPrompt?: string;
+  /** Optional label for the new session created on first send. The label
+   * shows in the sidebar and OpenClaw Control UI — without it sessions
+   * read as "Untitled". /tune passes "Tuning {Employee name}". */
+  sessionLabel?: string;
   /**
    * Fired with the new session key after AgentChat creates a session on
    * first send. Caller should adopt the key into its own state so subsequent
@@ -191,12 +195,19 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       agentId,
       sessionKey,
       initialPrompt,
+      sessionLabel,
       onSessionCreated,
       onMessage,
       onToolCall,
       emptyState,
       className,
     } = props;
+    // Stable ref so the submit handler reads the latest label without
+    // resubscribing the entire send closure on every parent render.
+    const sessionLabelRef = useRef(sessionLabel);
+    useEffect(() => {
+      sessionLabelRef.current = sessionLabel;
+    }, [sessionLabel]);
 
     const { client, state } = useGateway();
 
@@ -289,30 +300,57 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       let cancelled = false;
       setHydrating(true);
       (async () => {
-        try {
-          const transcript = await client.getTranscript(sessionKey);
+        // Retry-on-startup: when the dashboard's WebSocket reconnects faster
+        // than the gateway's plugin handshake completes, `chat.history` returns
+        // `UNAVAILABLE: chat.history unavailable during gateway startup`. The
+        // pre-2026-05-04 build caught the error and never retried, leaving the
+        // /tune (and /chat) transcript empty until the user manually clicked
+        // away and back. Retry with exponential backoff covers the entire
+        // typical plugin-load window (~3-8 seconds in dev, longer with cold
+        // node_modules).
+        const MAX_RETRIES = 5;
+        const BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           if (cancelled) return;
-          const hydrated: ChatMessage[] = transcript
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m, idx) => ({
-              id: `hydrated-${idx}-${m.role}`,
-              role: m.role as ChatRole,
-              text: transcriptToText(m.content),
-              streaming: false,
-              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            }))
-            .filter((m) => m.text.trim().length > 0);
-          setMessages(hydrated);
-        } catch (err: unknown) {
+          try {
+            const transcript = await client.getTranscript(sessionKey);
+            if (cancelled) return;
+            const hydrated: ChatMessage[] = transcript
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m, idx) => ({
+                id: `hydrated-${idx}-${m.role}`,
+                role: m.role as ChatRole,
+                text: transcriptToText(m.content),
+                streaming: false,
+                timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+              }))
+              .filter((m) => m.text.trim().length > 0);
+            setMessages(hydrated);
+            lastError = null;
+            break;
+          } catch (err: unknown) {
+            lastError = err;
+            const msg =
+              err && typeof err === "object" && "message" in err
+                ? String((err as { message: unknown }).message)
+                : "";
+            const isStartup =
+              /unavailable during gateway startup/i.test(msg) ||
+              /UNAVAILABLE/.test(msg);
+            if (!isStartup || attempt === MAX_RETRIES - 1) break;
+            await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+          }
+        }
+        if (lastError && !cancelled) {
           const msg =
-            err && typeof err === "object" && "message" in err
-              ? (err as { message: string }).message
+            lastError && typeof lastError === "object" && "message" in lastError
+              ? (lastError as { message: string }).message
               : "Unknown error";
           console.warn("[agent-chat] transcript hydration failed:", msg);
           setError(`Could not load transcript: ${msg}`);
-        } finally {
-          if (!cancelled) setHydrating(false);
         }
+        if (!cancelled) setHydrating(false);
       })();
       return () => {
         cancelled = true;
@@ -541,7 +579,12 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
         try {
           if (!sessionKeyRef.current) {
             // First message of a new conversation — create the session.
-            const result = await client.createSession(agentId, trimmed);
+            const label = sessionLabelRef.current?.trim();
+            const result = await client.createSession(
+              agentId,
+              trimmed,
+              label ? { label } : undefined,
+            );
             if (!result?.key) {
               throw new Error("Gateway did not return a session key");
             }
@@ -584,7 +627,7 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       emptyState !== undefined;
 
     return (
-      <div className={cn("flex flex-1 flex-col min-w-0", className)}>
+      <div className={cn("flex flex-1 flex-col min-w-0 min-h-0", className)}>
         {/* Transcript */}
         <div ref={transcriptRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">

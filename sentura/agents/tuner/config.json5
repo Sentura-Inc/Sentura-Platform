@@ -33,10 +33,24 @@
             "web_search",
             "web_fetch",
             "sentura_agents_manage",
+            "sentura_approval_request",
             "memory_search",
             "memory_get",
             "update_plan",
           ],
+          // CROSS-WORKSPACE READ FIX (2026-05-03). The Tuner sandbox is
+          // rooted at ~/.openclaw/sandboxes/agent-tuner-<hash>/ — raw
+          // file tools (read/write/edit/apply_patch) reject any absolute
+          // path under ~/.openclaw/workspace/<other-agent>/* with
+          // "Path escapes sandbox root". Tuner's workspace-edit skill
+          // already documents that ALL target-agent file I/O goes
+          // through sentura_agents_manage { action: "read"|"write" }, but
+          // with raw file tools still on the LLM's palette the model
+          // will sometimes reach for them anyway. Deny them outright at
+          // both the agent layer and the sandbox layer so the only
+          // reachable workspace-mutation surface is sentura_agents_manage.
+          // Same Round-10 pattern Forge uses for "fs_write" / "edit".
+          deny: ["read", "write", "edit", "apply_patch"],
           // SANDBOX TOOL-POLICY FIX (Round 20, 2026-04-19). OpenClaw's non-main
           // sandbox applies a SECOND tool filter after agent-level alsoAllow.
           // Plugin tools (sentura_*, gateway, memory_*, update_plan, etc.) are
@@ -53,6 +67,7 @@
                 "web_search",
                 "web_fetch",
                 "sentura_agents_manage",
+                "sentura_approval_request",
                 "sentura_rbac_manage",
                 "sentura_audit_query",
                 "memory_search",
@@ -62,6 +77,9 @@
                 "canvas",
                 "cron",
               ],
+              // Mirror the agent-level deny inside the sandbox filter
+              // so the LLM cannot escape the sandbox via raw file I/O.
+              deny: ["read", "write", "edit", "apply_patch"],
             },
           },
         },

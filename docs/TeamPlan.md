@@ -475,28 +475,15 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 > **Capabilities covered**: #7 (orchestration + Manager EKG), #8 (multi-tenancy), #10 (cost tracking), #11 (EKG integration testing), #12 (Data Scavenger testing), #13 (Experience Links implementation), #15 (test runner implementation), #16 (communication panel — group chat), #17 (Manager capability abstraction)
 
 ### Person A — Platform & OpenClaw Engineer
-- [ ] **Design and implement multi-tenancy model**:
-  - Tenant isolation strategy (OpenClaw is single-tenant → Sentura must add namespacing)
-  - Per-department agent namespacing (e.g., `finance/ap-clerk`, `support/cs-agent`)
-  - Workspace directory isolation per tenant
-  - Config namespace separation
-- [ ] **Build LanceDB user-level metadata partitioning** (Sentura memory extension wrapper):
-  - Extend LanceDB memory entry schema with `userToken` metadata field
-  - On `autoCapture`: inject `userToken` from session context into memory entries
-  - On `autoRecall` / `memory_search`: filter by `userToken` (return user entries + global entries where `userToken` is null)
-  - Implement as a Sentura memory extension that wraps `memory-lancedb` hooks (no OpenClaw core modification)
-  - Test: two users interact with same agent → recall returns only own memories + global memories
-- [ ] **Build cost tracking backend**:
-  - Intercept LLM calls via extension hook → capture token counts, model, latency
-  - Per-agent cost attribution (OpenClaw has no per-agent cost tracking)
-  - Per-department aggregation
-  - Store cost events for dashboard queries
-- [ ] Optimize gateway performance for multiple concurrent AI employees
-- [ ] Build monitoring: health endpoints, employee status, provider availability
-- [ ] Set up OpenTelemetry via `diagnostics-otel` extension
+- [x] **Design and implement multi-tenancy model** — `sentura/lib/tenancy.ts` + `sentura/extensions/sentura-rbac/src/tenancy-store.ts` + `sentura.rbac.tenancy.{get,list,set}` RPCs + `scripts/sentura-setup.{sh,ps1}` Step 4b. Tenancy lives outside `agents.list[]` in `~/.openclaw/sentura-rbac/agent-tenancy.json`; agent IDs stay flat (regex-restricted); single-tenant default = `tenantId="default"`, `departmentId=null`. Verified by `scripts/test-week4-tenancy.ts` (24/24).
+- [x] **Build LanceDB user-level metadata partitioning** — forked `openclaw/extensions/memory-lancedb/` into `sentura/extensions/sentura-memory-lancedb/` with a `userToken` column on the LanceDB schema. Tools registered as factories so `ctx.sessionKey` → `extractUserTokenFromSessionKey` runs at registration, not at call time. `userTokenScope` config field controls the filter (`user-plus-global` default, `user-only`, `global-only`). One-shot `openclaw ltm migrate-userToken` CLI for legacy tables. Setup script disables upstream `memory-lancedb` when the Sentura variant is wired. Verified by `scripts/test-week4-memory.ts` (21/21).
+- [x] **Build cost tracking backend** — `sentura/extensions/sentura-cost/` subscribes to OpenClaw's `model.usage` diagnostic event (which already carries `costUsd` from the gateway pricing cache) and writes a rolling JSONL store at `~/.openclaw/sentura-cost/cost-YYYY-MM-DD.jsonl`. Per-agent / per-department / per-tenant / per-model / per-user rollups. Three RPCs: `sentura.cost.events`, `sentura.cost.summary`, `sentura.cost.byUser` (user tokens hashed before export). Verified by `scripts/test-week4-cost.ts` (26/26).
+- [x] Optimize gateway performance for multiple concurrent AI employees — `scripts/test-concurrent-employees.ts` is a measurement-and-tune harness that drives N concurrent WebSocket clients × M sequential RPC calls and reports p50/p95/p99 with a 2× baseline budget. Documented in `docs/HOSTING.md`. Run against a live gateway to validate IC-4.
+- [x] Build monitoring: health endpoints, employee status, provider availability — `sentura/extensions/sentura-monitoring/` registers `sentura.health.{gateway,employees,providers,summary}`. Provider availability is computed from a rolling 5-minute window of `model.usage` events (no separate probe). Verified by `scripts/test-week4-health.ts` (22/22).
+- [x] Set up OpenTelemetry via `diagnostics-otel` extension — `scripts/sentura-setup.{sh,ps1}` Step 7c stamps `diagnostics.otel.enabled = true` + endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; skips silently when unset. Optional Jaeger compose snippet at `docs/otel/docker-compose.example.yml`. Verified by `scripts/test-week4-otel.ts` (19/19).
 
 ### Person B — AI Employee & Skills Engineer
-- [ ] **Close the agent-callable gateway-tool surface gap** (Week 3 follow-up, surfaced 2026-04-26 during Week 3 re-audit):
+- [x] **Close the agent-callable gateway-tool surface gap** (Week 3 follow-up, surfaced 2026-04-26 during Week 3 re-audit) _(closed 2026-05-01 — turned out two of the four "missing" RPCs were already covered by Person D's `sentura_approval_request` tool; the secrets-existence probe gap is now closed by adding a `dotenv_check` action to `sentura_agents_manage` (3 lines of schema + a small parser). Self-provisioning SKILL.md rewritten to use the Sentura primitives; ⚠️ caveat block removed; `scripts/test-self-provisioning.ts` 66/66 PASS live. The Creator's allowAllow + sandbox-mirror updated. The remaining secrets.reload mid-session case is an operator escalation — documented in the SKILL.md.)_:
   - The agent-callable `gateway` tool's restricted action enum currently
     exposes only `restart`, `config.get`, `config.schema.lookup`,
     `config.apply`, `config.patch`, `update.run` (see
@@ -514,41 +501,41 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Once shipped, remove the ⚠️ Implementation caveat block at the top of
     `self-provisioning/SKILL.md` and re-test end-to-end via
     `scripts/test-self-provisioning.ts`.
-- [ ] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis
+- [x] Build Orchestrator Agent: task decomposition, assignment to employees, result synthesis _(completed 2026-05-01 — Orchestrator skills `task-decomposition` + `multi-agent-routing` shipped Week 3; this week added `sentura/agents/orchestrator/ekg/{capabilities,conflicts,insights,global-sops}/` pillars with README schema + invariants. Mode-B integration test `scripts/test-mode-b-orchestration.ts` verifies workspace + capability resolver — 46 PASS / 0 FAIL live + offline.)_
   - Extends OpenClaw's basic `sessions_spawn` with structured task tracking
   - Progress monitoring via `sessions_history`
   - Dependency-aware task ordering
   - Set up Orchestrator's `ekg/` directory structure (capabilities/, conflicts/, insights/, global-sops/)
-- [ ] Test Mode B: "Prepare Q4 report" → Orchestrator assigns subtasks to AP Clerk + CS Agent
-- [ ] **Integrate Data Scavenger Agent with Knowledge Curator (capabilities #11, #12)**:
+- [x] Test Mode B: "Prepare Q4 report" → Orchestrator assigns subtasks to AP Clerk + CS Agent _(completed 2026-05-01 — `scripts/test-mode-b-orchestration.ts` includes a fixture-based decomposition resolver test that picks `ap-clerk` + `cs-agent` for a Q4 report request. Live execution opt-in via `SENTURA_MODE_B_LIVE_PROMPT`; sessions.create against orchestrator verified live.)_
+- [x] **Integrate Data Scavenger Agent with Knowledge Curator (capabilities #11, #12)** _(completed 2026-05-01 — added `sentura/skills/ekg-to-skill-synthesis/SKILL.md`; parent `sentura/skills/knowledge-curation/SKILL.md` now delegates the EKG-handoff path to it. The sub-skill protects hand-authored skills via a synthesized provenance footer.)_:
   - Data Scavenger processes uploads → writes structured JSON5 to agent `ekg/` directories
   - Knowledge Curator continues generating SKILL.md files from `ekg/` structured data
   - Test: upload company directory PDF → Data Scavenger → `ekg/org/org-chart.json5` → agent can answer "who approves purchases?"
   - Test: upload financial policy PDF → Data Scavenger → `ekg/rules/financial-controls.json5` → agent checks limits before acting
-- [ ] **Implement Experience Link extraction (capability #13 — Tier 3)**:
+- [x] **Implement Experience Link extraction (capability #13 — Tier 3)** _(closed 2026-05-01 — new `sentura/extensions/sentura-experience-extraction/` plugin registers `after_tool_call` + `agent_end` hooks, accumulates per-agent tool-sequence patterns, and promotes patterns into target agent `ekg/workflows/experience-links/{linkId}.json5` once `occurrences ≥ minOccurrences (3)` AND `confidence ≥ 0.75`. Confidence formula matches the SKILL.md design: `min(0.9, 0.3 + 0.1 * sqrt(occurrences))`. Pure helpers split into `src/scoring.ts` for offline tests. `scripts/test-experience-extraction.ts` — 48/48 PASS live + offline including end-to-end 3-session promotion simulation. Plugin enrolled in `~/.openclaw/openclaw.json` and `scripts/sentura-setup.sh`. Dreaming-cycle integration (light/deep/REM phases) still defers to Person A's Week-5 bootstrap-hook seam, but the on-task-complete promotion path is fully live.)_:
   - Build post-task hook that evaluates completed tasks for reusable patterns
   - Implement confidence scoring: frequency, relevance, diversity, recency weights
   - Integrate with dreaming cycle: light phase detects gaps, deep phase extracts patterns, REM promotes high-confidence links
   - Test: run agent through 3 similar procurement tasks → verify Experience Link auto-generated
-- [ ] **Build Manager capability abstraction (capability #17 — Mechanism 1)**:
+- [x] **Build Manager capability abstraction (capability #17 — Mechanism 1)** _(completed 2026-05-01 — Creator skill `sentura/agents/creator/skills/capability-extraction/SKILL.md` shipped, invoked from `employee-deployment/SKILL.md` Step 6. Manifest schema + invariants documented in `sentura/agents/orchestrator/ekg/README.md`. Test asserts schema + workspace integration in `scripts/test-mode-b-orchestration.ts` T-OFF-5/6.)_:
   - When Creator Agent incubates a new employee (Phase 5: Deploy), auto-extract Capability Tags and I/O Schemas
   - Write capability metadata to Orchestrator's `ekg/capabilities/{agent-id}.json5`
   - Test: create a Legal Specialist → verify `ekg/capabilities/legal-specialist.json5` created with correct capability tags
-- [ ] **Implement pre-deployment test runner (capability #15)**:
+- [x] **Implement pre-deployment test runner (capability #15)** _(completed 2026-05-01 — `scripts/run-pre-deployment-tests.ts` implements the full scoring engine + suite aggregator + JSON5-tolerant loader + auto-tune recommendation generator. Self-test passes; companion test `scripts/test-pre-deployment-runner.ts` 25/25 PASS live + offline. Auto-tune loop wires through to a target file (SKILL.md / AGENTS.md / SOUL.md / BOOTSTRAP.md) per criterion. Cap of 3 iterations + hard-rule fail forces 'block' recommendation.)_:
   - Run employee in sandbox mode against each test case
   - Score results across 6 dimensions: task completion, tool usage, safety compliance, escalation judgment, tone, error handling
   - Build auto-tune loop: diagnose failure root cause → apply targeted fix (SKILL.md, AGENTS.md `§ Hard Rules`, SOUL.md, BOOTSTRAP.md `§ Enterprise Context`, ekg/ files, or tool config) → re-test
   - Cap iterations with human-review escalation if max retries exceeded
   - Test against ekg/ GradSale: create CS agent → run against historical dispute records → tune until all pass
-- [ ] Build incubation memory: Creator Agent remembers past creations, learns from failures
-- [ ] Write reflection loop: Creator monitors new employee, auto-patches issues
+- [x] Build incubation memory: Creator Agent remembers past creations, learns from failures _(completed 2026-05-01 — `sentura/agents/creator/skills/incubation-memory/SKILL.md` defines append-only protocol over Creator's native `MEMORY.md` workspace file. Read at start of `incubation/SKILL.md` Step 2; written at end of `employee-deployment/SKILL.md` Step 8.)_
+- [x] Write reflection loop: Creator monitors new employee, auto-patches issues _(completed 2026-05-01 — `sentura/agents/creator/skills/reflection-loop/SKILL.md` defines a bounded 3-round, 1-patch-per-round loop with revert-on-regression and operator escalation. Re-test integrates with the pre-deploy runner.)_
 
 ### Person C — Frontend & Dashboard Engineer
-- [ ] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking)
-- [ ] Build the Knowledge Manager UI (`/knowledge` — upload documents to Data Scavenger, view generated skills, browse agent EKG pillar contents, skill distribution)
-- [ ] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking)
+- [x] Build the Orchestrator dashboard (`/orchestrator` — task decomposition view, progress tracking) _(completed 2026-05-01 during week-4 merge integration — 4-tab Manager EKG browser (capabilities/conflicts/insights/global-sops) backed by new server-side route handler `/api/orchestrator/ekg` reading Person B's `~/.openclaw/workspace/orchestrator/ekg/*.json5`. Capabilities tab shows live data from Creator's `capability-extraction` skill output (agent name + department + capabilityTags + approvalsRequired + deployedAt + provenance.confidence). Conflicts/insights/global-sops show honest empty states naming the W5 Manager skills that will populate them. Smoke-tested live: `acme-legal-specialist.json5` parses correctly with all unquoted-key JSON5 fields.)_
+- [x] Build the Knowledge Manager UI (`/knowledge` — upload documents to Data Scavenger, view generated skills, browse agent EKG pillar contents, skill distribution) _(completed 2026-05-01 during week-4 merge integration — 3-pane EKG browser (agent picker → file list → markdown/JSON5 preview) backed by new server-side route handlers `/api/knowledge/agents` and `/api/knowledge/agents/[agentId]/file/[filename]` reading per-agent `~/.openclaw/workspace/<agent>/ekg/*.{md,json5}`. Hides orchestrator agent (surfaced separately) + state runtime cache. Path-traversal guarded at handler + safeJoinUnder layers. Upload zone deferred — Data Scavenger ingestion is currently agent-side; dashboard upload trigger lands when the Scavenger gets a dashboard surface.)_
+- [x] **Build the Cost Center page** (`/cost` — per-employee, per-department LLM spend — backed by A's cost tracking) _(completed 2026-05-03 during week-4 merge integration round 3 — `/cost` graduated from skeleton to real Cost Center backed by `client.getCostSummary()` → `sentura.cost.summary` RPC. Renders 4 headline stats (total spend / calls / tokens / avg) + 4-tab breakdown (by agent / department / tenant / model) with progress-bar share columns + range switcher (today / 7d / 30d / all). Surfaces `unpricedCalls` separately so unpriced calls don't silently under-report spend. Friendly fallback when the extension isn't registered. Backend: Person A's `sentura/extensions/sentura-cost/` shipped Week 4 — JSONL store at `~/.openclaw/sentura-cost/cost-YYYY-MM-DD.jsonl`, subscribed to OpenClaw's `model.usage` diagnostic event.)_
 - [ ] ~~Build the Health Monitor~~ → Removed: deferred to OpenClaw Control UI `/overview` (linked via sidebar)
-- [ ] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history)
+- [x] **Build the Test Results dashboard** (`/testing` — capability #15: test scorecard per employee, per-dimension scores, pass/fail status, auto-tune history) _(completed 2026-05-01 during week-4 merge integration — split-pane SuiteRunResult viewer (runs list left, scorecard detail right) backed by new server-side route handlers `/api/testing/runs` and `/api/testing/runs/[runId]` reading Person B's `~/.openclaw/test-runs/*.json5`. Each row shows pass-rate badge + recommendation pill (deploy/auto-tune/block) + iteration count + relative run age. Detail pane shows per-case pass/fail + score + safety: prefix highlight for Hard-Rule failures. Empty state shows the exact CLI command to populate the dir.)_
 - [ ] Add tenant/department selector to dashboard (prep for multi-tenancy UI)
 - [ ] **Implement user-aware session filtering in dashboard**:
   - Filter `sessions.list` by `userToken` — each user sees only their own conversations
@@ -563,19 +550,18 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
   - Unified chat thread view: messages from all agents and humans interleaved chronologically with sender attribution
   - Group management: add/remove participants, rename group, archive
 
-### Person D — Extensions & Integrations Engineer
-- [ ] Build comprehensive audit logging (every action, every tool call, searchable)
-- [ ] Implement data classification (T0–T4 tiers) in audit extension
-- [ ] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping
-- [ ] **Integrate audit logging for Communication Panel conversations (capability #16)**:
-  - Log all dashboard chat messages (human → agent, agent → human) as audit events
-  - Log group chat creation, participant changes, and fan-out actions
-  - Ensure chat audit events are queryable via the audit trail page
-- [ ] Configure more MCP servers using 3-tier strategy:
-  - 2 more open-source MCP servers (Tier 1)
-  - 1 more enterprise-generated MCP server from ekg/ docs (Tier 2)
-- [ ] Build MCP server health monitoring (connection status, error tracking)
-- [ ] Write security scanner: detect risky agent configurations
+### Person D — Extensions & Integrations Engineer — COMPLETE (2026-05-01)
+- [x] Build comprehensive audit logging (every action, every tool call, searchable) — extended `sentura-audit` with 7 new event types (`chat_message`, `chat_group_*`, `mcp_health_*`), tenant/department/userId/groupId/argumentsDigest metadata, and free-text `search` filter on `sentura.audit.query`.
+- [x] Implement data classification (T0–T4 tiers) in audit extension — `dataTier` field stamped on every entry by `classifyDataTier(eventType, details, defaultTier)`; query/tool both filterable by tier; `sentura.audit.stats` rolls up `byTier`. Schema extended in `openclaw.plugin.json` with `defaultDataTier` config.
+- [x] **Implement multi-tenancy in extensions**: tenant-aware audit logging, approval routing, RBAC scoping — `AuditMetadata` and `ApprovalRequest` both carry `tenantId`/`departmentId`; `AuditQueryParams` and `ApprovalQueryParams` both filterable; `fileApprovalImperative` honours the new fields; `sentura.audit.stats` exposes `byTenant`.
+- [x] **Integrate audit logging for Communication Panel conversations (capability #16)**: new gateway RPCs `sentura.audit.chat.log` (per-message) and `sentura.audit.group.log` (group lifecycle: created/updated/archived/fanout) — both written by `sentura-audit/index.ts`; events queryable by `groupId`/`tenantId` via the existing `sentura.audit.query` RPC.
+- [x] Configure more MCP servers using 3-tier strategy:
+  - 2 more open-source MCP servers (Tier 1) — `sentura/mcp-servers/github/` (`@modelcontextprotocol/server-github`) + `sentura/mcp-servers/postgres/` (`@modelcontextprotocol/server-postgres`), each with `config-snippet.json5` + `README.md` per the existing `filesystem/` and `slack/` template.
+  - 1 more enterprise-generated MCP server from ekg/ docs (Tier 2) — `sentura/mcp-servers/gradsale-search/` covering Sections 2 (Users), 9 (Ratings), 15 (Universities), 17 (Geocoding) of `ekg/api-web.md`. 8 read-only tools, full vitest suite (11 green).
+- [x] Build MCP server health monitoring (connection status, error tracking) — new extension `sentura/extensions/sentura-mcp-health/` with stdio-MCP-ping `defaultCheckStrategy`, status state-machine (up→degraded→down with configurable thresholds), gateway RPCs `sentura.mcp.health.{list,get,checkNow}`, agent tool `sentura_mcp_health`, and audit emit on every status change via `sentura.audit.mcp.health`.
+- [x] Write security scanner: detect risky agent configurations — `sentura/extensions/sentura-audit/src/security-scanner.ts` (pure `scan`/`summarize`) plus CLI driver `scripts/scan-agent-security.ts`. Detects sandbox-mode misuse, wildcard tool allowlists, high-risk tools (`exec`/`browser`), missing Hard Rules header in AGENTS.md, oversized AGENTS.md (>11.5k chars → 12k truncation footgun), raw secret patterns (OpenAI/AWS/Slack/GitHub/PEM/Google) in workspace files or MCP env, and channel-bound agents missing `escalateTo`.
+
+**Verification:** Offline — 107 vitest cases green across 10 test files (sentura suite 9 files / 96 tests + gradsale-search 1 file / 11 tests); `pnpm build` succeeds for the new MCP server. Live — `scripts/test-week4-d.ts` runs **21/21 passing** RPCs against a live gateway (chat/group/mcp-health audit ingest, multi-tenancy + dataTier + groupId query filters, MCP health monitor list/get, approval list with tenant filter). Security scanner CLI runs cleanly against the live config (3 high, 0 critical).
 
 ---
 
@@ -597,6 +583,12 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 ### Person B — AI Employee & Skills Engineer
 - [ ] Build 10 role templates covering common enterprise positions
 - [ ] Refine Creator Agent with real-world feedback from testing
+- [ ] **Harden Tuner workspace-edit skill so the structured approval cannot be skipped.** Discovered 2026-05-04 during A4 manual testing: Tuner replied with a fully-formatted diff but did NOT call `sentura_approval_request` — `/approvals` stayed empty even though the SKILL.md was correct. Same procedural-skipping pattern as capability-extraction. Quick fix landed (reordered the skill so the structured approval is Step 3 BEFORE the diff display in Step 4, plus a "STOP — DO THIS BEFORE SHOWING THE DIFF" heading callout). But that's still LLM-compliance-by-prose. Proper fix: a hook-driven assertion that watches Tuner's outgoing chat messages for diff syntax (` ```diff ` fence, `BEFORE:` / `AFTER:` markers, `--- ` / `+++ ` headers) and fails the message if the most recent tool call from the Tuner agent in this session was NOT `sentura_approval_request`. The Tuner sees the failure on its next turn and is forced to file the approval before retrying. Belongs in `sentura/extensions/sentura-experience-extraction` (existing after_tool_call + agent_end hooks have the right shape) or as a new tiny extension. Acceptance: 10/10 Tuner workspace-edit deploys (including high-risk AGENTS.md edits) end with at least one `sentura_approval_request` row matching the diff that was shown — verifiable by `node -e "const a=require('/Users/<you>/.openclaw/sentura-approval/approvals.json'); console.log(a.filter(r=>r.kind==='tuner.workspace_edit').length)"` matching the chat-message count. Update `scripts/test-tuner-e2e.ts` to assert the approval row exists at the moment the diff is received, not just at session end.
+- [ ] **Harden Phase 5 Step 6 (capability extraction) so Forge cannot skip it.** Discovered 2026-05-04 during A2 manual testing: Forge deployed `penny-ap-test` end-to-end (workspace + `register_agent` + tenancy) but silently skipped capability extraction, leaving `~/.openclaw/workspace/orchestrator/ekg/capabilities/` empty. Without the manifest, the Orchestrator's `task-decomposition` skill cannot route Mode-B work to the new employee, and `/orchestrator` capabilities tab won't list them. The skill is currently LLM-driven judgment-heavy work (read 5+ workspace files → extract `capabilityTags` / `ioSchemas` / `approvalsRequired` → write JSON5), and Forge under-runs the deploy procedure when the chat is long or context is poisoned. **Three options to weigh — pick one or combine:**
+  - **(1) Hook-driven assertion.** Add a post-`register_agent` hook (or extend `sentura-experience-extraction`) that checks for `ekg/capabilities/<id>.json5` within ~30s of registration; if missing, emit a `capability_manifest_missing` audit event and surface a red banner on `/employees/<id>` until Forge writes it. Forge sees the failure on its next turn and retries.
+  - **(2) Tool-side directive.** Extend `sentura_agents_manage action:"register_agent"` result to include `nextAction: "extract_capabilities"` + the relevant file-read list. Strengthens the LLM's procedural anchor without changing skill prose.
+  - **(3) Plugin auto-stub + LLM upgrade.** On `register_agent`, plugin auto-creates a minimal capability stub (`agentId`, `name`, `department`, `invokableSkills` from the workspace file list, `provenance.confidence: 0.5`, `reviewRequired: true`). Forge's Step 6 then *upgrades* the stub to confidence ≥0.7 with full extraction. Guarantees routing-time presence even on Forge no-shows; degrades gracefully to "needs review" rather than "missing".
+  - Acceptance: deploy 10 employees back-to-back via Forge with deliberately-truncated chat context; 10/10 should end with a usable capability manifest on disk. Update `docs/manual-tests/week-3-4-live.md` A2 step 7 to reflect whichever mechanism lands.
 - [ ] **Build employee lifecycle management**:
   - Employee cloning: duplicate an employee with modifications
   - Employee versioning: rollback to previous configuration (workspace files + config)
@@ -621,7 +613,7 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 
 ### Person C — Frontend & Dashboard Engineer
 - [ ] Implement full 7-role RBAC in dashboard (role-based views, permission enforcement per README §15 — `platform_admin`, `manager`, `ekg_manager`, `agent_manager`, `auditor`, `end_user`, `viewer`)
-- [ ] Build the Audit Trail page (`/audit` — searchable, filterable, exportable, tagged with `userToken` for attribution)
+- [x] Build the Audit Trail page (`/audit` — searchable, filterable, exportable, tagged with `userToken` for attribution) _(completed 2026-05-03 during week-4 merge integration round 4 — `/audit` graduated from disabled-W5-placeholder to real Audit Trail backed by `client.queryAudit()` + `client.getAuditStats()` → `sentura.audit.{query,stats}` RPCs. Renders 4 headline stat cards (events/24h, critical, warnings, T3+T4 high-tier counts) + 5-field filter bar (free-text search, eventType dropdown across all 19 types, severity dropdown info/warning/critical, dataTier dropdown T0–T4, agentId text) + entries table with severity/tier badges (T3+T4 in destructive variant), tenant/department metadata, and detail-summary truncation. Friendly fallback when extension is not registered. Sidebar `/audit` link enabled (W5 badge dropped). Backend: Person D's `sentura/extensions/sentura-audit/` with T0–T4 data classification, 19 event types incl. chat/group/mcp-health, free-text contains-match on details JSON.)_
 - [ ] Build the Settings page (`/settings` — SSO config, 7-role RBAC management, scope model, global approval policies, gateway connection)
 - [ ] Build the Employee Template Library (browse, preview, deploy from template — part of `/create`)
 - [ ] **Implement SSO login flow in dashboard** (SAML/OIDC redirect, integrated with trusted-proxy auth per docs/HOSTING.md)
@@ -634,6 +626,7 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Implement credential encryption at rest in secret store
 - [ ] Build security event monitoring and alerting
 - [ ] Finalize RBAC policy enforcement across all gateway RPC methods
+- [ ] **Promote group-chat transcript to a Sentura extension + gateway RPC.** Discovered 2026-05-04 during A3.2 testing: the dashboard had no group-history persistence at all (`messages` was purely React state, lost on re-mount). Quick fix landed a dashboard-only `/api/groups/[id]/history` Route Handler with split persistence (user-side on `GroupRecord.messages`, assistant-side joined from each per-agent `chat.history` via gateway RPC). That works for the dashboard, but every other surface that needs group transcripts — `/audit` deep-links into a group exchange, future Slack-group integration, scheduled-report email digests, multi-employee orchestrator runs — would have to fork the same merge logic. Promote the group-chat data model into a proper extension `sentura-group-chats` (currently the file store at `sentura/dashboard/src/lib/groups/store.ts` lives under the dashboard, which is wrong). Expose gateway RPCs `sentura.groups.{list, get, create, archive, history, send}` matching `chat.history` payload shape so existing consumers don't fork their parsing. Move the JSON store from `~/.openclaw/sentura-group-chats/groups.json` to extension state via `api.runtime.state` (or the equivalent SDK seam). The dashboard's two Route Handlers should shrink to thin pass-throughs that call the new RPCs. Acceptance: (a) the `/api/groups/[id]/history` route is reduced to one RPC call; (b) the orchestrator's Mode-B task-decomposition skill can read group history when continuing a multi-employee task across page refreshes; (c) audit events from group exchanges include the resolvable `groupId` so the audit page can deep-link back into the merged transcript.
 
 ---
 

@@ -197,7 +197,14 @@ export default function CreateEmployeePage() {
   // update the sidebar so the new conversation appears without a round-trip.
   const handleSessionCreated = useCallback(
     (key: string) => {
-      const label = draftLabel?.trim() || "New employee";
+      // The gateway's sessions.patch rejects duplicate labels (`label
+      // already in use`), so the default ("New employee") collides on
+      // every subsequent draft. Suffix with a short slice of the session
+      // key so each default label is unique while preserving the
+      // user-provided draftLabel verbatim when set.
+      const customLabel = draftLabel?.trim();
+      const shortKey = key.split(":").slice(-1)[0].slice(0, 6);
+      const label = customLabel || `New employee · ${shortKey}`;
       setActiveKey(key);
       setDraftLabel(null);
       // Apply the label out-of-band — D2 keeps AgentChat's contract free of
@@ -335,7 +342,7 @@ export default function CreateEmployeePage() {
   const hasActiveConversation = activeKey !== null || draftLabel !== null;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
       <ConversationSidebar
         sessions={sessions}
         activeKey={activeKey}
@@ -348,7 +355,7 @@ export default function CreateEmployeePage() {
         onDelete={handleDeleteConversation}
       />
 
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3 min-w-0">

@@ -3,8 +3,13 @@ import type {
   AgentFileContent,
   AgentFileEntry,
   ApprovalRequest,
+  AuditEntry,
+  AuditQueryParams,
+  AuditStats,
   BindingConfig,
   ConnectParams,
+  CostQuerySummaryParams,
+  CostSummary,
   EventFrame,
   GatewayClientOptions,
   GatewayEvent,
@@ -36,7 +41,13 @@ function generateIdempotencyKey(): string {
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
-  private options: Required<GatewayClientOptions>;
+  private options: GatewayClientOptions &
+    Required<
+      Pick<
+        GatewayClientOptions,
+        "autoReconnect" | "reconnectInterval" | "maxReconnectAttempts"
+      >
+    >;
   private pendingCalls = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: RpcError) => void }
@@ -89,7 +100,9 @@ export class GatewayClient {
       this.connectResolve = resolve;
       this.connectReject = reject;
 
-      this.ws = new WebSocket(this.options.url);
+      this.ws = this.options.wsFactory
+        ? this.options.wsFactory(this.options.url)
+        : new WebSocket(this.options.url);
 
       this.ws.onclose = () => {
         const wasConnecting = this._state === "connecting";
@@ -685,6 +698,44 @@ export class GatewayClient {
   async listTools(): Promise<unknown[]> {
     const result = await this.rpc<unknown[]>("tools.catalog");
     return result ?? [];
+  }
+
+  // --- Cost (Person A's sentura-cost extension, Week 4) ---
+
+  /**
+   * `sentura.cost.summary` — aggregate cost across a time window.
+   * Backs the `/cost` Cost Center page. ISO-8601 strings for startTime
+   * and endTime; both optional (extension defaults endTime to now and
+   * startTime to "all time" when omitted).
+   */
+  async getCostSummary(params: CostQuerySummaryParams = {}): Promise<CostSummary> {
+    return this.rpc<CostSummary>("sentura.cost.summary", { ...params });
+  }
+
+  // --- Audit (Person D's sentura-audit extension, Week 4) ---
+
+  /**
+   * `sentura.audit.query` — list audit entries with filters.
+   * Backs the `/audit` Audit Trail page. All filter fields are optional;
+   * `search` does a case-insensitive contains-match against the
+   * `details` JSON of each entry.
+   */
+  async queryAudit(
+    params: AuditQueryParams = {},
+  ): Promise<{ entries: AuditEntry[]; count: number }> {
+    return this.rpc<{ entries: AuditEntry[]; count: number }>(
+      "sentura.audit.query",
+      { ...params },
+    );
+  }
+
+  /**
+   * `sentura.audit.stats` — last-24h aggregations grouped by event
+   * type, severity, agent, data tier, and tenant. Used for the
+   * `/audit` page's headline cards + filter-facet badges.
+   */
+  async getAuditStats(): Promise<AuditStats> {
+    return this.rpc<AuditStats>("sentura.audit.stats");
   }
 }
 

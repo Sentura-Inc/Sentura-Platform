@@ -419,9 +419,10 @@ const creatorSandboxAlsoAllow = [
 ];
 const tunerSandboxAlsoAllow = [
   'gateway','sessions_send','web_search','web_fetch',
-  'sentura_agents_manage','sentura_rbac_manage','sentura_audit_query',
+  'sentura_agents_manage','sentura_approval_request','sentura_rbac_manage','sentura_audit_query',
   'memory_search','memory_get','update_plan','pdf','canvas','cron'
 ];
+const tunerToolsDeny = ['read','write','edit','apply_patch'];
 const orchestratorSandboxAlsoAllow = [
   'sessions_send','sessions_spawn','subagents','web_search','web_fetch',
   'memory_search','memory_get','update_plan','cron'
@@ -438,7 +439,7 @@ const dataScavengerSandboxAlsoAllow = [
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
-  tuner:           { name: 'Refine',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch'], sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
+  tuner:           { name: 'Refine',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','sentura_agents_manage','sentura_approval_request','memory_search','memory_get','update_plan'], deny: tunerToolsDeny, sandbox: { tools: { alsoAllow: tunerSandboxAlsoAllow, deny: tunerToolsDeny } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
@@ -506,6 +507,68 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 "
 
 ok "Agent configuration applied."
+
+# --- Step 4b: Apply default tenancy to every registered agent ---
+#
+# Sentura's multi-tenancy model lives in `~/.openclaw/sentura-rbac/agent-tenancy.json`,
+# NOT inside `agents.list[]` — we never mutate undocumented OpenClaw config
+# fields. Every registered agent gets a record so downstream extensions
+# (`sentura-cost`, `sentura-monitoring`) can attribute events without falling
+# back to "unknown tenant". Single-tenant deployments use
+# `tenantId="default"`, `departmentId=null`; Week 5+ multi-department wiring
+# updates the records via `sentura.rbac.tenancy.set`.
+#
+# Idempotent: existing records are preserved; only agents missing a record
+# receive the default.
+
+log "Step 4b: Applying default tenancy to registered meta-agents..."
+
+RBAC_DATA_DIR_FOR_TENANCY="$OPENCLAW_STATE/sentura-rbac"
+mkdir -p "$RBAC_DATA_DIR_FOR_TENANCY"
+
+node -e "
+const fs = require('fs');
+const path = require('path');
+const configPath = '$OPENCLAW_CONFIG';
+const tenancyPath = path.join('$RBAC_DATA_DIR_FOR_TENANCY', 'agent-tenancy.json');
+
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const agents = (config.agents && config.agents.list) || [];
+if (agents.length === 0) {
+  console.log('  No registered agents — skipping tenancy seed.');
+  process.exit(0);
+}
+
+let records = [];
+try {
+  records = JSON.parse(fs.readFileSync(tenancyPath, 'utf8'));
+} catch (_) {}
+
+const seen = new Set(records.map((r) => r.agentId));
+const now = new Date().toISOString();
+let added = 0;
+for (const agent of agents) {
+  if (!seen.has(agent.id)) {
+    records.push({
+      agentId: agent.id,
+      tenantId: 'default',
+      departmentId: null,
+      updatedAt: now,
+    });
+    added++;
+  }
+}
+
+if (added > 0) {
+  records.sort((a, b) => a.agentId.localeCompare(b.agentId));
+  fs.writeFileSync(tenancyPath, JSON.stringify(records, null, 2));
+  console.log('  Seeded default tenancy for ' + added + ' agent(s)');
+} else {
+  console.log('  All agents already have tenancy records');
+}
+"
+
+ok "Agent tenancy applied."
 
 # --- Step 5: Configure per-agent LanceDB memory isolation ---
 
@@ -623,7 +686,7 @@ SENTURA_EXTENSIONS_DIR="$PROJECT_ROOT/sentura/extensions"
 # Extensions to wire in. Only those that actually exist on disk AND have
 # both openclaw.plugin.json + index.ts are added — missing extensions are
 # reported as warnings so Person A/D can see what's pending.
-SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner")
+SENTURA_EXT_IDS=("sentura-agents" "sentura-rbac" "sentura-audit" "sentura-approval" "sentura-provisioner" "sentura-experience-extraction" "sentura-memory-lancedb" "sentura-cost" "sentura-monitoring")
 
 # Build a newline-separated list of "<id>|<absolute-dir>" pairs for the
 # Node patcher below. We only include extensions that have a manifest AND
@@ -671,10 +734,63 @@ for (const tuple of tuples) {
   }
 }
 
+// If sentura-memory-lancedb is enabled, disable the upstream memory-lancedb
+// plugin in the same write — both register `kind: "memory"`, so leaving the
+// upstream one enabled would either double-register or non-deterministically
+// pick one. Idempotent: only flips the flag when currently true.
+let memoryLancedbDisabled = false;
+let memoryLancedbEmbeddingSeeded = false;
+const senturaMem = config.plugins.entries['sentura-memory-lancedb'];
+if (senturaMem && senturaMem.enabled === true) {
+  const upstream = config.plugins.entries['memory-lancedb'];
+  if (upstream && upstream.enabled === true) {
+    config.plugins.entries['memory-lancedb'] = { ...upstream, enabled: false };
+    memoryLancedbDisabled = true;
+  }
+  // sentura-memory-lancedb's configSchema requires embedding.apiKey, so a
+  // freshly-enabled entry without a config block fails ajv validation and
+  // the plugin never boots ('sentura-memory-lancedb invalid config:
+  // embedding: must have required property embedding'). Seed a default
+  // embedding block on first install using the documented \${OPENAI_API_KEY}
+  // env-interpolation token (per the plugin's own
+  // uiHints.embedding.apiKey.help). The inner config nests under
+  // entry.config — that is the path OpenClaw's plugin loader feeds into
+  // the plugin's configSchema (validatePluginConfig({ value: entry.config })
+  // in dist/loader-*.js). Idempotent: only seeds when config.embedding is
+  // missing — operators can hand-edit either field afterward and re-runs
+  // of setup will leave their values alone.
+  const existingPluginConfig =
+    senturaMem.config && typeof senturaMem.config === 'object'
+      ? senturaMem.config
+      : {};
+  if (
+    !existingPluginConfig.embedding ||
+    typeof existingPluginConfig.embedding !== 'object'
+  ) {
+    config.plugins.entries['sentura-memory-lancedb'] = {
+      ...senturaMem,
+      config: {
+        ...existingPluginConfig,
+        embedding: {
+          apiKey: '\${OPENAI_API_KEY}',
+          model: 'text-embedding-3-small',
+        },
+      },
+    };
+    memoryLancedbEmbeddingSeeded = true;
+  }
+}
+
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('  plugins.load.paths additions: ' + pathsChanged);
 console.log('  plugins.entries enable ops:   ' + entriesChanged);
 console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
+if (memoryLancedbDisabled) {
+  console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');
+}
+if (memoryLancedbEmbeddingSeeded) {
+  console.log('  seeded sentura-memory-lancedb.embedding (\${OPENAI_API_KEY} + text-embedding-3-small)');
+}
 "
   ok "Sentura extensions wired."
 else
@@ -707,6 +823,124 @@ if [[ -d "$SANDBOX_ROOT" ]]; then
   done
 else
   log "  No sandbox root at $SANDBOX_ROOT yet — nothing to clear."
+fi
+
+# --- Step 7b2: Ensure the diagnostic-event bus is on ---
+#
+# OpenClaw's agent-runner gates `model.usage` (and every other diagnostic
+# event) behind `config.diagnostics.enabled === true` — see
+# `openclaw/src/infra/diagnostic-events.ts:isDiagnosticsEnabled` and
+# `openclaw/src/auto-reply/reply/agent-runner.ts:1414`. If this flag is
+# unset, NO diagnostic events fire, even though Sentura's `sentura-cost`
+# (and `sentura-monitoring`) extensions correctly subscribe to them on
+# startup. The result is a `/cost` page that shows zero activity even
+# while users are clearly chatting with employees.
+#
+# Step 7c (OTel wiring) used to be the only place that flipped
+# `diagnostics.enabled = true` — but it only ran when
+# OTEL_EXPORTER_OTLP_ENDPOINT was set. Operators without an OTel
+# collector silently lost cost tracking. This step decouples the bus
+# from the OTel sink: diagnostics are now ALWAYS on after setup.
+# Idempotent — re-runs are no-ops once the flag is already true.
+
+log "Step 7b2: Ensuring diagnostic-event bus is enabled..."
+
+node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics.enabled = true (cost + monitoring events will now fire)');
+} else {
+  console.log('  diagnostics.enabled already true (no change)');
+}
+"
+ok "Diagnostic-event bus enabled."
+
+# --- Step 7c: Wire OpenTelemetry via OpenClaw's diagnostics-otel extension ---
+#
+# Sentura piggybacks on the upstream `diagnostics-otel` plugin to export
+# traces / metrics / logs via OTLP. We do NOT spin up a collector here —
+# Docker is intentionally not a hard prereq. Operators who want a local
+# collector can use the example compose snippet at
+# `docs/otel/docker-compose.example.yml`.
+#
+# Behavior:
+#   - If $OTEL_EXPORTER_OTLP_ENDPOINT is set, enable `diagnostics-otel` and
+#     stamp `diagnostics.otel.enabled = true` + the endpoint into the live
+#     OpenClaw config. Operators can override service name, sample rate,
+#     and protocol via the standard OTEL_* env vars (the upstream plugin
+#     reads them at start time).
+#   - If $OTEL_EXPORTER_OTLP_ENDPOINT is unset, skip silently with a clear
+#     "OTel disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable" log line.
+#     The plugin entry stays disabled so we don't leak traces to a
+#     non-existent collector.
+#
+# Idempotent: re-runs flip nothing when the live config already matches
+# the requested state.
+
+log "Step 7c: Wiring OpenTelemetry (diagnostics-otel)..."
+
+if [[ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
+  export OTEL_EXPORTER_OTLP_ENDPOINT
+  node -e "
+const fs = require('fs');
+const configPath = '$OPENCLAW_CONFIG';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const serviceName = process.env.OTEL_SERVICE_NAME || 'openclaw-sentura';
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+const current = config.plugins.entries['diagnostics-otel'] ?? {};
+let entryFlipped = false;
+if (current.enabled !== true) {
+  config.plugins.entries['diagnostics-otel'] = { ...current, enabled: true };
+  entryFlipped = true;
+}
+
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+let diagFlipped = false;
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  diagFlipped = true;
+}
+const otelBlock = config.diagnostics.otel ?? {};
+const desiredOtel = {
+  ...otelBlock,
+  enabled: true,
+  endpoint,
+  serviceName: otelBlock.serviceName ?? serviceName,
+};
+let otelFlipped = false;
+if (
+  otelBlock.enabled !== true ||
+  otelBlock.endpoint !== endpoint ||
+  (otelBlock.serviceName ?? '') !== desiredOtel.serviceName
+) {
+  config.diagnostics.otel = desiredOtel;
+  otelFlipped = true;
+}
+
+if (entryFlipped || diagFlipped || otelFlipped) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics-otel (endpoint=' + endpoint + ', service=' + desiredOtel.serviceName + ')');
+} else {
+  console.log('  diagnostics-otel already configured (no change)');
+}
+"
+  ok "OpenTelemetry wired."
+else
+  log "  OTel disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace/metric export."
 fi
 
 # --- Step 8: Seed the first platform admin ---

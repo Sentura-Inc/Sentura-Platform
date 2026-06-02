@@ -83,6 +83,20 @@ export class AuditStore {
     if (params.severity && entry.severity !== params.severity) return false;
     if (params.startTime && entry.timestamp < params.startTime) return false;
     if (params.endTime && entry.timestamp > params.endTime) return false;
+    if (params.dataTier && entry.dataTier !== params.dataTier) return false;
+    if (params.tenantId && entry.metadata?.tenantId !== params.tenantId) return false;
+    if (params.departmentId && entry.metadata?.departmentId !== params.departmentId) return false;
+    if (params.userId && entry.metadata?.userId !== params.userId) return false;
+    if (params.groupId && entry.metadata?.groupId !== params.groupId) return false;
+    if (params.search) {
+      const needle = params.search.toLowerCase();
+      const haystack = (
+        JSON.stringify(entry.details ?? {}) +
+        " " +
+        JSON.stringify(entry.metadata ?? {})
+      ).toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
     return true;
   }
 

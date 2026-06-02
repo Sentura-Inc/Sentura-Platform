@@ -239,3 +239,96 @@ Run: `node --import ./openclaw/node_modules/tsx/dist/loader.mjs scripts/probe-br
 |---|------|--------|---------------|
 | A20.1 | Live browser self-provisioning probe | `scripts/probe-browser-self-provisioning.ts` | Creates a Creator session, uses the browser tool on the real dashboard path, observes a browser tool event, and finishes with `BROWSER_OK: Example Domain` |
 | A20.2 | Contract docs updated | Read `docs/HOSTING.md`, `docs/SETUP.md`, `docs/gateway-rpc.md`, `sentura/skills/self-provisioning/SKILL.md`, `sentura/mcp-servers/gradsale-admin/README.md` | Docs show string `$secret:/...` pointers, per-agent `config.json5 -> mcpServers`, no `config.revert`, and dashboard chat session key rules |
+### A22. Week 4 — Multi-tenancy (`sentura/lib/tenancy.ts` + `TenancyStore`)
+
+Run: `npx tsx scripts/test-week4-tenancy.ts` (offline — uses temp `OPENCLAW_HOME`).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A22.1 | TenancyStore upsert | Set `{agentId, tenantId, departmentId}` | Returns the new record with the right fields |
+| A22.2 | TenancyStore idempotency | Re-set same scope | Returns the same `updatedAt` (no rewrite) |
+| A22.3 | listByDepartment scopes correctly | Two agents in two departments | `listByDepartment("finance")` returns only the finance agent |
+| A22.4 | `setAgentTenancy` defaults | Call with empty scope | Defaults to `tenantId="default"`, `departmentId=null` |
+| A22.5 | `getAgentTenancy` returns null for unknown | Call with non-existent agentId | Returns `null` (callers fall back to default tenancy) |
+| A22.6 | `resolveTenantContext` combines session key + tenancy | Sentura session key `agent:ap-clerk:user:<uuid>:s1` | Returns `{agentId, tenantId, departmentId, userToken}` with all four extracted |
+| A22.7 | `resolveTenantContext` falls back to default tenancy | Session key for an agent with no tenancy record | `tenantId = "default"`, `departmentId = null` |
+| A22.8 | `resolveTenantContext` returns null for non-Sentura keys | `"openclaw-cli-session-12345"` | Returns `null` (raw CLI sessions can't be attributed) |
+| A22.9 | `applyDefaultTenancyOnDisk` first-run seeds | 3 agents, no existing records | Returns 3 seeded agentIds |
+| A22.10 | `applyDefaultTenancyOnDisk` idempotent re-run | Run twice on the same config | Second run returns `[]` |
+| A22.11 | `applyDefaultTenancyOnDisk` preserves manual scopes | Manually set `creator → {tenantId: "platform"}` then re-run | Manual scope survives |
+
+### A23. Week 4 — `sentura-memory-lancedb` fork (per-user metadata partitioning)
+
+Run: `npx tsx scripts/test-week4-memory.ts` (offline — pure logic; live LanceDB coverage in `memory-lancedb.live.test.ts`).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A23.1 | user-plus-global default | Three rows: alice / bob / global | alice sees own + global; bob sees own + global; unknown caller sees only globals |
+| A23.2 | user-only mode | Three rows: alice / bob / global | alice sees only `alice`; empty caller returns `[]` (does NOT match global by accident) |
+| A23.3 | global-only mode | Disables partitioning | Returns every row regardless of caller |
+| A23.4 | Pre-migration fallback | `hasUserTokenColumn=false` + user-only scope | Returns all rows (legacy memories don't disappear until migration runs) |
+| A23.5 | Two-user isolation | 2 alice rows + 2 bob rows + 1 global, both query | Disjoint own-rows; both see the shared global |
+| A23.6 | Session-key parser | `agent:ap-clerk:user:<uuid>:s1` | Correctly extracts agentId + userToken |
+| A23.7 | Non-Sentura session keys | `"session-12345"`, `"agent:cs-agent:cli:xyz"`, `undefined`, `null` | All return empty userToken |
+| A23.8 | Migration idempotency | Run `migrate-userToken` twice on the same store | Second run is a no-op (`status: "already-migrated"`) |
+| A23.9 | Setup script disables upstream memory-lancedb | `~/.openclaw/openclaw.json` after Step 7a runs | `plugins.entries["memory-lancedb"].enabled = false` when `sentura-memory-lancedb` is enabled |
+| A23.10 | Live: tools registered as factories | Boot Forge with two sessions for two users | Each session gets a separate `memory_recall` tool with its own `userToken` baked in |
+
+### A24. Week 4 — `sentura-cost` extension (model.usage subscriber + JSONL store)
+
+Run: `npx tsx scripts/test-week4-cost.ts` (offline — synthetic events, temp store).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A24.1 | aggregateByAgent sort order | 3 events with different costs | Buckets sorted by `totalCostUsd` desc |
+| A24.2 | aggregateByDepartment treats null as "(unassigned)" | Mix of `departmentId: "finance" / null` | `null` rolls up under the literal key `"(unassigned)"` |
+| A24.3 | aggregateByTenant + aggregateByModel | Mixed tenants + provider/model strings | Correct totals per `tenantId` and `provider/model` |
+| A24.4 | aggregateByUser groups empty as "(anonymous)" | Mix of populated and empty `userToken` | Empty token rolled up under `"(anonymous)"` |
+| A24.5 | Unpriced events isolated from totalCostUsd | Mix of `costUsd: 0.5 / null` | `unpricedCalls` counts the nulls; `totalCostUsd` excludes them (NOT zero) |
+| A24.6 | summarize composes the full view | Multiple events across agents | `byAgent`, `byDepartment`, `byModel`, `byTenant` populated; `period` preserved |
+| A24.7 | CostStore round-trip | Append 3 events, query, readRange | Returns all 3; query by agentId filters; limit/offset paginates |
+| A24.8 | Cross-department isolation | 3 events split between finance and support | `aggregateByDepartment` produces disjoint cost totals |
+| A24.9 | Live: `model.usage` subscription captures real LLM calls | Boot gateway, run a session, check `~/.openclaw/sentura-cost/cost-YYYY-MM-DD.jsonl` | At least one row per LLM call with correct `agentId`, `costUsd`, `usage.totalTokens` |
+| A24.10 | Live: `sentura.cost.summary` RPC | Gateway RPC call after some traffic | Returns `byAgent`/`byDepartment`/`byModel`/`byTenant` with non-empty buckets |
+| A24.11 | `sentura.cost.byUser` hashes tokens | RPC call | Bucket keys are 16-hex-char SHA256 prefixes (or `"(anonymous)"`), never raw UUIDs |
+
+### A25. Week 4 — `sentura-monitoring` extension (health endpoints)
+
+Run: `npx tsx scripts/test-week4-health.ts` (offline — pure logic).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A25.1 | checkGateway uptime + memory | `now=t1, startedAt=t0, rss=50MB` | `uptimeSeconds = (t1-t0)/1000`, `memoryRssMb ≈ 50`, status `"ok"` |
+| A25.2 | checkEmployees status escalation | All 3 registered → all unregistered | `"ok"` → `"down"` |
+| A25.3 | checkEmployees windowing | Only 1 of 3 active in last 5 minutes | `active = 1` |
+| A25.4 | checkEmployees orphan handling | Agent registered but no tenancy record | Falls back to `tenantId="default"`, `departmentId=null` |
+| A25.5 | checkProviders ok / degraded / down | Recent / stale / never-active providers | Status reflects activity vs window |
+| A25.6 | checkProviders aggregate degraded | One ok + one down | Aggregated status is `"degraded"` |
+| A25.7 | buildSummary composition | Compose gateway + employees + providers | `generatedAt` ISO; nested objects present |
+| A25.8 | Live: `sentura.health.summary` RPC | Gateway RPC call | Returns the summary shape; `gateway.uptimeSeconds > 0` |
+
+### A26. Week 4 — OpenTelemetry wiring (Step 7c)
+
+Run: `npx tsx scripts/test-week4-otel.ts` (offline — replays the Step 7c node-patcher against synthetic configs).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A26.1 | OTEL_EXPORTER_OTLP_ENDPOINT set → enables | Replay Step 7c with env var | `plugins.entries["diagnostics-otel"].enabled = true`, `diagnostics.otel.{enabled,endpoint,serviceName}` stamped |
+| A26.2 | Endpoint unset → no-op | Replay with env var unset | No mutations to the config |
+| A26.3 | Idempotent re-run | Same endpoint twice | Second run reports `changed=false` |
+| A26.4 | Endpoint change re-stamps | Run with two different endpoints | Second run flips `changed=true` and updates `endpoint` |
+| A26.5 | Operator serviceName preserved | Manually set `serviceName` then re-run | Custom name survives the re-run |
+| A26.6 | docs/otel/docker-compose.example.yml present | Read file | Contains OTEL_EXPORTER_OTLP_ENDPOINT, port 4318, port 16686 |
+| A26.7 | Live: traces visible in Jaeger | Set env var to `http://localhost:4318`, restart gateway, run a session | At least one trace with `service.name = openclaw-sentura` visible at `http://localhost:16686` |
+
+### A27. Week 4 — Gateway concurrency perf harness
+
+Run: `npx tsx scripts/test-concurrent-employees.ts` (LIVE — requires gateway on :18789).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A27.1 | Baseline single client × 1 call per method | Default flags | Exit 0; reports baseline mean per method |
+| A27.2 | Concurrent N clients × M calls | `--clients 5 --calls 10` | Exit 0 if every method's p95 ≤ 2× baseline mean; throughput in calls/sec reported |
+| A27.3 | Cost-mix variant | `--mix cost` (after Week 4 cost RPCs ship) | Exits with verdict; `sentura.cost.summary` and `sentura.health.summary` included in the report |
+| A27.4 | Errors fail the run | Force a bad RPC name | Exit code 1, error count surfaces in the table |
+| A27.5 | Verdict gate | A method exceeds 2× budget | Exit code 2 with `FAIL` line per method that breached |

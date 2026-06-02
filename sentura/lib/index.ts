@@ -10,3 +10,4 @@ export * from "./config-versioning.js";
 export * from "./secrets.js";
 export * from "./per-agent-mcp.js";
 export * from "./chat-sessions.js";
+export * from "./tenancy.js";

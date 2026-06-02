@@ -97,6 +97,8 @@ export class ApprovalStore {
       if (params.status && r.status !== params.status) continue;
       if (params.agentId && r.agentId !== params.agentId) continue;
       if (params.riskLevel && r.riskLevel !== params.riskLevel) continue;
+      if (params.tenantId && r.tenantId !== params.tenantId) continue;
+      if (params.departmentId && r.departmentId !== params.departmentId) continue;
       out.push(r);
       if (out.length >= limit) break;
     }

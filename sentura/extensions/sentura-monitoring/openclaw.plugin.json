@@ -1,0 +1,19 @@
+{
+  "id": "sentura-monitoring",
+  "name": "Sentura Monitoring",
+  "description": "Aggregated health endpoints for the Sentura platform: gateway uptime, per-employee status, provider availability, and a one-shot summary view. Subscribes to the model.usage diagnostic event to track recent provider activity and reads the agent-tenancy + cost stores for employee-level signals.",
+  "enabledByDefault": true,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "providerWindowMinutes": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 1440,
+        "default": 5,
+        "description": "How many recent minutes of model.usage events count toward 'provider is healthy'. Defaults to 5 minutes."
+      }
+    }
+  }
+}

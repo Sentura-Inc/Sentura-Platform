@@ -188,5 +188,150 @@ The first surface that mounts the shared `<AgentChat>` component (D2 contract) o
 | C11.16 | URL state survives navigation | Active conversation, navigate to `/employees` then back via browser-back | Browser-back returns to `/chat?key=<sessionKey>`; conversation pane restores from URL — confirms `router.replace` (not `push`) on selection means back button doesn't accumulate noise |
 | C11.17 | Permission stub gating | Inspect `usePermission` adoption (deferred to Week 5 swap-in) | `/chat` is a read+chat surface; no high-risk mutation buttons require gating today. When sentura-rbac lands in Week 5, gate the picker via `usePermission("sessions.read")` if the role lacks chat access entirely |
 
+### C12. Tune Employee — 1:1 (`/tune`) — Week 4
+
+Single-agent surface targeting the Tuner ("Refine") meta-agent. Mounts the shared `<AgentChat>` (D2 contract from Phase 2) with `agentId="tuner"` hard-coded; sidebar lists past Tuner sessions only (filter via `sessions.list { agentId: "tuner" }`). Per Week 4 D1: chat-only MVP — no inline diff panel; the Tuner verbally describes proposed changes and routes the actual apply through `/approvals`.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C12.1 | Page loads | Navigate to `/tune` | Two-pane layout renders: sidebar with "+ New tuning" + (potentially empty) tuning list; right pane with empty state "What needs tuning?" + 4 suggestion pills + "include the target employee's ID" tip |
+| C12.2 | Sidebar empty state | No prior Tuner sessions on the gateway | Sidebar shows "No tuning conversations yet. Click New tuning to start one." |
+| C12.3 | Sidebar filtered to Tuner only | Have other agents' sessions on the gateway (e.g. from `/chat` or `/create`) | `/tune` sidebar lists ONLY conversations with `agentId === "tuner"`; other-agent conversations don't leak in (proves `sessions.list { agentId }` filter is respected) |
+| C12.4 | First send creates session | Type a message in draft mode, press Enter | `client.createSession("tuner", message)` fires; URL adopts `?key=agent:tuner:dashboard:<uuid>`; user message appears immediately in transcript (no remount-flash empty state — the `key` prop on AgentChat is intentionally NOT bound to sessionKey to avoid remount on the undefined→defined transition); session row appears at top of sidebar |
+| C12.5 | Streaming response | Wait for Tuner reply | First delta arrives within ~5s; bubble accumulates via `chat` event subscription; "Progress · N steps" dropdown shows tool calls Refine made (typically `gateway` `config.get` + agents lookups for "what can I tune") |
+| C12.6 | Tuner Hard Rules visible | Ask "what can you help me adjust?" | Response mentions guardrails: preserve identity, show diff before apply, never weaken safety, never expose secrets. Confirms Refine's `AGENTS.md` Hard Rules are loaded into context |
+| C12.7 | Switch between tunings | Click a different tuning in sidebar | URL updates to new `?key=`; transcript clears and re-hydrates from `chat.history` for the selected session; AgentChat does NOT remount (no `key` prop) but its internal `prevSessionKeyRef` reset effect handles the A→B switch correctly |
+| C12.8 | Sandbox failure surfaces | Tuner agent configured with `sandbox.mode: "non-main"` on a host without Docker | Assistant frame contains a system-error message describing the sandbox failure (e.g. "Sandbox mode requires Docker, but the 'docker' command was not found in PATH"); does not silently hang. Workaround documented in `docs/SETUP.md`: patch all 4 meta-agents to `sandbox.mode: "off"` for local dev |
+| C12.9 | Diff panel deferred | Inspect right pane during a config-change request | No inline before/after diff panel today (per Week 4 D1: chat-only MVP). Diffs land in `/approvals` via the `exec.approval.requested` payload that the Tuner generates when it's ready to apply. Inline diff panel deferred to Week 6-8 polish once Tuner emits a "pending change" event subtype |
+
+### C13. Integrations — MCP server manager (`/integrations`) — Week 4
+
+Tabbed-by-tier layout per Week 4 D2 — three lifecycle paths each get their own table and actions. Today (zero MCP servers configured) all three tabs render explanatory empty states; classification logic ships now so behavior is correct the moment real entries arrive.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C13.1 | Page loads | Navigate to `/integrations` | Header "Integrations" + 3-tier description; Refresh + Edit-raw-config buttons; Tabs row with T1/T2/T3 tabs each showing live count badge `Tn · N` |
+| C13.2 | All-empty state | Zero MCP servers configured (default fresh setup) | All three tabs show count `· 0`; T1 (default-selected) renders the "No open-source MCP servers configured" card with explanatory copy + npx command snippet; switching to T2 and T3 shows their tier-specific empty cards |
+| C13.3 | Refresh action | Click Refresh button | Calls `client.getConfig()` again; on connected gateway re-renders the tabs with updated counts; on disconnected gateway shows the destructive disconnect banner |
+| C13.4 | Tier classification — explicit override | MCP entry with `sentura.tier: 2` | Lands in T2 tab regardless of command/args (explicit metadata wins over heuristic) |
+| C13.5 | Tier classification — path heuristic | MCP entry with `command: "node"` and `args[0]` containing `sentura/mcp-servers/` | Lands in T2 tab even without explicit `sentura.tier` field |
+| C13.6 | Tier classification — SaaS heuristic | MCP entry with `sentura.saasProvider: "Stripe"` | Lands in T3 tab; status badge renders if `sentura.status` is set |
+| C13.7 | Per-agent MCP discovery | Agent in `agents.list` with `mcpServers: { foo: {...} }` | `/integrations` table includes `foo` (proves the extractor walks both top-level `mcp` and `agents[].mcpServers`); de-duplication by name avoids double-listing if a server appears in both places |
+
+### C14. Skeleton shells — `/orchestrator` `/knowledge` `/cost` `/testing` — Week 4
+
+Backend-blocked surfaces shipped as honest empty-state placeholders per Week 4 D5. Each route mounts the shared `<SkeletonShell>` component (DRY across the 4 pages) naming its blocking owner + deliverable.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C14.1 | All 4 routes return 200 | `curl http://localhost:3000/{orchestrator,knowledge,cost,testing}` | Each returns HTTP 200; no 404 placeholders, no broken nav targets |
+| C14.2 | Sidebar links enabled | Inspect sidebar `Management` section | `/cost`, `/orchestrator`, `/knowledge`, `/testing` all rendered as enabled links (no `pointer-events-none opacity-40` styling, no `W4` badge). `/audit` still disabled with `W5` badge (intentional — it's Person D's W5 audit-log work) |
+| C14.3 | Each shell names its blocker | Inspect each page | Header has `{Week} placeholder` badge; empty card body explicitly names the blocking owner ("Person A" / "Person B") and the specific deliverable ("Orchestrator agent + Manager EKG schema" / "Data Scavenger output schema" / "cost tracking backend (LLM call interceptor + ...)" / "test runner output schema") |
+| C14.4 | "Will include" expectations published | Each page lists 4 bullets describing what the surface will eventually contain | Bullet copy is concrete (e.g. /orchestrator: "Task decomposition view — top-level goal → subtasks → assigned employees", /knowledge: "EKG browser — 4 pillars (org / rules / assets / workflows) per agent with provenance"). This sets reviewer expectations and gives the blocking owner a hint about the dashboard's input contract |
+| C14.5 | Zero mock data | Inspect page source | No fake numbers, no placeholder rows, no "lorem ipsum" data. Per Week 4 D5: a mock-data UI looks done; reviewers stop scrutinizing it; when real data has a different shape than the mock, both UI and tests need rewriting. Honest empty state is the choice |
+
+### C15. Group Chat fan-out (capability #16 Phase 2) — Week 4
+
+Per Week 4 D3 (Next.js Route Handler + SSE). First server-side code path on the dashboard. Group metadata persists at `~/.openclaw/sentura-group-chats/groups.json`; group transcripts are intentionally NOT persisted (each participant's underlying gateway session retains their slice — group view is a per-tab ephemeral merge of in-flight responses, simplifying the data model and keeping Phase 4 in 5 net new files).
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C15.1 | Page renders new group button | Navigate to `/chat` | Sidebar header shows BOTH "+ New chat" (primary) AND "+ New group" (outline variant); existing 1:1 button styling unchanged |
+| C15.2 | Empty groups state | Fresh setup with no groups | Sidebar omits the "GROUPS" section entirely (no empty header); empty-state copy mentions both "New chat" and "New group" CTAs |
+| C15.3 | Group creation flow | Click "+ New group" → multi-select 2+ agents → name "QA Triage" → Create | `POST /api/groups` returns 201; sidebar gains "GROUPS · 1" section with "QA Triage · 2 agents"; URL changes to `?groupKey=<id>`; right pane swaps from `<AgentChat>` to `<GroupChat>` showing group name + participant chips + "Broadcast to N agents" empty state |
+| C15.4 | Group fan-out send | In group view, type "Status check" → Send | `POST /api/groups/[id]/send` opens SSE stream; user message appears immediately; for each participant: `started` frame logs the new sessionKey (recorded back to groups.json via `recordSessionKey`); per-agent assistant bubbles stream in parallel via `delta` frames; sender chip on each bubble identifies which agent (via `agents[agentId].name` lookup); each finalizes via `final` frame |
+| C15.5 | Best-effort partial failure | Configure one of the participating agents to be temporarily unhealthy (e.g. delete its workspace mid-flight) and send | Other agents still stream their replies normally; failing agent's bubble is replaced by an inline `agent-error` system message naming the agent and the error; the SSE `done` frame fires only after ALL participants reach terminal state (success OR error); does NOT abort the whole fan-out |
+| C15.6 | URL state survives refresh | After group send completes, hit browser refresh | `?groupKey=<id>` persists; `/api/groups` rehydrates the groups list on mount; sidebar reselects the group; right pane re-mounts `<GroupChat>` (transcript intentionally empty per MVP design — D3 follow-up may merge per-agent transcripts in W5) |
+| C15.7 | Stale groupKey cleanup | Open `/chat?groupKey=ghost-id` directly (id doesn't exist) | After `groupsLoaded` flag flips true and the id isn't found, `setUrlState({ groupKey: null })` strips the param; right pane shows the standard "No conversation selected" card. No infinite loading spinner |
+| C15.8 | Switch between group + 1:1 | While in group mode, click an existing 1:1 conversation in the sidebar | URL clears `groupKey` and sets `key`; `<GroupChat>` unmounts (clearing its in-memory transcript) and `<AgentChat>` mounts. Switching back to the group later starts a fresh group view (no stale state from prior session) |
+
+### C16. Orchestrator dashboard (`/orchestrator`) — real Manager EKG browser — Week 4
+
+Replaces the C14 skeleton at `/orchestrator` with a real 4-tab pillar browser backed by a server-side Route Handler that reads Person B's JSON5 EKG entries from disk. Capabilities tab is the only one with data today (populated by Creator's `capability-extraction` skill on every successful deploy); the other three tabs render honest empty states naming the W5 Manager skills that will populate them.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C16.1 | Route Handler returns 200 with parsed JSON5 | `curl http://localhost:3000/api/orchestrator/ekg` | HTTP 200; body is `{workspaceRoot, pillars: {capabilities, conflicts, insights, globalSops}, errors}`. Each pillar is a `PillarEntry[]` with `{filename, data}`. JSON5 unquoted-key files (e.g. `acme-legal-specialist.json5`) parse correctly — `data.agentId`, `data.capabilityTags[]`, `data.ioSchemas.accepts[]` etc. are all present in the JSON output. `errors` array is empty when all files parse |
+| C16.2 | Path-traversal guard | The handler does not accept any input from the URL — uses fixed pillar names. But the underlying `safeJoinUnder` helper rejects `..` paths. Verify by writing a unit-style probe in the dashboard's `lib/workspace/server-fs.ts` import surface | `safeJoinUnder("/Users/henry/.openclaw/workspace", "../../../etc/passwd")` throws `Path escapes root: ../../../etc/passwd` |
+| C16.3 | Empty pillars render honest empty states | Visit `/orchestrator` with `~/.openclaw/workspace/orchestrator/ekg/conflicts/` empty | Conflicts tab body has `<ShieldAlert>` icon + heading "No cross-department conflicts detected" + body text mentioning `cross-domain conflict detection` Manager skill (capability #17 Mechanism 2) and the JSON5 path `orchestrator/ekg/conflicts/{conflict-id}.json5`. Same pattern for Insights (Mechanism 3) and Global SOPs |
+| C16.4 | Capabilities table shows live data | Deploy at least one employee via `/create` so `capability-extraction` runs, then visit `/orchestrator` Capabilities tab | Table row appears: name col shows display name + agent id (mono-font), department col shows the value, capability tags col renders up to 4 tag badges + "+N" overflow when > 4, approvals required shows count badge or check-circle when zero, deployed col shows locale date, confidence col shows percentage |
+| C16.5 | Pillar tab counts | Header badges next to each tab show real entry counts (M1·N, M2·N, M3·N, ·N) | Counts match the array lengths in the API response |
+| C16.6 | Refresh button | Click "Refresh" button in header | Triggers fresh fetch; spinner animates on the button while loading; data reconciles |
+| C16.7 | Per-file parse error surfacing | Manually corrupt one capability file (e.g. introduce invalid JSON5) and refresh | Surface-level amber warning card lists the file + parse-error message; other (valid) files still render normally in the table; no full-page failure |
+
+### C17. Test Results dashboard (`/testing`) — real SuiteRunResult viewer — Week 4
+
+Replaces the C14 skeleton at `/testing` with a split-pane viewer (runs index left, scorecard detail right) backed by two Route Handlers reading Person B's pre-deployment runner output from `~/.openclaw/test-runs/`.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C17.1 | Index handler returns sorted runs | `curl http://localhost:3000/api/testing/runs` | Body `{runsRoot, runs: RunSummary[]}`; runs sorted by `modifiedAt` descending. Each row carries `{filename, suiteId?, suiteName?, runAt?, passRate?, recommendation?, iteration?, totalCases?, passedCases?, modifiedAt, sizeBytes}`. Empty `runs: []` when dir is missing or empty (no 500) |
+| C17.2 | Detail handler 200 + 404 | `curl http://localhost:3000/api/testing/runs/<existing>.json5` then `curl .../missing.json5` | First returns full payload `{filename, modifiedAt, sizeBytes, data: <SuiteRunResult>}`; second returns 404 `{error: "Run not found"}` |
+| C17.3 | Path-traversal guard at handler level | `curl 'http://localhost:3000/api/testing/runs/..%2Fpasswd'` and `curl '.../foo.txt'` | Both return 400 `{error: "Invalid run id"}` (`..` rejected; non-`.json5` extension rejected) |
+| C17.4 | Pass-rate visualization | Detail of a run with `passRate: 0.6` | Index row shows "60%" amber + 24px progress bar at 60% width amber color; detail summary chip shows "60%" |
+| C17.5 | Recommendation badge variants | Runs with `recommendation: "deploy"`, `"auto-tune"`, `"block"` | Each renders the right `<Badge variant>` (default green for deploy, secondary amber for auto-tune, destructive red for block) + correct icon (CheckCircle2 / AlertCircle / ShieldAlert) |
+| C17.6 | Per-case results table | Click a run row → detail pane | Per-case rows show caseId mono-font, score (2-decimal or "—"), pass/fail icon (green CheckCircle2 / red XCircle), failureReason. `safety:`-prefixed reasons render in red bold |
+| C17.7 | Empty state shows runner CLI | Fresh setup with no `~/.openclaw/test-runs/` dir | Page shows large empty card with the exact `node --import ./openclaw/...` invocation to populate the directory |
+| C17.8 | Selected run persists across re-renders | Click a run, verify detail pane loads | Selected row gets `bg-accent` highlight + `<ChevronRight>` indicator. Switching to another row triggers fresh detail fetch (loading spinner shown briefly) |
+
+### C18. Knowledge Manager UI (`/knowledge`) — real per-agent EKG browser — Week 4
+
+Replaces the C14 skeleton at `/knowledge` with a 3-pane browser (agent picker → file list → content preview). Reads per-agent `~/.openclaw/workspace/<agent>/ekg/` directories — files there are markdown today (Data Scavenger ingestion output) plus optional JSON5 skill drafts.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C18.1 | Agent listing handler | `curl http://localhost:3000/api/knowledge/agents` | Body `{workspaceRoot, agents: AgentEntry[]}`; each agent has `{agentId, ekgFiles: [{name, sizeBytes, modifiedAt}]}`. Sorted alphabetically. Hidden ids (`orchestrator`, `state`) excluded. Per-agent file list filters to `.md` and `.json5` extensions only |
+| C18.2 | File content handler 200 + 404 | `curl http://localhost:3000/api/knowledge/agents/acme-legal-specialist/file/identity.md` | 200 with `{name, content, sizeBytes, modifiedAt, contentType: "markdown"}`. Same call with non-existent filename returns 404 |
+| C18.3 | Path-traversal guard | `curl '.../knowledge/agents/..%2Foops/file/identity.md'` and `.../file/secret.txt` | Both 400 `{error}`; `isSafeSegment` rejects `..` / `/` / `\` / hidden-prefix; extension allowlist rejects non-md/json5 |
+| C18.4 | Auto-select first agent with files | Visit `/knowledge` for the first time | If at least one agent has files, that agent is auto-highlighted in the picker (saves the click). If no agents at all, "No employees deployed yet" empty card appears with link to `/create` |
+| C18.5 | File preview rendering | Click a markdown file in the list | Preview pane shows pre-formatted text in monospace with `whitespace-pre-wrap break-words`; header shows filename + content-type badge ("Markdown" or "JSON5") + bytes + locale-date mtime |
+| C18.6 | Switching agents clears file selection | Pick agent A, click a file, then pick agent B | File list updates to agent B's files; preview pane resets to "Pick a file from the list…" empty state (does NOT show stale agent-A content) |
+| C18.7 | Hidden agent ids invisible | Verify `orchestrator` and `state` directories are not in the picker | Agent picker omits `orchestrator` (surfaced separately at `/orchestrator`) and `state` (OpenClaw runtime cache directory, not a real agent) |
+
+### C19. Dashboard Live Integration test harness — Week 4
+
+End-to-end live test (`scripts/test-dashboard-integration.ts`) that exercises every Route Handler + every page rendered HTML against a real `next start` instance + real on-disk JSON5 / Markdown / JSON. Auto-starts the dashboard on a free port (or reuses :3000), writes one synthetic SuiteRunResult fixture under `~/.openclaw/test-runs/__integration-test-{ts}.json5` (auto-cleaned via `finally` + SIGINT handler), and reports `Result: 69 passed, 0 failed` on a healthy install.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C19.T1 | `/api/orchestrator/ekg` shape + JSON5 parse | T-1 (13 assertions) | 200 response; `workspaceRoot`/`pillars`/`errors` fields present; all 4 pillars are arrays; each capability entry has `filename` + parsed `data` with `agentId` (string), `capabilityTags` (array), `deployedAt` (ISO-8601 string) — proves JSON5 unquoted-key parser works against real on-disk Person B output |
+| C19.T2 | `/api/knowledge/agents` listing + meta-agent hide | T-2 (8 assertions) | 200 response; `workspaceRoot`/`agents` fields; orchestrator + state hidden; each ekg-file entry has `name` + positive `sizeBytes` + numeric `modifiedAt` mtimeMs |
+| C19.T3 | `/api/knowledge/agents/[agentId]/file/[filename]` | T-3 (8 assertions) | 200 with `name`/`content`/`sizeBytes`/`contentType` for a real markdown file; 404 for missing filename; 400 for non-md/json5 extension; 400 for hidden-prefix filename |
+| C19.T4 | `/api/testing/runs` empty state | T-4 (3 assertions) | 200 even when test-runs dir doesn't exist or is empty; `runsRoot` + `runs: []` shape preserved (no 500) |
+| C19.T5 | `/api/testing/runs` with synthetic SuiteRunResult fixture | T-5 (7 assertions) | Fixture appears in index; `suiteId` / `passRate` (0.6) / `recommendation` ("auto-tune") / `iteration` (1) / `totalCases` (3) / `passedCases` (1) all parse correctly |
+| C19.T6 | `/api/testing/runs/[runId]` detail + safety preserve + traversal | T-6 (8 assertions) | 200 with full `data` payload + 3 results array; `safety:` prefix preserved on Hard-Rule failureReason; missing run → 404; non-`.json5` ext → 400; encoded `..` traversal rejected (400 or 404) |
+| C19.T7 | Person C's existing `/api/groups` still resolves | T-7 (2 assertions) | 200 with `groups: []` shape — confirms my changes did not regress Person C's existing W4 group-chat fan-out backend |
+| C19.T8 | All 7 sidebar pages render HTML | T-8 (14 assertions) | `/orchestrator`, `/testing`, `/knowledge`, `/cost`, `/integrations`, `/tune`, `/chat` each return 200 + the rendered HTML contains the expected page title text |
+| C19.T9 | All 4 formerly-skeleton routes are real surfaces | T-9 (4 assertions, updated 2026-05-03) | After stripping Next.js's `<!-- -->` text-fragment markers from the HTML, `/orchestrator`, `/testing`, `/knowledge`, `/cost` all no longer contain "Awaiting Person" / "will fill in once". `/cost` was the last to graduate after Person A's `sentura-cost` extension landed in the W4 merge |
+| C19.T10 | `/tune` Suspense fix verified | T-10 (2 assertions) | 200 (Suspense wrap is valid); HTML does not contain the `missing-suspense-with-csr-bailout` Next.js error sentinel |
+| C19.T11 | `/cost` Cost Center renders + handles missing extension | T-11 (3 assertions, added 2026-05-03) | HTML contains "Cost Center" page title; HTML mentions the `sentura-cost` extension (descriptive copy); HTML contains range-switcher labels ("Last 7 days" or "Today") proving the real surface renders, not the skeleton placeholder. The page itself calls `client.getCostSummary()` from the browser via `useEffect` — without a live gateway, the empty/error card displays (both healthy outcomes) |
+
+### C20. Cost Center (`/cost`) — real Person-A-backed surface — Week 4
+
+Replaces the C14 skeleton at `/cost` after Person A's `sentura-cost` extension landed in the W4 merge. The page is a thin client over `client.getCostSummary({startTime?, endTime?})` which dispatches the `sentura.cost.summary` RPC to Person A's extension. The extension subscribes to OpenClaw's `model.usage` diagnostic event, persists every LLM call to a rolling JSONL store at `~/.openclaw/sentura-cost/cost-YYYY-MM-DD.jsonl`, and returns aggregated buckets keyed by agent / department / tenant / model.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C20.1 | New gateway-client method exists | `client.getCostSummary` | Method signature `(params: CostQuerySummaryParams = {}) => Promise<CostSummary>`; dispatches RPC `sentura.cost.summary`; both `startTime` and `endTime` are optional ISO-8601 strings (server defaults endTime to now and startTime to "all time" when omitted) |
+| C20.2 | New types re-exported from gateway barrel | `lib/gateway/index.ts` | `CostSummary`, `CostAggregateBucket`, `CostQuerySummaryParams` are all `export type` re-exports — pages can `import type { CostSummary } from "@/lib/gateway"` without reaching into `./types` |
+| C20.3 | Headline stats grid | Visit `/cost` after some traffic | Top section shows 4 cards: total spend (USD-formatted), LLM calls (toLocaleString), total tokens (toLocaleString), avg cost per call. `unpricedCalls` count appears as a sublabel under "Total spend" only when > 0; never silently rolled into `totalCostUsd` |
+| C20.4 | Range switcher → ISO startTime | Click "Today" → "Last 7 days" → "Last 30 days" → "All time" | Each click triggers a fresh `getCostSummary` call; the synthesized startTime is `new Date(startOfDay).toISOString()` for "Today", `now - 7d` ISO for "Last 7 days", `now - 30d` for "Last 30 days", `undefined` for "All time"; refresh button is disabled while loading |
+| C20.5 | 4-tab breakdown with share-bar | After traffic exists | Tabs `By agent` / `By department` / `By tenant` / `By model` each render a table with cols `Key` / `Calls` / `Tokens` / `USD` / `Share`; share is computed as `bucket.totalCostUsd / Σ totalCostUsd × 100`; rendered as a 16px progress bar + "%" label. Bucket-level `unpricedCalls > 0` shows an inline `AlertCircle` chip on the row |
+| C20.6 | Friendly fallback when extension is not registered | Disable `sentura-cost` in `~/.openclaw/openclaw.json`, restart gateway, visit `/cost` | Error card displays "sentura-cost extension is not registered. Re-run `./scripts/sentura-setup.sh` and restart the gateway." instead of raw `method not found` |
+
+### C21. Audit Trail (`/audit`) — real Person-D-backed surface — Week 4
+
+New surface graduating from the disabled-W5 sidebar placeholder to a real Audit Trail page. Person D's `sentura-audit` extension (Week 4) added T0–T4 data classification, 7 new event types (chat/group/mcp-health), and a free-text `search` filter on the existing `sentura.audit.query` RPC. The page is a thin client over two RPCs: `client.queryAudit({...filters})` and `client.getAuditStats()`.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| C21.1 | Two new gateway-client methods exist | `client.queryAudit` + `client.getAuditStats` | `queryAudit(params: AuditQueryParams = {}) → Promise<{entries: AuditEntry[]; count: number}>` dispatches `sentura.audit.query`; `getAuditStats() → Promise<AuditStats>` dispatches `sentura.audit.stats`. All `AuditQueryParams` fields are optional |
+| C21.2 | New types re-exported from gateway barrel | `lib/gateway/index.ts` | `AuditEntry`, `AuditEventType` (string union of 19), `AuditMetadata`, `AuditQueryParams`, `AuditSeverity`, `AuditStats`, `DataTier` (string union T0-T4) are all `export type` re-exports |
+| C21.3 | Sidebar `/audit` link enabled | Visit any page; inspect sidebar | "Audit Trail" entry no longer has `disabled: true` styling (no `pointer-events-none opacity-40`) and no `W5` placeholder badge. Routes to `/audit` on click |
+| C21.4 | Headline stat cards | Visit `/audit` after traffic exists | 4 cards: "Events / last Nh" (`stats.totalEvents`), "Critical" (`stats.bySeverity.critical`, destructive accent if > 0), "Warnings" (amber accent if > 0), "High-tier (T3+T4)" (sum + sublabel "N T3 · N T4") |
+| C21.5 | Filter bar | Apply each filter in turn | Free-text `search` field (Enter triggers Apply); `eventType` dropdown lists all 19 types; `severity` dropdown {info / warning / critical}; `dataTier` dropdown {T0 T1 T2 T3 T4}; `agentId` text input. "Clear all" button appears only when filters are active and resets all five fields. Apply button or Enter key triggers a fresh `queryAudit` call with only the populated fields |
+| C21.6 | Entries table — severity + tier badges | Inspect any row | Time col uses tabular-nums + locale formatting; Event col shows monospace event-type + tenant/dept sublabel when present; Severity badge: critical → destructive variant + ShieldAlert icon, warning → amber + AlertTriangle, info → secondary + ShieldCheck; Tier badge: T3/T4 in destructive variant (high-tier flag), title attribute shows full tier label ("T3 — restricted (PII / customer / financial)" etc.) |
+| C21.7 | `summarizeDetails` extracts human-readable fields | Inspect Details column for various event types | Prefers known scalar keys (`message`/`action`/`tool`/`summary`/`reason`/`name`) and renders `key: value` (truncated at 120 chars). Falls back to `key=val, key=val, key=val` compact form for the first 3 keys when no preferred field exists. Empty details renders "—" |
+
 ---
 
