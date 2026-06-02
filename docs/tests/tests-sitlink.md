@@ -53,3 +53,25 @@ Locks the Chinese-language policy added to `座联互动/DESIGN.md`: Sitlink ser
 |---|------|--------|---------------|
 | S3.1 | MCP Chinese display fields | `src/server.test.ts` calls hotel, transfer, attraction, price-confirm, booking, and booking-search demo tools | PASS 2026-06-02: every user-facing candidate/detail includes `locale="zh-CN"` plus Chinese display fields such as `hotelNameZh`, `roomNameZh`, `cancellationPolicyZh`, `transferNameZh`, `attractionNameZh`, and `displaySummaryZh`; machine fields such as `hotelId`, `ratePlanId`, `metadata`, `referenceNo`, `bookingId`, `status`, and `statusName` remain unchanged. |
 | S3.2 | Agent Chinese customer-service output | Run the full planned web-demo conversation | User-visible content is Simplified Chinese except necessary Dida IDs, booking IDs, email, phone masks, and auditable status-code notes; the Agent does not expose raw English hotel names, room names, or cancellation policies when Chinese display fields exist. |
+
+## S4 — AI travel concierge employee workspace (Milestone 2)
+
+Locks the `zuolian-travel-concierge` employee source workspace added for `座联互动/DESIGN.md` Milestone 2.
+
+Run:
+
+```bash
+npx tsx scripts/test-zuolian-agent.ts
+```
+
+Expected: all 65 checks pass. This is an offline smoke test; it does not invoke an LLM or a live OpenClaw gateway. A live CLI/dashboard conversation remains part of S2 once the web demo route exists.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| S4.1 | Native workspace files | `scripts/test-zuolian-agent.ts` checks `sentura/agents/zuolian-travel-concierge/` | The 8 OpenClaw-native files exist: `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`, `MEMORY.md`; no `RULES.md` or `CONTEXT.md`. |
+| S4.2 | Required skills | Script checks `skills/*/SKILL.md` | 5 skills exist: `travel-intake`, `itinerary-planning`, `dida-hotel-booking`, `booking-status`, `feedback-refinement`, each with use/procedure guidance. |
+| S4.3 | Agent config shape | Script parses `config.json5` | `agents.list` contains `zuolian-travel-concierge`; runtime is embedded; current model is pinned to `agentRuntime.id: "openclaw"`; sandbox is `non-main`; no `systemPrompt` or workspace override; webchat binding exists. |
+| S4.4 | Dida demo MCP wiring | Script parses `config.json5` | `mcp.servers.dida-travel-demo` uses `command: "node"`, an argument ending in `sentura/mcp-servers/dida-travel-demo/dist/index.js`, and `DIDA_DEMO_MODE: "fixture"`. |
+| S4.5 | Tool visibility | Script checks agent allowlists | Agent uses `tools.profile: "coding"` plus `tools.allow: ["group:plugins", "web_search", "web_fetch"]` so OpenClaw 2026.6.2 creates the MCP bundle runtime while allowing web research supplement; `tools.sandbox.tools.allow: ["dida-travel-demo__*", "web_search", "web_fetch"]` keeps the final sandboxed surface to Dida demo MCP plus web research. High-risk tools such as `exec`, `gateway`, `write`, `edit`, and `apply_patch` are denied. |
+| S4.6 | Safety instructions | Script checks workspace text | Hard Rules require Simplified Chinese user output, Dida hotel/transfer/attraction tools before final itinerary answers, web research only after Dida as public-information supplement, `PriceConfirm` as source of truth, and "confirmed" only for Dida status `2 Confirmed`; booking skill requires `preBook: true` and `referenceNo`. |
+| S4.7 | Setup wiring | Script checks `scripts/sentura-setup.{sh,ps1}` plus `bash -n scripts/sentura-setup.sh` | Both setup scripts copy/register `zuolian-travel-concierge` as a client-demo source agent, pin its preferred model runtime to OpenClaw, and wire `mcp.servers.dida-travel-demo` with `DIDA_DEMO_MODE=fixture`; setup uses absolute Dida MCP `dist/index.js` paths and bash setup has no shell-parse errors from embedded JavaScript. |

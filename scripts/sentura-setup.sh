@@ -104,7 +104,7 @@ if (explicitModel && explicitModel.includes("/")) {
 
 const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
 if (openAiApiKey) {
-  process.stdout.write("openai/gpt-5.4");
+  process.stdout.write("openai/gpt-5.5");
   process.exit(0);
 }
 
@@ -116,7 +116,7 @@ const profileIds = authProfiles?.profiles && typeof authProfiles.profiles === "o
   : [];
 
 if (profileIds.some((id) => id.startsWith("openai:"))) {
-  process.stdout.write("openai/gpt-5.4");
+  process.stdout.write("openai/gpt-5.5");
   process.exit(0);
 }
 
@@ -132,7 +132,7 @@ if (typeof primary === "string" && primary.includes("/")) {
   process.exit(0);
 }
 
-process.stdout.write("openai/gpt-5.4");
+process.stdout.write("openai/gpt-5.5");
 NODE_EOF
 }
 
@@ -199,11 +199,13 @@ register_agent() {
 log "Step 1: Ensuring workspace base directory..."
 mkdir -p "$WORKSPACE_BASE"
 
-# --- Step 2: Copy meta-agent workspaces ---
+# --- Step 2: Copy source-agent workspaces ---
 
-log "Step 2: Copying meta-agent workspace files..."
+log "Step 2: Copying source-agent workspace files..."
 
 META_AGENTS=("creator" "tuner" "orchestrator" "mcp-builder" "data-scavenger")
+CLIENT_DEMO_AGENTS=("zuolian-travel-concierge")
+SOURCE_AGENTS=("${META_AGENTS[@]}" "${CLIENT_DEMO_AGENTS[@]}")
 SENTURA_AGENTS_DIR="$PROJECT_ROOT/sentura/agents"
 
 for agent in "${META_AGENTS[@]}"; do
@@ -214,10 +216,18 @@ for agent in "${META_AGENTS[@]}"; do
   fi
 done
 
-# Ensure Sentura-specific directories exist in every meta-agent workspace
+for agent in "${CLIENT_DEMO_AGENTS[@]}"; do
+  if [[ -d "$SENTURA_AGENTS_DIR/$agent" ]]; then
+    copy_workspace "$agent" "$SENTURA_AGENTS_DIR/$agent"
+  else
+    warn "Client-demo agent source not found: $SENTURA_AGENTS_DIR/$agent"
+  fi
+done
+
+# Ensure Sentura-specific directories exist in every source-agent workspace
 # (the copy_workspace helper only copies what's in source; these are runtime dirs)
 log "Ensuring Sentura workspace directories (ekg/, memory/users/)..."
-for agent in "${META_AGENTS[@]}"; do
+for agent in "${SOURCE_AGENTS[@]}"; do
   target="$WORKSPACE_BASE/$agent"
   if [[ -d "$target" ]]; then
     mkdir -p "$target/ekg/org" "$target/ekg/rules" "$target/ekg/assets" \
@@ -227,7 +237,7 @@ for agent in "${META_AGENTS[@]}"; do
 done
 ok "Sentura workspace directories ensured."
 
-# Mark each meta-agent workspace as "bootstrap complete" for OpenClaw.
+# Mark each source-agent workspace as "bootstrap complete" for OpenClaw.
 #
 # WHY: OpenClaw (openclaw/src/agents/workspace.ts → resolveWorkspaceBootstrapStatus)
 # treats a workspace as "bootstrap pending" while `BOOTSTRAP.md` exists on disk
@@ -253,9 +263,9 @@ ok "Sentura workspace directories ensured."
 #
 # Idempotent: if `setupCompletedAt` is already set, we preserve the original
 # timestamp (so the "first setup" timestamp survives re-runs of this script).
-log "Stamping setupCompletedAt into meta-agent workspace state..."
+log "Stamping setupCompletedAt into source-agent workspace state..."
 STATE_NOW="$(node -e 'process.stdout.write(new Date().toISOString())')"
-for agent in "${META_AGENTS[@]}"; do
+for agent in "${SOURCE_AGENTS[@]}"; do
   target="$WORKSPACE_BASE/$agent"
   if [[ ! -d "$target" ]]; then
     continue
@@ -290,13 +300,13 @@ for agent in "${META_AGENTS[@]}"; do
     }
 NODE_EOF
 done
-ok "Meta-agent workspaces marked as bootstrap-complete."
+ok "Source-agent workspaces marked as bootstrap-complete."
 
-# --- Step 3: Register meta-agents ---
+# --- Step 3: Register source agents ---
 
-log "Step 3: Registering meta-agents with OpenClaw..."
+log "Step 3: Registering source agents with OpenClaw..."
 
-for agent in "${META_AGENTS[@]}"; do
+for agent in "${SOURCE_AGENTS[@]}"; do
   if [[ -d "$WORKSPACE_BASE/$agent" ]]; then
     register_agent "$agent"
   else
@@ -331,7 +341,7 @@ SENTURA_META_AGENT_MODEL="$META_AGENT_MODEL" node -e "
 const fs = require('fs');
 const configPath = '$OPENCLAW_CONFIG';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.4';
+const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
 config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.models = config.agents.defaults.models || {};
@@ -436,6 +446,18 @@ const dataScavengerSandboxAlsoAllow = [
   'sentura_agents_manage','memory_search','memory_get',
   'canvas','cron','update_plan'
 ];
+const zuolianToolAllow = ['group:plugins','web_search','web_fetch'];
+const zuolianSandboxAllow = ['dida-travel-demo__*','web_search','web_fetch'];
+const zuolianModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const zuolianToolsDeny = [
+  'agents_list','canvas','cron','create_goal','exec','gateway','get_goal',
+  'image','image_generate','memory_get','memory_search','message','nodes','pdf',
+  'process','read','session_status','sessions_history','sessions_list','sessions_send',
+  'sessions_spawn','sessions_yield','skill_workshop','subagents','tts','update_goal',
+  'update_plan','video_generate','edit','apply_patch','write'
+];
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
@@ -443,6 +465,7 @@ const overrides = {
   orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
+  'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -455,6 +478,24 @@ for (const agent of (config.agents?.list || [])) {
     }
   }
 }
+
+config.bindings = Array.isArray(config.bindings) ? config.bindings : [];
+if (!config.bindings.some((b) => b && b.agentId === 'zuolian-travel-concierge' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'zuolian-travel-concierge',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for zuolian-travel-concierge');
+}
+
+config.mcp = config.mcp || {};
+config.mcp.servers = config.mcp.servers || {};
+config.mcp.servers['dida-travel-demo'] = {
+  command: 'node',
+  args: ['$PROJECT_ROOT/sentura/mcp-servers/dida-travel-demo/dist/index.js'],
+  cwd: '$PROJECT_ROOT',
+  env: { DIDA_DEMO_MODE: 'fixture' },
+};
 
 // Grant every local sender owner privileges so the webchat control UI can
 // use owner-only tools (gateway/cron/nodes). Without this, Forge's 'gateway'
@@ -521,7 +562,7 @@ ok "Agent configuration applied."
 # Idempotent: existing records are preserved; only agents missing a record
 # receive the default.
 
-log "Step 4b: Applying default tenancy to registered meta-agents..."
+log "Step 4b: Applying default tenancy to registered agents..."
 
 RBAC_DATA_DIR_FOR_TENANCY="$OPENCLAW_STATE/sentura-rbac"
 mkdir -p "$RBAC_DATA_DIR_FOR_TENANCY"
@@ -705,9 +746,9 @@ done
 
 if [[ -n "$SENTURA_EXT_TUPLES" ]]; then
   export SENTURA_EXT_TUPLES
-  node -e "
+  OPENCLAW_CONFIG="$OPENCLAW_CONFIG" node <<'NODE_EOF'
 const fs = require('fs');
-const configPath = '$OPENCLAW_CONFIG';
+const configPath = process.env.OPENCLAW_CONFIG;
 const tuples = (process.env.SENTURA_EXT_TUPLES || '').split('\n').filter(Boolean);
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
@@ -791,7 +832,7 @@ if (memoryLancedbDisabled) {
 if (memoryLancedbEmbeddingSeeded) {
   console.log('  seeded sentura-memory-lancedb.embedding (\${OPENAI_API_KEY} + text-embedding-3-small)');
 }
-"
+NODE_EOF
   ok "Sentura extensions wired."
 else
   warn "  No Sentura extensions found on disk — plugins.load.paths left unchanged."

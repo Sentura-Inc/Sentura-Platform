@@ -74,7 +74,7 @@ function Resolve-PreferredMetaAgentModel {
     }
 
     if ($env:OPENAI_API_KEY -is [string] -and $env:OPENAI_API_KEY.Trim().Length -gt 0) {
-        return "openai/gpt-5.4"
+        return "openai/gpt-5.5"
     }
 
     $AuthProfilesPath = Join-Path $OpenClawState "agents" "main" "agent" "auth-profiles.json"
@@ -84,7 +84,7 @@ function Resolve-PreferredMetaAgentModel {
             $auth = Get-Content $AuthProfilesPath -Raw | ConvertFrom-Json -Depth 20
             $profileIds = @($auth.profiles.PSObject.Properties.Name)
             if ($profileIds | Where-Object { $_ -like 'openai:*' }) {
-                return "openai/gpt-5.4"
+                return "openai/gpt-5.5"
             }
             if ($profileIds | Where-Object { $_ -like 'deepseek:*' }) {
                 return "deepseek/deepseek-reasoner"
@@ -104,7 +104,7 @@ function Resolve-PreferredMetaAgentModel {
         Warn "Could not parse $OpenClawConfig while resolving preferred meta-agent model."
     }
 
-    return "openai/gpt-5.4"
+    return "openai/gpt-5.5"
 }
 
 $MetaAgentModel = Resolve-PreferredMetaAgentModel
@@ -187,11 +187,13 @@ if (-not (Test-Path $WorkspaceBase)) {
     New-Item -ItemType Directory -Path $WorkspaceBase -Force | Out-Null
 }
 
-# --- Step 2: Copy meta-agent workspaces ---
+# --- Step 2: Copy source-agent workspaces ---
 
-Log "Step 2: Copying meta-agent workspace files..."
+Log "Step 2: Copying source-agent workspace files..."
 
 $MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder", "data-scavenger")
+$ClientDemoAgents = @("zuolian-travel-concierge")
+$SourceAgents = @($MetaAgents + $ClientDemoAgents)
 $SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
 
 foreach ($agent in $MetaAgents) {
@@ -203,7 +205,30 @@ foreach ($agent in $MetaAgents) {
     }
 }
 
-# Mark each meta-agent workspace as "bootstrap complete" for OpenClaw.
+foreach ($agent in $ClientDemoAgents) {
+    $agentSource = Join-Path $SenturaAgentsDir $agent
+    if (Test-Path $agentSource) {
+        Copy-Workspace -AgentId $agent -SourceDir $agentSource | Out-Null
+    } else {
+        Warn "Client-demo agent source not found: $agentSource"
+    }
+}
+
+Log "Ensuring Sentura workspace directories (ekg/, memory/users/)..."
+foreach ($agent in $SourceAgents) {
+    $target = Join-Path $WorkspaceBase $agent
+    if (Test-Path $target) {
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/org") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/rules") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/assets") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/workflows/experience-links") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "memory/users") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "skills") -Force | Out-Null
+    }
+}
+Ok "Sentura workspace directories ensured."
+
+# Mark each source-agent workspace as "bootstrap complete" for OpenClaw.
 #
 # WHY: OpenClaw (openclaw/src/agents/workspace.ts -> resolveWorkspaceBootstrapStatus)
 # treats a workspace as "bootstrap pending" while BOOTSTRAP.md exists on disk AND
@@ -214,9 +239,9 @@ foreach ($agent in $MetaAgents) {
 # from the dashboard. Sentura keeps BOOTSTRAP.md permanently because it hosts
 # the `## Enterprise Context` section, so we stamp setupCompletedAt instead of
 # deleting the file. See scripts/sentura-setup.sh for the matching bash logic.
-Log "Stamping setupCompletedAt into meta-agent workspace state..."
+Log "Stamping setupCompletedAt into source-agent workspace state..."
 $StateNow = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-foreach ($agent in $MetaAgents) {
+foreach ($agent in $SourceAgents) {
     $agentWorkspace = Join-Path $WorkspaceBase $agent
     if (-not (Test-Path $agentWorkspace)) {
         continue
@@ -260,13 +285,13 @@ if (typeof state.setupCompletedAt === "string" && state.setupCompletedAt.trim().
     Remove-Item Env:STATE_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:STATE_NOW -ErrorAction SilentlyContinue
 }
-Ok "Meta-agent workspaces marked as bootstrap-complete."
+Ok "Source-agent workspaces marked as bootstrap-complete."
 
-# --- Step 3: Register meta-agents ---
+# --- Step 3: Register source agents ---
 
-Log "Step 3: Registering meta-agents with OpenClaw..."
+Log "Step 3: Registering source agents with OpenClaw..."
 
-foreach ($agent in $MetaAgents) {
+foreach ($agent in $SourceAgents) {
     $agentWorkspace = Join-Path $WorkspaceBase $agent
     if (Test-Path $agentWorkspace) {
         Register-Agent -AgentId $agent
@@ -291,7 +316,7 @@ $patchScript = @"
 const fs = require('fs');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.4';
+const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
 config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.models = config.agents.defaults.models || {};
@@ -360,6 +385,18 @@ const dataScavengerSandboxAlsoAllow = [
   'sentura_agents_manage','memory_search','memory_get',
   'canvas','cron','update_plan'
 ];
+const zuolianToolAllow = ['group:plugins','web_search','web_fetch'];
+const zuolianSandboxAllow = ['dida-travel-demo__*','web_search','web_fetch'];
+const zuolianModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const zuolianToolsDeny = [
+  'agents_list','canvas','cron','create_goal','exec','gateway','get_goal',
+  'image','image_generate','memory_get','memory_search','message','nodes','pdf',
+  'process','read','session_status','sessions_history','sessions_list','sessions_send',
+  'sessions_spawn','sessions_yield','skill_workshop','subagents','tts','update_goal',
+  'update_plan','video_generate','edit','apply_patch','write'
+];
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
@@ -367,6 +404,7 @@ const overrides = {
   orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
+  'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -377,6 +415,24 @@ for (const agent of (config.agents?.list || [])) {
     }
   }
 }
+
+config.bindings = Array.isArray(config.bindings) ? config.bindings : [];
+if (!config.bindings.some((b) => b && b.agentId === 'zuolian-travel-concierge' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'zuolian-travel-concierge',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for zuolian-travel-concierge');
+}
+
+config.mcp = config.mcp || {};
+config.mcp.servers = config.mcp.servers || {};
+config.mcp.servers['dida-travel-demo'] = {
+  command: 'node',
+  args: ['$($ProjectRoot -replace '\\', '/')/sentura/mcp-servers/dida-travel-demo/dist/index.js'],
+  cwd: '$($ProjectRoot -replace '\\', '/')',
+  env: { DIDA_DEMO_MODE: 'fixture' },
+};
 
 config.agents.defaults.sandbox = config.agents.defaults.sandbox || {};
 config.agents.defaults.sandbox.browser = config.agents.defaults.sandbox.browser || {};
@@ -402,7 +458,7 @@ Ok "Agent configuration applied."
 # `agents.list[]` — so `sentura-cost`/`sentura-monitoring` can attribute
 # events without falling back to "unknown tenant". Idempotent.
 
-Log "Step 4b: Applying default tenancy to registered meta-agents..."
+Log "Step 4b: Applying default tenancy to registered agents..."
 
 $RbacDataDirForTenancy = Join-Path $OpenClawState "sentura-rbac"
 if (-not (Test-Path $RbacDataDirForTenancy)) {

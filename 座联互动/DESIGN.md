@@ -16,8 +16,8 @@ Sentura 侧的定位不是另建一套 Agent Runtime，而是在 OpenClaw 之上
 1. 用户扫码充电后，系统模拟收到用户行程上下文：人在机场，目的地深圳。
 2. AI 客服主动发出第一次问候。
 3. 用户提出“为我制定 5 日深圳旅游攻略”。
-4. Agent 调用网络搜索能力获取深圳攻略信息。
-5. Agent 调用道途模拟工具查询酒店、专车、景点候选。
+4. Agent 调用道途模拟工具查询酒店、专车、景点候选。
+5. Agent 基于座联 Demo fixture 与业务规则生成攻略，并用网络搜索补充天气、开放时间、路线注意事项等公开信息；网络搜索不能替代 Dida Demo 候选。
 6. Agent 生成可报价、可修改的 5 日方案。
 7. 用户反馈后，Agent 迭代方案。
 8. 用户确认方案并提供身份信息。
@@ -64,7 +64,7 @@ OpenClaw 官方文档确认了本设计所依赖的形态：Gateway 是单进程
 |---|---|---|
 | 对话入口 | 网页聊天 Demo，模拟扫码后上下文注入 | 微信/企业微信正式接入 |
 | Agent | 一个座联 AI 出行客服员工 | 多 Agent 协同 |
-| 攻略 | 网络搜索 + Agent 整理 | 自建攻略数据库 |
+| 攻略 | Dida Demo 酒店/专车/景点 fixture + 网络公开信息补充 + Agent 整理 | 自建攻略数据库 |
 | 酒店 | Dida API 流程模拟：查价、确认、预订、订单查询 | 真实 Dida 订单、真实支付 |
 | 专车/景点 | 本地模拟候选，用于形成完整攻略 | 真实 API 对接 |
 | 身份信息 | 前端表单/对话中模拟采集，内存或本地测试库保存脱敏信息 | 生产 PII 存储 |
@@ -247,8 +247,8 @@ flowchart LR
     User["用户网页 Demo"] --> Web["座联互动 Demo Web"]
     Web --> GW["OpenClaw Gateway WS"]
     GW --> Agent["zuolian-travel-concierge Agent"]
-    Agent --> Search["OpenClaw web_search / web_fetch"]
     Agent --> MCP["dida-travel-demo MCP Server"]
+    Agent --> Search["OpenClaw web_search / web_fetch"]
     MCP --> Sim["Dida-like Simulator + fixtures"]
     MCP --> Store["orders.jsonl / sessions.json"]
 ```
@@ -268,15 +268,17 @@ flowchart LR
 
 Agent 需要的工具：
 
-- `web_search` / `web_fetch`: 查询深圳旅行攻略、景点营业信息、推荐路线。
-- `dida_demo_search_hotels`: Content/PriceSearch 对齐的酒店候选查询。
-- `dida_demo_price_confirm`: PriceConfirm 对齐的价格确认。
-- `dida_demo_book_hotel`: BookingConfirm 对齐的酒店预订。
-- `dida_demo_get_booking`: BookingSearch 对齐的订单查询。
-- `dida_demo_search_transfer`: 本地 fixture 专车查询。
-- `dida_demo_search_attractions`: 本地 fixture 景点查询。
+- `dida-travel-demo__dida_demo_search_hotels`: Content/PriceSearch 对齐的酒店候选查询。
+- `dida-travel-demo__dida_demo_price_confirm`: PriceConfirm 对齐的价格确认。
+- `dida-travel-demo__dida_demo_book_hotel`: BookingConfirm 对齐的酒店预订。
+- `dida-travel-demo__dida_demo_get_booking`: BookingSearch 对齐的订单查询。
+- `dida-travel-demo__dida_demo_search_transfer`: 本地 fixture 专车查询。
+- `dida-travel-demo__dida_demo_search_attractions`: 本地 fixture 景点查询。
+- `web_search` / `web_fetch`: Dida Demo 工具调用后补充天气、开放时间、交通注意事项、近期公共旅行信息。
 
-工具命名使用 `dida_demo_` 前缀，避免与未来真实 Dida MCP server 混淆。真实接入时另建 `dida-travel` server，不能复用 demo id。
+MCP 原始工具名仍使用 `dida_demo_` 前缀，避免与未来真实 Dida MCP server 混淆；OpenClaw 运行时可调用名带服务器前缀 `dida-travel-demo__`。真实接入时另建 `dida-travel` server，不能复用 demo id。
+
+Milestone 2 的座联客服暴露 Dida Demo MCP 与 web research 两类工具，但必须固定顺序和边界：先查 Dida Demo 酒店/专车/景点候选，再用 `web_search` / `web_fetch` 补充公开信息。OpenAI 模型在 OpenClaw `2026.6.2` 下可能默认走 Codex app-server harness，该 harness 有独立动态工具层；因此座联 Agent 必须在模型配置中固定 `agentRuntime.id: "openclaw"`，并用 `tools.allow: ["group:plugins", "web_search", "web_fetch"]` + `tools.sandbox.tools.allow: ["dida-travel-demo__*", "web_search", "web_fetch"]` 控制最终工具面。
 
 ### 5.3 Agent workspace 设计
 
@@ -303,7 +305,7 @@ Agent 需要的工具：
 | Skill | 作用 |
 |---|---|
 | `travel-intake/SKILL.md` | 从扫码上下文和用户消息提取目的地、天数、人数、预算、偏好。 |
-| `itinerary-planning/SKILL.md` | 网络搜索 -> 形成每日路线 -> 插入酒店/景点/专车候选。 |
+| `itinerary-planning/SKILL.md` | Dida Demo 酒店/专车/景点查询 -> 网络公开信息补充 -> 形成每日路线与预算说明。 |
 | `dida-hotel-booking/SKILL.md` | 严格执行 Dida 模拟流程：search -> confirm -> booking -> search。 |
 | `booking-status/SKILL.md` | 解释 Dida 状态码，生成确认函或处理中说明。 |
 | `feedback-refinement/SKILL.md` | 用户反馈后只改相关部分，保留已确认约束。 |
@@ -340,10 +342,10 @@ Agent 第一条主动消息：
 
 Agent 行为：
 
-1. 调用 `web_search` 搜索深圳 5 日游、热门景点、区域交通建议。
-2. 调用 `dida_demo_search_hotels` 查询酒店候选。
-3. 调用 `dida_demo_search_transfer` 查询机场到酒店专车。
-4. 调用 `dida_demo_search_attractions` 查询景点票务模拟候选。
+1. 调用 `dida-travel-demo__dida_demo_search_hotels` 查询酒店候选。
+2. 调用 `dida-travel-demo__dida_demo_search_transfer` 查询机场到酒店专车。
+3. 调用 `dida-travel-demo__dida_demo_search_attractions` 查询景点票务模拟候选。
+4. 调用 `web_search` / `web_fetch` 补充天气、开放时间、交通注意事项等公开信息。
 5. 返回第一版方案。
 
 第一版方案必须包含：
@@ -544,12 +546,13 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 ### Milestone 2 — AI 客服员工
 
-- [ ] 创建 `sentura/agents/zuolian-travel-concierge/`。
-- [ ] 写 8 个 OpenClaw 原生 workspace 文件。
-- [ ] 写 5 个技能文件：需求提取、攻略规划、Dida 酒店预订、订单状态、反馈优化。
-- [ ] 将 MCP server 配置到该 Agent。
-- [ ] 验证 Agent 工具可见性。
-- [ ] 跑一次 CLI 或 dashboard chat smoke test。
+- [x] 创建 `sentura/agents/zuolian-travel-concierge/`。
+- [x] 写 8 个 OpenClaw 原生 workspace 文件。
+- [x] 写 5 个技能文件：需求提取、攻略规划、Dida 酒店预订、订单状态、反馈优化。
+- [x] 将 MCP server 配置到该 Agent。
+- [x] 接入 `scripts/sentura-setup.{sh,ps1}`，让本地 setup 复制/注册该 Agent 并加载 Dida demo MCP。
+- [x] 验证 Agent 工具可见性。
+- [x] 跑一次 CLI 或 dashboard chat smoke test。
 
 ### Milestone 3 — 网页 Demo
 
@@ -568,7 +571,7 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
   1. 打开 Demo 页面。
   2. 检查主动问候。
   3. 发送“为我制定 5 日深圳旅游攻略”。
-  4. 断言调用搜索/酒店/专车/景点工具。
+  4. 断言先调用 Dida Demo 酒店/专车/景点工具，再调用网络搜索补充公开信息。
   5. 发送反馈并检查新版方案。
   6. 发送身份信息并确认预订。
   7. 查询订单，断言状态为 `2 Confirmed`。

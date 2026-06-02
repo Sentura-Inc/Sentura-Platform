@@ -1,0 +1,117 @@
+// Sitlink / Zuolian Travel Concierge — Agent Configuration
+//
+// Milestone 2 of `座联互动/DESIGN.md`.
+// OpenClaw schema: `agents.list` is an array; workspace identity comes from
+// the 8 native files under `sentura/agents/zuolian-travel-concierge/`.
+// MCP servers live at the native global path `mcp.servers.<name>`.
+{
+  agents: {
+    list: [
+      {
+        id: "zuolian-travel-concierge",
+        name: "座联出行客服",
+        model: "openai/gpt-5.4",
+        models: {
+          "openai/gpt-5.4": {
+            agentRuntime: { id: "openclaw" },
+          },
+          "openai/gpt-5.5": {
+            agentRuntime: { id: "openclaw" },
+          },
+        },
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "coding",
+          allow: [
+            "group:plugins",
+            "web_search",
+            "web_fetch",
+          ],
+          sandbox: {
+            tools: {
+              allow: [
+                "dida-travel-demo__*",
+                "web_search",
+                "web_fetch",
+              ],
+            },
+          },
+          deny: [
+            "agents_list",
+            "canvas",
+            "cron",
+            "create_goal",
+            "exec",
+            "gateway",
+            "get_goal",
+            "image",
+            "image_generate",
+            "memory_get",
+            "memory_search",
+            "message",
+            "nodes",
+            "pdf",
+            "process",
+            "read",
+            "session_status",
+            "sessions_history",
+            "sessions_list",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "skill_workshop",
+            "subagents",
+            "tts",
+            "update_goal",
+            "update_plan",
+            "video_generate",
+            "edit",
+            "apply_patch",
+            "write",
+          ],
+        },
+        params: {
+          role: "Sitlink AI travel customer-support employee",
+          language: "zh-CN",
+          demoScope: "Phase 1 fixture-first web/chat demo with web research supplement",
+          allowedActions: [
+            "itinerary_planning",
+            "fixture_hotel_quote",
+            "fixture_hotel_booking",
+            "fixture_booking_lookup",
+            "fixture_transfer_lookup",
+            "fixture_attraction_lookup",
+          ],
+          blockedActions: [
+            "real_payment",
+            "real_dida_production_booking",
+            "refund",
+            "complaint_resolution",
+            "passport_or_id_collection",
+          ],
+        },
+      },
+    ],
+  },
+
+  bindings: [
+    {
+      agentId: "zuolian-travel-concierge",
+      match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
+    },
+  ],
+
+  mcp: {
+    servers: {
+      "dida-travel-demo": {
+        command: "node",
+        args: ["sentura/mcp-servers/dida-travel-demo/dist/index.js"],
+        cwd: ".",
+        env: {
+          DIDA_DEMO_MODE: "fixture",
+        },
+      },
+    },
+  },
+}

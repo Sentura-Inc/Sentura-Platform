@@ -2,7 +2,7 @@
 
 > **Single source of truth for what to test.** Summary matrix only; detailed test cases (methods, expected outputs, assertions) live in per-person files under [`docs/tests/`](tests/) and are read on demand.
 >
-> **Last updated**: 2026-06-02 (Dashboard protocol fix for OpenClaw `2026.6.2`: Sentura GatewayClient and live helper scripts now advertise WebSocket protocol v4; X4.4 covers the `protocol mismatch expected=4` regression).
+> **Last updated**: 2026-06-02 (Sitlink Milestone 2: `zuolian-travel-concierge` now uses OpenClaw-pinned Dida-first + web-research supplement tooling.)
 
 ---
 
@@ -247,6 +247,7 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | S1 | DidaTravel demo MCP server (Milestone 1) | 10 | `sentura/mcp-servers/dida-travel-demo/src/server.test.ts` — config defaults to fixture mode and Dida test domains; 6-tool catalog; MCP `InMemoryTransport` annotations; full `PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm -> BookingSearch` flow; `preBook=false` cannot book; metadata tamper rejected; duplicate `ReferenceNo` rejected; Dida statuses `0/1/5/6` non-final and `2/3/4` final; transfer/attraction fixtures. `pnpm build` succeeds. | PASS (2026-06-02) | [`tests/tests-sitlink.md § S1`](tests/tests-sitlink.md#s1--didatravel-demo-mcp-server-milestone-1) |
 | S2 | Phase-1 web demo + DidaTravel simulated booking flow | 6 | Build from `座联互动/DESIGN.md`: `zuolian-travel-concierge` agent, `dida-travel-demo` MCP server, and `/client-demos/zuolian` dashboard route. Verify proactive greeting from airport charging-scan context, Shenzhen 5-day itinerary generation, feedback refinement, and simulated hotel booking strictly ordered as `PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm -> BookingSearch`. Agent may say "confirmed" only when simulated Dida status is `2 Confirmed`; `0/1/5/6` must be described as non-final. | PEND | [`tests/tests-sitlink.md § S2`](tests/tests-sitlink.md#s2--phase-1-web-demo--didatravel-simulated-booking-flow) |
 | S3 | Chinese output + MCP fixture display fields | 2 | S3.1 PASS: MCP fixture responses include `locale="zh-CN"` plus Chinese display fields for hotel, transfer, attraction, cancellation policy, and booking summaries while preserving Dida machine fields. S3.2 remains pending until the Agent/web demo exists and can verify Simplified-Chinese user-facing replies. | PEND (1/2 PASS) | [`tests/tests-sitlink.md § S3`](tests/tests-sitlink.md#s3--chinese-output--mcp-fixture-display-fields) |
+| S4 | AI travel concierge employee workspace (Milestone 2) | 65 checks | `scripts/test-zuolian-agent.ts` — verifies `sentura/agents/zuolian-travel-concierge/` has exactly the 8 native workspace files, no `RULES.md`/`CONTEXT.md`, 5 required skills, OpenClaw `agents.list` entry, webchat binding, `mcp.servers.dida-travel-demo`, OpenAI model runtime pinned to OpenClaw, `coding` profile plus `tools.allow: ["group:plugins", "web_search", "web_fetch"]` for Dida MCP plus web supplement exposure, sandbox `tools.allow: ["dida-travel-demo__*", "web_search", "web_fetch"]`, denied high-risk tools, setup-script registration/MCP wiring, and load-bearing Chinese/Dida-first/status safety instructions. | PASS (2026-06-02) | [`tests/tests-sitlink.md § S4`](tests/tests-sitlink.md#s4--ai-travel-concierge-employee-workspace-milestone-2) |
 
 ### Documentation Hygiene
 
@@ -285,7 +286,7 @@ Person A: N/27 sections PASS (cases: ?/? — A16-A19 offline 19/19; A20.1 live P
 Person B: N/32 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3 added 2026-04-26; live 4/4 PASS 2026-04-26; B24–B32 Week 4 added 2026-05-01 — orchestrator EKG, Mode-B decomposition, pre-deployment runner, sentura-experience-extraction plugin, self-provisioning autonomy closure)
 Person C: 21/21 sections PASS (cases: C11 17 dashboard cases; +C12 Tune surface, C13 Integrations MCP manager, C14 SkeletonShell component (now unused), C15 Group Chat fan-out, C16 /orchestrator real Manager EKG browser, C17 /testing real SuiteRunResult viewer, C18 /knowledge real per-agent EKG browser, C19 dashboard live integration harness 77/77 PASS 2026-05-03, C20 /cost real Cost Center backed by Person A's sentura-cost extension, C21 /audit real Audit Trail backed by Person D's sentura-audit extension — all 5 dashboard surfaces now real)
 Person D: N/25 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression; +D15-D18 Week 3 kickoff; +D19-D25 Week 4 audit/MCP/security work)
-Sitlink: N/3 sections PASS (S1 DidaTravel demo MCP server 10/10 PASS; S2 web demo PEND; S3 Chinese output/display fields 1/2 PASS, Agent output PEND)
+Sitlink: N/4 sections PASS (S1 DidaTravel demo MCP server 10/10 PASS; S2 web demo PEND; S3 Chinese output/display fields 1/2 PASS, Agent output PEND; S4 AI concierge employee workspace 65/65 PASS 2026-06-02)
 Cross-team: N/10 scenarios PASS (19 detailed checks)
 Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via Forge's 4-call `sentura_agents_manage` sequence (openai/gpt-5.4); prior: 2026-04-19 — penny-ap deployed in ~110s
 ```
