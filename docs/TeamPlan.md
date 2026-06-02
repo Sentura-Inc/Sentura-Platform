@@ -2,7 +2,7 @@
 
 > **Aligned with**: README.md (17 Sentura capabilities), docs/OPENCLAW.md, ekg/ test enterprise
 >
-> **Last synced**: 2026-04-19 (OpenClaw `2026.4.19-beta.2` upgrade pass — sprint plan itself is unaffected; all completed tasks remain valid. Any new capability references below have been re-checked against the new pnpm monorepo layout. See `docs/OPENCLAW.md` for the full version delta.)
+> **Last synced**: 2026-06-02 (OpenClaw `2026.6.2` upgrade pass — sprint plan itself is unaffected; all completed tasks remain valid. Node minimum is now 22.19+, pnpm baseline is 11.2.2+, and Sentura SDK imports were re-checked against the current OpenClaw subpath exports. See `docs/OPENCLAW.md` for the full version delta.)
 
 > ## ⚠️ DO NOT REINTRODUCE `RULES.md` OR `CONTEXT.md` ⚠️
 >
@@ -757,8 +757,6 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Validate all approval and RBAC policies
 - [ ] Validate MCP servers from all 3 tiers
 - [ ] Prepare security whitepaper for enterprise customers
-
----
 
 ## Integration Checkpoints
 

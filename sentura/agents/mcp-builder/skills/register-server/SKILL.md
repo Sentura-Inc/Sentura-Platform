@@ -27,7 +27,7 @@ For each secret reference in the generated README:
 
 ### Step 3: Build the `config.patch` Request
 
-The entry **must** live at OpenClaw's native path `mcp.servers.<name>`. This is the path OpenClaw's MCP loader walks at runtime — see `openclaw/src/agents/embedded-pi-mcp.ts` (`normalizeConfiguredMcpServers(cfg.mcp?.servers)`) and `openclaw/src/config/mcp-config.ts` (reads/writes `sourceConfig.mcp.servers`). Any other nesting (e.g. the legacy `mcp.servers.entries.<name>` shape) is invisible to OpenClaw — the server will not be spawned and the agent will silently have no tools.
+The entry **must** live at OpenClaw's native path `mcp.servers.<name>`. This is the path OpenClaw's MCP config loader walks at runtime — see `openclaw/src/config/mcp-config.ts` (`normalizeConfiguredMcpServers(sourceConfig.mcp?.servers)`) and `openclaw/src/config/mcp-config-normalize.ts`. Any other nesting (e.g. the legacy `mcp.servers.entries.<name>` shape) is invisible to OpenClaw — the server will not be spawned and the agent will silently have no tools.
 
 Example patch:
 

@@ -5,9 +5,9 @@
   "description": "Enterprise AI employee platform built on OpenClaw",
   "type": "module",
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=22.19.0"
   },
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "dev:dashboard": "cd sentura/dashboard && pnpm dev",
     "build": "pnpm -r build",

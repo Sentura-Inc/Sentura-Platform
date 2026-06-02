@@ -1,8 +1,8 @@
 /**
  * Sentura Memory (LanceDB) Plugin
  *
- * Forked from `openclaw/extensions/memory-lancedb/index.ts`
- * (`@openclaw/memory-lancedb` 2026.4.19-beta.1) with one architectural
+ * Forked from `openclaw/extensions/memory-lancedb/index.ts`; compatibility
+ * was refreshed against OpenClaw 2026.6.2. Sentura adds one architectural
  * change: every memory entry carries a `userToken` column that records
  * which Sentura user owns the entry. On recall the search results are
  * filtered by the caller's `userToken` (extracted from the session key),
@@ -37,7 +37,7 @@ import {
   vectorDimsForModel,
 } from "./config.js";
 import { loadLanceDbModule } from "./lancedb-runtime.js";
-import { applyUserTokenScope } from "./src/partition.js";
+import { GLOBAL_USER_TOKEN, applyUserTokenScope } from "./src/partition.js";
 import { extractUserTokenFromSessionKey } from "./src/session.js";
 
 // ============================================================================

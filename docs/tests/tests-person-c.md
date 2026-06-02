@@ -22,7 +22,7 @@
 | C2.2 | ConnectParams | Read `types.ts` | Has `ConnectParams` with protocol version, client.id, client.mode, auth.token |
 | C2.3 | GatewayEventType union | Read `types.ts` | Includes `exec.approval.requested`, `exec.approval.resolved`, `plugin.approval.requested`, `plugin.approval.resolved`, `sessions.changed`, `health` |
 | C2.4 | Handshake protocol | Read `client.ts` | Listens for `connect.challenge` event, responds with `connect` request containing `ConnectParams` |
-| C2.5 | Client identity | Read `client.ts` | Uses `openclaw-control-ui` as client ID, `ui` as mode, protocol version `3` |
+| C2.5 | Client identity | Read `client.ts` | Uses `openclaw-control-ui` as client ID, `ui` as mode, protocol version `4` |
 | C2.6 | Meta-agent filtering | Read `client.ts` | `getAgents()` filters out `creator`, `tuner`, `orchestrator`; `getAllAgentsIncludingMeta()` returns all |
 | C2.7 | Approval routing | Read `client.ts` | `resolveApproval()` branches on `plugin:` prefix in approval ID to route to correct RPC method |
 | C2.8 | RPC timeout | Read `client.ts` | RPC calls have 30-second timeout; promise rejects on timeout |
@@ -334,4 +334,3 @@ New surface graduating from the disabled-W5 sidebar placeholder to a real Audit 
 | C21.7 | `summarizeDetails` extracts human-readable fields | Inspect Details column for various event types | Prefers known scalar keys (`message`/`action`/`tool`/`summary`/`reason`/`name`) and renders `key: value` (truncated at 120 chars). Falls back to `key=val, key=val, key=val` compact form for the first 3 keys when no preferred field exists. Empty details renders "—" |
 
 ---
-

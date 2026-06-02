@@ -154,7 +154,7 @@ Use the in-process `register_agent` action. It atomically:
 
 1. Adds the agent entry to `agents.list` (or overwrites an existing entry if `overwrite: true`).
 2. Appends any channel bindings you pass to `bindings[]`.
-3. Merges any MCP server entries you pass under `mcp.servers.<name>`. This path is **not optional** — OpenClaw's MCP loader (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`) reads exactly `mcp.servers[<name>]`. Writing to `mcp.servers.entries.<name>` or any other nested shape silently fails: OpenClaw treats `entries` as a single malformed server, skips it, and the employee gets zero MCP tools with no user-visible error.
+3. Merges any MCP server entries you pass under `mcp.servers.<name>`. This path is **not optional** — OpenClaw's MCP config loader (`openclaw/src/config/mcp-config.ts` → `normalizeConfiguredMcpServers(sourceConfig.mcp?.servers)`) reads exactly `mcp.servers[<name>]`. Writing to `mcp.servers.entries.<name>` or any other nested shape silently fails: OpenClaw treats `entries` as a single malformed server, skips it, and the employee gets zero MCP tools with no user-visible error.
 4. Stamps `setupCompletedAt` into the new agent's `workspace-state.json` (unless you pass `stampSetupCompleted: false`), so it does not boot in bootstrap-pending mode.
 5. Triggers the same hot-reload listeners that a `config.patch` would — no restart needed.
 

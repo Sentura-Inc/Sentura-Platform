@@ -37,6 +37,7 @@ These tests verify that deliverables from different team members work together c
 | X4.1 | Dashboard connects | Start gateway + dashboard; load dashboard | Connection status shows "Connected" (green dot) |
 | X4.2 | Dashboard disconnects gracefully | Stop gateway while dashboard is open | Connection status shows "Disconnected" or "Reconnecting"; no page crash |
 | X4.3 | Overview stats accurate | Load `/` with agents registered | Employee count matches `config.get agents.list` length (minus 3 meta-agents) |
+| X4.4 | Gateway protocol version matches OpenClaw | Start OpenClaw `2026.6.2`, load dashboard, watch `/tmp/openclaw/openclaw-YYYY-MM-DD.log` | No `protocol mismatch ... min=3 max=3 expected=4` lines; `sentura/dashboard/src/lib/gateway/client.ts` advertises protocol `4`. |
 
 ### X5. Extension ↔ Policy Alignment
 
@@ -46,7 +47,17 @@ These tests verify that deliverables from different team members work together c
 | X5.2 | Audit event types cover all hooks | Compare `sentura-audit/src/types.ts` AuditEventType with registered hooks in `index.ts` | Every registered hook produces at least one audit event type |
 | X5.3 | Approval policies reference valid tools | Check tool names in `approval-policies.json5` | Tool names match OpenClaw's tool catalog (browser_navigate, mcp_*, etc.) |
 
----
+### X10. OpenClaw 2026.6.2 Baseline Compatibility
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| X10.1 | Runtime/package baseline | `node -e "const p=require('./openclaw/package.json'); console.log(p.version, p.engines.node, p.packageManager)"` | Version is `2026.6.2`; engine is `>=22.19.0`; package manager starts with `pnpm@11.2.2`. |
+| X10.2 | SDK export surface | Inspect `Object.keys(require('./openclaw/package.json').exports)` | Includes `./plugin-sdk/diagnostic-runtime`; does not include removed `./plugin-sdk/diagnostics-otel` or `./plugin-sdk/memory-lancedb`. |
+| X10.3 | Sentura imports | `rg -n "openclaw/plugin-sdk/(diagnostics-otel|memory-lancedb)" sentura --glob '!node_modules'` | No live Sentura TypeScript import uses a removed SDK subpath. Documentation may mention the removed names only as explicit upgrade warnings. |
+| X10.4 | MCP loader references | `rg -n "embedded-pi-mcp" sentura docs/SETUP.md docs/OPENCLAW.md docs/DESIGN.md README.md AGENTS.md CLAUDE.md` | No current-facing Sentura or setup doc points contributors at the removed `embedded-pi-mcp.ts` file; current references use `openclaw/src/config/mcp-config.ts` / `mcp-config-normalize.ts` or `embedded-agent-mcp.ts`. |
+| X10.5 | Local OpenClaw linkage | `rg -n '"openclaw": "link:../../../openclaw"' sentura/extensions -g package.json` and `pnpm install --no-frozen-lockfile` | Every Sentura extension links to the repo-local `openclaw/` source, not registry `"*"`. This prevents compiling against stale `openclaw@2026.4.x` SDK declarations while the source tree is `2026.6.x`. |
+| X10.6 | Targeted builds/tests | From a Node 22.19+ shell, run targeted Sentura extension builds/tests touched by the upgrade (`test-week4-memory.ts`, `test-week4-cost.ts`, `test-week4-health.ts`, Dida demo test/build, and strict tsc for touched extensions once local OpenClaw `.d.ts` artifacts exist) | Offline logic tests pass. Strict extension tsc must not be marked green until the active OpenClaw build exposes declarations for `openclaw/plugin-sdk/*` or an approved public type-consumption path exists. |
+
 
 ## Test Results Summary Template
 
@@ -62,9 +73,9 @@ Person A: __ / 98 passed   (74 + 12 A14 sandbox-seed + 12 A15 sentura-agents ext
 Person B: __ / 101 passed  (65 + 20 B12 live-gateway + 6 B6.2 deployment-skill rewrite + 10 B6.9 live E2E cases)
 Person C: __ / 85 passed   (33 Week 1 + 52 Week 2 cases across C2.11–C10.17)
 Person D: __ / 31 passed (22 automated + 9 manual)
-Cross-team: __ / 13 passed
+Cross-team: __ / 19 passed
 
-Total: __ / 328
+Total: __ / 334
 
 Notes:
 - ...

@@ -254,6 +254,3 @@ Verify `sentura/mcp-servers/github/{config-snippet.json5,README.md}` and `sentur
 ## D25 — Security scanner (W4)
 
 Offline `sentura-audit/src/security-scanner.test.ts` 12 cases (one per finding family + summarize rollup). Live `npx tsx scripts/scan-agent-security.ts` reads `~/.openclaw/openclaw.json` and `~/.openclaw/workspace/<id>/AGENTS.md`, exits 0 (no criticals) / 1 (criticals) / 2 (config error). At this commit reports `3 high, 0 critical` against the live config.
-
----
-

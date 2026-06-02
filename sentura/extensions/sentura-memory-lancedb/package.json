@@ -2,7 +2,7 @@
   "name": "@sentura/memory-lancedb",
   "version": "0.1.0",
   "private": true,
-  "description": "Sentura LanceDB-backed long-term memory with per-user token partitioning. Forked from openclaw/extensions/memory-lancedb (2026.4.19-beta.1).",
+  "description": "Sentura LanceDB-backed long-term memory with per-user token partitioning. Forked from openclaw/extensions/memory-lancedb and refreshed for OpenClaw 2026.6.2.",
   "type": "module",
   "dependencies": {
     "@lancedb/lancedb": "^0.27.2",
@@ -10,12 +10,12 @@
     "openai": "^6.34.0"
   },
   "devDependencies": {
-    "openclaw": "*"
+    "openclaw": "link:../../../openclaw"
   },
   "openclaw": {
     "extensions": ["./index.ts"],
     "compat": {
-      "pluginApi": ">=2026.4.19-beta.1"
+      "pluginApi": ">=2026.6.2"
     }
   }
 }

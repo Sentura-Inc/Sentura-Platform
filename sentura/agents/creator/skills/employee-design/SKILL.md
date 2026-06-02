@@ -81,7 +81,7 @@ For each integration from Phase 1:
    - Tier 2 (Sentura-generated): `sentura/mcp-servers/*/` — existing scaffolds.
 2. If no coverage: this is a **deferral** — note that MCP Builder must create one. Phase 4 will trigger the MCP Builder Agent.
 
-Produce an `mcp` subsection for the design bundle. The entry **must** live directly under `mcp.servers.<name>` — that is OpenClaw's native path, read by `openclaw/src/agents/embedded-pi-mcp.ts` (`normalizeConfiguredMcpServers(cfg.mcp?.servers)`). Do NOT nest under `mcp.servers.entries.<name>` — that shape is invisible to OpenClaw and the server will silently fail to spawn, leaving the employee with zero MCP tools.
+Produce an `mcp` subsection for the design bundle. The entry **must** live directly under `mcp.servers.<name>` — that is OpenClaw's native path, read by `openclaw/src/config/mcp-config.ts` (`normalizeConfiguredMcpServers(sourceConfig.mcp?.servers)`). Do NOT nest under `mcp.servers.entries.<name>` — that shape is invisible to OpenClaw and the server will silently fail to spawn, leaving the employee with zero MCP tools.
 
 ```json5
 {

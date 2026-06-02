@@ -572,7 +572,7 @@ test agent and its workspace are removed whether tests pass or fail.
 | # | Test | What the script verifies |
 |---|------|--------------------------|
 | B12.1 | Gateway token discoverable | `~/.openclaw/config.json` has `gateway.controlUi.token` |
-| B12.2 | WebSocket handshake succeeds | `connect.challenge` → `connect` RPC resolves with protocol v3 |
+| B12.2 | WebSocket handshake succeeds | `connect.challenge` → `connect` RPC resolves with protocol v4 |
 | B12.3 | Creator Agent live-registered | `config.get → agents.list[]` contains `creator` agent |
 | B12.4 | Creator Agent config intact | `creator` entry has `parameters.memoryDbPath` set to per-agent template |
 | B12.5 | Workspace materialized on disk | All 8 native files (AGENTS/SOUL/TOOLS/IDENTITY/USER/HEARTBEAT/BOOTSTRAP/MEMORY.md) exist in `~/.openclaw/workspace/<test-agent-id>/` |
@@ -622,4 +622,3 @@ test agent and its workspace are removed whether tests pass or fail.
    MCP Builder Agent's (Smith's) deliverable.
 
 ---
-

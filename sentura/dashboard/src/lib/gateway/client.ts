@@ -29,7 +29,7 @@ import { filterChatSessions, isMetaAgentId } from "./chat-sessions";
 type EventHandler = (event: GatewayEvent) => void;
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const SENTURA_VERSION = "0.1.0";
 const REQUEST_TIMEOUT_MS = 30_000;
 

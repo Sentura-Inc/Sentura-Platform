@@ -2,8 +2,8 @@
 // `~/.openclaw/openclaw.json` (or apply it via the gateway `config.patch` RPC
 // — never edit `openclaw.json` while the gateway is running). The path lives
 // at OpenClaw's native `mcp.servers.<name>` location; any other nesting is
-// invisible to the loader (`openclaw/src/agents/embedded-pi-mcp.ts` →
-// `normalizeConfiguredMcpServers`).
+// invisible to the loader (`openclaw/src/config/mcp-config.ts` →
+// `normalizeConfiguredMcpServers(sourceConfig.mcp?.servers)`).
 {
   mcp: {
     servers: {

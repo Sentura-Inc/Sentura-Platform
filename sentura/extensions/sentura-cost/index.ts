@@ -14,7 +14,7 @@
 
 import crypto from "node:crypto";
 import path from "node:path";
-import { onDiagnosticEvent } from "openclaw/plugin-sdk/diagnostics-otel";
+import { onDiagnosticEvent } from "openclaw/plugin-sdk/diagnostic-runtime";
 import { definePluginEntry, resolveOpenClawDir, type OpenClawPluginApi } from "./api.js";
 import {
   aggregateByAgent,

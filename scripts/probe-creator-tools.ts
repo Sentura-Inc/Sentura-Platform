@@ -101,8 +101,8 @@ class RpcClient {
             id,
             method: "connect",
             params: {
-              minProtocol: 3,
-              maxProtocol: 3,
+              minProtocol: 4,
+              maxProtocol: 4,
               client: {
                 id: "openclaw-tui",
                 displayName: "Sentura Probe",
