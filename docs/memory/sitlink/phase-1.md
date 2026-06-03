@@ -22,6 +22,11 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-03 | Milestone 3 web demo route | Added `/client-demos/zuolian` with scan-context session seeding, hidden technical seed support in `AgentChat`, side panels, quick actions, refresh recovery, responsive sidebar behavior, and 41/41 offline checks. |
 | 2026-06-03 | Hotel-detail click-through | Verified Dida Content API `/api/v1/hotel/details`, added a demo MCP hotel-detail tool, clickable hotel cards, Agent docs, and test coverage for hotel-detail lookup. |
 | 2026-06-03 | Airport-to-airport context and multi-city fixtures | Changed the scan context to boarding-gate origin airport -> destination airport, added airport dropdowns, and expanded Dida demo fixtures to 7 cities with 5 hotels + 5 attractions each. |
+| 2026-06-03 | Dida Booking Cancel and modify-order demo | Added Dida-aligned pre-cancel, CancelConfirm, and modify-by-cancel-rebook tools plus agent/web/demo docs and tests. |
+| 2026-06-03 | Airport-confirmation greeting fix | Fixed confirmed airport sessions that mounted chat without sending the hidden scan seed, restoring the proactive Agent greeting. |
+| 2026-06-03 | Hotel-card click UX simplification | Simplified the hotel-card click message so users only see a natural detail request, not tool wiring. |
+| 2026-06-03 | Documentation sync audit | Checked and updated current Sitlink docs against the latest implemented feature set; expanded agent smoke to prevent dynamic-destination regressions. |
+| 2026-06-03 | Local OpenClaw workspace sync | Copied the updated concierge Markdown docs into the deployed local OpenClaw workspace while preserving runtime state. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -374,3 +379,155 @@ The Sitlink demo scan-entry model changed from a single Shenzhen airport/downtow
 - `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx src/components/sidebar.tsx` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS; route table includes `/client-demos/zuolian`.
 - In-app Browser smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: default dropdowns show 广州白云 -> 深圳宝安, destination options include all 7 airports with the origin disabled, and switching destination to 香港 updates the side-panel destination plus quick-action copy.
+
+## 2026-06-03 — Dida Booking Cancel and modify-order demo
+
+### Dida API finding
+
+- Verified Dida Booking API generated docs for Booking Cancel:
+  - Pre-cancel endpoint: `POST /api/booking/HotelBookingCancel`.
+  - Confirm-cancel endpoint: `POST /api/booking/HotelBookingCancelConfirm`.
+  - Pre-cancel returns cancellation amount and `ConfirmID`; pre-cancel alone does not cancel the booking.
+  - `ConfirmID` is valid for 10 minutes and must be passed to the confirm-cancel step.
+- Verified Dida BookingSearch status semantics still govern customer-facing cancellation: status `3 Canceled` is the final canceled state.
+- Design decision: modification is implemented as cancel-and-rebook because the requested Dida-compatible flow is `BookingCancel -> PriceSearch -> PriceConfirm -> BookingConfirm`, with all rebooking work hidden from the user except the final old/new order summary.
+
+### Files changed
+
+- `sentura/mcp-servers/dida-travel-demo/src/index.ts`
+  - Added pending cancellation records and cancel ConfirmID generation.
+  - Added `dida_demo_pre_cancel_booking`, `dida_demo_cancel_booking`, and `dida_demo_modify_booking`.
+  - Pre-cancel returns fee/refund and leaves the booking status unchanged.
+  - CancelConfirm changes the fixture order to status `3 Canceled`.
+  - Modify first cancels the old order, then runs `PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm` with updated details and links old/new booking IDs.
+- `sentura/mcp-servers/dida-travel-demo/src/server.test.ts`
+  - Expanded tests from 13 to 16.
+  - Added Booking Cancel two-step coverage, missing ConfirmID rejection, and modify-by-cancel-rebook coverage.
+- `sentura/mcp-servers/dida-travel-demo/README.md`
+  - Documented the new cancel and modify tools.
+- `sentura/agents/zuolian-travel-concierge/AGENTS.md`, `TOOLS.md`, `skills/dida-hotel-booking/SKILL.md`, and `skills/booking-status/SKILL.md`
+  - Added cancellation and modification tool order, status safety, and customer-facing wording requirements.
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Added cancel and modify quick actions.
+  - Added tool-flow steps for pre-cancel, CancelConfirm, and modify.
+  - Updated order parsing to prefer `newBooking` from modify results.
+- `scripts/test-zuolian-agent.ts`
+  - Expanded agent smoke coverage from 66 to 71 checks.
+- `scripts/test-zuolian-web-demo.ts`
+  - Expanded web route structural coverage from 60 to 68 checks.
+- Updated `座联互动/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-sitlink.md`.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-dida-travel-demo test` — PASS, 16/16, with the existing Node engine warning because this shell uses Node 22.18.0 while OpenClaw requires 22.19+.
+- `pnpm --filter @sentura/mcp-dida-travel-demo build` — PASS, same engine warning.
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 71/71.
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 68/68.
+
+## 2026-06-03 — Airport-confirmation greeting fix
+
+### Root cause
+
+The Milestone 3 confirmation-gate page created a session with `client.createSession(AGENT_ID, buildSeedMessage(...))` after the user clicked "确认机场并通知客服". In the current Gateway behavior, the page-owned session creation path was not a reliable substitute for `AgentChat`'s first-message send path, so the chat UI could mount with a session key but no actual hidden scan-context user message sent through `chat.send`. The result was that the concierge no longer proactively replied after airport confirmation.
+
+### Fix
+
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Changed `createDemoSession()` to create an empty labeled session first.
+  - Added `pendingSeed` state so the page sends `buildSeedMessage(origin, destination)` through the mounted `AgentChat` imperative `sendMessage()` handle.
+  - Kept the hidden seed prefix so the technical scan context remains invisible to the user.
+  - When restoring a stored airport-scoped session, the page now checks `client.getTranscript(stored, 1)` and re-sends the hidden seed if the transcript is empty.
+- `scripts/test-zuolian-web-demo.ts`
+  - Expanded S5 checks from 68 to 70 to assert the new create-session-then-hidden-send contract and empty-session re-seeding.
+- Updated `docs/TESTS.md` and `docs/tests/tests-sitlink.md`.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 70/70.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx` — PASS.
+
+## 2026-06-03 — Hotel-card click UX simplification
+
+### Change
+
+The hotel candidate card click previously sent a long user-visible instruction that named the Dida Content API demo tool and included `hotelIds` wiring. This was useful for early testing but too technical for the client-facing demo.
+
+### Files changed
+
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - `handleHotelClick()` now sends only `我想查看{hotelNameZh}的详情`.
+- `scripts/test-zuolian-web-demo.ts`
+  - Replaced the old tool-wiring assertion with checks that the simplified sentence exists and the click message no longer contains `hotelIds 只传` or the explicit tool-call instruction.
+- Updated `docs/TESTS.md` and `docs/tests/tests-sitlink.md`.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 71/71.
+
+## 2026-06-03 — Documentation sync audit
+
+### Scope checked
+
+- `座联互动/DESIGN.md`
+- `docs/TESTS.md`
+- `docs/tests/tests-sitlink.md`
+- `sentura/mcp-servers/dida-travel-demo/README.md`
+- `sentura/agents/zuolian-travel-concierge/{AGENTS,SOUL,IDENTITY,BOOTSTRAP,USER,TOOLS}.md`
+- `sentura/agents/zuolian-travel-concierge/skills/*.md`
+- `scripts/test-zuolian-agent.ts`
+- `scripts/test-zuolian-web-demo.ts`
+
+### Findings and fixes
+
+- Current design/test/MCP docs already reflected the 10-tool Dida demo surface, 16 MCP tests, 71 web checks, hotel details, airport selectors, Booking Cancel, and modify-by-cancel-rebook.
+- Fixed stale current agent docs that still described the scope as fixed Shenzhen / charging QR:
+  - `IDENTITY.md` and `SOUL.md` now describe boarding-gate QR and destination-city planning.
+  - `AGENTS.md` now describes the Phase 1 route as boarding-gate QR -> destination-city itinerary -> booking lookup -> cancel/modify when requested.
+  - `travel-intake/SKILL.md` now derives defaults from confirmed destination airport/city.
+  - `BOOTSTRAP.md` now includes simulated cancellation and modification in scope and clarifies no real refunds/complaints.
+  - `USER.md` now includes hotel-detail, cancel, and modify example requests.
+- Fixed stale `座联互动/DESIGN.md` sections:
+  - Phase 1 scope now says hotel quote, booking, order lookup, cancellation, and modification are simulated.
+  - Booking template uses current `DIDA-BOOK-ZL-*` / `DIDA-PRE-ZL-*` IDs.
+  - Web route section lists seven quick actions and the simplified hotel-card click message.
+  - Proactive greeting section documents the current empty-session + hidden `AgentChat.sendMessage()` seed behavior.
+  - Milestone and test plan sections include hotel detail, cancel/modify, simplified hotel-card copy, and cancel/modify quick actions.
+- Updated `docs/TESTS.md` and `docs/tests/tests-sitlink.md`:
+  - S4 agent smoke now reports 74 checks.
+  - Summary template now uses S1 16/16, S4 74/74, and S5 71/71.
+- Historical `docs/MEMORY.md` and `docs/memory/sitlink/phase-1.md` rows that mention older counts or old feature stages were left unchanged because they are append-only audit records.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 74/74.
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 71/71.
+
+## 2026-06-03 — Local OpenClaw workspace sync
+
+### Change
+
+The source workspace under `sentura/agents/zuolian-travel-concierge/` had been updated, but the deployed local OpenClaw workspace under `~/.openclaw/workspace/zuolian-travel-concierge/` still had older Markdown instructions. Synced the runtime-facing Markdown files so local conversations use the latest airport-to-airport, destination-city, hotel-detail, cancel/modify, and safety instructions.
+
+### Files copied
+
+- 8 native OpenClaw workspace files:
+  - `AGENTS.md`
+  - `SOUL.md`
+  - `TOOLS.md`
+  - `IDENTITY.md`
+  - `USER.md`
+  - `HEARTBEAT.md`
+  - `BOOTSTRAP.md`
+  - `MEMORY.md`
+- 5 skill files:
+  - `skills/travel-intake/SKILL.md`
+  - `skills/itinerary-planning/SKILL.md`
+  - `skills/dida-hotel-booking/SKILL.md`
+  - `skills/booking-status/SKILL.md`
+  - `skills/feedback-refinement/SKILL.md`
+
+### Verification
+
+- `diff -qr sentura/agents/zuolian-travel-concierge ~/.openclaw/workspace/zuolian-travel-concierge` now reports only runtime-local directories: `.openclaw`, `ekg`, and `memory`.
+- `rg` spot-checks in `~/.openclaw/workspace/zuolian-travel-concierge` confirm the latest destination-city, boarding-gate QR, `dida_demo_modify_booking`, `ConfirmID`, and simplified hotel-detail request wording.

@@ -60,7 +60,9 @@ check("scan context records gate entry placement", page.includes('entryPlacement
 check("scan context records origin airport code", page.includes("originAirportCode"));
 check("scan context records destination airport code", page.includes("destinationAirportCode"));
 check("seed message has hidden prefix", page.includes('HIDDEN_SEED_PREFIX = "[座联互动 Demo 扫码上下文]"'));
-check("session is created with dynamic scan-context seed", page.includes("client.createSession(AGENT_ID, buildSeedMessage"));
+check("session is created before scan seed is sent", page.includes("client.createSession(AGENT_ID, undefined"));
+check("scan seed is sent through hidden AgentChat message", page.includes("pendingSeed") && page.includes("chatRef.current?.sendMessage(seed.message)"));
+check("empty restored sessions are re-seeded", page.includes("client.getTranscript(stored, 1)") && page.includes("transcript.length === 0"));
 check("seed instructs agent to generate the greeting", page.includes("主动向用户发出第一条简体中文客服问候"));
 check("technical seed is hidden from visible transcript", page.includes("hiddenUserPrefixes={[HIDDEN_SEED_PREFIX]}"));
 
@@ -96,15 +98,20 @@ for (const label of [
   "住宿更方便",
   "确认并预订",
   "查询订单",
+  "取消订单",
+  "修改订单",
 ]) {
   check(`quick action exists: ${label}`, page.includes(label));
 }
+check("quick action documents Dida cancel flow", page.includes("pre-cancel 获取 ConfirmID") && page.includes("cancelconfirm 确认取消"));
+check("quick action documents background modify flow", page.includes("PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm"));
 check("quick actions send directly through AgentChat handle", page.includes("chatRef.current.sendMessage(message)"));
 check("side panel shows scan context", page.includes("登机口扫码模拟") && page.includes("登机口扫码入口"));
 check("side panel shows itinerary/tool status", page.includes("行程与工具状态") && page.includes("最近工具"));
 check("side panel shows order status", page.includes("订单状态") && page.includes("BookingID") && page.includes("ReferenceNo"));
 check("side panel shows clickable hotel candidates", page.includes("酒店候选") && page.includes("handleHotelClick"));
-check("hotel click asks agent to call details tool", page.includes("dida-travel-demo__dida_demo_get_hotel_details") && page.includes("hotelIds 只传"));
+check("hotel click sends simplified detail request", page.includes("我想查看${hotel.hotelNameZh}的详情"));
+check("hotel click does not expose tool call details", !page.includes("hotelIds 只传") && !page.includes("请调用 Dida Content API 模拟详情工具"));
 
 section("Tool flow contract");
 for (const tool of [
@@ -117,11 +124,15 @@ for (const tool of [
   "dida_demo_price_confirm",
   "dida_demo_book_hotel",
   "dida_demo_get_booking",
+  "dida_demo_pre_cancel_booking",
+  "dida_demo_cancel_booking",
+  "dida_demo_modify_booking",
 ]) {
   check(`flow maps tool: ${tool}`, page.includes(tool));
 }
-check("order parser extracts bookingId", page.includes('"bookingId"') && page.includes("DIDATEST-"));
-check("order parser extracts referenceNo", page.includes('"referenceNo"') && page.includes("REF-"));
+check("order parser extracts bookingId", page.includes('"bookingId"') && page.includes("bookingId"));
+check("order parser extracts referenceNo", page.includes('"referenceNo"') && page.includes("referenceNo"));
+check("order parser prefers modified newBooking", page.includes("parsed?.newBooking") && page.includes("preferred"));
 check("order parser extracts Dida status", page.includes('"status"') && page.includes("Number(statusText)"));
 check("status copy guards status 2 Confirmed", page.includes("只有 Dida 状态码 2 Confirmed"));
 check("hotel parser extracts search candidates", page.includes("extractHotelCandidates") && page.includes("pricePerRoomCny"));

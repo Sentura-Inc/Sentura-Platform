@@ -45,6 +45,9 @@ const DIDA_TOOLS = [
   "dida-travel-demo__dida_demo_price_confirm",
   "dida-travel-demo__dida_demo_book_hotel",
   "dida-travel-demo__dida_demo_get_booking",
+  "dida-travel-demo__dida_demo_pre_cancel_booking",
+  "dida-travel-demo__dida_demo_cancel_booking",
+  "dida-travel-demo__dida_demo_modify_booking",
   "dida-travel-demo__dida_demo_search_transfer",
   "dida-travel-demo__dida_demo_search_attractions",
 ];
@@ -144,8 +147,11 @@ check("Dida demo MCP fixture mode set", mcp?.env?.DIDA_DEMO_MODE === "fixture");
 section("Safety instructions");
 const agentsMd = read("AGENTS.md");
 const toolsMd = read("TOOLS.md");
+const identityMd = read("IDENTITY.md");
+const soulMd = read("SOUL.md");
 const bookingSkill = read("skills/dida-hotel-booking/SKILL.md");
 const statusSkill = read("skills/booking-status/SKILL.md");
+const travelIntakeSkill = read("skills/travel-intake/SKILL.md");
 
 check("Hard Rules section present", agentsMd.includes("## Hard Rules (must not override)"));
 check("Simplified Chinese output required", agentsMd.includes("ALWAYS write user-facing replies in Simplified Chinese"));
@@ -153,8 +159,13 @@ check("Only status 2 may be confirmed", agentsMd.includes("ONLY say \"酒店预�
 check("PriceConfirm is source of truth", agentsMd.includes("ALWAYS treat `dida-travel-demo__dida_demo_price_confirm` as the source of truth"));
 check("Itinerary must call Dida before final answer", agentsMd.includes("ALWAYS call the Dida demo tools before writing the final answer") && itinerarySkillForConfig.includes("Do not produce the final itinerary"));
 check("Web research remains supplement after Dida", agentsMd.includes("use web search only as public-information supplement") && itinerarySkillForConfig.includes("Use web search only after the Dida demo calls"));
+check("Agent identity uses destination-city scope", identityMd.includes("目的地城市行程") && soulMd.includes("destination-city trips"));
+check("Default opening uses boarding-gate context", agentsMd.includes("boarding-gate QR scan context") && !agentsMd.includes("charging QR scan context for Shenzhen"));
+check("Travel intake defaults follow confirmed destination", travelIntakeSkill.includes("use the destination city from the confirmed airport context") && travelIntakeSkill.includes("use the confirmed destination airport"));
 check("Booking chain documented in TOOLS.md", toolsMd.includes("dida-travel-demo__dida_demo_price_confirm(preBook=true)") && toolsMd.includes("dida-travel-demo__dida_demo_book_hotel"));
 check("Booking skill requires preBook true", bookingSkill.includes("preBook: true") && bookingSkill.includes("referenceNo"));
+check("Cancellation chain documented in TOOLS.md", toolsMd.includes("dida-travel-demo__dida_demo_pre_cancel_booking") && toolsMd.includes("dida-travel-demo__dida_demo_cancel_booking"));
+check("Modification uses cancel and rebook", agentsMd.includes("cancel-and-rebook") && bookingSkill.includes("BookingCancel.PreCancel"));
 check("Status skill marks 0/1/5/6 non-final", ["0", "1", "5", "6"].every((s) => statusSkill.includes(`| ${s} |`)) && statusSkill.includes("不是最终状态"));
 
 section("Setup wiring");

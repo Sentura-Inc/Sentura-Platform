@@ -31,19 +31,19 @@ Phase 1 MVP 目标是验证一个网页对话 Demo 闭环，而不是接入真�
 - Web/chat Demo entry.
 - Destination-city itinerary planning for 深圳、广州、北京、上海、杭州、香港、澳门.
 - Web search for current travel context.
-- Fixture-first Dida demo MCP server for hotel quote, price confirmation, booking, and booking search.
+- Fixture-first Dida demo MCP server for hotel quote, price confirmation, booking, booking search, cancellation, and modification.
 - Local fixture lookup for airport transfer and destination-city attractions.
-- Simulated booking confirmation with masked contact details.
+- Simulated booking confirmation, cancellation, and modification with masked contact details.
 
 ## Phase 1 Exclusions
 
 - No production WeChat / WeCom channel.
 - No real DidaTravel production credentials or real supplier booking.
 - No payment collection.
-- No refunds or complaint workflow.
+- No real refund, chargeback, or complaint workflow. Booking Cancel is simulated only.
 - No passport / ID-card collection.
 - No production PII storage.
 
 ## Success Statement
 
-用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。
+用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价、预订、取消和修改，并返回可查询的订单状态。

@@ -65,14 +65,14 @@ OpenClaw 官方文档确认了本设计所依赖的形态：Gateway 是单进程
 | 对话入口 | 网页聊天 Demo，模拟扫码后上下文注入 | 微信/企业微信正式接入 |
 | Agent | 一个座联 AI 出行客服员工 | 多 Agent 协同 |
 | 攻略 | Dida Demo 酒店/专车/景点 fixture + 网络公开信息补充 + Agent 整理 | 自建攻略数据库 |
-| 酒店 | Dida API 流程模拟：查价、确认、预订、订单查询 | 真实 Dida 订单、真实支付 |
+| 酒店 | Dida API 流程模拟：查价、确认、预订、订单查询、取消、修改 | 真实 Dida 订单、真实支付 |
 | 专车/景点 | 本地模拟候选，用于形成完整攻略 | 真实 API 对接 |
 | 身份信息 | 前端表单/对话中模拟采集，内存或本地测试库保存脱敏信息 | 生产 PII 存储 |
-| 售后 | 订单查询；取消/投诉只设计不实现 | 退款、投诉闭环 |
+| 售后 | 订单查询；取消订单和修改订单 Demo 模拟 | 真实退款、投诉闭环 |
 
 ### 3.3 Demo 目标验收句
 
-“用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。”
+“用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价、预订、取消和修改，并返回可查询的订单状态。”
 
 ---
 
@@ -397,8 +397,8 @@ Agent 行为：
 
 ```text
 酒店预订已确认
-订单号: DIDATEST-...
-Dida ReferenceNo: REF-...
+订单号: DIDA-BOOK-ZL-...
+Dida ReferenceNo: DIDA-PRE-ZL-...
 状态: 2 Confirmed
 酒店: ...
 入住/离店: ...
@@ -408,6 +408,39 @@ Dida ReferenceNo: REF-...
 取消政策: ...
 备注: ...
 ```
+
+### 6.5 用户取消订单
+
+触发语义：
+
+- “我不去了”
+- “取消刚才的酒店订单”
+- “行程取消，不需要住了”
+
+Agent 行为：
+
+1. 识别最近一次模拟订单的 `bookingId` 或 `referenceNo`。
+2. 调用 `dida_demo_pre_cancel_booking`，对齐 Dida Booking Cancel 预取消接口 `POST /api/booking/HotelBookingCancel`，获取取消费用、预计退款和 `ConfirmID`。
+3. 调用 `dida_demo_cancel_booking`，对齐 Dida BookingCancelConfirm 接口 `POST /api/booking/HotelBookingCancelConfirm`，传入 `ConfirmID` 做最终取消确认。
+4. 调用 `dida_demo_get_booking` 查询订单状态。
+5. 仅当状态为 `3 Canceled` 时返回“订单已取消”。
+
+Dida 官方取消语义要求两次 API 调用：Pre-Cancel 只准备取消并返回 10 分钟有效的 cancel confirmation ID；Confirm Cancel 用该 ID 做最终取消确认。Demo 中必须保留这个两步顺序，不能在预取消后直接说订单已取消。
+
+### 6.6 用户修改订单
+
+Dida 没有在本阶段使用独立“改单”接口。修改订单按取消后重订处理，且对用户表现为后台完成：
+
+```text
+BookingCancel PreCancel
+-> BookingCancelConfirm
+-> PriceSearch
+-> PriceConfirm(preBook=true)
+-> BookingConfirm
+-> BookingSearch
+```
+
+Agent 优先调用 `dida_demo_modify_booking` 组合工具。该工具内部先取消旧订单，再用更新后的日期、酒店、房型、人数或预算重新执行 `PriceSearch -> PriceConfirm -> BookingConfirm`。最终回复必须同时说明旧订单已取消、新订单已生成，以及当前仍为 Demo 模拟操作。
 
 ---
 
@@ -422,10 +455,13 @@ Dida ReferenceNo: REF-...
 | `dida_demo_price_confirm` | PriceConfirm | false | hotelId, ratePlanId, checkInDate, checkOutDate, occupancy, preBook, metadata | final price, cancellation policy, referenceNo? |
 | `dida_demo_book_hotel` | HotelBookingConfirm | true | referenceNo, dates, guestList, contact, customerRequest, clientReference | bookingId, status, confirmation |
 | `dida_demo_get_booking` | HotelBookingSearch | false | bookingId or referenceNo | booking status/detail |
+| `dida_demo_pre_cancel_booking` | HotelBookingCancel / Pre-Cancel | false | bookingId or referenceNo, reason | cancel amount, refund estimate, ConfirmID |
+| `dida_demo_cancel_booking` | HotelBookingCancelConfirm | true | bookingId, ConfirmID, description | status `3 Canceled`, cancellation summary |
+| `dida_demo_modify_booking` | BookingCancel + PriceSearch + PriceConfirm + BookingConfirm | true | existing order id plus updated dates/hotel/occupancy/contact | old canceled order and new booking |
 | `dida_demo_search_transfer` | local fixture | false | pickup, dropoff, dateTime, passengers | transfer candidates |
 | `dida_demo_search_attractions` | local fixture | false | city, dates, preferences | attraction candidates |
 
-`dida_demo_book_hotel` 是写操作，`annotations.destructiveHint=true`；Demo 默认仍允许执行，但文案必须标注“模拟预订”。正式接入时该工具必须接 `sentura-approval`。
+`dida_demo_book_hotel`、`dida_demo_cancel_booking`、`dida_demo_modify_booking` 是写操作，`annotations.destructiveHint=true`；Demo 默认仍允许执行，但文案必须标注“模拟预订/模拟取消/模拟修改”。正式接入时这些工具必须接 `sentura-approval`。
 
 ### 7.2 订单状态模型
 
@@ -493,22 +529,24 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 - 左侧：模拟扫码上下文、当前位置机场下拉、目的地机场下拉、确认按钮、当前行程摘要、订单状态。
 - 右侧：聊天窗口。
-- 酒店候选：Agent 调用 `dida_demo_search_hotels` 后，页面从工具结果中提取酒店候选并渲染为可点击卡片；用户点击酒店后，页面向 Agent 发送“查看该酒店详情”的自然语言请求，Agent 必须调用 `dida-travel-demo__dida_demo_get_hotel_details`，再用中文总结详情。
+- 酒店候选：Agent 调用 `dida_demo_search_hotels` 后，页面从工具结果中提取酒店候选并渲染为可点击卡片；用户点击酒店后，页面只发送“我想查看{酒店名}的详情”这类自然语言请求，不在用户可见消息里暴露工具名或 `hotelIds` wiring。Agent 必须调用 `dida-travel-demo__dida_demo_get_hotel_details`，再用中文总结详情。
 - 底部：快捷按钮：
   - “制定 5 日{目的地城市}旅游攻略”
   - “预算低一点”
   - “住宿更方便”
   - “确认并预订”
   - “查询订单”
+  - “取消订单”
+  - “修改订单”
 
 ### 8.2 主动问候实现
 
 实现方式：
 
-1. 前端首次进入页面时调用 dashboard 后端 Route Handler。
-2. Route Handler 创建 OpenClaw session，附带扫码上下文。
-3. 如果该 session 没有 assistant 首条消息，发送一条 system/demo event 或首条 user seed，让 Agent 生成问候。
-4. 前端渲染问候，不需要用户先输入。
+1. 用户确认当前位置机场和目的地机场后，前端创建/恢复对应机场组合的 OpenClaw session。
+2. 新 session 先以空会话创建；`AgentChat` 挂载后通过隐藏用户消息发送登机口扫码 seed，让 Agent 生成主动问候。
+3. 如果恢复到一个空 transcript 的旧 session，前端重新发送同一条隐藏 seed。
+4. 前端渲染 Agent 生成的问候，不需要用户先输入。
 
 不要在前端硬编码完整客服回复；前端只注入上下文，回复应由 Agent 生成。
 
@@ -534,6 +572,9 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 - [x] 实现 `dida_demo_price_confirm`，支持 `preBook=true` 返回 `referenceNo`。
 - [x] 实现 `dida_demo_book_hotel`，校验 `referenceNo` 未使用。
 - [x] 实现 `dida_demo_get_booking`，按 Dida 状态码返回。
+- [x] 实现 `dida_demo_get_hotel_details`，支持点击酒店候选后查询 Content API 对齐详情。
+- [x] 实现 `dida_demo_pre_cancel_booking` 和 `dida_demo_cancel_booking`，对齐 Dida Booking Cancel 两步流程。
+- [x] 实现 `dida_demo_modify_booking`，按取消旧订单后重新 PriceSearch / PriceConfirm / BookingConfirm 的方式模拟修改订单。
 - [x] 实现专车/景点 fixture 查询。
 - [x] 写 MCP `InMemoryTransport` 测试，覆盖工具列表、字段校验、完整预订链路、状态码解释。
 
@@ -565,6 +606,8 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 - [x] 增加“确认机场并通知客服”按钮，确认前不向 Agent 发送扫码上下文。
 - [x] 将扫码上下文改为登机口扫码，目的地为另一个城市机场。
 - [x] 支持点击酒店候选后查询 Dida Content API `/api/v1/hotel/details` 对齐的模拟详情。
+- [x] 酒店候选点击消息简化为“我想查看{酒店名}的详情”，不暴露工具名或 `hotelIds`。
+- [x] 增加取消订单和修改订单快捷操作。
 
 ### Milestone 4 — E2E Demo 脚本
 
@@ -593,22 +636,27 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 | ID | 测试 | 验收 |
 |---|---|---|
-| ZL-MCP-1 | MCP 工具清单 | 7 个 `dida_demo_*` 工具全部注册，mutating 工具有 destructive annotation。 |
+| ZL-MCP-1 | MCP 工具清单 | 10 个 `dida_demo_*` 工具全部注册，mutating 工具有 destructive annotation。 |
 | ZL-MCP-2 | PriceSearch 模拟 | 输入目的地城市日期/人数，返回 `hotelId`, `ratePlanId`, `metadata`, `estimatedTotal`。 |
 | ZL-MCP-3 | PriceConfirm 模拟 | `preBook=true` 返回 `referenceNo`；`preBook=false` 不允许 BookingConfirm。 |
 | ZL-MCP-4 | BookingConfirm 模拟 | 合法 `referenceNo` 创建订单；重复使用 `referenceNo` 报错。 |
 | ZL-MCP-5 | BookingSearch 状态 | `2/3/4` 标记 final；`0/1/5/6` 标记 non-final。 |
 | ZL-MCP-6 | 中文展示字段 | MCP fixture 响应带 `locale: "zh-CN"` 和 `*Zh` / `displaySummaryZh`；Dida 机器字段保持原样。 |
 | ZL-MCP-7 | 多城市 fixture 覆盖 | 深圳、广州、北京、上海、杭州、香港、澳门各返回 5 个酒店候选和 5 个景点候选。 |
+| ZL-MCP-8 | Booking Cancel 两步模拟 | `dida_demo_pre_cancel_booking` 返回 `ConfirmID` 和取消金额但不改变订单状态；`dida_demo_cancel_booking` 使用 `ConfirmID` 后状态变为 `3 Canceled`。 |
+| ZL-MCP-9 | 修改订单模拟 | `dida_demo_modify_booking` 按 `BookingCancel -> PriceSearch -> PriceConfirm -> BookingConfirm` 后台重订，旧订单取消，新订单确认。 |
 | ZL-AGENT-1 | 主动问候 | 扫码上下文注入后 Agent 主动发第一条问候。 |
 | ZL-AGENT-2 | 攻略制定 | 用户要求 5 日目的地城市攻略后，回复含每日路线、酒店、专车、景点、预算。 |
 | ZL-AGENT-3 | 反馈优化 | 用户改预算/住宿区域后，Agent 只调整相关部分并重新报价。 |
 | ZL-AGENT-4 | 预订链路 | Agent 按 `PriceSearch -> PriceConfirm -> BookingConfirm -> BookingSearch` 顺序调用工具。 |
 | ZL-AGENT-5 | 状态安全 | Agent 不把 `Pending`/`OnRequest` 说成最终确认。 |
 | ZL-AGENT-6 | 中文客服话术 | 除 Dida ID、订单号、邮箱、状态码等必要机器信息外，用户可见内容全部为简体中文。 |
+| ZL-AGENT-7 | 取消/修改订单 | 用户说不去了时按 PreCancel -> CancelConfirm -> BookingSearch；用户修改订单时后台取消旧单并重新预订。 |
 | ZL-WEB-1 | 页面可用 | `/client-demos/zuolian` 可打开，聊天可发送，侧栏状态更新。 |
 | ZL-WEB-2 | 刷新恢复 | 刷新后会话历史和订单状态不丢失。 |
 | ZL-WEB-3 | 机场选择器 | 页面提供当前位置机场和目的地机场下拉，且目的地不能与当前位置相同；确认前不创建 Agent 会话，点击确认后才发送扫码上下文；切换后需再次确认。 |
+| ZL-WEB-4 | 酒店候选点击文案 | 点击酒店卡片只发送“我想查看{酒店名}的详情”，不暴露 Dida demo 工具名或 `hotelIds` wiring。 |
+| ZL-WEB-5 | 取消/修改快捷操作 | 页面提供“取消订单”“修改订单”快捷按钮，并将对应工具流映射到侧栏状态。 |
 
 ---
 

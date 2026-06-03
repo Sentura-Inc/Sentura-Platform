@@ -21,6 +21,9 @@ The server uses a two-layer response shape:
 - `dida_demo_price_confirm` maps to `POST /api/rate/PriceConfirm?$format=json`; `preBook=true` creates a `ReferenceNo`, while `preBook=false` only confirms price.
 - `dida_demo_book_hotel` maps to `POST /api/booking/HotelBookingConfirm?$format=json`; it requires a `ReferenceNo` created by `preBook=true`.
 - `dida_demo_get_booking` maps to `POST /api/booking/HotelBookingSearch?$format=json`; only status `2`, `3`, and `4` are final.
+- `dida_demo_pre_cancel_booking` maps to `POST /api/booking/HotelBookingCancel?$format=json`; it returns a cancellation amount and `ConfirmID` but does not cancel the order by itself.
+- `dida_demo_cancel_booking` maps to `POST /api/booking/HotelBookingCancelConfirm?$format=json`; it requires the pre-cancel `ConfirmID` and changes the fixture booking to status `3 Canceled`.
+- `dida_demo_modify_booking` is a composite fixture flow for order changes: BookingCancel pre-cancel, BookingCancelConfirm, PriceSearch, PriceConfirm(`preBook=true`), then BookingConfirm with updated details.
 - `dida_demo_search_transfer` dynamically returns local airport-to-hotel/area transfer fixtures for the supplied pickup/dropoff.
 - `dida_demo_search_attractions` returns local fixture attraction candidates for the selected destination city.
 

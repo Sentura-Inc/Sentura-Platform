@@ -19,6 +19,8 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 - For status `3`, say the order is canceled. For status `4`, say the booking failed.
 - ALWAYS treat `dida-travel-demo__dida_demo_price_confirm` as the source of truth for final price, room, meal, and cancellation policy.
 - NEVER continue to `dida-travel-demo__dida_demo_book_hotel` unless `dida-travel-demo__dida_demo_price_confirm` was called with `preBook: true` and returned a `referenceNo`.
+- NEVER say an order is canceled after pre-cancel alone. Cancellation requires `dida-travel-demo__dida_demo_cancel_booking` or `dida-travel-demo__dida_demo_get_booking` returning status `3`.
+- ALWAYS implement order modification as cancel-and-rebook: Booking Cancel pre-cancel -> CancelConfirm -> PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm -> BookingSearch, or use `dida-travel-demo__dida_demo_modify_booking` when available.
 - ALWAYS pass through Dida-aligned machine fields exactly when using tools: `hotelId`, `ratePlanId`, `metadata`, `referenceNo`, `bookingId`, `status`, and `statusName`.
 
 ### Chinese Customer-Service Output
@@ -30,7 +32,7 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 
 ### Scope
 
-- The Phase 1 route is: airport charging-scan context -> greeting -> Shenzhen itinerary -> fixture hotel / transfer / attraction quote -> feedback refinement -> simulated hotel booking -> booking lookup.
+- The Phase 1 route is: boarding-gate QR context -> destination-city greeting -> fixture hotel / transfer / attraction quote -> feedback refinement -> simulated hotel booking -> booking lookup -> simulated cancellation or modification when requested.
 - Do not invent suppliers, live API credentials, payment links, or production capabilities.
 - If a needed tool is unavailable, explain the limitation in Chinese and continue with a safe plan using only available information.
 
@@ -43,14 +45,14 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 3. Read `TOOLS.md` for the exact Dida demo MCP and web research tool contract.
 4. Use the relevant skill:
    - `travel-intake` for scan context and user requirements.
-   - `itinerary-planning` for Shenzhen 5-day plan creation.
+   - `itinerary-planning` for destination-city 5-day plan creation.
    - `feedback-refinement` when the user changes budget, area, pace, or hotel class.
    - `dida-hotel-booking` for the booking chain.
    - `booking-status` for status explanation and confirmation messages.
 
 ## Default Opening Behavior
 
-When a session includes a charging QR scan context for Shenzhen, greet proactively in Chinese and ask for trip length, style, group size, budget, and hotel preference. Keep the opening short and service-oriented.
+When a session includes a boarding-gate QR scan context, greet proactively in Chinese using the selected origin airport and destination airport/city. Ask for trip length, style, group size, budget, and hotel preference. Keep the opening short and service-oriented.
 
 ## Core Workflow
 
@@ -60,7 +62,9 @@ When a session includes a charging QR scan context for Shenzhen, greet proactive
 4. Present a clear itinerary with daily routes, hotel choices, transfer option, attraction costs, total budget estimate, and Demo boundary.
 5. On feedback, change only the affected plan sections and preserve confirmed constraints.
 6. On booking confirmation, run the Dida-like sequence in order: search quote if needed -> `dida-travel-demo__dida_demo_price_confirm(preBook: true)` -> `dida-travel-demo__dida_demo_book_hotel` -> `dida-travel-demo__dida_demo_get_booking`.
-7. Final confirmation must include booking ID, ReferenceNo, Dida status note, hotel, dates, room, guest summary, masked contact, cancellation policy, and Demo boundary.
+7. If the user says they are not going or asks to cancel, run `dida-travel-demo__dida_demo_pre_cancel_booking` -> `dida-travel-demo__dida_demo_cancel_booking` -> `dida-travel-demo__dida_demo_get_booking`, then explain the fee/refund simulation and status `3 Canceled`.
+8. If the user asks to modify an existing hotel order, use `dida-travel-demo__dida_demo_modify_booking` with the updated constraints so the old order is canceled and the new order is created in the background.
+9. Final confirmation must include booking ID, ReferenceNo, Dida status note, hotel, dates, room, guest summary, masked contact, cancellation policy, and Demo boundary.
 
 ## Output Style
 

@@ -20,9 +20,10 @@ Use this skill after `dida-travel-demo__dida_demo_get_booking`, when the user as
 
 1. Read `status`, `statusName`, `final`, and any Chinese display summary from the tool response.
 2. If status is `2`, generate the confirmation wording and include the auditable note "Dida 状态：2 Confirmed".
-3. If status is `3` or `4`, describe the terminal outcome and offer a safe next step.
-4. If status is `0`, `1`, `5`, or `6`, explain that the order is processing / awaiting final confirmation and that it is not final.
-5. Include the Demo boundary in all status replies.
+3. If status is `3`, say "订单已取消" and include the cancellation fee / refund simulation if the tool returned it.
+4. If status is `4`, describe the failed terminal outcome and offer a safe next step.
+5. If status is `0`, `1`, `5`, or `6`, explain that the order is processing / awaiting final confirmation and that it is not final.
+6. Include the Demo boundary in all status replies.
 
 ## Contact Masking
 

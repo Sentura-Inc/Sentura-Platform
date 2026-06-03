@@ -19,6 +19,7 @@ const SOURCE = {
   priceConfirm: "https://apidoc.didatravel.com/booking-api/price-confirm.html",
   bookingConfirm: "https://apidoc.didatravel.com/booking-api/booking-confirm.html",
   bookingSearch: "https://apidoc.didatravel.com/booking-api/booking-search.html",
+  bookingCancel: "https://apidoc.didatravel.com/booking-api/booking-search.html#booking-cancel",
   content: "https://apidoc.didatravel.com/content-api-v2/how-to-use-content-api.html",
 } as const;
 
@@ -27,6 +28,8 @@ const ENDPOINT = {
   priceConfirm: "POST /api/rate/PriceConfirm?$format=json",
   bookingConfirm: "POST /api/booking/HotelBookingConfirm?$format=json",
   bookingSearch: "POST /api/booking/HotelBookingSearch?$format=json",
+  bookingPreCancel: "POST /api/booking/HotelBookingCancel?$format=json",
+  bookingCancelConfirm: "POST /api/booking/HotelBookingCancelConfirm?$format=json",
   hotelList: "GET /api/v1/hotel/list",
   hotelDetails: "GET /api/v1/hotel/details",
 } as const;
@@ -1536,14 +1539,33 @@ export interface DemoBooking {
   contact: z.infer<typeof ContactSchema>;
   guestList: Array<{ roomIndex: number; guests: Array<z.infer<typeof GuestSchema>> }>;
   totalCny: number;
+  cancellationFeeCny?: number;
+  cancellationReason?: string;
+  canceledAt?: string;
+  cancelConfirmId?: string;
+  modifiedFromBookingId?: string;
+  replacementBookingId?: string;
+}
+
+interface PendingCancellation {
+  confirmId: string;
+  bookingId: string;
+  referenceNo: string;
+  amountCny: number;
+  refundAmountCny: number;
+  reason?: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export class DidaTravelDemoClient {
   private referenceSeq = 1;
   private bookingSeq = 1;
+  private cancelSeq = 1;
   private readonly confirmedRates = new Map<string, ConfirmedRate>();
   private readonly bookings = new Map<string, DemoBooking>();
   private readonly referenceToBooking = new Map<string, string>();
+  private readonly pendingCancellations = new Map<string, PendingCancellation>();
 
   constructor(public readonly config: DidaTravelDemoConfig) {}
 
@@ -1793,6 +1815,233 @@ export class DidaTravelDemoClient {
     };
   }
 
+  preCancelBooking(args: Record<string, unknown>) {
+    const input = z
+      .object({
+        bookingId: z.string().min(1).optional(),
+        referenceNo: z.string().min(1).optional(),
+        reason: z.string().max(500).optional(),
+      })
+      .refine((value) => Boolean(value.bookingId || value.referenceNo), {
+        message: "bookingId or referenceNo is required",
+      })
+      .parse(args);
+
+    const booking = this.findBookingForInput(input);
+    if (booking.status === 3) {
+      throw new DidaTravelDemoError("This booking is already canceled.", "booking_already_canceled");
+    }
+    if (booking.status === 4) {
+      throw new DidaTravelDemoError("Failed bookings cannot be canceled in this demo fixture.", "booking_failed");
+    }
+
+    const pending = this.createPendingCancellation(booking, input.reason);
+    return {
+      source: "demo-fixture",
+      locale: DISPLAY_LOCALE,
+      didaEndpoint: ENDPOINT.bookingPreCancel,
+      didaDocs: [SOURCE.bookingCancel],
+      requestModel: {
+        BookingID: booking.bookingId,
+        Description: input.reason,
+      },
+      booking: this.renderBooking(booking),
+      bookingId: booking.bookingId,
+      referenceNo: booking.referenceNo,
+      confirmId: pending.confirmId,
+      cancelConfirmId: pending.confirmId,
+      currency: "CNY",
+      amount: pending.amountCny,
+      amountCny: pending.amountCny,
+      refundAmountCny: pending.refundAmountCny,
+      expiresAt: pending.expiresAt,
+      preCancelOnly: true,
+      statusAfterPreCancel: booking.status,
+      displaySummaryZh: `订单 ${booking.bookingId} 已完成预取消，取消费用 CNY ${pending.amountCny}，预计可退 CNY ${pending.refundAmountCny}。ConfirmID ${pending.confirmId} 10 分钟内有效；订单尚未取消，必须继续调用 CancelConfirm。`,
+      safetyMessageZh: "这是 Dida Booking Cancel 的第一步，不代表订单已取消。",
+    };
+  }
+
+  cancelBooking(args: Record<string, unknown>) {
+    const input = z
+      .object({
+        bookingId: z.string().min(1).optional(),
+        confirmId: z.string().min(1).optional(),
+        cancelConfirmId: z.string().min(1).optional(),
+        description: z.string().max(500).optional(),
+      })
+      .refine((value) => Boolean(value.confirmId || value.cancelConfirmId), {
+        message: "confirmId or cancelConfirmId is required",
+      })
+      .parse(args);
+
+    const confirmId = input.confirmId ?? input.cancelConfirmId;
+    const pending = this.pendingCancellations.get(confirmId!);
+    if (!pending) {
+      throw new DidaTravelDemoError(
+        "CancelConfirm requires a valid ConfirmID from HotelBookingCancel pre-cancel.",
+        "cancel_confirm_not_found",
+      );
+    }
+    if (input.bookingId && input.bookingId !== pending.bookingId) {
+      throw new DidaTravelDemoError("ConfirmID does not match the supplied bookingId.", "cancel_confirm_mismatch");
+    }
+
+    const booking = this.bookings.get(pending.bookingId);
+    if (!booking) {
+      throw new DidaTravelDemoError("No booking found for the supplied ConfirmID.", "booking_not_found");
+    }
+    if (booking.status === 3) {
+      this.pendingCancellations.delete(pending.confirmId);
+      throw new DidaTravelDemoError("This booking is already canceled.", "booking_already_canceled");
+    }
+
+    booking.status = 3;
+    booking.cancellationFeeCny = pending.amountCny;
+    booking.cancellationReason = input.description ?? pending.reason;
+    booking.canceledAt = new Date().toISOString();
+    booking.cancelConfirmId = pending.confirmId;
+    this.pendingCancellations.delete(pending.confirmId);
+    const rendered = this.renderBooking(booking);
+
+    return {
+      source: "demo-fixture",
+      didaEndpoint: ENDPOINT.bookingCancelConfirm,
+      didaDocs: [SOURCE.bookingCancel],
+      requestModel: {
+        BookingID: booking.bookingId,
+        ConfirmID: pending.confirmId,
+        Description: input.description,
+      },
+      confirmId: pending.confirmId,
+      refundAmountCny: pending.refundAmountCny,
+      cancellationMessageZh: "订单已取消，可继续用 BookingSearch 查询到 Dida 状态 3 Canceled。",
+      ...rendered,
+    };
+  }
+
+  modifyBooking(args: Record<string, unknown>) {
+    const input = z
+      .object({
+        bookingId: z.string().min(1).optional(),
+        referenceNo: z.string().min(1).optional(),
+        reason: z.string().max(500).default("用户修改订单，取消旧订单后重新预订。"),
+        city: z.string().optional(),
+        hotelId: z.string().min(1).optional(),
+        ratePlanId: z.string().min(1).optional(),
+        checkInDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        checkOutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        roomCount: z.number().int().min(1).max(4).optional(),
+        adultCount: z.number().int().min(1).max(8).optional(),
+        childCount: z.number().int().min(0).max(6).optional(),
+        childAges: z.array(z.number().int().min(0).max(17)).default([]),
+        nationality: z.string().length(2).default("CN"),
+        budgetMaxCny: z.number().int().positive().optional(),
+        preferences: z.array(z.string()).default([]),
+        contact: ContactSchema.optional(),
+        guestList: z
+          .array(
+            z.object({
+              roomIndex: z.number().int().min(1),
+              guests: z.array(GuestSchema).min(1),
+            }),
+          )
+          .min(1)
+          .optional(),
+        customerRequest: z.string().max(500).optional(),
+        clientReference: z.string().min(1).optional(),
+      })
+      .refine((value) => Boolean(value.bookingId || value.referenceNo), {
+        message: "bookingId or referenceNo is required",
+      })
+      .parse(args);
+
+    const oldBooking = this.findBookingForInput(input);
+    const oldHotel = this.findHotelById(oldBooking.hotelId);
+    const checkInDate = input.checkInDate ?? oldBooking.checkInDate;
+    const checkOutDate = input.checkOutDate ?? oldBooking.checkOutDate;
+    const roomCount = input.roomCount ?? oldBooking.guestList.length;
+    const adultCount = input.adultCount ?? this.countGuests(oldBooking);
+    const childCount = input.childCount ?? 0;
+    const city = input.city ?? oldHotel.city;
+
+    const preCancel = this.preCancelBooking({
+      bookingId: oldBooking.bookingId,
+      reason: input.reason,
+    }) as Record<string, unknown>;
+    const cancel = this.cancelBooking({
+      bookingId: oldBooking.bookingId,
+      confirmId: preCancel.confirmId,
+      description: input.reason,
+    }) as Record<string, unknown>;
+
+    const search = this.searchHotels({
+      city,
+      checkInDate,
+      checkOutDate,
+      roomCount,
+      adultCount,
+      childCount,
+      childAges: input.childAges,
+      nationality: input.nationality,
+      budgetMaxCny: input.budgetMaxCny,
+      preferences: input.preferences,
+    }) as Record<string, unknown>;
+    const selected = this.selectSearchHotel(search, input.hotelId, input.ratePlanId);
+    const confirmed = this.priceConfirm({
+      hotelId: selected.hotelId,
+      ratePlanId: selected.ratePlanId,
+      checkInDate,
+      checkOutDate,
+      roomCount,
+      adultCount,
+      childCount,
+      childAges: input.childAges,
+      nationality: input.nationality,
+      metadata: selected.metadata,
+      preBook: true,
+    }) as ConfirmedRate & Record<string, unknown>;
+    const newBooking = this.bookHotel({
+      referenceNo: confirmed.referenceNo,
+      contact: input.contact ?? oldBooking.contact,
+      guestList: input.guestList ?? oldBooking.guestList,
+      customerRequest: input.customerRequest,
+      clientReference: input.clientReference ?? `${oldBooking.clientReference ?? oldBooking.bookingId}-MOD`,
+    }) as Record<string, unknown>;
+
+    const replacement = this.findBookingForInput({ bookingId: newBooking.bookingId as string });
+    oldBooking.replacementBookingId = replacement.bookingId;
+    replacement.modifiedFromBookingId = oldBooking.bookingId;
+
+    return {
+      source: "demo-fixture",
+      locale: DISPLAY_LOCALE,
+      didaEndpoints: [
+        ENDPOINT.bookingPreCancel,
+        ENDPOINT.bookingCancelConfirm,
+        ENDPOINT.priceSearch,
+        ENDPOINT.priceConfirm,
+        ENDPOINT.bookingConfirm,
+      ],
+      didaDocs: [SOURCE.bookingCancel, SOURCE.priceSearch, SOURCE.priceConfirm, SOURCE.bookingConfirm],
+      toolOrder: [
+        "BookingCancel.PreCancel",
+        "BookingCancel.CancelConfirm",
+        "PriceSearch",
+        "PriceConfirm(preBook=true)",
+        "BookingConfirm",
+      ],
+      oldBooking: this.renderBooking(oldBooking),
+      cancellation: cancel,
+      priceSearch: search,
+      selectedHotel: selected,
+      priceConfirm: confirmed,
+      newBooking: this.renderBooking(replacement),
+      displaySummaryZh: `已在后台完成修改：旧订单 ${oldBooking.bookingId} 已取消（Dida 状态 3 Canceled），新订单 ${replacement.bookingId} 已重新预订为 ${selected.hotelNameZh}，状态 ${replacement.status} ${DIDA_STATUS[replacement.status].label}。`,
+      safetyMessageZh: "修改订单按 Dida 文档拆解为取消旧单后重新 PriceSearch、PriceConfirm、BookingConfirm；当前仍为 Demo 模拟操作。",
+    };
+  }
+
   getHotelDetails(args: Record<string, unknown>) {
     const input = z
       .object({
@@ -1953,12 +2202,68 @@ export class DidaTravelDemoClient {
     return hotel;
   }
 
+  private findBookingForInput(input: { bookingId?: string; referenceNo?: string }) {
+    const bookingId = input.bookingId ?? (input.referenceNo ? this.referenceToBooking.get(input.referenceNo) : undefined);
+    if (!bookingId) {
+      throw new DidaTravelDemoError("No booking found for the supplied identifier.", "booking_not_found");
+    }
+    const booking = this.bookings.get(bookingId);
+    if (!booking) {
+      throw new DidaTravelDemoError("No booking found for the supplied identifier.", "booking_not_found");
+    }
+    return booking;
+  }
+
+  private createPendingCancellation(booking: DemoBooking, reason?: string): PendingCancellation {
+    const confirmId = this.nextCancelConfirmId();
+    const amountCny = this.estimateCancellationFee(booking);
+    const pending: PendingCancellation = {
+      confirmId,
+      bookingId: booking.bookingId,
+      referenceNo: booking.referenceNo,
+      amountCny,
+      refundAmountCny: Math.max(0, booking.totalCny - amountCny),
+      reason,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    };
+    this.pendingCancellations.set(confirmId, pending);
+    return pending;
+  }
+
+  private estimateCancellationFee(booking: DemoBooking) {
+    const hotel = this.findHotelById(booking.hotelId);
+    if (hotel.room.cancellationPolicyZh.includes("不可取消")) return booking.totalCny;
+    return 0;
+  }
+
+  private countGuests(booking: DemoBooking) {
+    return booking.guestList.reduce((sum, room) => sum + room.guests.length, 0);
+  }
+
+  private selectSearchHotel(search: Record<string, unknown>, hotelId?: string, ratePlanId?: string) {
+    const candidates = search.hotels as Array<Record<string, unknown>>;
+    const selected =
+      candidates.find(
+        (candidate) =>
+          (!hotelId || candidate.hotelId === hotelId) && (!ratePlanId || candidate.ratePlanId === ratePlanId),
+      ) ?? candidates[0];
+    if (!selected) {
+      throw new DidaTravelDemoError("No hotel candidate is available for the modified booking.", "rate_not_found");
+    }
+    return selected;
+  }
+
   private nextReferenceNo() {
     return `DIDA-PRE-ZL-${String(this.referenceSeq++).padStart(6, "0")}`;
   }
 
   private nextBookingId() {
     return `DIDA-BOOK-ZL-${String(this.bookingSeq++).padStart(6, "0")}`;
+  }
+
+  private nextCancelConfirmId() {
+    return `DIDA-CXL-ZL-${String(this.cancelSeq++).padStart(6, "0")}`;
   }
 
   private renderBooking(booking: DemoBooking) {
@@ -1980,6 +2285,12 @@ export class DidaTravelDemoClient {
       checkInDate: booking.checkInDate,
       checkOutDate: booking.checkOutDate,
       totalCny: booking.totalCny,
+      cancellationFeeCny: booking.cancellationFeeCny,
+      cancellationReason: booking.cancellationReason,
+      canceledAt: booking.canceledAt,
+      cancelConfirmId: booking.cancelConfirmId,
+      modifiedFromBookingId: booking.modifiedFromBookingId,
+      replacementBookingId: booking.replacementBookingId,
       contact: booking.contact,
       guestList: booking.guestList,
       displaySummaryZh: `订单 ${booking.bookingId}：${hotel?.hotelNameZh ?? booking.hotelName}，${booking.checkInDate} 至 ${booking.checkOutDate}，总价 CNY ${booking.totalCny}，当前状态：${status.labelZh}（Dida 状态 ${booking.status} ${status.label}）。`,
@@ -2103,6 +2414,79 @@ export function listTools(): ToolDef[] {
       readOnly: true,
       destructive: false,
       handler: (client, args) => client.getBooking(args),
+    },
+    {
+      name: "dida_demo_pre_cancel_booking",
+      title: "Pre-cancel booking",
+      description:
+        "Fixture simulation of Dida HotelBookingCancel pre-cancel. Returns cancellation amount and a ConfirmID that must be passed to BookingCancelConfirm within 10 minutes. Does not cancel the order by itself.",
+      inputShape: {
+        bookingId: z.string().min(1).optional(),
+        referenceNo: z.string().min(1).optional(),
+        reason: z.string().max(500).optional(),
+      },
+      endpoint: ENDPOINT.bookingPreCancel,
+      source: SOURCE.bookingCancel,
+      readOnly: true,
+      destructive: false,
+      handler: (client, args) => client.preCancelBooking(args),
+    },
+    {
+      name: "dida_demo_cancel_booking",
+      title: "Confirm booking cancellation",
+      description:
+        "Fixture simulation of Dida HotelBookingCancelConfirm. Requires the ConfirmID returned by dida_demo_pre_cancel_booking and changes the booking to Dida status 3 Canceled.",
+      inputShape: {
+        bookingId: z.string().min(1).optional(),
+        confirmId: z.string().min(1).optional(),
+        cancelConfirmId: z.string().min(1).optional(),
+        description: z.string().max(500).optional(),
+      },
+      endpoint: ENDPOINT.bookingCancelConfirm,
+      source: SOURCE.bookingCancel,
+      readOnly: false,
+      destructive: true,
+      handler: (client, args) => client.cancelBooking(args),
+    },
+    {
+      name: "dida_demo_modify_booking",
+      title: "Modify booking by canceling and rebooking",
+      description:
+        "Composite demo flow for order modification: BookingCancel pre-cancel, BookingCancelConfirm, PriceSearch, PriceConfirm(preBook=true), then BookingConfirm with the updated details in the background.",
+      inputShape: {
+        bookingId: z.string().min(1).optional(),
+        referenceNo: z.string().min(1).optional(),
+        reason: z.string().max(500).default("用户修改订单，取消旧订单后重新预订。"),
+        city: z.string().optional(),
+        hotelId: z.string().min(1).optional(),
+        ratePlanId: z.string().min(1).optional(),
+        checkInDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        checkOutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        roomCount: z.number().int().min(1).max(4).optional(),
+        adultCount: z.number().int().min(1).max(8).optional(),
+        childCount: z.number().int().min(0).max(6).optional(),
+        childAges: z.array(z.number().int().min(0).max(17)).default([]),
+        nationality: z.string().length(2).default("CN"),
+        budgetMaxCny: z.number().int().positive().optional(),
+        preferences: z.array(z.string()).default([]),
+        contact: ContactSchema.optional(),
+        guestList: z
+          .array(
+            z.object({
+              roomIndex: z.number().int().min(1),
+              guests: z.array(GuestSchema).min(1),
+            }),
+          )
+          .min(1)
+          .optional(),
+        customerRequest: z.string().max(500).optional(),
+        clientReference: z.string().min(1).optional(),
+      },
+      endpoint: `${ENDPOINT.bookingPreCancel} -> ${ENDPOINT.bookingCancelConfirm} -> ${ENDPOINT.priceSearch} -> ${ENDPOINT.priceConfirm} -> ${ENDPOINT.bookingConfirm}`,
+      source: `${SOURCE.bookingCancel} + ${SOURCE.priceSearch} + ${SOURCE.priceConfirm} + ${SOURCE.bookingConfirm}`,
+      readOnly: false,
+      destructive: true,
+      handler: (client, args) => client.modifyBooking(args),
     },
     {
       name: "dida_demo_search_transfer",

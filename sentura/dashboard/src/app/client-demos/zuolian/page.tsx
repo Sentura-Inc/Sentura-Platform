@@ -231,6 +231,30 @@ const baseSteps: FlowStep[] = [
     status: "idle",
     toolNames: ["dida_demo_get_booking"],
   },
+  {
+    id: "preCancel",
+    label: "预取消",
+    detail: "BookingCancel PreCancel",
+    icon: CircleAlert,
+    status: "idle",
+    toolNames: ["dida_demo_pre_cancel_booking"],
+  },
+  {
+    id: "cancel",
+    label: "确认取消",
+    detail: "BookingCancelConfirm",
+    icon: ShieldCheck,
+    status: "idle",
+    toolNames: ["dida_demo_cancel_booking"],
+  },
+  {
+    id: "modify",
+    label: "修改订单",
+    detail: "Cancel + Rebook",
+    icon: RefreshCw,
+    status: "idle",
+    toolNames: ["dida_demo_modify_booking"],
+  },
 ];
 
 function mask(value: string | undefined): string {
@@ -335,6 +359,26 @@ function extractHotelDetail(value: unknown): HotelDetailSnapshot | null {
 }
 
 function extractOrderSnapshot(value: unknown): OrderSnapshot | null {
+  const parsed = parseToolJson(value);
+  const preferred =
+    parsed?.newBooking && typeof parsed.newBooking === "object"
+      ? (parsed.newBooking as Record<string, unknown>)
+      : parsed;
+  if (preferred) {
+    const bookingId = typeof preferred.bookingId === "string" ? preferred.bookingId : undefined;
+    const referenceNo = typeof preferred.referenceNo === "string" ? preferred.referenceNo : undefined;
+    const status = typeof preferred.status === "number" ? preferred.status : undefined;
+    const statusName = typeof preferred.statusName === "string" ? preferred.statusName : undefined;
+    if (bookingId || referenceNo || status !== undefined || statusName) {
+      return {
+        bookingId,
+        referenceNo,
+        status,
+        statusName,
+        updatedAt: Date.now(),
+      };
+    }
+  }
   const text = resultText(value);
   if (!text) return null;
   const bookingId =
@@ -378,6 +422,7 @@ export default function ZuolianClientDemoPage() {
   const [draftOriginAirportCode, setDraftOriginAirportCode] = useState("CAN");
   const [draftDestinationAirportCode, setDraftDestinationAirportCode] = useState("SZX");
   const [confirmedRoute, setConfirmedRoute] = useState<{ originCode: string; destinationCode: string } | null>(null);
+  const [pendingSeed, setPendingSeed] = useState<{ sessionKey: string; message: string } | null>(null);
 
   const draftOriginAirport = useMemo(() => findAirport(draftOriginAirportCode), [draftOriginAirportCode]);
   const draftDestinationAirport = useMemo(
@@ -444,12 +489,24 @@ export default function ZuolianClientDemoPage() {
         icon: Search,
         message: "请查询刚才的模拟酒店订单状态，并用中文解释当前 Dida 状态是否为最终状态。",
       },
+      {
+        label: "取消订单",
+        icon: CircleAlert,
+        message:
+          "我不去了，请取消刚才的模拟酒店订单。请按 Dida Booking Cancel 流程先 pre-cancel 获取 ConfirmID，再 cancelconfirm 确认取消，最后查询订单状态。",
+      },
+      {
+        label: "修改订单",
+        icon: RefreshCw,
+        message: `我想修改刚才的模拟酒店订单，改成${destinationAirport.cityZh}更方便的酒店。请在后台按 Dida 文档先取消旧订单，再重新执行 PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm，并查询新订单状态。`,
+      },
     ],
     [destinationAirport, originAirport],
   );
 
   const createDemoSession = useCallback(async () => {
-    const result = await client.createSession(AGENT_ID, buildSeedMessage(originAirport, destinationAirport), {
+    const seedMessage = buildSeedMessage(originAirport, destinationAirport);
+    const result = await client.createSession(AGENT_ID, undefined, {
       label: sessionLabel,
     });
     if (!result?.key) {
@@ -457,6 +514,7 @@ export default function ZuolianClientDemoPage() {
     }
     window.localStorage.setItem(sessionStorageKey, result.key);
     setSessionKey(result.key);
+    setPendingSeed({ sessionKey: result.key, message: seedMessage });
   }, [client, destinationAirport, originAirport, sessionLabel, sessionStorageKey]);
 
   useEffect(() => {
@@ -479,6 +537,13 @@ export default function ZuolianClientDemoPage() {
         if (stored) {
           try {
             await client.getSession(stored);
+            const transcript = await client.getTranscript(stored, 1);
+            if (transcript.length === 0 && !cancelled) {
+              setPendingSeed({
+                sessionKey: stored,
+                message: buildSeedMessage(originAirport, destinationAirport),
+              });
+            }
             if (!cancelled) setSessionKey(stored);
             return;
           } catch {
@@ -501,7 +566,30 @@ export default function ZuolianClientDemoPage() {
     return () => {
       cancelled = true;
     };
-  }, [client, confirmedRoute, createDemoSession, sessionStorageKey, state]);
+  }, [client, confirmedRoute, createDemoSession, destinationAirport, originAirport, sessionStorageKey, state]);
+
+  useEffect(() => {
+    if (!pendingSeed || pendingSeed.sessionKey !== sessionKey || state !== "connected" || !chatRef.current) {
+      return;
+    }
+    let cancelled = false;
+    const seed = pendingSeed;
+    setPendingSeed(null);
+    (async () => {
+      try {
+        await chatRef.current?.sendMessage(seed.message);
+      } catch (err: unknown) {
+        const message =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "Could not send scan context seed";
+        if (!cancelled) setInitError(message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingSeed, sessionKey, state]);
 
   const resetDemo = useCallback(async () => {
     if (!confirmedRoute) return;
@@ -593,9 +681,7 @@ export default function ZuolianClientDemoPage() {
     async (hotel: HotelCandidate) => {
       if (state !== "connected" || !chatRef.current) return;
       setSelectedHotel(hotel);
-      await chatRef.current.sendMessage(
-        `我想查看酒店「${hotel.hotelNameZh}」的详情。请调用 Dida Content API 模拟详情工具 dida-travel-demo__dida_demo_get_hotel_details，hotelIds 只传 ["${hotel.hotelId}"]，然后用简体中文说明酒店介绍、地址、设施、周边、房型和取消政策。`,
-      );
+      await chatRef.current.sendMessage(`我想查看${hotel.hotelNameZh}的详情`);
     },
     [state],
   );
@@ -675,7 +761,7 @@ export default function ZuolianClientDemoPage() {
                   className="w-full"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  确认
+                  确认机场并通知客服
                 </Button>
                 <p className="text-xs leading-5 text-muted-foreground">
                   {routeHasPendingChanges

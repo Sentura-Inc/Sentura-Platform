@@ -61,6 +61,9 @@ describe("DidaTravel demo tool catalog", () => {
       "dida_demo_get_hotel_details",
       "dida_demo_book_hotel",
       "dida_demo_get_booking",
+      "dida_demo_pre_cancel_booking",
+      "dida_demo_cancel_booking",
+      "dida_demo_modify_booking",
       "dida_demo_search_transfer",
       "dida_demo_search_attractions",
     ]);
@@ -69,6 +72,8 @@ describe("DidaTravel demo tool catalog", () => {
     expect(listTools()[2].endpoint).toBe("GET /api/v1/hotel/details");
     expect(listTools()[3].endpoint).toBe("POST /api/booking/HotelBookingConfirm?$format=json");
     expect(listTools()[4].endpoint).toBe("POST /api/booking/HotelBookingSearch?$format=json");
+    expect(listTools()[5].endpoint).toBe("POST /api/booking/HotelBookingCancel?$format=json");
+    expect(listTools()[6].endpoint).toBe("POST /api/booking/HotelBookingCancelConfirm?$format=json");
   });
 
   it("marks booking as approval-worthy and discovery tools as read-only", async () => {
@@ -77,10 +82,19 @@ describe("DidaTravel demo tool catalog", () => {
     const searchHotels = tools.find((tool) => tool.name === "dida_demo_search_hotels");
     const hotelDetails = tools.find((tool) => tool.name === "dida_demo_get_hotel_details");
     const bookHotel = tools.find((tool) => tool.name === "dida_demo_book_hotel");
+    const preCancel = tools.find((tool) => tool.name === "dida_demo_pre_cancel_booking");
+    const cancel = tools.find((tool) => tool.name === "dida_demo_cancel_booking");
+    const modify = tools.find((tool) => tool.name === "dida_demo_modify_booking");
     expect(searchHotels?.annotations?.readOnlyHint).toBe(true);
     expect(searchHotels?.annotations?.destructiveHint).toBe(false);
     expect(hotelDetails?.annotations?.readOnlyHint).toBe(true);
     expect(hotelDetails?._meta?.["sentura/endpoint"]).toBe("GET /api/v1/hotel/details");
+    expect(preCancel?.annotations?.readOnlyHint).toBe(true);
+    expect(preCancel?.annotations?.destructiveHint).toBe(false);
+    expect(cancel?.annotations?.readOnlyHint).toBe(false);
+    expect(cancel?.annotations?.destructiveHint).toBe(true);
+    expect(modify?.annotations?.readOnlyHint).toBe(false);
+    expect(modify?.annotations?.destructiveHint).toBe(true);
     expect(bookHotel?.annotations?.readOnlyHint).toBe(false);
     expect(bookHotel?.annotations?.destructiveHint).toBe(true);
     expect(bookHotel?._meta?.["sentura/sourceDoc"]).toContain("booking-confirm");
@@ -282,6 +296,122 @@ describe("DidaTravel demo MCP flow", () => {
     expect(() => demo.bookHotel({ referenceNo: confirmed.referenceNo, contact, guestList })).toThrow(
       /already been consumed/,
     );
+  });
+
+  it("runs BookingCancel pre-cancel -> CancelConfirm and then BookingSearch returns status 3", () => {
+    const demo = new DidaTravelDemoClient(loadConfigFromEnv({}));
+    const confirmed = demo.priceConfirm({
+      hotelId: "DIDA-SZX-10001",
+      ratePlanId: "RP-SZX-BAY-BB",
+      checkInDate: "2026-06-11",
+      checkOutDate: "2026-06-15",
+      childCount: 0,
+      metadata: "DIDA_META_SZX_BAY_20260611_20260615_RP_BB",
+      preBook: true,
+    });
+    const booking = demo.bookHotel({
+      referenceNo: confirmed.referenceNo,
+      contact,
+      guestList,
+      clientReference: "ZUOLIAN-CANCEL-001",
+    }) as Record<string, unknown>;
+
+    const preCancel = demo.preCancelBooking({
+      bookingId: booking.bookingId,
+      reason: "用户不去了",
+    }) as Record<string, unknown>;
+    expect(preCancel).toMatchObject({
+      didaEndpoint: "POST /api/booking/HotelBookingCancel?$format=json",
+      bookingId: booking.bookingId,
+      amountCny: 0,
+      refundAmountCny: 3920,
+      preCancelOnly: true,
+      statusAfterPreCancel: 2,
+    });
+    expect(preCancel.confirmId).toMatch(/^DIDA-CXL-ZL-/);
+    expect((demo.getBooking({ bookingId: booking.bookingId }) as Record<string, unknown>).status).toBe(2);
+
+    const canceled = demo.cancelBooking({
+      bookingId: booking.bookingId,
+      confirmId: preCancel.confirmId,
+      description: "用户不去了",
+    }) as Record<string, unknown>;
+    expect(canceled).toMatchObject({
+      didaEndpoint: "POST /api/booking/HotelBookingCancelConfirm?$format=json",
+      bookingId: booking.bookingId,
+      status: 3,
+      statusName: "Canceled",
+      statusNameZh: "已取消",
+      final: true,
+      cancellationFeeCny: 0,
+      refundAmountCny: 3920,
+    });
+
+    const order = demo.getBooking({ bookingId: booking.bookingId }) as Record<string, unknown>;
+    expect(order.status).toBe(3);
+    expect(order.displaySummaryZh).toContain("Dida 状态 3 Canceled");
+  });
+
+  it("rejects CancelConfirm without a valid pre-cancel ConfirmID", () => {
+    const demo = new DidaTravelDemoClient(loadConfigFromEnv({}));
+    expect(() => demo.cancelBooking({ confirmId: "DIDA-CXL-ZL-MISSING" })).toThrow(/pre-cancel/);
+  });
+
+  it("modifies booking by canceling the old order and rebooking with updated details", () => {
+    const demo = new DidaTravelDemoClient(loadConfigFromEnv({}));
+    const confirmed = demo.priceConfirm({
+      hotelId: "DIDA-SZX-10001",
+      ratePlanId: "RP-SZX-BAY-BB",
+      checkInDate: "2026-06-11",
+      checkOutDate: "2026-06-15",
+      childCount: 0,
+      metadata: "DIDA_META_SZX_BAY_20260611_20260615_RP_BB",
+      preBook: true,
+    });
+    const booking = demo.bookHotel({
+      referenceNo: confirmed.referenceNo,
+      contact,
+      guestList,
+      clientReference: "ZUOLIAN-MOD-001",
+    }) as Record<string, unknown>;
+
+    const modified = demo.modifyBooking({
+      bookingId: booking.bookingId,
+      reason: "用户希望改到福田中心区",
+      city: "深圳",
+      hotelId: "DIDA-SZX-10002",
+      ratePlanId: "RP-SZX-FTN-RO",
+      checkInDate: "2026-06-12",
+      checkOutDate: "2026-06-16",
+      roomCount: 1,
+      adultCount: 2,
+      childCount: 0,
+      clientReference: "ZUOLIAN-MOD-001-NEW",
+    }) as Record<string, unknown>;
+
+    expect(modified.toolOrder).toEqual([
+      "BookingCancel.PreCancel",
+      "BookingCancel.CancelConfirm",
+      "PriceSearch",
+      "PriceConfirm(preBook=true)",
+      "BookingConfirm",
+    ]);
+    expect(modified.oldBooking).toMatchObject({
+      bookingId: booking.bookingId,
+      status: 3,
+      replacementBookingId: "DIDA-BOOK-ZL-000002",
+    });
+    expect(modified.newBooking).toMatchObject({
+      bookingId: "DIDA-BOOK-ZL-000002",
+      status: 2,
+      hotelId: "DIDA-SZX-10002",
+      hotelNameZh: "深圳四季酒店",
+      checkInDate: "2026-06-12",
+      checkOutDate: "2026-06-16",
+      modifiedFromBookingId: booking.bookingId,
+    });
+    expect(modified.displaySummaryZh).toContain("旧订单 DIDA-BOOK-ZL-000001 已取消");
+    expect(modified.displaySummaryZh).toContain("新订单 DIDA-BOOK-ZL-000002");
   });
 
   it("treats Dida status 0/1/5/6 as non-final and 2/3/4 as final", () => {

@@ -4,12 +4,20 @@
 
 Use this skill when the user confirms a selected hotel option and provides enough guest/contact information to create a simulated Phase 1 hotel booking.
 
+Also use this skill for post-booking changes:
+
+- User says they are not going, wants to cancel, or asks to remove the booking.
+- User asks to modify dates, hotel, room count, guest count, budget, or area after a simulated order exists.
+
 ## Required Tools
 
 - `dida-travel-demo__dida_demo_search_hotels`
 - `dida-travel-demo__dida_demo_price_confirm`
 - `dida-travel-demo__dida_demo_book_hotel`
 - `dida-travel-demo__dida_demo_get_booking`
+- `dida-travel-demo__dida_demo_pre_cancel_booking`
+- `dida-travel-demo__dida_demo_cancel_booking`
+- `dida-travel-demo__dida_demo_modify_booking`
 
 ## Preconditions
 
@@ -60,6 +68,34 @@ dida-travel-demo__dida_demo_search_hotels
 
 If a selected hotel search result already exists in the current conversation, the first call may be considered satisfied, but `dida-travel-demo__dida_demo_price_confirm(preBook=true)` is still mandatory.
 
+## Cancellation Procedure
+
+1. Identify the latest simulated `bookingId` or `referenceNo`.
+2. Call `dida-travel-demo__dida_demo_pre_cancel_booking` with the order identifier and cancellation reason.
+3. Read `confirmId`, `amountCny`, `refundAmountCny`, and `expiresAt`.
+4. Call `dida-travel-demo__dida_demo_cancel_booking` with the same booking identifier plus `confirmId`.
+5. Call `dida-travel-demo__dida_demo_get_booking` and only say canceled if status is `3`.
+
+```text
+dida-travel-demo__dida_demo_pre_cancel_booking
+-> dida-travel-demo__dida_demo_cancel_booking
+-> dida-travel-demo__dida_demo_get_booking
+```
+
+## Modification Procedure
+
+Modification is cancel-and-rebook. When `dida-travel-demo__dida_demo_modify_booking` is available, use it once with the existing order identifier and only the updated constraints. The tool performs this sequence in the background:
+
+```text
+BookingCancel.PreCancel
+-> BookingCancel.CancelConfirm
+-> PriceSearch
+-> PriceConfirm(preBook=true)
+-> BookingConfirm
+```
+
+After the tool returns, summarize both the old canceled order and the new booking. If the composite tool is unavailable, perform the same sequence manually with the individual tools.
+
 ## Final Confirmation Template
 
 ```text
@@ -83,3 +119,4 @@ Dida ReferenceNo: <referenceNo>
 - Do not reuse a `referenceNo`.
 - Do not ask for passport or ID number.
 - Do not say confirmed unless booking search returns status `2`.
+- Do not say canceled after pre-cancel alone; status `3` is required.
