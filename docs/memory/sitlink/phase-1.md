@@ -20,6 +20,8 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-02 | Milestone 2 Codex harness root-cause fix | Found that OpenAI models defaulted to Codex app-server harness, whose dynamic tool layer re-exposed `web_search`; pinned the Sitlink model runtime to OpenClaw and verified a fresh dashboard-style session called Dida tools only. |
 | 2026-06-02 | Milestone 2 web-search supplement restored | Re-enabled `web_search` / `web_fetch` while keeping the OpenClaw runtime pin and Dida-first policy; updated prompts/skills/tests so user-facing tests use natural travel questions. |
 | 2026-06-03 | Milestone 3 web demo route | Added `/client-demos/zuolian` with scan-context session seeding, hidden technical seed support in `AgentChat`, side panels, quick actions, refresh recovery, responsive sidebar behavior, and 41/41 offline checks. |
+| 2026-06-03 | Hotel-detail click-through | Verified Dida Content API `/api/v1/hotel/details`, added a demo MCP hotel-detail tool, clickable hotel cards, Agent docs, and test coverage for hotel-detail lookup. |
+| 2026-06-03 | Airport-to-airport context and multi-city fixtures | Changed the scan context to boarding-gate origin airport -> destination airport, added airport dropdowns, and expanded Dida demo fixtures to 7 cities with 5 hotels + 5 attractions each. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -292,3 +294,83 @@ Expected behavior: the backend may show Dida demo tool calls and web search call
 - `cd sentura/dashboard && pnpm build` — PASS; route table includes `/client-demos/zuolian`. Next.js warned that it inferred `/Users/henry` as the workspace root because multiple lockfiles exist.
 - Full `cd sentura/dashboard && pnpm lint` — attempted, but still fails on pre-existing React 19 lint rules across older dashboard files (`react-hooks/set-state-in-effect`, `react-hooks/refs`) plus existing unused-var warnings; targeted lint for the new page/sidebar passes.
 - In-app Browser smoke — PASS on `http://127.0.0.1:3001/client-demos/zuolian`; desktop renders the route and side panels, narrow viewport uses compact icon sidebar and keeps the Demo content readable. Gateway was disconnected during visual smoke, so live proactive greeting/tool calls remain covered by S2/Milestone 4.
+
+## 2026-06-03 — Hotel-detail click-through
+
+### Dida API finding
+
+- Verified Dida Content API v2 docs: `/api/v1/hotel/details` retrieves hotel details from a specific list of hotel IDs and has default QPS 10.
+- Verified the same Content API page documents Basic auth with `ClientID` / `LicenseKey`, JSON static content, gzip, and multilingual support including `zh-CN`.
+- Also checked Dida's API solution page wording that Content API covers hotel details including rooms, images, descriptions, and amenities.
+- Conclusion: the requested click-through is feasible. In the demo, it should remain fixture-backed and Dida-aligned; real integration later should call Content API with authenticated hotel IDs and preserve the Chinese-display fallback layer.
+
+### Files changed
+
+- `sentura/mcp-servers/dida-travel-demo/src/index.ts`
+  - Added `dida_demo_get_hotel_details`.
+  - Added hotel static details to fixtures in code: Chinese descriptions, facilities, nearby POIs, geo coordinates, image placeholders, and check-in instructions.
+  - Returned Content API-style response metadata with `didaEndpoint: "GET /api/v1/hotel/details"`, `hotelIds`, and `language`.
+- `sentura/mcp-servers/dida-travel-demo/fixtures/shenzhen-demo.json`
+  - Mirrored the Chinese hotel-detail fields.
+- `sentura/mcp-servers/dida-travel-demo/src/server.test.ts`
+  - Expanded the tool catalog to 7 tools and added the hotel-detail fixture test.
+- `sentura/mcp-servers/dida-travel-demo/README.md`
+  - Documented the hotel-detail tool and new Chinese fields.
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Parses hotel search results into clickable hotel cards.
+  - Clicking a hotel sends a natural Chinese request asking the Agent to call `dida-travel-demo__dida_demo_get_hotel_details` for the selected `hotelId`.
+  - Parses detail-tool results into the side panel: description, address, facilities, nearby POIs, and star rating.
+- `sentura/agents/zuolian-travel-concierge/TOOLS.md` and `skills/itinerary-planning/SKILL.md`
+  - Added tool visibility and usage instructions for hotel details.
+- `scripts/test-zuolian-agent.ts`
+  - Added the new OpenClaw-prefixed MCP tool to the expected workspace references.
+- `scripts/test-zuolian-web-demo.ts`
+  - Added checks for clickable hotel candidates, detail-tool request wording, and hotel-detail parsing.
+- Updated `座联互动/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-sitlink.md`.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-dida-travel-demo test` — PASS, 12/12, with Node engine warning because the shell uses Node 22.18.0 while OpenClaw requires 22.19+.
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 46/46.
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 66/66.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+
+## 2026-06-03 — Airport-to-airport context and multi-city fixtures
+
+### Change
+
+The Sitlink demo scan-entry model changed from a single Shenzhen airport/downtown assumption to a boarding-gate QR flow: the user's current location is an origin airport gate and the destination is another city's airport.
+
+### Files changed
+
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Added origin and destination airport dropdowns for 广州白云、北京首都、上海浦东、杭州萧山、香港、澳门、深圳宝安.
+  - Changed the hidden seed to `boarding_gate_qr_scanned` with origin/destination airport codes and destination airport/city.
+  - Scoped session persistence by airport pair so a CAN -> SZX demo does not reuse a CAN -> HKG session.
+  - Added a "确认机场并通知客服" gate so dropdown changes stay as draft selections until the user confirms; Agent sessions and seed messages are only created after confirmation.
+  - Made quick actions destination-aware, e.g. "制定 5 日香港旅游攻略" after selecting 香港国际机场.
+- `sentura/mcp-servers/dida-travel-demo/src/index.ts`
+  - Expanded hotel fixtures to 7 cities: 深圳、广州、北京、上海、杭州、香港、澳门, 5 hotels each.
+  - Expanded attraction fixtures to the same 7 cities, 5 attractions each.
+  - Kept real hotel/attraction names but simulated Dida IDs, rate plans, prices, cancellation policies, image URLs, and booking outcomes.
+  - Changed transfer search from Shenzhen fixed options to generic pickup/dropoff-based fixture options.
+- `sentura/agents/zuolian-travel-concierge/TOOLS.md` and `skills/itinerary-planning/SKILL.md`
+  - Replaced Shenzhen-specific planning language with destination-city planning language.
+- `sentura/agents/zuolian-travel-concierge/BOOTSTRAP.md` and `USER.md`
+  - Replaced the old `charging_qr_scanned` / `airport_to_shenzhen` static defaults with the boarding-gate CAN -> SZX default and noted the UI can change both airports.
+- `scripts/test-zuolian-web-demo.ts`
+  - Expanded S5 structural checks from 46 to 60, covering airport options, boarding-gate seed, the airport confirmation gate, and destination-aware quick actions.
+- `sentura/mcp-servers/dida-travel-demo/src/server.test.ts`
+  - Expanded S1 tests from 12 to 13, covering 7-city fixture coverage.
+- Updated `座联互动/DESIGN.md`, `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, and the Dida demo MCP README.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-dida-travel-demo test` — PASS, 13/13, with the existing Node engine warning because this shell uses Node 22.18.0 while OpenClaw requires 22.19+.
+- `pnpm --filter @sentura/mcp-dida-travel-demo build` — PASS, same engine warning.
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 60/60.
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 66/66.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx src/components/sidebar.tsx` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; route table includes `/client-demos/zuolian`.
+- In-app Browser smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: default dropdowns show 广州白云 -> 深圳宝安, destination options include all 7 airports with the origin disabled, and switching destination to 香港 updates the side-panel destination plus quick-action copy.

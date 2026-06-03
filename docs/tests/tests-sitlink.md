@@ -17,20 +17,23 @@ pnpm --filter @sentura/mcp-dida-travel-demo test
 pnpm --filter @sentura/mcp-dida-travel-demo build
 ```
 
-Expected: `src/server.test.ts` reports 11 passing tests (10 Milestone 1 flow/status tests plus the S3.1 Chinese-display-field assertion) and `tsc -p tsconfig.json` completes with no TypeScript errors.
+Expected: `src/server.test.ts` reports 13 passing tests (Milestone 1 flow/status tests, S3.1 Chinese-display-field assertion, clickable-hotel Content API detail assertion, plus 7-city hotel/attraction fixture coverage) and `tsc -p tsconfig.json` completes with no TypeScript errors.
 
 | # | Test | Method | Expected result |
 |---|------|--------|-----------------|
 | S1.1 | Config defaults | `loadConfigFromEnv({})` | `mode="fixture"`, booking base `https://apiint.didatravel.com`, content base `https://static-apiint.didatravel.com`. |
-| S1.2 | Tool catalog | `listTools()` | Exactly 6 tools: hotel search, price confirm, hotel booking, booking search, transfer search, attraction search. Hotel tools expose the official Dida endpoint names in metadata. |
+| S1.2 | Tool catalog | `listTools()` | Exactly 7 tools: hotel search, hotel details, price confirm, hotel booking, booking search, transfer search, attraction search. Hotel tools expose the official Dida endpoint names in metadata. |
 | S1.3 | MCP annotations | Connect via `InMemoryTransport` and call `client.listTools()` | Discovery tools are `readOnlyHint=true`; `dida_demo_book_hotel` is `destructiveHint=true` for approval-aware clients. |
 | S1.4 | Happy path | Call MCP tools in order | `PriceSearch -> PriceConfirm(preBook=true) -> BookingConfirm -> BookingSearch`; booking returns status `2 Confirmed`, `final=true`. |
 | S1.5 | `preBook=false` boundary | Call `priceConfirm({ preBook:false })` then try booking | No `ReferenceNo` is returned and `BookingConfirm` rejects missing/non-prebook references. |
 | S1.6 | Metadata integrity | Alter `Metadata` before `PriceConfirm` | Server rejects because Dida requires `Metadata` from PriceSearch to be passed unchanged. |
 | S1.7 | Duplicate reference guard | Call `BookingConfirm` twice with one `ReferenceNo` | Second call fails; a prebook reference is single-use. |
 | S1.8 | Status semantics | Force statuses `0/1/5/6` and `2/3/4` | `0/1/5/6` are non-final; only `2/3/4` return `final=true`. |
-| S1.9 | Transfer fixtures | `dida_demo_search_transfer` | Returns local Shenzhen airport transfer options, source `demo-fixture`. |
-| S1.10 | Attraction fixtures | `dida_demo_search_attractions` | Returns local Shenzhen attraction ticket options, source `demo-fixture`. |
+| S1.9 | Transfer fixtures | `dida_demo_search_transfer` | Returns local airport-to-hotel/area transfer options for the supplied pickup/dropoff, source `demo-fixture`. |
+| S1.10 | Attraction fixtures | `dida_demo_search_attractions` | Returns local destination-city attraction ticket options, source `demo-fixture`. |
+| S1.11 | Hotel detail fixture | `dida_demo_get_hotel_details` | Returns Content API `/api/v1/hotel/details`-aligned static details for a supplied `hotelIds` list, including `descriptionZh`, `facilitiesZh`, `nearbyZh`, `addressZh`, `geo`, image captions, room details, and Dida machine fields. |
+| S1.12 | Shenzhen fixture expansion | `dida_demo_search_hotels({ city:"深圳" })` and `dida_demo_search_attractions({ city:"深圳" })` | Shenzhen returns 5 real hotel-name fixtures and 5 real attraction-name fixtures. |
+| S1.13 | 7-city fixture coverage | Loop over 深圳、广州、北京、上海、杭州、香港、澳门 | Each supported destination returns exactly 5 hotel candidates and 5 attraction candidates. |
 
 ## S2 — Phase-1 web demo + DidaTravel simulated booking flow
 
@@ -38,12 +41,13 @@ Locks the planned web-demo deliverable designed in `座联互动/DESIGN.md`.
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
-| S2.1 | Proactive greeting | Open `/client-demos/zuolian` with a clean session | Page injects the simulated airport charging-scan context; `zuolian-travel-concierge` sends the first greeting before the user types. |
-| S2.2 | Shenzhen itinerary | Send `为我制定5日深圳旅游攻略` | Agent calls web search plus Dida demo hotel / transfer / attraction tools, then returns a 5-day Shenzhen itinerary with hotel options, transfer option, attraction candidates, and budget estimate. |
-| S2.3 | Feedback refinement | Send a constraint change such as `预算低一点` or `想住海边` | Agent preserves confirmed constraints, updates only affected itinerary/hotel choices, and re-quotes impacted items. |
-| S2.4 | Dida-aligned hotel booking order | Confirm the itinerary and provide guest/contact info | Tool call order is exactly `dida_demo_search_hotels` or prior selected quote -> `dida_demo_price_confirm(preBook=true)` -> `dida_demo_book_hotel` -> `dida_demo_get_booking`. `BookingConfirm` must use a `ReferenceNo` produced by `PriceConfirm`. |
-| S2.5 | Booking status safety | Force simulator statuses `0`, `1`, `5`, and `6` in separate runs | Agent says the order is processing / awaiting final confirmation. It may only say "预订已确认" when `BookingSearch` returns status `2 Confirmed`; status `3` is canceled and `4` is failed. |
-| S2.6 | Demo boundary | Inspect final user-facing confirmation | Message clearly states this is a simulated Demo booking, masks phone/email where displayed, and does not claim real payment, real Dida production order, or real WeChat integration. |
+| S2.1 | Proactive greeting | Open `/client-demos/zuolian` with a clean session | Page injects the simulated boarding-gate QR context; `zuolian-travel-concierge` sends the first greeting before the user types. |
+| S2.2 | Destination-city itinerary | Select a destination airport, then send `为我制定5日{目的地城市}旅游攻略` | Agent calls Dida demo hotel / transfer / attraction tools for the selected destination city, optionally supplements with web search, then returns a 5-day itinerary with hotel options, transfer option, attraction candidates, and budget estimate. |
+| S2.3 | Clickable hotel detail | Click one hotel card in the left "酒店候选" panel after S2.2 | Page sends a hotel-detail request to the Agent; Agent calls `dida_demo_get_hotel_details` with that `hotelId`; the response summarizes Chinese static details such as description, address, facilities, nearby POIs, room, and cancellation policy. |
+| S2.4 | Feedback refinement | Send a constraint change such as `预算低一点` or `想住海边` | Agent preserves confirmed constraints, updates only affected itinerary/hotel choices, and re-quotes impacted items. |
+| S2.5 | Dida-aligned hotel booking order | Confirm the itinerary and provide guest/contact info | Tool call order is exactly `dida_demo_search_hotels` or prior selected quote -> optional `dida_demo_get_hotel_details` for inspected hotel -> `dida_demo_price_confirm(preBook=true)` -> `dida_demo_book_hotel` -> `dida_demo_get_booking`. `BookingConfirm` must use a `ReferenceNo` produced by `PriceConfirm`. |
+| S2.6 | Booking status safety | Force simulator statuses `0`, `1`, `5`, and `6` in separate runs | Agent says the order is processing / awaiting final confirmation. It may only say "预订已确认" when `BookingSearch` returns status `2 Confirmed`; status `3` is canceled and `4` is failed. |
+| S2.7 | Demo boundary | Inspect final user-facing confirmation | Message clearly states this is a simulated Demo booking, masks phone/email where displayed, and does not claim real payment, real Dida production order, or real WeChat integration. |
 
 ## S3 — Chinese output + MCP fixture display fields
 
@@ -64,7 +68,7 @@ Run:
 npx tsx scripts/test-zuolian-agent.ts
 ```
 
-Expected: all 65 checks pass. This is an offline smoke test; it does not invoke an LLM or a live OpenClaw gateway. A live CLI/dashboard conversation remains part of S2 once the web demo route exists.
+Expected: all 66 checks pass. This is an offline smoke test; it does not invoke an LLM or a live OpenClaw gateway. A live CLI/dashboard conversation remains part of S2 once the web demo route exists.
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
@@ -88,15 +92,17 @@ cd sentura/dashboard && pnpm exec tsc --noEmit
 cd sentura/dashboard && pnpm build
 ```
 
-Expected: `scripts/test-zuolian-web-demo.ts` reports 41 passing checks; `next build` lists `/client-demos/zuolian` in the generated route table.
+Expected: `scripts/test-zuolian-web-demo.ts` reports 60 passing checks; `next build` lists `/client-demos/zuolian` in the generated route table.
 
 | # | Test | Method | What to Check |
 |---|------|--------|---------------|
 | S5.1 | Route and navigation | Script checks `sentura/dashboard/src/app/client-demos/zuolian/page.tsx` and `src/components/sidebar.tsx` | `/client-demos/zuolian` exists, is a client component, targets `zuolian-travel-concierge`, renders `AgentChat`, and appears in the Dashboard sidebar as "Zuolian Demo". |
-| S5.2 | Scan-context proactive greeting seed | Script checks page constants and Gateway call | Page defines the airport charging-scan context (`charging_qr_scanned`, `深圳宝安国际机场`, `深圳`, station `SZX-A01`) and calls `client.createSession(AGENT_ID, seedMessage, ...)` so the greeting is generated by the Agent rather than hardcoded. |
+| S5.2 | Scan-context proactive greeting seed | Script checks page constants and Gateway call | Page defines a boarding-gate QR context (`boarding_gate_qr_scanned`, origin/destination airport codes, destination airport/city, station like `CAN-GATE-A01`) and calls `client.createSession(AGENT_ID, buildSeedMessage(...), ...)` only after airport confirmation, so the greeting is generated by the Agent rather than hardcoded. |
 | S5.3 | Hidden technical seed | Script checks `AgentChat` props and implementation | `AgentChat` exposes `hiddenUserPrefixes`, filters the technical seed from hydrated transcripts, and the page passes `[HIDDEN_SEED_PREFIX]` so users see the Agent's greeting without the internal seed prompt. |
-| S5.4 | Refresh recovery | Script checks localStorage/session validation logic | Page persists the session key in `localStorage`, validates it with `client.getSession(stored)` on load, clears stale keys, and the "重开 Demo" control creates a fresh seeded session. |
-| S5.5 | Quick actions | Script checks route copy and `AgentChatHandle` | Five buttons exist: "制定 5 日深圳旅游攻略", "预算低一点", "住海边", "确认并预订", "查询订单"; buttons send through `chatRef.current.sendMessage(message)`. |
-| S5.6 | Side status panels | Script checks page text and tool mappings | Page renders scan-context, itinerary/tool status, and order-status panels. Tool-flow state maps Dida hotel / transfer / attraction / price confirm / booking / booking search plus `web_search` / `web_fetch`. |
-| S5.7 | Order status safety display | Script checks order parser and copy | Side panel extracts `bookingId`, `referenceNo`, and Dida `status`; user-facing copy states only status `2 Confirmed` can be treated as confirmed. |
-| S5.8 | Build and visual smoke | `next build` plus in-app browser smoke | Build prerenders `/client-demos/zuolian`; browser smoke on desktop and narrow viewport shows the page renders without text overlap, with small screens using the compact icon sidebar. |
+| S5.4 | Refresh recovery | Script checks localStorage/session validation logic | Page persists airport-scoped session keys in `localStorage`, validates them with `client.getSession(stored)` on load, clears stale keys, and the "重开 Demo" control creates a fresh seeded session. |
+| S5.5 | Airport selectors and confirmation gate | Script checks route copy and selector logic | Page renders origin and destination airport dropdowns with 广州、北京、上海、杭州、香港、澳门、深圳 airport options; the destination selector disables the current origin airport; "确认机场并通知客服" is required before the page creates/switches the Agent session. |
+| S5.6 | Quick actions | Script checks route copy and `AgentChatHandle` | Five buttons exist with dynamic destination-city copy: "制定 5 日{目的地城市}旅游攻略", "预算低一点", "住宿更方便", "确认并预订", "查询订单"; buttons send through `chatRef.current.sendMessage(message)` and remain disabled until the airport route is confirmed and the session is ready. |
+| S5.7 | Clickable hotel candidates | Script checks page text, parsers, and `handleHotelClick` | Page extracts hotel candidates from `dida_demo_search_hotels` tool results, renders them as clickable cards, and sends a request that asks the Agent to call `dida-travel-demo__dida_demo_get_hotel_details` with the selected `hotelId`. |
+| S5.8 | Side status panels | Script checks page text and tool mappings | Page renders scan-context, hotel-candidate/detail, itinerary/tool status, and order-status panels. Tool-flow state maps Dida hotel search / hotel details / transfer / attraction / price confirm / booking / booking search plus `web_search` / `web_fetch`. |
+| S5.9 | Order status safety display | Script checks order parser and copy | Side panel extracts `bookingId`, `referenceNo`, and Dida `status`; user-facing copy states only status `2 Confirmed` can be treated as confirmed. |
+| S5.10 | Build and visual smoke | `next build` plus in-app browser smoke | Build prerenders `/client-demos/zuolian`; browser smoke confirms default 广州白云 -> 深圳宝安 context, destination switch to 香港 updates the side-panel destination and quick action copy, and the page remains readable in a narrow viewport. |

@@ -41,6 +41,7 @@ const SKILLS = [
 
 const DIDA_TOOLS = [
   "dida-travel-demo__dida_demo_search_hotels",
+  "dida-travel-demo__dida_demo_get_hotel_details",
   "dida-travel-demo__dida_demo_price_confirm",
   "dida-travel-demo__dida_demo_book_hotel",
   "dida-travel-demo__dida_demo_get_booking",

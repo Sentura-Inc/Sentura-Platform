@@ -304,8 +304,10 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       if (!sessionKey) return;
 
       let cancelled = false;
-      setHydrating(true);
       (async () => {
+        await Promise.resolve();
+        if (cancelled) return;
+        setHydrating(true);
         // Retry-on-startup: when the dashboard's WebSocket reconnects faster
         // than the gateway's plugin handshake completes, `chat.history` returns
         // `UNAVAILABLE: chat.history unavailable during gateway startup`. The

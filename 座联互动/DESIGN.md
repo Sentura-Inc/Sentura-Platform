@@ -13,9 +13,9 @@
 
 Sentura 侧的定位不是另建一套 Agent Runtime，而是在 OpenClaw 之上创建一个可部署、可审计、可接工具的 AI 客服员工。第一阶段先用网页对话替代企业微信入口，验证以下闭环：
 
-1. 用户扫码充电后，系统模拟收到用户行程上下文：人在机场，目的地深圳。
+1. 用户在登机口扫码后，系统模拟收到用户行程上下文：当前位置是一个机场登机口，目的地是另一个城市的机场。
 2. AI 客服主动发出第一次问候。
-3. 用户提出“为我制定 5 日深圳旅游攻略”。
+3. 用户提出“为我制定 5 日目的地城市旅游攻略”。
 4. Agent 调用道途模拟工具查询酒店、专车、景点候选。
 5. Agent 基于座联 Demo fixture 与业务规则生成攻略，并用网络搜索补充天气、开放时间、路线注意事项等公开信息；网络搜索不能替代 Dida Demo 候选。
 6. Agent 生成可报价、可修改的 5 日方案。
@@ -72,7 +72,7 @@ OpenClaw 官方文档确认了本设计所依赖的形态：Gateway 是单进程
 
 ### 3.3 Demo 目标验收句
 
-“用户在机场扫码充电后，座联 AI 客服主动问候，能根据用户的 5 日深圳旅行需求生成攻略，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。”
+“用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。”
 
 ---
 
@@ -260,7 +260,7 @@ flowchart LR
 | AI 客服员工 | `sentura/agents/zuolian-travel-concierge/` | 8 个 OpenClaw 原生 workspace 文件 + 技能。 |
 | Dida 模拟 MCP | `sentura/mcp-servers/dida-travel-demo/` | TypeScript MCP server，按 Dida endpoint 和字段顺序模拟。 |
 | Demo Web | `sentura/dashboard/src/app/client-demos/zuolian/` | 面向客户演示的网页对话入口，模拟扫码上下文并连接 Agent。 |
-| 测试夹具 | `sentura/mcp-servers/dida-travel-demo/fixtures/` | 深圳酒店、专车、景点、订单状态 fixtures。 |
+| 测试夹具 | `sentura/mcp-servers/dida-travel-demo/fixtures/` + MCP 代码内 fixture | 深圳、广州、北京、上海、杭州、香港、澳门酒店/专车/景点、订单状态 fixtures。 |
 | 订单存储 | `~/.openclaw/sentura-demo/zuolian/orders.jsonl` | 本地 Demo 持久化；不放真实敏感信息。 |
 | Demo 测试脚本 | `scripts/test-zuolian-mvp.ts` | 端到端验证工具顺序和对话输出。 |
 
@@ -269,6 +269,7 @@ flowchart LR
 Agent 需要的工具：
 
 - `dida-travel-demo__dida_demo_search_hotels`: Content/PriceSearch 对齐的酒店候选查询。
+- `dida-travel-demo__dida_demo_get_hotel_details`: Content API `/api/v1/hotel/details` 对齐的酒店静态详情查询，用于用户点击酒店卡片后查看酒店介绍、地址、设施、周边、图片占位和房型详情。
 - `dida-travel-demo__dida_demo_price_confirm`: PriceConfirm 对齐的价格确认。
 - `dida-travel-demo__dida_demo_book_hotel`: BookingConfirm 对齐的酒店预订。
 - `dida-travel-demo__dida_demo_get_booking`: BookingSearch 对齐的订单查询。
@@ -297,7 +298,7 @@ Milestone 2 的座联客服暴露 Dida Demo MCP 与 web research 两类工具，
 `BOOTSTRAP.md` Enterprise Context:
 
 - 座联互动业务背景：交通站点充电入口、用户出行场景、平台转型目标。
-- 当前 Demo 场景：用户从机场前往深圳，计划 5 日游。
+- 当前 Demo 场景：用户在出发机场登机口扫码，前往另一个城市机场；Demo UI 可选择广州、北京、上海、杭州、香港、澳门、深圳机场作为当前位置机场或目的地机场，计划目的地城市 5 日游。
 - 第一阶段范围与禁区。
 
 技能建议：
@@ -316,23 +317,28 @@ Milestone 2 的座联客服暴露 Dida Demo MCP 与 web research 两类工具，
 
 ### 6.1 扫码上下文模拟
 
-网页 Demo 启动时自动注入：
+网页 Demo 启动时自动注入。默认演示为广州白云国际机场登机口 -> 深圳宝安国际机场；用户可在左侧下拉切换当前位置机场和目的地机场。
 
 ```json
 {
-  "event": "charging_qr_scanned",
-  "scenario": "airport_to_shenzhen",
-  "userLocation": "深圳宝安国际机场",
+  "event": "boarding_gate_qr_scanned",
+  "scenario": "origin_airport_gate_to_destination_airport",
+  "entryPlacement": "登机口扫码入口",
+  "userLocation": "广州白云国际机场",
+  "originAirportCode": "CAN",
+  "originCity": "广州",
+  "destinationAirport": "深圳宝安国际机场",
+  "destinationAirportCode": "SZX",
   "destinationCity": "深圳",
-  "chargingStation": "SZX-A01",
-  "detectedAt": "2026-06-02T16:00:00+08:00",
+  "chargingStation": "CAN-GATE-A01",
+  "detectedAt": "2026-06-03T16:00:00+08:00",
   "language": "zh-CN"
 }
 ```
 
 Agent 第一条主动消息：
 
-> 您好，我是座联互动 AI 出行客服。看到您刚在机场扫码充电，可能正准备前往深圳市区。我可以帮您规划深圳行程、查询酒店和接送方案。您这次大概想玩几天，偏向轻松度假、亲子、商务顺路，还是城市探索？
+> 您好，我是座联互动 AI 出行客服。看到您刚在广州白云国际机场登机口扫码，目的地是深圳宝安国际机场。我可以帮您规划深圳行程、查询酒店、机场接送和景点方案。您这次大概想玩几天，偏向轻松度假、亲子、商务顺路，还是城市探索？
 
 ### 6.2 用户提出需求
 
@@ -342,9 +348,9 @@ Agent 第一条主动消息：
 
 Agent 行为：
 
-1. 调用 `dida-travel-demo__dida_demo_search_hotels` 查询酒店候选。
-2. 调用 `dida-travel-demo__dida_demo_search_transfer` 查询机场到酒店专车。
-3. 调用 `dida-travel-demo__dida_demo_search_attractions` 查询景点票务模拟候选。
+1. 调用 `dida-travel-demo__dida_demo_search_hotels` 查询目的地城市酒店候选。
+2. 调用 `dida-travel-demo__dida_demo_search_transfer` 查询目的地机场到酒店/区域专车。
+3. 调用 `dida-travel-demo__dida_demo_search_attractions` 查询目的地城市景点票务模拟候选。
 4. 调用 `web_search` / `web_fetch` 补充天气、开放时间、交通注意事项等公开信息。
 5. 返回第一版方案。
 
@@ -412,6 +418,7 @@ Dida ReferenceNo: REF-...
 | Tool | 对齐的 Dida 文档 | Mutates | 输入 | 输出 |
 |---|---|---:|---|---|
 | `dida_demo_search_hotels` | Content API + PriceSearch | false | city, checkInDate, checkOutDate, adults, children, roomCount, budget, preferences | hotel/rate candidates |
+| `dida_demo_get_hotel_details` | Content API `/api/v1/hotel/details` | false | hotelIds, language | static hotel details, Chinese display content, images, facilities, nearby POIs |
 | `dida_demo_price_confirm` | PriceConfirm | false | hotelId, ratePlanId, checkInDate, checkOutDate, occupancy, preBook, metadata | final price, cancellation policy, referenceNo? |
 | `dida_demo_book_hotel` | HotelBookingConfirm | true | referenceNo, dates, guestList, contact, customerRequest, clientReference | bookingId, status, confirmation |
 | `dida_demo_get_booking` | HotelBookingSearch | false | bookingId or referenceNo | booking status/detail |
@@ -461,23 +468,12 @@ MCP 响应采用双层字段：
 
 ### 7.4 Fixture 数据
 
-深圳 Demo fixture 建议：
+多城市 Demo fixture 要求：
 
-- 酒店：
-  - 南山/科技园商务酒店
-  - 福田中心区五星酒店
-  - 大梅沙/盐田海边度假酒店
-- 专车：
-  - 宝安机场 -> 南山
-  - 宝安机场 -> 福田
-  - 宝安机场 -> 盐田
-- 景点：
-  - 世界之窗
-  - 深圳湾公园
-  - 大梅沙/小梅沙
-  - 甘坑古镇
-  - 仙湖植物园
-  - 蛇口/海上世界
+- 支持城市：深圳、广州、北京、上海、杭州、香港、澳门。
+- 每个城市至少 5 个真实酒店名称的模拟酒店候选；Dida `hotelId`、`ratePlanId`、价格、取消政策和图片 URL 仍为 Demo fixture。
+- 每个城市至少 5 个真实景点名称的模拟景点候选；门票价格用于 Demo 预算估算，不代表实时票价。
+- 专车按用户选择的目的地机场与酒店/区域动态生成本地 fixture，不伪称 Dida 生产覆盖完整出行链路。
 
 所有 fixture 必须清楚标注 `source: "demo-fixture"`，并带 `locale: "zh-CN"` 与中文展示字段，不要伪造成真实 Dida 返回。
 
@@ -493,14 +489,15 @@ MCP 响应采用双层字段：
 sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 ```
 
-页面启动即创建/恢复一个 `zuolian-travel-concierge` session，并展示：
+页面启动后先展示机场选择器。用户确认当前位置机场和目的地机场后，页面才创建/恢复对应机场组合的 `zuolian-travel-concierge` session，并展示：
 
-- 左侧：模拟扫码上下文、当前行程摘要、订单状态。
+- 左侧：模拟扫码上下文、当前位置机场下拉、目的地机场下拉、确认按钮、当前行程摘要、订单状态。
 - 右侧：聊天窗口。
+- 酒店候选：Agent 调用 `dida_demo_search_hotels` 后，页面从工具结果中提取酒店候选并渲染为可点击卡片；用户点击酒店后，页面向 Agent 发送“查看该酒店详情”的自然语言请求，Agent 必须调用 `dida-travel-demo__dida_demo_get_hotel_details`，再用中文总结详情。
 - 底部：快捷按钮：
-  - “制定 5 日深圳旅游攻略”
+  - “制定 5 日{目的地城市}旅游攻略”
   - “预算低一点”
-  - “住海边”
+  - “住宿更方便”
   - “确认并预订”
   - “查询订单”
 
@@ -514,6 +511,8 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 4. 前端渲染问候，不需要用户先输入。
 
 不要在前端硬编码完整客服回复；前端只注入上下文，回复应由 Agent 生成。
+
+机场选择未确认前，不创建 Agent 会话、不发送 seed、不允许快捷操作。用户修改已确认机场后，页面应显示“机场选择尚未确认”空态并暂停快捷操作；再次点击“确认机场并通知客服”后，才将新的扫码上下文发送给 Agent。
 
 ---
 
@@ -562,6 +561,10 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 - [x] 增加行程摘要/订单状态侧栏。
 - [x] 增加快捷操作按钮。
 - [x] 支持刷新后恢复会话。
+- [x] 增加当前位置机场与目的地机场下拉选择，支持广州、北京、上海、杭州、香港、澳门、深圳机场。
+- [x] 增加“确认机场并通知客服”按钮，确认前不向 Agent 发送扫码上下文。
+- [x] 将扫码上下文改为登机口扫码，目的地为另一个城市机场。
+- [x] 支持点击酒店候选后查询 Dida Content API `/api/v1/hotel/details` 对齐的模拟详情。
 
 ### Milestone 4 — E2E Demo 脚本
 
@@ -570,7 +573,7 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 - [ ] 执行用户脚本：
   1. 打开 Demo 页面。
   2. 检查主动问候。
-  3. 发送“为我制定 5 日深圳旅游攻略”。
+  3. 发送“为我制定 5 日{目的地城市}旅游攻略”。
   4. 断言先调用 Dida Demo 酒店/专车/景点工具，再调用网络搜索补充公开信息。
   5. 发送反馈并检查新版方案。
   6. 发送身份信息并确认预订。
@@ -590,20 +593,22 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 | ID | 测试 | 验收 |
 |---|---|---|
-| ZL-MCP-1 | MCP 工具清单 | 6 个 `dida_demo_*` 工具全部注册，mutating 工具有 destructive annotation。 |
-| ZL-MCP-2 | PriceSearch 模拟 | 输入深圳日期/人数，返回 `hotelId`, `ratePlanId`, `metadata`, `estimatedTotal`。 |
+| ZL-MCP-1 | MCP 工具清单 | 7 个 `dida_demo_*` 工具全部注册，mutating 工具有 destructive annotation。 |
+| ZL-MCP-2 | PriceSearch 模拟 | 输入目的地城市日期/人数，返回 `hotelId`, `ratePlanId`, `metadata`, `estimatedTotal`。 |
 | ZL-MCP-3 | PriceConfirm 模拟 | `preBook=true` 返回 `referenceNo`；`preBook=false` 不允许 BookingConfirm。 |
 | ZL-MCP-4 | BookingConfirm 模拟 | 合法 `referenceNo` 创建订单；重复使用 `referenceNo` 报错。 |
 | ZL-MCP-5 | BookingSearch 状态 | `2/3/4` 标记 final；`0/1/5/6` 标记 non-final。 |
 | ZL-MCP-6 | 中文展示字段 | MCP fixture 响应带 `locale: "zh-CN"` 和 `*Zh` / `displaySummaryZh`；Dida 机器字段保持原样。 |
+| ZL-MCP-7 | 多城市 fixture 覆盖 | 深圳、广州、北京、上海、杭州、香港、澳门各返回 5 个酒店候选和 5 个景点候选。 |
 | ZL-AGENT-1 | 主动问候 | 扫码上下文注入后 Agent 主动发第一条问候。 |
-| ZL-AGENT-2 | 攻略制定 | 用户要求 5 日深圳攻略后，回复含每日路线、酒店、专车、景点、预算。 |
+| ZL-AGENT-2 | 攻略制定 | 用户要求 5 日目的地城市攻略后，回复含每日路线、酒店、专车、景点、预算。 |
 | ZL-AGENT-3 | 反馈优化 | 用户改预算/住宿区域后，Agent 只调整相关部分并重新报价。 |
 | ZL-AGENT-4 | 预订链路 | Agent 按 `PriceSearch -> PriceConfirm -> BookingConfirm -> BookingSearch` 顺序调用工具。 |
 | ZL-AGENT-5 | 状态安全 | Agent 不把 `Pending`/`OnRequest` 说成最终确认。 |
 | ZL-AGENT-6 | 中文客服话术 | 除 Dida ID、订单号、邮箱、状态码等必要机器信息外，用户可见内容全部为简体中文。 |
 | ZL-WEB-1 | 页面可用 | `/client-demos/zuolian` 可打开，聊天可发送，侧栏状态更新。 |
 | ZL-WEB-2 | 刷新恢复 | 刷新后会话历史和订单状态不丢失。 |
+| ZL-WEB-3 | 机场选择器 | 页面提供当前位置机场和目的地机场下拉，且目的地不能与当前位置相同；确认前不创建 Agent 会话，点击确认后才发送扫码上下文；切换后需再次确认。 |
 
 ---
 

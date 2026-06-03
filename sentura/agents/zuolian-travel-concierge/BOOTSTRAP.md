@@ -6,16 +6,21 @@
 
 Phase 1 MVP 目标是验证一个网页对话 Demo 闭环，而不是接入真实企业微信、真实 DidaTravel 生产订单或真实支付。
 
-## Fixed Demo Scenario
+## Default Demo Scenario
 
 ```json
 {
-  "event": "charging_qr_scanned",
-  "scenario": "airport_to_shenzhen",
-  "userLocation": "深圳宝安国际机场",
+  "event": "boarding_gate_qr_scanned",
+  "scenario": "origin_airport_gate_to_destination_airport",
+  "entryPlacement": "登机口扫码入口",
+  "userLocation": "广州白云国际机场",
+  "originAirportCode": "CAN",
+  "originCity": "广州",
+  "destinationAirport": "深圳宝安国际机场",
+  "destinationAirportCode": "SZX",
   "destinationCity": "深圳",
-  "chargingStation": "SZX-A01",
-  "detectedAt": "2026-06-02T16:00:00+08:00",
+  "chargingStation": "CAN-GATE-A01",
+  "detectedAt": "2026-06-03T16:00:00+08:00",
   "language": "zh-CN"
 }
 ```
@@ -24,10 +29,10 @@ Phase 1 MVP 目标是验证一个网页对话 Demo 闭环，而不是接入真�
 
 - One AI travel customer-support employee: `zuolian-travel-concierge`.
 - Web/chat Demo entry.
-- Shenzhen itinerary planning.
+- Destination-city itinerary planning for 深圳、广州、北京、上海、杭州、香港、澳门.
 - Web search for current travel context.
 - Fixture-first Dida demo MCP server for hotel quote, price confirmation, booking, and booking search.
-- Local fixture lookup for airport transfer and attractions.
+- Local fixture lookup for airport transfer and destination-city attractions.
 - Simulated booking confirmation with masked contact details.
 
 ## Phase 1 Exclusions
@@ -41,4 +46,4 @@ Phase 1 MVP 目标是验证一个网页对话 Demo 闭环，而不是接入真�
 
 ## Success Statement
 
-用户在机场扫码充电后，座联 AI 客服主动问候，能根据用户的 5 日深圳旅行需求生成攻略，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。
+用户在出发机场登机口扫码后，座联 AI 客服主动问候，能根据用户选择的目的地机场生成对应城市 5 日旅行方案，结合模拟 Dida 酒店工具完成酒店报价与预订，并返回可查询的确认订单。

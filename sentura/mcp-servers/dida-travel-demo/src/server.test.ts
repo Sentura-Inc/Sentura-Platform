@@ -58,6 +58,7 @@ describe("DidaTravel demo tool catalog", () => {
     expect(listTools().map((tool) => tool.name)).toEqual([
       "dida_demo_search_hotels",
       "dida_demo_price_confirm",
+      "dida_demo_get_hotel_details",
       "dida_demo_book_hotel",
       "dida_demo_get_booking",
       "dida_demo_search_transfer",
@@ -65,17 +66,21 @@ describe("DidaTravel demo tool catalog", () => {
     ]);
     expect(listTools()[0].endpoint).toBe("POST /api/rate/pricesearch?$format=json");
     expect(listTools()[1].endpoint).toBe("POST /api/rate/PriceConfirm?$format=json");
-    expect(listTools()[2].endpoint).toBe("POST /api/booking/HotelBookingConfirm?$format=json");
-    expect(listTools()[3].endpoint).toBe("POST /api/booking/HotelBookingSearch?$format=json");
+    expect(listTools()[2].endpoint).toBe("GET /api/v1/hotel/details");
+    expect(listTools()[3].endpoint).toBe("POST /api/booking/HotelBookingConfirm?$format=json");
+    expect(listTools()[4].endpoint).toBe("POST /api/booking/HotelBookingSearch?$format=json");
   });
 
   it("marks booking as approval-worthy and discovery tools as read-only", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     const searchHotels = tools.find((tool) => tool.name === "dida_demo_search_hotels");
+    const hotelDetails = tools.find((tool) => tool.name === "dida_demo_get_hotel_details");
     const bookHotel = tools.find((tool) => tool.name === "dida_demo_book_hotel");
     expect(searchHotels?.annotations?.readOnlyHint).toBe(true);
     expect(searchHotels?.annotations?.destructiveHint).toBe(false);
+    expect(hotelDetails?.annotations?.readOnlyHint).toBe(true);
+    expect(hotelDetails?._meta?.["sentura/endpoint"]).toBe("GET /api/v1/hotel/details");
     expect(bookHotel?.annotations?.readOnlyHint).toBe(false);
     expect(bookHotel?.annotations?.destructiveHint).toBe(true);
     expect(bookHotel?._meta?.["sentura/sourceDoc"]).toContain("booking-confirm");
@@ -102,10 +107,11 @@ describe("DidaTravel demo MCP flow", () => {
     const firstHotel = (search.hotels as Array<Record<string, unknown>>)[0];
     expect(search.locale).toBe("zh-CN");
     expect(firstHotel.locale).toBe("zh-CN");
-    expect(firstHotel.hotelNameZh).toBe("深圳湾海景臻选酒店");
-    expect(firstHotel.roomNameZh).toBe("豪华湾景大床房");
+    expect(search.hotels).toHaveLength(5);
+    expect(firstHotel.hotelNameZh).toBe("深圳湾安达仕酒店");
+    expect(firstHotel.roomNameZh).toBe("湾景大床房");
     expect(firstHotel.cancellationPolicyZh).toContain("免费取消");
-    expect(firstHotel.displaySummaryZh).toContain("深圳湾海景臻选酒店");
+    expect(firstHotel.displaySummaryZh).toContain("深圳湾安达仕酒店");
     expect(firstHotel.metadata).toBe("DIDA_META_SZX_BAY_20260611_20260615_RP_BB");
     expect(search.requestModel).toMatchObject({
       CheckInDate: "2026-06-11",
@@ -133,7 +139,7 @@ describe("DidaTravel demo MCP flow", () => {
     expect(confirmed.referenceNo).toMatch(/^DIDA-PRE-ZL-/);
     expect(confirmed.finalTotalCny).toBe(3920);
     expect(confirmed.locale).toBe("zh-CN");
-    expect(confirmed.hotelNameZh).toBe("深圳湾海景臻选酒店");
+    expect(confirmed.hotelNameZh).toBe("深圳湾安达仕酒店");
     expect(confirmed.finalCancellationPolicyZh).toContain("免费取消");
     expect(confirmed.displaySummaryZh).toContain("总价 CNY 3920");
 
@@ -157,7 +163,7 @@ describe("DidaTravel demo MCP flow", () => {
     });
     expect(booked.locale).toBe("zh-CN");
     expect(booked.statusNameZh).toBe("已确认");
-    expect(booked.hotelNameZh).toBe("深圳湾海景臻选酒店");
+    expect(booked.hotelNameZh).toBe("深圳湾安达仕酒店");
     expect(booked.confirmationMessageZh).toContain("酒店预订已确认");
 
     const order = parseToolResult(
@@ -196,6 +202,54 @@ describe("DidaTravel demo MCP flow", () => {
         guestList,
       }),
     ).toThrow(/PreBook=true/);
+  });
+
+  it("returns Dida Content API style hotel details for clickable hotel lookup", async () => {
+    const { client } = await connect();
+    const details = parseToolResult(
+      await client.callTool({
+        name: "dida_demo_get_hotel_details",
+        arguments: {
+          hotelIds: ["DIDA-SZX-10001"],
+          language: "zh-CN",
+        },
+      }),
+    );
+    const hotel = (details.hotels as Array<Record<string, unknown>>)[0];
+    expect(details).toMatchObject({
+      source: "demo-fixture",
+      locale: "zh-CN",
+      didaEndpoint: "GET /api/v1/hotel/details",
+    });
+    expect(details.requestModel).toMatchObject({
+      hotelIds: ["DIDA-SZX-10001"],
+      language: "zh-CN",
+    });
+    expect(hotel).toMatchObject({
+      hotelId: "DIDA-SZX-10001",
+      hotelNameZh: "深圳湾安达仕酒店",
+      districtZh: "南山",
+      addressZh: "深圳市南山区科苑南路 2600 号",
+      descriptionZh: expect.stringContaining("深圳湾片区"),
+      facilitiesZh: expect.arrayContaining(["免费 Wi-Fi", "健身房"]),
+      nearbyZh: expect.arrayContaining(["深圳湾公园"]),
+      checkInInstructionsZh: expect.arrayContaining([expect.stringContaining("建议 14:00 后办理入住")]),
+    });
+    expect(hotel.geo).toMatchObject({ latitude: 22.5166, longitude: 113.9448 });
+    expect(hotel.images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: expect.stringContaining("dida-szx-10001"),
+          captionZh: expect.stringContaining("示意图"),
+        }),
+      ]),
+    );
+    expect((hotel.rooms as Array<Record<string, unknown>>)[0]).toMatchObject({
+      ratePlanId: "RP-SZX-BAY-BB",
+      roomNameZh: "湾景大床房",
+      metadata: "DIDA_META_SZX_BAY_20260611_20260615_RP_BB",
+    });
+    expect(hotel.displaySummaryZh).toContain("主要设施");
   });
 
   it("rejects metadata changed between PriceSearch and PriceConfirm", () => {
@@ -288,7 +342,27 @@ describe("DidaTravel demo MCP flow", () => {
     expect(transfer.source).toBe("demo-fixture");
     expect(attractions.source).toBe("demo-fixture");
     expect(transfer.options).toHaveLength(2);
-    expect(attractions.options).toHaveLength(3);
+    expect(attractions.options).toHaveLength(5);
+  });
+
+  it("covers each supported destination city with 5 hotels and 5 attractions", () => {
+    const demo = new DidaTravelDemoClient(loadConfigFromEnv({}));
+    for (const city of ["深圳", "广州", "北京", "上海", "杭州", "香港", "澳门"]) {
+      const search = demo.searchHotels({
+        city,
+        checkInDate: "2026-06-11",
+        checkOutDate: "2026-06-15",
+        childCount: 0,
+      }) as Record<string, unknown>;
+      const attractionSearch = demo.searchAttractions({
+        city,
+        startDate: "2026-06-11",
+        endDate: "2026-06-15",
+        travelers: 2,
+      }) as Record<string, unknown>;
+      expect(search.hotels, `${city} hotels`).toHaveLength(5);
+      expect(attractionSearch.options, `${city} attractions`).toHaveLength(5);
+    }
   });
 
   it("returns zh-CN display fields without changing Dida machine fields", () => {
@@ -306,8 +380,8 @@ describe("DidaTravel demo MCP flow", () => {
       ratePlanId: "RP-SZX-BAY-BB",
       metadata: "DIDA_META_SZX_BAY_20260611_20260615_RP_BB",
       locale: "zh-CN",
-      hotelNameZh: "深圳湾海景臻选酒店",
-      roomNameZh: "豪华湾景大床房",
+      hotelNameZh: "深圳湾安达仕酒店",
+      roomNameZh: "湾景大床房",
       boardNameZh: "含早餐",
     });
     expect(hotel.displaySummaryZh).toContain("CNY 980");
@@ -321,9 +395,8 @@ describe("DidaTravel demo MCP flow", () => {
     const transferOption = (transfer.options as Array<Record<string, unknown>>)[0];
     expect(transfer.locale).toBe("zh-CN");
     expect(transferOption).toMatchObject({
-      transferId: "SZX-TRANSFER-AIRPORT-NANSHAN-7",
       locale: "zh-CN",
-      transferNameZh: "深圳宝安机场至南山酒店专车",
+      transferNameZh: "深圳宝安国际机场至南山酒店专车",
       vehicleClassZh: "商务 7 座车",
     });
     expect(transferOption.displaySummaryZh).toContain("举牌接机");
