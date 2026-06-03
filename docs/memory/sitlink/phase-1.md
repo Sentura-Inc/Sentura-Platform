@@ -19,6 +19,7 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-02 | Milestone 2 MCP runtime exposure fix | Replaced bare `dida_demo_*` allowlist assumptions and the web-search escape path with MCP-only `tools.allow: ["group:plugins"]` plus sandbox `tools.allow: ["dida-travel-demo__*"]`; verified live config and runtime final-policy output. |
 | 2026-06-02 | Milestone 2 Codex harness root-cause fix | Found that OpenAI models defaulted to Codex app-server harness, whose dynamic tool layer re-exposed `web_search`; pinned the Sitlink model runtime to OpenClaw and verified a fresh dashboard-style session called Dida tools only. |
 | 2026-06-02 | Milestone 2 web-search supplement restored | Re-enabled `web_search` / `web_fetch` while keeping the OpenClaw runtime pin and Dida-first policy; updated prompts/skills/tests so user-facing tests use natural travel questions. |
+| 2026-06-03 | Milestone 3 web demo route | Added `/client-demos/zuolian` with scan-context session seeding, hidden technical seed support in `AgentChat`, side panels, quick actions, refresh recovery, responsive sidebar behavior, and 41/41 offline checks. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -258,3 +259,36 @@ Use prompts like:
 - "我想住离海边近一点，帮我改一版。"
 
 Expected behavior: the backend may show Dida demo tool calls and web search calls, but the user-facing conversation should not require or mention tool names unless the operator is debugging.
+
+## 2026-06-03 — Milestone 3 web demo route
+
+### Files changed
+
+- Added `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`.
+- Updated `sentura/dashboard/src/components/agent-chat.tsx` with `hiddenUserPrefixes` so technical seed messages can be hidden from visible transcripts, plus an imperative `sendMessage()` handle for page-level quick actions.
+- Updated `sentura/dashboard/src/components/sidebar.tsx` with a "Zuolian Demo" navigation entry and compact small-screen icon-sidebar behavior.
+- Added `scripts/test-zuolian-web-demo.ts` as the Milestone 3 offline structural test.
+- Marked Milestone 3 complete in `座联互动/DESIGN.md`.
+- Added Sitlink S5 test tracking in `docs/TESTS.md` and `docs/tests/tests-sitlink.md`.
+
+### Behavior captured
+
+- `/client-demos/zuolian` creates or restores a `zuolian-travel-concierge` session.
+- First-load session creation sends a hidden scan-context seed with `charging_qr_scanned`, `深圳宝安国际机场`, destination `深圳`, station `SZX-A01`, and `zh-CN` language.
+- The first visible greeting remains Agent-generated; the front end does not hardcode the full customer-service greeting.
+- The page persists the session key in `localStorage`, validates it with `sessions.get`, clears stale keys, and offers "重开 Demo" to create a fresh seeded session.
+- Side panels show scan context, itinerary/tool progress, and order status. Tool-event handling maps Dida hotel/transfer/attraction/price-confirm/booking/booking-search plus `web_search` / `web_fetch` into panel status.
+- Quick actions send natural Chinese prompts for the 5-day Shenzhen itinerary, lower budget, beach stay, simulated booking, and booking lookup.
+- Order display keeps the status safety invariant: only status `2 Confirmed` can be described as confirmed.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 41/41.
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 65/65.
+- `pnpm --filter @sentura/mcp-dida-travel-demo test` — PASS, 11/11.
+- `pnpm --filter @sentura/mcp-dida-travel-demo build` — PASS, with Node engine warning because the shell uses Node 22.18.0 while OpenClaw requires 22.19+.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/sidebar.tsx` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; route table includes `/client-demos/zuolian`. Next.js warned that it inferred `/Users/henry` as the workspace root because multiple lockfiles exist.
+- Full `cd sentura/dashboard && pnpm lint` — attempted, but still fails on pre-existing React 19 lint rules across older dashboard files (`react-hooks/set-state-in-effect`, `react-hooks/refs`) plus existing unused-var warnings; targeted lint for the new page/sidebar passes.
+- In-app Browser smoke — PASS on `http://127.0.0.1:3001/client-demos/zuolian`; desktop renders the route and side panels, narrow viewport uses compact icon sidebar and keeps the Demo content readable. Gateway was disconnected during visual smoke, so live proactive greeting/tool calls remain covered by S2/Milestone 4.

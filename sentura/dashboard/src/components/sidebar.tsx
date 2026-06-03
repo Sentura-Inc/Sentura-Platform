@@ -24,6 +24,7 @@ import {
   MessageSquare,
   ScrollText,
   Bug,
+  Compass,
   Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,7 @@ const sections: NavSection[] = [
       { label: "Employees", href: "/employees", icon: Bot },
       { label: "Create Employee", href: "/create", icon: Plus },
       { label: "Chat", href: "/chat", icon: MessageSquare },
+      { label: "Zuolian Demo", href: "/client-demos/zuolian", icon: Compass },
       { label: "Tune Employee", href: "/tune", icon: Sliders },
       { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],
@@ -130,14 +132,15 @@ export function Sidebar() {
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+            "max-md:justify-center max-md:px-2",
             collapsed && "justify-center px-2"
           )}
         >
           <item.icon className="h-4 w-4 shrink-0" />
           {!collapsed && (
             <>
-              <span className="flex-1">{item.label}</span>
-              <ExternalLink className="h-3 w-3 text-muted-foreground/60" />
+              <span className="hidden flex-1 md:inline">{item.label}</span>
+              <ExternalLink className="hidden h-3 w-3 text-muted-foreground/60 md:block" />
             </>
           )}
         </a>
@@ -168,17 +171,18 @@ export function Sidebar() {
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
           item.disabled && "pointer-events-none opacity-40",
+          "max-md:justify-center max-md:px-2",
           collapsed && "justify-center px-2"
         )}
       >
         <item.icon className="h-4 w-4 shrink-0" />
         {!collapsed && (
           <>
-            <span className="flex-1">{item.label}</span>
+            <span className="hidden flex-1 md:inline">{item.label}</span>
             {item.badge && (
               <span
                 className={cn(
-                  "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                  "hidden rounded px-1.5 py-0.5 text-[10px] font-medium md:inline",
                   item.badgeTone === "alert"
                     ? "bg-destructive text-destructive-foreground"
                     : "bg-muted text-muted-foreground",
@@ -217,7 +221,7 @@ export function Sidebar() {
     <aside
       className={cn(
         "flex flex-col border-r border-border bg-card transition-all duration-200",
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "w-16" : "w-16 md:w-64"
       )}
     >
       {/* Logo */}
@@ -226,7 +230,9 @@ export function Sidebar() {
           S
         </div>
         {!collapsed && (
-          <span className="font-semibold text-lg tracking-tight">Sentura</span>
+          <span className="hidden font-semibold text-lg tracking-tight md:inline">
+            Sentura
+          </span>
         )}
       </div>
 
@@ -236,7 +242,7 @@ export function Sidebar() {
           <div key={section.title}>
             {idx > 0 && <Separator className="my-2" />}
             {!collapsed && (
-              <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="hidden px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 md:block">
                 {section.title}
               </p>
             )}
@@ -266,11 +272,11 @@ export function Sidebar() {
         ) : (
           <Link
             href="#"
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 pointer-events-none opacity-40"
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 pointer-events-none opacity-40 max-md:justify-center max-md:px-2"
           >
             <Settings className="h-4 w-4" />
-            <span>Settings</span>
-            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="hidden md:inline">Settings</span>
+            <span className="ml-auto hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground md:inline">
               W5
             </span>
           </Link>
@@ -282,6 +288,7 @@ export function Sidebar() {
         <div
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2",
+            "max-md:justify-center max-md:px-2",
             collapsed && "justify-center px-2"
           )}
         >
@@ -289,7 +296,7 @@ export function Sidebar() {
             <User className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           {!collapsed && (
-            <div className="flex flex-col">
+            <div className="hidden flex-col md:flex">
               <span className="text-xs font-medium">Admin User</span>
               <span className="text-[10px] text-muted-foreground">
                 Platform Admin

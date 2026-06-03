@@ -1,7 +1,7 @@
 # 座联互动 AI 出行客服员工 — 第一阶段 MVP 设计
 
 > **状态**: Phase 1 MVP 详细设计与开发计划  
-> **最后更新**: 2026-06-02  
+> **最后更新**: 2026-06-03
 > **范围**: 后端模拟 + 网页对话 Demo；暂不接微信/企业微信正式接口；道途/道旅（DidaTravel）相关调用按官方文档结构模拟。  
 > **主要依据**: `docs/PLATFORM-DESIGN.md`, `docs/MEMORY.md`, `座联互动/座联互动方案.pdf`, Dida Booking API / Content API 文档, OpenClaw docs。
 
@@ -556,12 +556,12 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 ### Milestone 3 — 网页 Demo
 
-- [ ] 新增 `/client-demos/zuolian` 页面。
-- [ ] 注入扫码上下文并触发主动问候。
-- [ ] 复用 `AgentChat` 或封装客户专属聊天组件。
-- [ ] 增加行程摘要/订单状态侧栏。
-- [ ] 增加快捷操作按钮。
-- [ ] 支持刷新后恢复会话。
+- [x] 新增 `/client-demos/zuolian` 页面。
+- [x] 注入扫码上下文并触发主动问候。
+- [x] 复用 `AgentChat` 或封装客户专属聊天组件。
+- [x] 增加行程摘要/订单状态侧栏。
+- [x] 增加快捷操作按钮。
+- [x] 支持刷新后恢复会话。
 
 ### Milestone 4 — E2E Demo 脚本
 

@@ -98,6 +98,8 @@ export interface AgentChatProps {
   onMessage?: (message: ChatMessage) => void;
   /** Fired for each tool-lifecycle event observed during a run. */
   onToolCall?: (event: ToolCallEvent) => void;
+  /** Hide technical seed messages from the visible transcript. */
+  hiddenUserPrefixes?: string[];
   /** Custom UI to render when the conversation has no messages yet. */
   emptyState?: ReactNode;
   className?: string;
@@ -112,6 +114,7 @@ export interface AgentChatHandle {
   setInput: (text: string) => void;
   focus: () => void;
   clearInput: () => void;
+  sendMessage: (text: string) => Promise<void>;
 }
 
 // =============================================================================
@@ -167,6 +170,17 @@ function extractTextFromContent(content: ChatEventPayload["message"]): string {
     .join("");
 }
 
+function isHiddenUserMessage(
+  role: ChatRole,
+  text: string,
+  prefixes: readonly string[] | undefined,
+): boolean {
+  if (role !== "user") return false;
+  if (!prefixes || prefixes.length === 0) return false;
+  const trimmed = text.trimStart();
+  return prefixes.some((prefix) => prefix && trimmed.startsWith(prefix));
+}
+
 /** Session-tool event payload shape (subset we consume). */
 interface SessionToolEvent {
   runId?: string;
@@ -199,6 +213,7 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       onSessionCreated,
       onMessage,
       onToolCall,
+      hiddenUserPrefixes,
       emptyState,
       className,
     } = props;
@@ -216,10 +231,12 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
     const onSessionCreatedRef = useRef(onSessionCreated);
     const onMessageRef = useRef(onMessage);
     const onToolCallRef = useRef(onToolCall);
+    const hiddenUserPrefixesRef = useRef(hiddenUserPrefixes);
     useEffect(() => {
       onSessionCreatedRef.current = onSessionCreated;
       onMessageRef.current = onMessage;
       onToolCallRef.current = onToolCall;
+      hiddenUserPrefixesRef.current = hiddenUserPrefixes;
     });
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -238,17 +255,6 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
     useEffect(() => {
       sessionKeyRef.current = sessionKey;
     });
-
-    // Imperative handle for the parent (e.g. emptyState wants to setInput).
-    useImperativeHandle(
-      ref,
-      () => ({
-        setInput: (text) => setInput(text),
-        focus: () => textareaRef.current?.focus(),
-        clearInput: () => setInput(""),
-      }),
-      [],
-    );
 
     // Auto-scroll to bottom on new content unless the user scrolled up
     // recently. We track this via a userScrolledUpRef sentinel updated on
@@ -325,7 +331,15 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
                 streaming: false,
                 timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
               }))
-              .filter((m) => m.text.trim().length > 0);
+              .filter((m) => m.text.trim().length > 0)
+              .filter(
+                (m) =>
+                  !isHiddenUserMessage(
+                    m.role,
+                    m.text,
+                    hiddenUserPrefixesRef.current,
+                  ),
+              );
             setMessages(hydrated);
             lastError = null;
             break;
@@ -556,11 +570,9 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       return unsub;
     }, [client, state]);
 
-    // Composer submit handler.
-    const handleSubmit = useCallback(
-      async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        const trimmed = input.trim();
+    const sendText = useCallback(
+      async (text: string) => {
+        const trimmed = text.trim();
         if (!trimmed || submitting || state !== "connected") return;
 
         setError(null);
@@ -572,9 +584,17 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           text: trimmed,
           timestamp: Date.now(),
         };
-        setMessages((prev) => [...prev, userMessage]);
-        onMessageRef.current?.(userMessage);
-        setInput("");
+        if (
+          !isHiddenUserMessage(
+            userMessage.role,
+            userMessage.text,
+            hiddenUserPrefixesRef.current,
+          )
+        ) {
+          setMessages((prev) => [...prev, userMessage]);
+          onMessageRef.current?.(userMessage);
+        }
+        setInput((current) => (current.trim() === trimmed ? "" : current));
 
         try {
           if (!sessionKeyRef.current) {
@@ -612,7 +632,28 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           setSubmitting(false);
         }
       },
-      [input, client, state, submitting, agentId],
+      [client, state, submitting, agentId],
+    );
+
+    // Imperative handle for the parent (e.g. suggestion buttons).
+    useImperativeHandle(
+      ref,
+      () => ({
+        setInput: (text) => setInput(text),
+        focus: () => textareaRef.current?.focus(),
+        clearInput: () => setInput(""),
+        sendMessage: (text) => sendText(text),
+      }),
+      [sendText],
+    );
+
+    // Composer submit handler.
+    const handleSubmit = useCallback(
+      async (e?: React.FormEvent) => {
+        e?.preventDefault();
+        await sendText(input);
+      },
+      [input, sendText],
     );
 
     // Show emptyState whenever we have no messages and aren't currently
