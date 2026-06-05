@@ -152,9 +152,13 @@ const soulMd = read("SOUL.md");
 const bookingSkill = read("skills/dida-hotel-booking/SKILL.md");
 const statusSkill = read("skills/booking-status/SKILL.md");
 const travelIntakeSkill = read("skills/travel-intake/SKILL.md");
+const feedbackSkill = read("skills/feedback-refinement/SKILL.md");
 
 check("Hard Rules section present", agentsMd.includes("## Hard Rules (must not override)"));
 check("Simplified Chinese output required", agentsMd.includes("ALWAYS write user-facing replies in Simplified Chinese"));
+check("Plain chat output required", agentsMd.includes("normal chat messages, not Markdown documents"));
+check("Markdown formatting is forbidden in customer replies", agentsMd.includes("NEVER use Markdown headings, tables, bullet lists, bold/italic markup, fenced code blocks"));
+check("Output style forbids tables", agentsMd.includes("Do not use tables") && agentsMd.includes("short sentences or numbered plain lines"));
 check("Only status 2 may be confirmed", agentsMd.includes("ONLY say \"酒店预订已确认\" when `dida-travel-demo__dida_demo_get_booking` returns status `2`"));
 check("PriceConfirm is source of truth", agentsMd.includes("ALWAYS treat `dida-travel-demo__dida_demo_price_confirm` as the source of truth"));
 check("Itinerary must call Dida before final answer", agentsMd.includes("ALWAYS call the Dida demo tools before writing the final answer") && itinerarySkillForConfig.includes("Do not produce the final itinerary"));
@@ -164,6 +168,9 @@ check("Default opening uses boarding-gate context", agentsMd.includes("boarding-
 check("Travel intake defaults follow confirmed destination", travelIntakeSkill.includes("use the destination city from the confirmed airport context") && travelIntakeSkill.includes("use the confirmed destination airport"));
 check("Booking chain documented in TOOLS.md", toolsMd.includes("dida-travel-demo__dida_demo_price_confirm(preBook=true)") && toolsMd.includes("dida-travel-demo__dida_demo_book_hotel"));
 check("Booking skill requires preBook true", bookingSkill.includes("preBook: true") && bookingSkill.includes("referenceNo"));
+check("Itinerary skill requires plain chat replies", itinerarySkillForConfig.includes("normal chat message") && itinerarySkillForConfig.includes("Do not use Markdown headings"));
+check("Booking skill final template is plain chat style", bookingSkill.includes("The final answer must follow this plain chat style") && !bookingSkill.includes("| <bookingId> |"));
+check("Status and refinement skills forbid Markdown output", statusSkill.includes("plain chat text") && feedbackSkill.includes("Do not use Markdown headings"));
 check("Cancellation chain documented in TOOLS.md", toolsMd.includes("dida-travel-demo__dida_demo_pre_cancel_booking") && toolsMd.includes("dida-travel-demo__dida_demo_cancel_booking"));
 check("Modification uses cancel and rebook", agentsMd.includes("cancel-and-rebook") && bookingSkill.includes("BookingCancel.PreCancel"));
 check("Status skill marks 0/1/5/6 non-final", ["0", "1", "5", "6"].every((s) => statusSkill.includes(`| ${s} |`)) && statusSkill.includes("不是最终状态"));

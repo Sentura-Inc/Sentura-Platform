@@ -22,7 +22,7 @@ Use this skill when the user asks for a destination-city travel plan, route, hot
 5. Call `dida-travel-demo__dida_demo_search_transfer` for destination-airport-to-hotel or destination-airport-to-area options.
 6. Call `dida-travel-demo__dida_demo_search_attractions` for destination-city attraction candidates.
 7. Use web search only after the Dida demo calls to supplement current public information such as weather, opening hours, traffic cautions, or route context.
-8. Build a first itinerary that contains:
+8. Build a first itinerary in normal chat text. Include:
    - 5 daily themes and route outline
    - recommended hotel area
    - 2-3 hotel candidates with Chinese hotel / room / policy fields
@@ -35,6 +35,9 @@ Use this skill when the user asks for a destination-city travel plan, route, hot
 ## Output Requirements
 
 - User-facing text must be Simplified Chinese.
+- User-facing text must look like a normal chat message, not a Markdown document.
+- Do not use Markdown headings, bullet lists, tables, bold/italic markup, or fenced code blocks.
+- Use short paragraphs and simple line labels such as "第1天：" and "方案1：" when structure is needed.
 - Prefer `hotelNameZh`, `districtZh`, `roomNameZh`, `cancellationPolicyZh`, `sellingPointsZh`, `transferNameZh`, `vehicleClassZh`, `attractionNameZh`, `ticketTypeZh`, and `displaySummaryZh`.
 - For clicked hotel details, also use `descriptionZh`, `facilitiesZh`, `nearbyZh`, `addressZh`, and `checkInInstructionsZh`.
 - Include a sentence such as: "当前为 Demo 模拟报价，真实订单需最终确认。"

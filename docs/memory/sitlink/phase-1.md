@@ -32,6 +32,7 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-05 | Clickable hotel-name fallback fix | Screenshot feedback showed assistant reply hotel names were not clickable; added stronger inline styling and a 35-hotel local fallback catalog so assistant bubble hotel names open the modal even before side-panel state is populated; expanded S5 to 89/89. |
 | 2026-06-05 | iPhone-contained hotel modal fix | Moved the hotel-detail popup into the simulated iPhone shell as an absolute mobile-style overlay instead of a full-page Dialog portal; expanded S5 to 90/90. |
 | 2026-06-05 | MCP-backed hotel detail modal | Added a Dashboard demo API route that reuses the Dida MCP fixture client for hotel details and changed the in-phone modal to render MCP-returned details instead of a uniform template; expanded S5 to 98/98. |
+| 2026-06-06 | Plain-chat Agent output policy | Updated the Sitlink concierge workspace so customer replies use normal WeCom chat text instead of Markdown, synced the runtime OpenClaw workspace, and expanded S4 to 80/80. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -541,7 +542,7 @@ The source workspace under `sentura/agents/zuolian-travel-concierge/` had been u
 
 ### User request
 
-Redesign `/client-demos/zuolian` so the right-side chat window follows the provided screenshot style: a simulated iPhone running 企业微信 with a blue status/header bar, title `23(创建人)`, grey chat canvas, and a bottom voice/input/smile/plus composer. Keep the existing left-side status toolbar. The customer-service AI should still reply through the real Enterprise WeChat-style conversation surface. The user clarified that only the desktop layout matters, and then clarified that the initial WeCom conversation body must be blank on both sides until the user confirms the airport route; after confirmation, the Agent客服 sends the first visible message.
+Redesign `/client-demos/zuolian` so the right-side chat window follows the provided screenshot style: a simulated iPhone running 企业微信 with a blue status/header bar, title `座联互动客服`, grey chat canvas, and a bottom voice/input/smile/plus composer. Keep the existing left-side status toolbar. The customer-service AI should still reply through the real Enterprise WeChat-style conversation surface. The user clarified that only the desktop layout matters, and then clarified that the initial WeCom conversation body must be blank on both sides until the user confirms the airport route; after confirmation, the Agent客服 sends the first visible message.
 
 ### Files changed
 
@@ -664,7 +665,42 @@ The user clarified that the hotel-detail popup must display the actual detail fi
 - `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx src/app/api/client-demos/zuolian/hotel-details/route.ts` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` and `/api/client-demos/zuolian/hotel-details` build successfully.
 - `curl -X POST http://127.0.0.1:3000/api/client-demos/zuolian/hotel-details -d '{"hotelId":"DIDA-SZX-10001"}'` against `next start` — PASS; returned `GET /api/v1/hotel/details`, address, description, facilities, nearby POIs, room, cancellation policy, and blank image fields from the MCP fixture payload.
-- In-app Browser startup smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: title `23(创建人)`, left status toolbar, iPhone shell, blank pre-confirmation conversation, and no startup hotel overlay.
+
+## 2026-06-06 — Plain-chat Agent output policy
+
+### Trigger
+
+The user clarified that the customer-service Agent's visible replies should look like normal chat-bubble text, not Markdown-formatted documents.
+
+### Changes
+
+- `sentura/agents/zuolian-travel-concierge/AGENTS.md`
+  - Added a hard customer-output rule requiring normal chat messages instead of Markdown documents.
+  - Explicitly forbids Markdown headings, tables, bullet lists, bold/italic markup, fenced code blocks, and horizontal rules in customer-facing replies.
+  - Replaced the previous allowance for small comparison tables with plain short sentences or simple labels like `方案1：`.
+- `sentura/agents/zuolian-travel-concierge/SOUL.md`
+  - Added chat-native personality/service guidance so replies should look like WeCom chat text.
+- `sentura/agents/zuolian-travel-concierge/skills/itinerary-planning/SKILL.md`
+  - Added plain-chat output requirements for itineraries and hotel/transfer/attraction recommendations.
+- `sentura/agents/zuolian-travel-concierge/skills/feedback-refinement/SKILL.md`
+  - Replaced section-style reply guidance with short plain paragraphs using labels such as `我先改这几处：` and `新版方案：`.
+- `sentura/agents/zuolian-travel-concierge/skills/dida-hotel-booking/SKILL.md`
+  - Changed the final confirmation example into plain chat paragraphs and added a no-Markdown instruction.
+- `sentura/agents/zuolian-travel-concierge/skills/booking-status/SKILL.md`
+  - Added plain-chat status reply requirements.
+- `scripts/test-zuolian-agent.ts`
+  - Expanded S4 from 74 to 80 checks for plain-chat output, Markdown-format prohibition, no-table output style, and skill-level plain-chat guidance.
+- `~/.openclaw/workspace/zuolian-travel-concierge/`
+  - Synced the updated source workspace files with `rsync`, preserving runtime-local `.openclaw/`, `ekg/`, and `memory/`.
+- `座联互动/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-sitlink.md`
+  - Updated the design/test docs for plain chat output and S4 80/80.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-agent.ts` — PASS, 80/80.
+- `diff -qr sentura/agents/zuolian-travel-concierge ~/.openclaw/workspace/zuolian-travel-concierge` — PASS; only runtime-local `.openclaw`, `ekg`, and `memory` directories differ.
+- `rg` spot-checks confirm the normal-chat / no-Markdown rules are present in both source and runtime workspace files.
+- In-app Browser startup smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: title `座联互动客服`, left status toolbar, iPhone shell, blank pre-confirmation conversation, and no startup hotel overlay.
 
 ## 2026-06-05 — iPhone-contained hotel modal fix
 

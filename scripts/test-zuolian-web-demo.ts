@@ -65,7 +65,7 @@ check("hotel-detail API route calls MCP getHotelDetails", hotelDetailsRoute.incl
 section("iPhone 企业微信 chat UI");
 check("right chat window uses centered screenshot-style iPhone shell", page.includes("IphoneWeComShell") && page.includes("h-[604px]") && page.includes("w-[280px]"));
 check("iPhone shell keeps blue simulated status bar", page.includes("15:38") && page.includes("5G") && page.includes("bg-[#3977cc]"));
-check("iPhone shell renders screenshot conversation header", page.includes("23(创建人)") && page.includes("Video") && page.includes("MoreHorizontal"));
+check("iPhone shell renders screenshot conversation header", page.includes("座联互动客服") && page.includes("Video") && page.includes("MoreHorizontal"));
 check("quick actions remain wired but hidden from screenshot header", page.includes('className="hidden"') && page.includes("客服在线") && page.includes("等待接入"));
 check("phone starts with blank conversation before airport confirmation", page.includes("WeComBlankConversation") && page.includes("企业微信空白聊天页"));
 check("phone shell does not render fake startup messages", !page.includes("DemoPhoneAttachmentStack") && !page.includes("bg-[#4b8fea]"));

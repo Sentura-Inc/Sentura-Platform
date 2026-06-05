@@ -99,19 +99,22 @@ After the tool returns, summarize both the old canceled order and the new bookin
 ## Final Confirmation Template
 
 ```text
-酒店预订已确认
-订单号: <bookingId>
-Dida ReferenceNo: <referenceNo>
-状态: 2 Confirmed（Dida 状态，最终成功）
-酒店: <hotelNameZh>
-入住/离店: <checkInDate> 至 <checkOutDate>
-房型: <roomNameZh>
-入住人: <guest summary>
-联系电话: <masked phone>
-邮箱: <masked email>
-取消政策: <cancellationPolicyZh>
-备注: 当前为座联互动 Phase 1 Demo 模拟预订，不代表真实付款或真实 Dida 生产订单。
+酒店预订已确认。
+
+订单号是 <bookingId>，Dida ReferenceNo 是 <referenceNo>，当前 Dida 状态为 2 Confirmed，属于最终成功状态。
+
+酒店是 <hotelNameZh>，入住时间为 <checkInDate> 至 <checkOutDate>，房型是 <roomNameZh>。
+
+入住人：<guest summary>
+联系电话：<masked phone>
+邮箱：<masked email>
+
+取消政策：<cancellationPolicyZh>
+
+备注：当前为座联互动 Phase 1 Demo 模拟预订，不代表真实付款或真实 Dida 生产订单。
 ```
+
+The final answer must follow this plain chat style. Do not add Markdown headings, tables, bullet lists, bold/italic markup, or fenced code blocks.
 
 ## Safety
 

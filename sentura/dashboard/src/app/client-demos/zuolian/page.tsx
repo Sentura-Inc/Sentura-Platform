@@ -1208,7 +1208,7 @@ function IphoneWeComShell({
             <ChevronLeft className="h-5 w-5 shrink-0" />
             <div className="min-w-0 flex-1 px-2 text-center">
               <div className="truncate text-[13px] font-semibold leading-5">
-                23(创建人)
+                座联互动客服
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

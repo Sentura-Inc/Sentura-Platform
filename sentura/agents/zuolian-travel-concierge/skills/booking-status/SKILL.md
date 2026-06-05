@@ -25,6 +25,12 @@ Use this skill after `dida-travel-demo__dida_demo_get_booking`, when the user as
 5. If status is `0`, `1`, `5`, or `6`, explain that the order is processing / awaiting final confirmation and that it is not final.
 6. Include the Demo boundary in all status replies.
 
+## Output Requirements
+
+- Use Simplified Chinese plain chat text.
+- Do not use Markdown headings, bullet lists, tables, bold/italic markup, or fenced code blocks in user-facing replies.
+- Keep the reply short and service-oriented, with natural line breaks if several order fields must be shown.
+
 ## Contact Masking
 
 - Phone: keep the first 3 and last 4 digits, replace the middle with `****`.
