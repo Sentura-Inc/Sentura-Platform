@@ -6,8 +6,8 @@
  *
  * This does not invoke a browser, LLM, or live OpenClaw gateway. It verifies
  * the deployable dashboard route shape for `/client-demos/zuolian`: scan-context
- * session seeding, hidden technical transcript seed, quick actions, side-panel
- * state updates, refresh recovery, and sidebar navigation.
+ * session seeding, hidden technical transcript seed, WeCom-style iPhone chat UI,
+ * quick actions, side-panel state updates, refresh recovery, and sidebar navigation.
  */
 
 import fs from "node:fs";
@@ -19,6 +19,10 @@ const ROOT = path.resolve(__dirname, "..");
 const PAGE = path.join(ROOT, "sentura/dashboard/src/app/client-demos/zuolian/page.tsx");
 const AGENT_CHAT = path.join(ROOT, "sentura/dashboard/src/components/agent-chat.tsx");
 const SIDEBAR = path.join(ROOT, "sentura/dashboard/src/components/sidebar.tsx");
+const HOTEL_DETAILS_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/zuolian/hotel-details/route.ts",
+);
 
 let passed = 0;
 let failed = 0;
@@ -46,6 +50,7 @@ function section(title: string) {
 const page = read(PAGE);
 const agentChat = read(AGENT_CHAT);
 const sidebar = read(SIDEBAR);
+const hotelDetailsRoute = read(HOTEL_DETAILS_ROUTE);
 
 section("Route shape");
 check("/client-demos/zuolian page exists", fs.existsSync(PAGE));
@@ -53,6 +58,25 @@ check("page is an interactive client component", page.startsWith('"use client";'
 check("page targets zuolian-travel-concierge", page.includes('AGENT_ID = "zuolian-travel-concierge"'));
 check("page renders AgentChat instead of a fake transcript", page.includes("<AgentChat"));
 check("sidebar links to Zuolian demo", sidebar.includes('href: "/client-demos/zuolian"') && sidebar.includes("Zuolian Demo"));
+check("hotel-detail API route exists", fs.existsSync(HOTEL_DETAILS_ROUTE));
+check("hotel-detail API route reuses Dida MCP fixture client", hotelDetailsRoute.includes("DidaTravelDemoClient") && hotelDetailsRoute.includes("loadConfigFromEnv"));
+check("hotel-detail API route calls MCP getHotelDetails", hotelDetailsRoute.includes("getHotelDetails") && hotelDetailsRoute.includes("hotelIds: [body.hotelId.trim()]"));
+
+section("iPhone 企业微信 chat UI");
+check("right chat window uses centered screenshot-style iPhone shell", page.includes("IphoneWeComShell") && page.includes("h-[604px]") && page.includes("w-[280px]"));
+check("iPhone shell keeps blue simulated status bar", page.includes("15:38") && page.includes("5G") && page.includes("bg-[#3977cc]"));
+check("iPhone shell renders screenshot conversation header", page.includes("23(创建人)") && page.includes("Video") && page.includes("MoreHorizontal"));
+check("quick actions remain wired but hidden from screenshot header", page.includes('className="hidden"') && page.includes("客服在线") && page.includes("等待接入"));
+check("phone starts with blank conversation before airport confirmation", page.includes("WeComBlankConversation") && page.includes("企业微信空白聊天页"));
+check("phone shell does not render fake startup messages", !page.includes("DemoPhoneAttachmentStack") && !page.includes("bg-[#4b8fea]"));
+check("Zuolian page asks AgentChat for WeCom phone presentation", page.includes('presentation="wecom-phone"'));
+check("AgentChat exposes optional presentation prop", agentChat.includes('presentation?: "default" | "wecom-phone"'));
+check("WeCom presentation uses light grey chat canvas", agentChat.includes('presentation === "wecom-phone" && "bg-[#e9ebf1]"'));
+check("WeCom bubbles use Enterprise WeChat-like colors", agentChat.includes("bg-[#95ec69]") && agentChat.includes("bg-[#07c160]"));
+check("WeCom composer uses screenshot-style voice/input/smile/plus controls", agentChat.includes('"输入消息"') && agentChat.includes('aria-label="语音"') && agentChat.includes('aria-label="表情"') && agentChat.includes("<Plus"));
+check("WeCom avatars use compact chat labels", agentChat.includes('"我"') && agentChat.includes('"坐"'));
+check("AgentChat supports clickable hotel names in assistant bubbles", agentChat.includes("interactiveTerms") && agentChat.includes("renderInteractiveText"));
+check("Zuolian page has fallback hotel terms for assistant replies", page.includes("demoHotelCatalog") && page.includes("深圳东海朗廷酒店"));
 
 section("Scan-context proactive greeting");
 check("scan context records boarding-gate QR event", page.includes('event: "boarding_gate_qr_scanned"'));
@@ -83,7 +107,7 @@ check("page renders destination airport selector", page.includes("目的地机�
 check("same airport cannot be selected as destination", page.includes("disabledCode={draftOriginAirport.code}"));
 check("airport confirmation button exists", page.includes("确认机场并通知客服") && page.includes("confirmAirports"));
 check("route confirmation gates the session", page.includes("confirmedRoute") && page.includes("routeHasPendingChanges"));
-check("page waits before sending scan context", page.includes("请选择并确认机场") && page.includes("确认后才会把这组登机口扫码上下文发送给 Agent"));
+check("page waits before sending scan context", page.includes("WeComBlankConversation") && page.includes("confirmedRoute"));
 
 section("Refresh recovery");
 check("session key persists in localStorage", page.includes("SESSION_STORAGE_KEY_PREFIX") && page.includes("window.localStorage.setItem"));
@@ -110,7 +134,17 @@ check("side panel shows scan context", page.includes("登机口扫码模拟") &&
 check("side panel shows itinerary/tool status", page.includes("行程与工具状态") && page.includes("最近工具"));
 check("side panel shows order status", page.includes("订单状态") && page.includes("BookingID") && page.includes("ReferenceNo"));
 check("side panel shows clickable hotel candidates", page.includes("酒店候选") && page.includes("handleHotelClick"));
-check("hotel click sends simplified detail request", page.includes("我想查看${hotel.hotelNameZh}的详情"));
+check("hotel candidate click opens local detail dialog", page.includes("HotelDetailDialog") && page.includes("setHotelDialogOpen(true)"));
+check("hotel candidate click fetches MCP detail payload", page.includes('fetch("/api/client-demos/zuolian/hotel-details"') && page.includes("loadHotelDetail"));
+check("hotel dialog shows MCP loading and error states", page.includes("hotelDetailLoading") && page.includes("正在读取 Dida MCP 酒店详情") && page.includes("hotelDetailError"));
+check("hotel detail dialog is constrained inside the iPhone shell", page.includes('data-testid="phone-hotel-detail-overlay"') && page.includes("absolute inset-0 z-30") && !page.includes('@/components/ui/dialog'));
+check("hotel candidate click no longer sends a detail chat message", !page.includes("我想查看${hotel.hotelNameZh}的详情"));
+check("hotel dialog renders blank image placeholders", page.includes("当前 Demo 不加载真实图片") && page.includes("data.images.caption/url/isDefault"));
+check("hotel dialog can open from chat hotel-name clicks", page.includes("onInteractiveTermClick={openHotelFromChat}") && page.includes("hotelInteractiveTerms"));
+check("chat hotel-name clicks fall back to local hotel catalog", page.includes("demoHotelCatalog.find((candidate) => candidate.hotelId === hotelId)"));
+check("hotel parser extracts MCP room and policy fields", page.includes("firstRoom") && page.includes("boardNameZh") && page.includes("cancellationPolicyZh"));
+check("hotel dialog renders MCP content sections", page.includes("酒店介绍") && page.includes("地址") && page.includes("房型与政策") && page.includes("入住说明") && page.includes("MCP 来源"));
+check("hotel dialog does not use one-size-fits-all hotel templates", !page.includes("是当前 Dida Demo 酒店候选之一") && !page.includes('["免费 Wi-Fi", "健身房", "餐厅", "行李寄存", "24 小时前台"]'));
 check("hotel click does not expose tool call details", !page.includes("hotelIds 只传") && !page.includes("请调用 Dida Content API 模拟详情工具"));
 
 section("Tool flow contract");

@@ -27,6 +27,11 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-03 | Hotel-card click UX simplification | Simplified the hotel-card click message so users only see a natural detail request, not tool wiring. |
 | 2026-06-03 | Documentation sync audit | Checked and updated current Sitlink docs against the latest implemented feature set; expanded agent smoke to prevent dynamic-destination regressions. |
 | 2026-06-03 | Local OpenClaw workspace sync | Copied the updated concierge Markdown docs into the deployed local OpenClaw workspace while preserving runtime state. |
+| 2026-06-05 | iPhone / 企业微信 chat UI redesign | Kept the left status toolbar and redesigned only the right chat window as a screenshot-style blue-header iPhone Enterprise WeChat conversation centered in the desktop chat panel; kept the startup chat blank until airport confirmation; expanded S5 web-route checks to 83/83 and verified build/browser smoke. |
+| 2026-06-05 | Hotel-detail modal UX and blank image slots | Deleted partial real-image downloads, kept Dida image fields as blank `caption/url/isDefault` placeholders, and made both left hotel candidates and assistant-bubble hotel names open the same local detail modal without sending a detail chat message; expanded S5 to 87/87. |
+| 2026-06-05 | Clickable hotel-name fallback fix | Screenshot feedback showed assistant reply hotel names were not clickable; added stronger inline styling and a 35-hotel local fallback catalog so assistant bubble hotel names open the modal even before side-panel state is populated; expanded S5 to 89/89. |
+| 2026-06-05 | iPhone-contained hotel modal fix | Moved the hotel-detail popup into the simulated iPhone shell as an absolute mobile-style overlay instead of a full-page Dialog portal; expanded S5 to 90/90. |
+| 2026-06-05 | MCP-backed hotel detail modal | Added a Dashboard demo API route that reuses the Dida MCP fixture client for hotel details and changed the in-phone modal to render MCP-returned details instead of a uniform template; expanded S5 to 98/98. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -531,3 +536,157 @@ The source workspace under `sentura/agents/zuolian-travel-concierge/` had been u
 
 - `diff -qr sentura/agents/zuolian-travel-concierge ~/.openclaw/workspace/zuolian-travel-concierge` now reports only runtime-local directories: `.openclaw`, `ekg`, and `memory`.
 - `rg` spot-checks in `~/.openclaw/workspace/zuolian-travel-concierge` confirm the latest destination-city, boarding-gate QR, `dida_demo_modify_booking`, `ConfirmID`, and simplified hotel-detail request wording.
+
+## 2026-06-05 — iPhone / 企业微信 chat UI redesign
+
+### User request
+
+Redesign `/client-demos/zuolian` so the right-side chat window follows the provided screenshot style: a simulated iPhone running 企业微信 with a blue status/header bar, title `23(创建人)`, grey chat canvas, and a bottom voice/input/smile/plus composer. Keep the existing left-side status toolbar. The customer-service AI should still reply through the real Enterprise WeChat-style conversation surface. The user clarified that only the desktop layout matters, and then clarified that the initial WeCom conversation body must be blank on both sides until the user confirms the airport route; after confirmation, the Agent客服 sends the first visible message.
+
+### Files changed
+
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Kept the left scan / airport / tool-flow / hotel-candidate / order-status toolbar intact.
+  - Replaced the right chat area with `IphoneWeComShell`, a fixed-size desktop-centered iPhone conversation frame with blue simulated status bar, blue title bar, video/more controls, and light-grey chat canvas.
+  - Added `WeComBlankConversation` so the pre-confirmation, pending-route, disconnected, and initializing states render as an empty Enterprise WeChat canvas with no fake records, attachment stack, unread preview, or prompt card.
+  - Kept the seven existing quick actions wired to `AgentChat.sendMessage()` but hid them from the screenshot-style header so the visible surface matches the reference image.
+  - Continued to render the real `AgentChat` session, hidden seed behavior, tool-call side effects, and Dida/order parsing logic unchanged.
+- `sentura/dashboard/src/components/agent-chat.tsx`
+  - Added optional `presentation?: "default" | "wecom-phone"` prop.
+  - Preserved the default Dashboard chat rendering.
+  - Added `wecom-phone` rendering for grey chat canvas, enterprise/user avatars, WeCom-like green and white bubbles, Chinese input placeholder, and screenshot-style bottom voice/input/smile/plus controls.
+- `scripts/test-zuolian-web-demo.ts`
+  - Added an "iPhone 企业微信 chat UI" section.
+  - Expanded S5 offline structural smoke from 71 to 83 checks.
+- `座联互动/DESIGN.md`
+  - Updated the web-demo design to document the left-toolbar preservation and screenshot-style right-side iPhone / 企业微信 shell.
+- `docs/TESTS.md` and `docs/tests/tests-sitlink.md`
+  - Updated S5 counts and added test detail for the iPhone / 企业微信 presentation.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 83/83.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` prerendered. Next.js still emits the existing multiple-lockfile workspace-root warning.
+- In-app Browser smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: desktop view shows the left status toolbar plus the right screenshot-style blue-header iPhone 企业微信 shell centered in the chat panel; before airport confirmation, the phone conversation area is blank with no chat records.
+
+## 2026-06-05 — Hotel-detail modal UX and blank image slots
+
+### User request
+
+Add Dida Content API-style hotel image fields (`data.images.caption`, `data.images.url`, `data.images.isDefault`) and improve the hotel detail UX. The initial request asked to download real hotel images, but the user then explicitly stopped that path: any partially downloaded real images must be deleted, and the Demo should use blank image simulation instead.
+
+### Files changed
+
+- `sentura/mcp-servers/dida-travel-demo/src/index.ts`
+  - Changed hotel fixture `images` from real/static demo URLs to Dida-shaped blank slots with `caption`, empty `url`, and `isDefault`.
+  - Included blank `images`, description, facilities, nearby POIs, address, and star rating in search-result hotel candidates so the web UI can open details locally without a new Agent turn.
+- `sentura/dashboard/src/components/agent-chat.tsx`
+  - Added optional `interactiveTerms` and `onInteractiveTermClick` props.
+  - Assistant bubbles can render known hotel names as clickable inline buttons.
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Added `HotelDetailDialog`.
+  - Left hotel candidate clicks now open the local modal and no longer call `chatRef.current.sendMessage("我想查看...")`.
+  - Assistant-bubble hotel name clicks open the same modal via `AgentChat` interactive terms.
+  - Modal renders two blank image placeholders for Dida `data.images.caption/url/isDefault`; it does not load real images.
+- `scripts/test-zuolian-web-demo.ts`
+  - Expanded S5 from 83 to 87 checks for clickable assistant hotel names, local modal clicks, blank image placeholders, and no detail chat message.
+- `sentura/mcp-servers/dida-travel-demo/src/server.test.ts`
+  - Asserted hotel search/detail data include blank Dida image fields.
+- `座联互动/DESIGN.md`, `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, and `sentura/mcp-servers/dida-travel-demo/README.md`
+  - Updated the design and verification docs for blank image placeholders and local hotel-detail modal behavior.
+
+### Cleanup
+
+- Terminated the image-download process after the user stopped the real-image path.
+- Deleted partial real-image downloads from `座联互动/Images/`.
+- Deleted matching partial public assets from `sentura/dashboard/public/client-demo-assets/zuolian/hotels/`.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 87/87.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `pnpm --filter @sentura/mcp-dida-travel-demo test` — PASS, 16/16.
+
+## 2026-06-05 — Clickable hotel-name fallback fix
+
+### Trigger
+
+The user shared a screenshot of the 企业微信 phone view showing hotel names in an assistant response as plain black text, not clickable. The intended modal behavior existed in code, but it depended on `hotelCandidates` being populated from parsed tool results. If the tool-result event had not populated that state, `AgentChat` received no interactive terms, so hotel names inside the assistant bubble rendered as plain text.
+
+### Changes
+
+- `sentura/dashboard/src/components/agent-chat.tsx`
+  - Strengthened clickable assistant hotel-name styling to a blue highlighted, underlined inline button so it is visually obvious inside WeCom bubbles.
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Added a 35-hotel local Demo catalog mirroring the Dida fixture hotel names and core display fields.
+  - Merged the local catalog with live `hotelCandidates` when passing `interactiveTerms` into `AgentChat`.
+  - Updated chat hotel-name clicks to prefer live candidate data, then fall back to the local catalog.
+  - Added default modal description and facilities when the fallback catalog is used before live details are available.
+- `scripts/test-zuolian-web-demo.ts`
+  - Expanded S5 from 87 to 89 checks for the fallback catalog and chat-name fallback path.
+- `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, and `座联互动/DESIGN.md`
+  - Updated the expected behavior and test counts.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 89/89.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` prerendered.
+
+## 2026-06-05 — MCP-backed hotel detail modal
+
+### Trigger
+
+The user clarified that the hotel-detail popup must display the actual detail fields contained in the MCP data, such as `description` and `address`, instead of a uniform local template. The modal still needed to remain inside the iPhone simulator.
+
+### Changes
+
+- `sentura/dashboard/src/app/api/client-demos/zuolian/hotel-details/route.ts`
+  - Added a demo API route that reuses `DidaTravelDemoClient.getHotelDetails()` from `sentura/mcp-servers/dida-travel-demo/src/index.ts`.
+  - The route accepts one `hotelId` and returns the same MCP fixture payload shape used by `dida_demo_get_hotel_details`.
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Changed left hotel-card clicks and assistant-bubble hotel-name clicks to open the in-phone modal in a loading state, then fetch `/api/client-demos/zuolian/hotel-details`.
+  - Extended hotel-detail parsing for MCP fields: `hotelName`, `cityZh`, `address`, `addressZh`, `descriptionZh`, `facilitiesZh`, `nearbyZh`, `sellingPointsZh`, `checkInInstructionsZh`, room/board/rate plan/cancellation policy, `geo`, `source`, `locale`, and `didaEndpoint`.
+  - Removed the one-size-fits-all fallback description and default facility list from `HotelDetailDialog`.
+  - Updated the modal sections to render MCP-backed hotel introduction, address/geo, selling points, facilities, nearby POIs, room/policy, check-in instructions, image slots, and source metadata.
+- `scripts/test-zuolian-web-demo.ts`
+  - Added route, fetch, parser, modal-content, and no-template assertions; S5 expanded from 90 to 98 checks.
+- `座联互动/DESIGN.md`, `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, and `sentura/mcp-servers/dida-travel-demo/README.md`
+  - Updated the documented behavior so the phone-contained hotel modal is MCP-backed rather than template-backed.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 98/98.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx src/app/api/client-demos/zuolian/hotel-details/route.ts` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` and `/api/client-demos/zuolian/hotel-details` build successfully.
+- `curl -X POST http://127.0.0.1:3000/api/client-demos/zuolian/hotel-details -d '{"hotelId":"DIDA-SZX-10001"}'` against `next start` — PASS; returned `GET /api/v1/hotel/details`, address, description, facilities, nearby POIs, room, cancellation policy, and blank image fields from the MCP fixture payload.
+- In-app Browser startup smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: title `23(创建人)`, left status toolbar, iPhone shell, blank pre-confirmation conversation, and no startup hotel overlay.
+
+## 2026-06-05 — iPhone-contained hotel modal fix
+
+### Trigger
+
+The user clarified that the hotel-detail popup should be limited to the iPhone simulator and behave like a modal inside the phone screen, not a full-page desktop overlay.
+
+### Changes
+
+- `sentura/dashboard/src/app/client-demos/zuolian/page.tsx`
+  - Removed the shadcn `Dialog` portal usage for the hotel detail view.
+  - Passed selected hotel state into `IphoneWeComShell`.
+  - Rendered `HotelDetailDialog` inside the simulated iPhone frame, using `absolute inset-0 z-30` and `data-testid="phone-hotel-detail-overlay"` so it is clipped by the phone shell's rounded, `overflow-hidden` viewport.
+  - Kept the same hotel detail content: blank image placeholders, hotel name, area/address, star/room/price badges, description, facilities, and nearby POIs.
+- `scripts/test-zuolian-web-demo.ts`
+  - Added a structural check that the hotel-detail dialog is constrained inside the iPhone shell and no longer imports the full-page `@/components/ui/dialog` modal.
+- `座联互动/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-sitlink.md`
+  - Updated the web-demo behavior and S5 test detail to require phone-contained modal behavior.
+
+### Verification
+
+- `npx tsx scripts/test-zuolian-web-demo.ts` — PASS, 90/90.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` prerendered.

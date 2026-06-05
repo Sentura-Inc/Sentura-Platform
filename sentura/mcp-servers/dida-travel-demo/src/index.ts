@@ -141,12 +141,14 @@ function hotelFixture(input: {
     },
     images: [
       {
-        url: `https://static.demo.sentura.local/zuolian/hotels/${input.hotelId.toLowerCase()}-exterior.jpg`,
-        captionZh: `${input.hotelNameZh}外观示意图`,
+        caption: `${input.hotelNameZh}外观空白模拟图`,
+        url: "",
+        isDefault: true,
       },
       {
-        url: `https://static.demo.sentura.local/zuolian/hotels/${input.hotelId.toLowerCase()}-room.jpg`,
-        captionZh: `${input.roomNameZh}示意图`,
+        caption: `${input.roomNameZh}空白模拟图`,
+        url: "",
+        isDefault: false,
       },
     ],
     checkInInstructionsZh: [
@@ -1604,6 +1606,10 @@ export class DidaTravelDemoClient {
         address: hotel.address,
         addressZh: hotel.addressZh,
         starRating: hotel.starRating,
+        descriptionZh: hotel.descriptionZh,
+        facilitiesZh: hotel.facilitiesZh,
+        nearbyZh: hotel.nearbyZh,
+        images: hotel.images,
         roomTypeCode: hotel.room.roomTypeCode,
         roomName: hotel.room.roomName,
         roomNameZh: hotel.room.roomNameZh,

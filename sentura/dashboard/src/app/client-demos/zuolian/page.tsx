@@ -1,22 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   BatteryCharging,
   CalendarDays,
   Car,
   CheckCircle2,
+  ChevronLeft,
   CircleAlert,
   Clock3,
   Hotel,
+  ImageIcon,
   Loader2,
   MapPin,
+  MoreHorizontal,
   Plane,
   RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
+  Video,
 } from "lucide-react";
 import { AgentChat, type AgentChatHandle, type ToolCallEvent } from "@/components/agent-chat";
 import { Badge } from "@/components/ui/badge";
@@ -150,21 +154,79 @@ interface OrderSnapshot {
 interface HotelCandidate {
   hotelId: string;
   hotelNameZh: string;
+  hotelName?: string;
+  cityZh?: string;
   districtZh?: string;
-  roomNameZh?: string;
-  ratePlanId?: string;
-  pricePerRoomCny?: number;
-  estimatedTotalCny?: number;
-  displaySummaryZh?: string;
-}
-
-interface HotelDetailSnapshot extends HotelCandidate {
+  addressZh?: string;
+  address?: string;
+  starRating?: number;
   descriptionZh?: string;
   facilitiesZh?: string[];
   nearbyZh?: string[];
-  addressZh?: string;
-  starRating?: number;
+  sellingPointsZh?: string[];
+  checkInInstructionsZh?: string[];
+  images?: HotelImage[];
+  roomNameZh?: string;
+  boardNameZh?: string;
+  ratePlanId?: string;
+  cancellationPolicyZh?: string;
+  pricePerRoomCny?: number;
+  estimatedTotalCny?: number;
+  displaySummaryZh?: string;
+  geo?: {
+    latitude?: number;
+    longitude?: number;
+  };
+  didaEndpoint?: string;
+  source?: string;
+  locale?: string;
 }
+
+interface HotelImage {
+  caption?: string;
+  url?: string;
+  isDefault?: boolean;
+}
+
+type HotelDetailSnapshot = HotelCandidate;
+
+const demoHotelCatalog: HotelCandidate[] = [
+  {"hotelId":"DIDA-SZX-10001","hotelNameZh":"深圳湾安达仕酒店","districtZh":"南山","addressZh":"深圳市南山区科苑南路 2600 号","starRating":5,"roomNameZh":"湾景大床房","pricePerRoomCny":980},
+  {"hotelId":"DIDA-SZX-10002","hotelNameZh":"深圳四季酒店","districtZh":"福田","addressZh":"深圳市福田区福华三路 138 号","starRating":5,"roomNameZh":"豪华城景双床房","pricePerRoomCny":690},
+  {"hotelId":"DIDA-SZX-10003","hotelNameZh":"深圳大梅沙京基洲际度假酒店","districtZh":"盐田","addressZh":"深圳市盐田区大梅沙盐梅路 9 号","starRating":5,"roomNameZh":"海景度假大床房","pricePerRoomCny":1280},
+  {"hotelId":"DIDA-SZX-10004","hotelNameZh":"深圳东海朗廷酒店","districtZh":"福田","addressZh":"深圳市福田区深南大道 7888 号","starRating":5,"roomNameZh":"豪华城景大床房","pricePerRoomCny":920},
+  {"hotelId":"DIDA-SZX-10005","hotelNameZh":"深圳中洲万豪酒店","districtZh":"南山","addressZh":"深圳市南山区海德一道 88 号中洲控股中心 A 座","starRating":5,"roomNameZh":"行政城景大床房","pricePerRoomCny":1080},
+  {"hotelId":"DIDA-CAN-10001","hotelNameZh":"广州白天鹅宾馆","districtZh":"荔湾","addressZh":"广州市荔湾区沙面南街 1 号","starRating":5,"roomNameZh":"江景大床房","pricePerRoomCny":1180},
+  {"hotelId":"DIDA-CAN-10002","hotelNameZh":"广州四季酒店","districtZh":"天河","addressZh":"广州市天河区珠江西路 5 号广州国际金融中心","starRating":5,"roomNameZh":"天际景观大床房","pricePerRoomCny":1380},
+  {"hotelId":"DIDA-CAN-10003","hotelNameZh":"广州富力丽思卡尔顿酒店","districtZh":"天河","addressZh":"广州市天河区兴安路 3 号","starRating":5,"roomNameZh":"行政大床房","pricePerRoomCny":1280},
+  {"hotelId":"DIDA-CAN-10004","hotelNameZh":"广州文华东方酒店","districtZh":"天河","addressZh":"广州市天河区天河路 389 号太古汇","starRating":5,"roomNameZh":"豪华大床房","pricePerRoomCny":1520},
+  {"hotelId":"DIDA-CAN-10005","hotelNameZh":"广州南丰朗豪酒店","districtZh":"海珠","addressZh":"广州市海珠区新港东路 638 号","starRating":5,"roomNameZh":"江景双床房","pricePerRoomCny":760},
+  {"hotelId":"DIDA-BJS-10001","hotelNameZh":"北京王府半岛酒店","districtZh":"东城","addressZh":"北京市东城区金鱼胡同 8 号","starRating":5,"roomNameZh":"豪华套房大床","pricePerRoomCny":1880},
+  {"hotelId":"DIDA-BJS-10002","hotelNameZh":"北京华尔道夫酒店","districtZh":"东城","addressZh":"北京市东城区金鱼胡同 5-15 号","starRating":5,"roomNameZh":"豪华大床房","pricePerRoomCny":1680},
+  {"hotelId":"DIDA-BJS-10003","hotelNameZh":"北京颐和安缦","districtZh":"海淀","addressZh":"北京市海淀区宫门前街 1 号","starRating":5,"roomNameZh":"庭院大床房","pricePerRoomCny":3200},
+  {"hotelId":"DIDA-BJS-10004","hotelNameZh":"北京瑰丽酒店","districtZh":"朝阳","addressZh":"北京市朝阳区呼家楼京广中心","starRating":5,"roomNameZh":"豪华大床房","pricePerRoomCny":1480},
+  {"hotelId":"DIDA-BJS-10005","hotelNameZh":"北京诺金酒店","districtZh":"朝阳","addressZh":"北京市朝阳区将台路甲 2 号","starRating":5,"roomNameZh":"豪华艺术大床房","pricePerRoomCny":980},
+  {"hotelId":"DIDA-SHA-10001","hotelNameZh":"上海和平饭店","districtZh":"黄浦","addressZh":"上海市黄浦区南京东路 20 号","starRating":5,"roomNameZh":"经典大床房","pricePerRoomCny":1780},
+  {"hotelId":"DIDA-SHA-10002","hotelNameZh":"上海半岛酒店","districtZh":"黄浦","addressZh":"上海市黄浦区中山东一路 32 号","starRating":5,"roomNameZh":"江景大床房","pricePerRoomCny":2280},
+  {"hotelId":"DIDA-SHA-10003","hotelNameZh":"上海浦东文华东方酒店","districtZh":"浦东","addressZh":"上海市浦东新区浦东南路 111 号","starRating":5,"roomNameZh":"浦江景观大床房","pricePerRoomCny":1680},
+  {"hotelId":"DIDA-SHA-10004","hotelNameZh":"上海浦东丽思卡尔顿酒店","districtZh":"浦东","addressZh":"上海市浦东新区世纪大道 8 号上海国金中心","starRating":5,"roomNameZh":"天际景观大床房","pricePerRoomCny":1980},
+  {"hotelId":"DIDA-SHA-10005","hotelNameZh":"上海建业里嘉佩乐酒店","districtZh":"徐汇","addressZh":"上海市徐汇区建国西路 480 号","starRating":5,"roomNameZh":"石库门别墅房","pricePerRoomCny":2880},
+  {"hotelId":"DIDA-HGH-10001","hotelNameZh":"杭州西子湖四季酒店","districtZh":"西湖","addressZh":"杭州市西湖区灵隐路 5 号","starRating":5,"roomNameZh":"园景大床房","pricePerRoomCny":2580},
+  {"hotelId":"DIDA-HGH-10002","hotelNameZh":"杭州法云安缦","districtZh":"西湖","addressZh":"杭州市西湖区法云弄 22 号","starRating":5,"roomNameZh":"村落大床房","pricePerRoomCny":3600},
+  {"hotelId":"DIDA-HGH-10003","hotelNameZh":"杭州君悦酒店","districtZh":"上城","addressZh":"杭州市上城区湖滨路 28 号","starRating":5,"roomNameZh":"湖景大床房","pricePerRoomCny":1280},
+  {"hotelId":"DIDA-HGH-10004","hotelNameZh":"杭州城中香格里拉","districtZh":"拱墅","addressZh":"杭州市拱墅区长寿路 6 号","starRating":5,"roomNameZh":"豪华城景双床房","pricePerRoomCny":980},
+  {"hotelId":"DIDA-HGH-10005","hotelNameZh":"杭州康莱德酒店","districtZh":"上城","addressZh":"杭州市上城区新业路 228 号来福士中心","starRating":5,"roomNameZh":"钱江景观大床房","pricePerRoomCny":1180},
+  {"hotelId":"DIDA-HKG-10001","hotelNameZh":"香港半岛酒店","districtZh":"尖沙咀","addressZh":"香港九龙尖沙咀梳士巴利道","starRating":5,"roomNameZh":"海港景观大床房","pricePerRoomCny":3980},
+  {"hotelId":"DIDA-HKG-10002","hotelNameZh":"香港文华东方酒店","districtZh":"中环","addressZh":"香港中环干诺道中 5 号","starRating":5,"roomNameZh":"城景大床房","pricePerRoomCny":3280},
+  {"hotelId":"DIDA-HKG-10003","hotelNameZh":"香港四季酒店","districtZh":"中环","addressZh":"香港中环金融街 8 号","starRating":5,"roomNameZh":"海港双床房","pricePerRoomCny":3600},
+  {"hotelId":"DIDA-HKG-10004","hotelNameZh":"香港瑰丽酒店","districtZh":"尖沙咀","addressZh":"香港九龙尖沙咀梳士巴利道 18 号 Victoria Dockside","starRating":5,"roomNameZh":"九龙海港大床房","pricePerRoomCny":4200},
+  {"hotelId":"DIDA-HKG-10005","hotelNameZh":"奕居","districtZh":"金钟","addressZh":"香港金钟道 88 号太古广场","starRating":5,"roomNameZh":"单间大床房","pricePerRoomCny":3100},
+  {"hotelId":"DIDA-MFM-10001","hotelNameZh":"澳门威尼斯人","districtZh":"路氹","addressZh":"澳门路氹金光大道","starRating":5,"roomNameZh":"贝丽套房","pricePerRoomCny":1280},
+  {"hotelId":"DIDA-MFM-10002","hotelNameZh":"澳门上葡京综合度假村","districtZh":"路氹","addressZh":"澳门路氹射击路","starRating":5,"roomNameZh":"皇宫大床房","pricePerRoomCny":1180},
+  {"hotelId":"DIDA-MFM-10003","hotelNameZh":"澳门文华东方酒店","districtZh":"澳门半岛","addressZh":"澳门外港新填海区孙逸仙大马路","starRating":5,"roomNameZh":"湾景大床房","pricePerRoomCny":1880},
+  {"hotelId":"DIDA-MFM-10004","hotelNameZh":"永利皇宫","districtZh":"路氹","addressZh":"澳门路氹体育馆大马路","starRating":5,"roomNameZh":"喷泉景观大床房","pricePerRoomCny":1680},
+  {"hotelId":"DIDA-MFM-10005","hotelNameZh":"澳门银河酒店","districtZh":"路氹","addressZh":"澳门路氹城澳门银河综合度假城","starRating":5,"roomNameZh":"度假双床房","pricePerRoomCny":1380},
+];
 
 const baseSteps: FlowStep[] = [
   {
@@ -314,18 +376,96 @@ function toHotelCandidate(value: unknown): HotelCandidate | null {
   if (typeof item.hotelId !== "string" || typeof item.hotelNameZh !== "string") {
     return null;
   }
+  const rooms = Array.isArray(item.rooms) ? item.rooms : [];
+  const firstRoom =
+    rooms[0] && typeof rooms[0] === "object"
+      ? (rooms[0] as Record<string, unknown>)
+      : null;
+  const geo =
+    item.geo && typeof item.geo === "object"
+      ? (item.geo as Record<string, unknown>)
+      : null;
   return {
     hotelId: item.hotelId,
+    hotelName: typeof item.hotelName === "string" ? item.hotelName : undefined,
     hotelNameZh: item.hotelNameZh,
+    cityZh: typeof item.cityZh === "string" ? item.cityZh : undefined,
     districtZh: typeof item.districtZh === "string" ? item.districtZh : undefined,
-    roomNameZh: typeof item.roomNameZh === "string" ? item.roomNameZh : undefined,
-    ratePlanId: typeof item.ratePlanId === "string" ? item.ratePlanId : undefined,
+    address: typeof item.address === "string" ? item.address : undefined,
+    addressZh: typeof item.addressZh === "string" ? item.addressZh : undefined,
+    starRating: typeof item.starRating === "number" ? item.starRating : undefined,
+    descriptionZh:
+      typeof item.descriptionZh === "string" ? item.descriptionZh : undefined,
+    facilitiesZh: Array.isArray(item.facilitiesZh)
+      ? item.facilitiesZh.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
+    nearbyZh: Array.isArray(item.nearbyZh)
+      ? item.nearbyZh.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
+    sellingPointsZh: Array.isArray(item.sellingPointsZh)
+      ? item.sellingPointsZh.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
+    checkInInstructionsZh: Array.isArray(item.checkInInstructionsZh)
+      ? item.checkInInstructionsZh.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
+    images: Array.isArray(item.images)
+      ? item.images
+          .map(toHotelImage)
+          .filter((image): image is HotelImage => !!image)
+      : undefined,
+    roomNameZh:
+      typeof item.roomNameZh === "string"
+        ? item.roomNameZh
+        : typeof firstRoom?.roomNameZh === "string"
+          ? firstRoom.roomNameZh
+          : undefined,
+    boardNameZh:
+      typeof item.boardNameZh === "string"
+        ? item.boardNameZh
+        : typeof firstRoom?.boardNameZh === "string"
+          ? firstRoom.boardNameZh
+          : undefined,
+    ratePlanId:
+      typeof item.ratePlanId === "string"
+        ? item.ratePlanId
+        : typeof firstRoom?.ratePlanId === "string"
+          ? firstRoom.ratePlanId
+          : undefined,
+    cancellationPolicyZh:
+      typeof item.cancellationPolicyZh === "string"
+        ? item.cancellationPolicyZh
+        : typeof firstRoom?.cancellationPolicyZh === "string"
+          ? firstRoom.cancellationPolicyZh
+          : undefined,
     pricePerRoomCny:
-      typeof item.pricePerRoomCny === "number" ? item.pricePerRoomCny : undefined,
+      typeof item.pricePerRoomCny === "number"
+        ? item.pricePerRoomCny
+        : typeof firstRoom?.pricePerRoomCny === "number"
+          ? firstRoom.pricePerRoomCny
+          : undefined,
     estimatedTotalCny:
       typeof item.estimatedTotalCny === "number" ? item.estimatedTotalCny : undefined,
     displaySummaryZh:
       typeof item.displaySummaryZh === "string" ? item.displaySummaryZh : undefined,
+    geo: geo
+      ? {
+          latitude: typeof geo.latitude === "number" ? geo.latitude : undefined,
+          longitude: typeof geo.longitude === "number" ? geo.longitude : undefined,
+        }
+      : undefined,
+    didaEndpoint: typeof item.didaEndpoint === "string" ? item.didaEndpoint : undefined,
+    source: typeof item.source === "string" ? item.source : undefined,
+    locale: typeof item.locale === "string" ? item.locale : undefined,
+  };
+}
+
+function toHotelImage(value: unknown): HotelImage | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  return {
+    caption: typeof item.caption === "string" ? item.caption : undefined,
+    url: typeof item.url === "string" ? item.url : undefined,
+    isDefault: typeof item.isDefault === "boolean" ? item.isDefault : undefined,
   };
 }
 
@@ -342,19 +482,11 @@ function extractHotelDetail(value: unknown): HotelDetailSnapshot | null {
   const parsed = parseToolJson(value);
   const first = Array.isArray(parsed?.hotels) ? parsed.hotels[0] : null;
   if (!first || typeof first !== "object") return candidate;
-  const item = first as Record<string, unknown>;
   return {
     ...candidate,
-    descriptionZh:
-      typeof item.descriptionZh === "string" ? item.descriptionZh : undefined,
-    facilitiesZh: Array.isArray(item.facilitiesZh)
-      ? item.facilitiesZh.filter((entry): entry is string => typeof entry === "string")
-      : undefined,
-    nearbyZh: Array.isArray(item.nearbyZh)
-      ? item.nearbyZh.filter((entry): entry is string => typeof entry === "string")
-      : undefined,
-    addressZh: typeof item.addressZh === "string" ? item.addressZh : undefined,
-    starRating: typeof item.starRating === "number" ? item.starRating : undefined,
+    didaEndpoint: typeof parsed?.didaEndpoint === "string" ? parsed.didaEndpoint : candidate.didaEndpoint,
+    source: typeof parsed?.source === "string" ? parsed.source : candidate.source,
+    locale: typeof parsed?.locale === "string" ? parsed.locale : candidate.locale,
   };
 }
 
@@ -418,6 +550,9 @@ export default function ZuolianClientDemoPage() {
   const [order, setOrder] = useState<OrderSnapshot | null>(null);
   const [hotelCandidates, setHotelCandidates] = useState<HotelCandidate[]>([]);
   const [selectedHotel, setSelectedHotel] = useState<HotelDetailSnapshot | null>(null);
+  const [hotelDialogOpen, setHotelDialogOpen] = useState(false);
+  const [hotelDetailLoading, setHotelDetailLoading] = useState(false);
+  const [hotelDetailError, setHotelDetailError] = useState<string | null>(null);
   const [lastTool, setLastTool] = useState<string | null>(null);
   const [draftOriginAirportCode, setDraftOriginAirportCode] = useState("CAN");
   const [draftDestinationAirportCode, setDraftDestinationAirportCode] = useState("SZX");
@@ -453,6 +588,22 @@ export default function ZuolianClientDemoPage() {
   const completedCount = useMemo(
     () => steps.filter((step) => step.status === "done").length,
     [steps],
+  );
+  const hotelInteractiveTerms = useMemo(
+    () => {
+      const hotelsById = new Map<string, HotelCandidate>();
+      for (const hotel of demoHotelCatalog) {
+        hotelsById.set(hotel.hotelId, hotel);
+      }
+      for (const hotel of hotelCandidates) {
+        hotelsById.set(hotel.hotelId, hotel);
+      }
+      return Array.from(hotelsById.values()).map((hotel) => ({
+        id: hotel.hotelId,
+        label: hotel.hotelNameZh,
+      }));
+    },
+    [hotelCandidates],
   );
 
   const routeConfirmed = Boolean(confirmedRoute);
@@ -529,6 +680,9 @@ export default function ZuolianClientDemoPage() {
       setOrder(null);
       setHotelCandidates([]);
       setSelectedHotel(null);
+      setHotelDialogOpen(false);
+      setHotelDetailLoading(false);
+      setHotelDetailError(null);
       setLastTool(null);
       setInitializing(true);
       setInitError(null);
@@ -599,6 +753,9 @@ export default function ZuolianClientDemoPage() {
     setOrder(null);
     setHotelCandidates([]);
     setSelectedHotel(null);
+    setHotelDialogOpen(false);
+    setHotelDetailLoading(false);
+    setHotelDetailError(null);
     setLastTool(null);
     setInitializing(true);
     setInitError(null);
@@ -677,16 +834,61 @@ export default function ZuolianClientDemoPage() {
     }
   }, [state]);
 
+  const ready = state === "connected" && !!sessionKey && !initializing && routeConfirmed && !routeHasPendingChanges;
+
+  const loadHotelDetail = useCallback(async (hotel: HotelCandidate) => {
+    setSelectedHotel(hotel);
+    setHotelDialogOpen(true);
+    setHotelDetailLoading(true);
+    setHotelDetailError(null);
+    try {
+      const response = await fetch("/api/client-demos/zuolian/hotel-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hotelId: hotel.hotelId }),
+      });
+      const payload = (await response.json()) as unknown;
+      if (!response.ok) {
+        const message =
+          payload && typeof payload === "object" && "error" in payload
+            ? String((payload as { error: unknown }).error)
+            : "无法读取酒店详情";
+        throw new Error(message);
+      }
+      const detail = extractHotelDetail(payload);
+      if (!detail) {
+        throw new Error("MCP 详情返回中没有酒店内容");
+      }
+      setSelectedHotel(detail);
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : "无法读取酒店详情";
+      setHotelDetailError(message);
+    } finally {
+      setHotelDetailLoading(false);
+    }
+  }, []);
+
   const handleHotelClick = useCallback(
-    async (hotel: HotelCandidate) => {
-      if (state !== "connected" || !chatRef.current) return;
-      setSelectedHotel(hotel);
-      await chatRef.current.sendMessage(`我想查看${hotel.hotelNameZh}的详情`);
+    (hotel: HotelCandidate) => {
+      if (!ready) return;
+      void loadHotelDetail(hotel);
     },
-    [state],
+    [loadHotelDetail, ready],
   );
 
-  const ready = state === "connected" && !!sessionKey && !initializing && routeConfirmed && !routeHasPendingChanges;
+  const openHotelFromChat = useCallback(
+    (hotelId: string) => {
+      const hotel =
+        hotelCandidates.find((candidate) => candidate.hotelId === hotelId) ??
+        demoHotelCatalog.find((candidate) => candidate.hotelId === hotelId);
+      if (!hotel) return;
+      void loadHotelDetail(hotel);
+    },
+    [hotelCandidates, loadHotelDetail],
+  );
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] min-h-0 flex-col overflow-hidden">
@@ -819,7 +1021,7 @@ export default function ZuolianClientDemoPage() {
               </div>
               {hotelCandidates.length === 0 ? (
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {`发送“制定 5 日${destinationAirport.cityZh}旅游攻略”后，Dida Demo 酒店候选会出现在这里。点击酒店可查询 Content API 模拟详情。`}
+                  {`发送“制定 5 日${destinationAirport.cityZh}旅游攻略”后，Dida Demo 酒店候选会出现在这里。点击酒店会打开本地详情弹窗。`}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -914,61 +1116,307 @@ export default function ZuolianClientDemoPage() {
           </div>
         </aside>
 
-        <main className="flex min-h-0 flex-col">
-          <div className="shrink-0 border-b border-border px-4 py-3">
-            <div className="flex flex-wrap gap-2">
-              {quickActions.map((action) => (
-                <Button
-                  key={action.label}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!ready}
-                  onClick={() => void sendQuickAction(action.message)}
-                >
-                  <action.icon className="h-4 w-4" />
-                  {action.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          {!routeConfirmed ? (
-            <AwaitingAirportConfirmation
-              title="请选择并确认机场"
-              detail="确认当前位置机场和目的地机场后，页面才会把扫码上下文发送给座联 AI 客服。"
-            />
-          ) : routeHasPendingChanges ? (
-            <AwaitingAirportConfirmation
-              title="机场选择尚未确认"
-              detail="你已修改机场选择。点击左侧“确认机场并通知客服”后，客服会基于新的目的地生成问候和后续方案。"
-            />
-          ) : state !== "connected" ? (
-            <AwaitingAirportConfirmation
-              title="机场已确认，正在连接客服"
-              detail="连接恢复后，页面会自动把这组登机口扫码上下文发送给座联 AI 客服。"
-            />
-          ) : initializing || !sessionKey ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              正在注入扫码上下文并生成主动问候...
-            </div>
-          ) : (
-            <AgentChat
-              ref={chatRef}
-              agentId={AGENT_ID}
-              sessionKey={sessionKey}
-              hiddenUserPrefixes={[HIDDEN_SEED_PREFIX]}
-              sessionLabel={sessionLabel}
-              onSessionCreated={(key) => {
-                window.localStorage.setItem(sessionStorageKey, key);
-                setSessionKey(key);
-              }}
-              onToolCall={handleToolCall}
-              emptyState={<DemoEmptyState />}
-            />
-          )}
+        <main className="flex min-h-0 items-center justify-center bg-[#dfe1e7]">
+          <IphoneWeComShell
+            quickActions={quickActions}
+            ready={ready}
+            sendQuickAction={sendQuickAction}
+            selectedHotel={selectedHotel}
+            hotelDialogOpen={hotelDialogOpen}
+            hotelDetailLoading={hotelDetailLoading}
+            hotelDetailError={hotelDetailError}
+            setHotelDialogOpen={setHotelDialogOpen}
+          >
+            {!routeConfirmed ? (
+              <WeComBlankConversation />
+            ) : routeHasPendingChanges ? (
+              <WeComBlankConversation />
+            ) : state !== "connected" ? (
+              <WeComBlankConversation />
+            ) : initializing || !sessionKey ? (
+              <WeComBlankConversation />
+            ) : (
+              <AgentChat
+                ref={chatRef}
+                agentId={AGENT_ID}
+                sessionKey={sessionKey}
+                hiddenUserPrefixes={[HIDDEN_SEED_PREFIX]}
+                sessionLabel={sessionLabel}
+                onSessionCreated={(key) => {
+                  window.localStorage.setItem(sessionStorageKey, key);
+                  setSessionKey(key);
+                }}
+                onToolCall={handleToolCall}
+                emptyState={<DemoEmptyState />}
+                presentation="wecom-phone"
+                interactiveTerms={hotelInteractiveTerms}
+                onInteractiveTermClick={openHotelFromChat}
+              />
+            )}
+          </IphoneWeComShell>
         </main>
       </div>
+    </div>
+  );
+}
+
+function IphoneWeComShell({
+  children,
+  quickActions,
+  ready,
+  sendQuickAction,
+  selectedHotel,
+  hotelDialogOpen,
+  hotelDetailLoading,
+  hotelDetailError,
+  setHotelDialogOpen,
+}: {
+  children: ReactNode;
+  quickActions: Array<{
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    message: string;
+  }>;
+  ready: boolean;
+  sendQuickAction: (message: string) => Promise<void>;
+  selectedHotel: HotelDetailSnapshot | null;
+  hotelDialogOpen: boolean;
+  hotelDetailLoading: boolean;
+  hotelDetailError: string | null;
+  setHotelDialogOpen: (open: boolean) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full items-center justify-center px-8 py-6">
+      <div className="relative flex h-[604px] max-h-[calc(100vh-8rem)] w-[280px] flex-col overflow-hidden rounded-[23px] bg-[#e9ebf1] shadow-2xl shadow-slate-900/20">
+        <div className="shrink-0 bg-[#3977cc] text-white">
+          <div className="flex h-8 items-center justify-between px-4 text-[12px] font-semibold">
+            <span>15:38</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-flex h-3 items-end gap-[1px]" aria-hidden="true">
+                <span className="h-1.5 w-0.5 rounded-full bg-white/80" />
+                <span className="h-2 w-0.5 rounded-full bg-white/80" />
+                <span className="h-2.5 w-0.5 rounded-full bg-white/80" />
+                <span className="h-3 w-0.5 rounded-full bg-white" />
+              </span>
+              <span className="text-[10px] font-medium">5G</span>
+              <span className="h-3.5 w-6 rounded-[3px] border border-white/70 p-[2px]">
+                <span className="block h-full w-4 rounded-[2px] bg-[#ffd84d]" />
+              </span>
+            </div>
+          </div>
+          <div className="flex h-10 items-center justify-between px-2.5">
+            <ChevronLeft className="h-5 w-5 shrink-0" />
+            <div className="min-w-0 flex-1 px-2 text-center">
+              <div className="truncate text-[13px] font-semibold leading-5">
+                23(创建人)
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Video className="h-4 w-4" />
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-[6px] bg-[#2d66b5] text-white"
+                aria-label="更多"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="hidden" aria-hidden="true">
+            <span>{ready ? "客服在线" : "等待接入"}</span>
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                disabled={!ready}
+                onClick={() => void sendQuickAction(action.message)}
+              >
+                <action.icon className="h-3.5 w-3.5" />
+                {action.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        </div>
+        <HotelDetailDialog
+          hotel={selectedHotel}
+          open={hotelDialogOpen}
+          loading={hotelDetailLoading}
+          error={hotelDetailError}
+          onOpenChange={setHotelDialogOpen}
+        />
+      </div>
+    </div>
+  );
+}
+
+function HotelDetailDialog({
+  hotel,
+  open,
+  loading,
+  error,
+  onOpenChange,
+}: {
+  hotel: HotelDetailSnapshot | null;
+  open: boolean;
+  loading: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const images =
+    hotel?.images && hotel.images.length > 0
+      ? hotel.images
+      : [
+          { caption: "酒店外观空白模拟图", url: "", isDefault: true },
+          { caption: "客房空白模拟图", url: "", isDefault: false },
+        ];
+
+  if (!open || !hotel) return null;
+
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 px-3 py-10"
+      data-testid="phone-hotel-detail-overlay"
+      onClick={() => onOpenChange(false)}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${hotel.hotelNameZh}酒店详情`}
+        className="max-h-[calc(100%-16px)] w-full overflow-hidden rounded-[10px] bg-white text-[#111] shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-[#e8e8e8] px-3 py-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-[15px] font-semibold leading-5">{hotel.hotelNameZh}</h2>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[#777]">
+              {[hotel.districtZh, hotel.addressZh].filter(Boolean).join(" · ") ||
+                "Dida Content API 模拟酒店详情"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#f2f2f2] text-[18px] leading-none text-[#555]"
+            aria-label="关闭酒店详情"
+            onClick={() => onOpenChange(false)}
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="max-h-[430px] overflow-y-auto px-3 py-3">
+          {loading && (
+            <div className="mb-3 flex items-center gap-2 rounded-[6px] bg-[#eef4ff] px-2.5 py-2 text-[11px] leading-4 text-[#1f5fbf]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              正在读取 Dida MCP 酒店详情...
+            </div>
+          )}
+          {error && (
+            <div className="mb-3 rounded-[6px] bg-[#fff1f0] px-2.5 py-2 text-[11px] leading-4 text-[#b42318]">
+              {error}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {images.slice(0, 2).map((image, index) => (
+              <div
+                key={`${hotel.hotelId}-${index}`}
+                className="flex aspect-[4/3] flex-col items-center justify-center rounded-[6px] border border-dashed border-[#d5d8df] bg-[#f3f4f7] px-2 text-center"
+              >
+                <ImageIcon className="mb-1.5 h-5 w-5 text-[#9aa0a8]" />
+                <span className="text-[10px] font-medium leading-4 text-[#777]">
+                  {image.caption ?? (index === 0 ? "酒店外观空白模拟图" : "客房空白模拟图")}
+                </span>
+                {image.isDefault && (
+                  <Badge className="mt-1.5 h-4 px-1.5 text-[10px]" variant="outline">
+                    默认图
+                  </Badge>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {hotel.starRating !== undefined && (
+              <Badge variant="outline">{hotel.starRating} 星</Badge>
+            )}
+            {hotel.roomNameZh && <Badge variant="outline">{hotel.roomNameZh}</Badge>}
+            {hotel.boardNameZh && <Badge variant="outline">{hotel.boardNameZh}</Badge>}
+            {hotel.pricePerRoomCny !== undefined && (
+              <Badge variant="outline">CNY {hotel.pricePerRoomCny}/晚</Badge>
+            )}
+          </div>
+          {hotel.descriptionZh && (
+            <DetailSection title="酒店介绍">
+              <p className="text-[12px] leading-5 text-[#333]">{hotel.descriptionZh}</p>
+            </DetailSection>
+          )}
+          <DetailSection title="地址">
+            <div className="space-y-1 text-[12px] leading-5 text-[#333]">
+              {hotel.addressZh && <p>{hotel.addressZh}</p>}
+              {hotel.address && hotel.address !== hotel.addressZh && (
+                <p className="text-[#777]">{hotel.address}</p>
+              )}
+            </div>
+          </DetailSection>
+          {hotel.sellingPointsZh && hotel.sellingPointsZh.length > 0 && (
+            <DetailSection title="推荐理由">
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {hotel.sellingPointsZh.map((point) => (
+                  <Badge key={point} variant="secondary">
+                    {point}
+                  </Badge>
+                ))}
+              </div>
+            </DetailSection>
+          )}
+          {hotel.facilitiesZh && hotel.facilitiesZh.length > 0 && (
+            <DetailSection title="设施">
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {hotel.facilitiesZh.map((facility) => (
+                  <Badge key={facility} variant="secondary">
+                    {facility}
+                  </Badge>
+                ))}
+              </div>
+            </DetailSection>
+          )}
+          {hotel.nearbyZh && hotel.nearbyZh.length > 0 && (
+            <DetailSection title="周边">
+              <p className="mt-1 text-[12px] leading-5 text-[#666]">
+                {hotel.nearbyZh.join("、")}
+              </p>
+            </DetailSection>
+          )}
+          {(hotel.ratePlanId || hotel.cancellationPolicyZh) && (
+            <DetailSection title="房型与政策">
+              <div className="space-y-1 text-[12px] leading-5 text-[#333]">
+                {hotel.cancellationPolicyZh && <p>{hotel.cancellationPolicyZh}</p>}
+              </div>
+            </DetailSection>
+          )}
+          {hotel.checkInInstructionsZh && hotel.checkInInstructionsZh.length > 0 && (
+            <DetailSection title="入住说明">
+              <ul className="space-y-1 text-[12px] leading-5 text-[#333]">
+                {hotel.checkInInstructionsZh.map((instruction) => (
+                  <li key={instruction}>{instruction}</li>
+                ))}
+              </ul>
+            </DetailSection>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] font-medium text-[#777]">{title}</p>
+      <div className="mt-1">{children}</div>
     </div>
   );
 }
@@ -1065,33 +1513,15 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AwaitingAirportConfirmation({ title, detail }: { title: string; detail: string }) {
+function WeComBlankConversation() {
   return (
-    <div className="flex flex-1 items-center justify-center px-4 text-center">
-      <div className="max-w-md rounded-lg border border-dashed border-border bg-card px-4 py-8">
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-iai-internal-soft text-iai-internal">
-          <Plane className="h-5 w-5" />
-        </div>
-        <h2 className="text-base font-medium">{title}</h2>
-        <p className="mx-auto mt-2 text-sm leading-6 text-muted-foreground">
-          {detail}
-        </p>
-      </div>
-    </div>
+    <div
+      className="flex flex-1 bg-[#e9ebf1]"
+      aria-label="企业微信空白聊天页，等待机场确认后由客服发送第一条消息"
+    />
   );
 }
 
 function DemoEmptyState() {
-  return (
-    <div className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center">
-      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-iai-internal-soft text-iai-internal">
-        <Sparkles className="h-5 w-5" />
-      </div>
-      <h2 className="text-base font-medium">等待座联 AI 客服主动问候</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-        页面已注入登机口扫码上下文。客服回复由
-        zuolian-travel-concierge 生成，不在前端硬编码。
-      </p>
-    </div>
-  );
+  return null;
 }

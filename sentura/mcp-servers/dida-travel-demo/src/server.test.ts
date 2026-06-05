@@ -125,6 +125,15 @@ describe("DidaTravel demo MCP flow", () => {
     expect(firstHotel.hotelNameZh).toBe("深圳湾安达仕酒店");
     expect(firstHotel.roomNameZh).toBe("湾景大床房");
     expect(firstHotel.cancellationPolicyZh).toContain("免费取消");
+    expect(firstHotel.images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          caption: expect.stringContaining("空白模拟图"),
+          url: "",
+          isDefault: expect.any(Boolean),
+        }),
+      ]),
+    );
     expect(firstHotel.displaySummaryZh).toContain("深圳湾安达仕酒店");
     expect(firstHotel.metadata).toBe("DIDA_META_SZX_BAY_20260611_20260615_RP_BB");
     expect(search.requestModel).toMatchObject({
@@ -253,8 +262,9 @@ describe("DidaTravel demo MCP flow", () => {
     expect(hotel.images).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          url: expect.stringContaining("dida-szx-10001"),
-          captionZh: expect.stringContaining("示意图"),
+          caption: expect.stringContaining("空白模拟图"),
+          url: "",
+          isDefault: expect.any(Boolean),
         }),
       ]),
     );

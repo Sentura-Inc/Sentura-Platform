@@ -1,7 +1,7 @@
 # 座联互动 AI 出行客服员工 — 第一阶段 MVP 设计
 
 > **状态**: Phase 1 MVP 详细设计与开发计划  
-> **最后更新**: 2026-06-03
+> **最后更新**: 2026-06-05
 > **范围**: 后端模拟 + 网页对话 Demo；暂不接微信/企业微信正式接口；道途/道旅（DidaTravel）相关调用按官方文档结构模拟。  
 > **主要依据**: `docs/PLATFORM-DESIGN.md`, `docs/MEMORY.md`, `座联互动/座联互动方案.pdf`, Dida Booking API / Content API 文档, OpenClaw docs。
 
@@ -269,7 +269,7 @@ flowchart LR
 Agent 需要的工具：
 
 - `dida-travel-demo__dida_demo_search_hotels`: Content/PriceSearch 对齐的酒店候选查询。
-- `dida-travel-demo__dida_demo_get_hotel_details`: Content API `/api/v1/hotel/details` 对齐的酒店静态详情查询，用于用户点击酒店卡片后查看酒店介绍、地址、设施、周边、图片占位和房型详情。
+- `dida-travel-demo__dida_demo_get_hotel_details`: Content API `/api/v1/hotel/details` 对齐的酒店静态详情查询，用于 Agent 需要更完整酒店静态内容时调用；网页 Demo 的酒店卡片和聊天酒店名点击会通过 `/api/client-demos/zuolian/hotel-details` 复用同一份 Dida Demo MCP fixture client 读取详情并填充弹窗。
 - `dida-travel-demo__dida_demo_price_confirm`: PriceConfirm 对齐的价格确认。
 - `dida-travel-demo__dida_demo_book_hotel`: BookingConfirm 对齐的酒店预订。
 - `dida-travel-demo__dida_demo_get_booking`: BookingSearch 对齐的订单查询。
@@ -507,7 +507,7 @@ MCP 响应采用双层字段：
 多城市 Demo fixture 要求：
 
 - 支持城市：深圳、广州、北京、上海、杭州、香港、澳门。
-- 每个城市至少 5 个真实酒店名称的模拟酒店候选；Dida `hotelId`、`ratePlanId`、价格、取消政策和图片 URL 仍为 Demo fixture。
+- 每个城市至少 5 个真实酒店名称的模拟酒店候选；Dida `hotelId`、`ratePlanId`、价格、取消政策和 `data.images.caption/url/isDefault` 仍为 Demo fixture。第一阶段不下载或展示真实酒店图片，`url` 留空，网页只渲染空白图片占位区。
 - 每个城市至少 5 个真实景点名称的模拟景点候选；门票价格用于 Demo 预算估算，不代表实时票价。
 - 专车按用户选择的目的地机场与酒店/区域动态生成本地 fixture，不伪称 Dida 生产覆盖完整出行链路。
 
@@ -527,10 +527,10 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 页面启动后先展示机场选择器。用户确认当前位置机场和目的地机场后，页面才创建/恢复对应机场组合的 `zuolian-travel-concierge` session，并展示：
 
-- 左侧：模拟扫码上下文、当前位置机场下拉、目的地机场下拉、确认按钮、当前行程摘要、订单状态。
-- 右侧：聊天窗口。
-- 酒店候选：Agent 调用 `dida_demo_search_hotels` 后，页面从工具结果中提取酒店候选并渲染为可点击卡片；用户点击酒店后，页面只发送“我想查看{酒店名}的详情”这类自然语言请求，不在用户可见消息里暴露工具名或 `hotelIds` wiring。Agent 必须调用 `dida-travel-demo__dida_demo_get_hotel_details`，再用中文总结详情。
-- 底部：快捷按钮：
+- 左侧：模拟扫码上下文、当前位置机场下拉、目的地机场下拉、确认按钮、当前行程摘要、工具状态、酒店候选和订单状态。该状态工具栏在企业微信视觉改版后仍保留。
+- 右侧：居中放置模拟 iPhone 企业微信会话窗口，按客户参考图使用蓝色手机状态栏、蓝色会话栏、标题 `23(创建人)`、右上视频/更多按钮、浅灰聊天背景和底部语音/输入/表情/加号栏；机场未确认前聊天区保持空白，不显示任何假聊天记录、假附件或提示卡片；消息内容仍由 `AgentChat` 连接真实 `zuolian-travel-concierge` session 渲染。
+- 酒店候选：Agent 调用 `dida_demo_search_hotels` 后，页面从工具结果中提取酒店候选并渲染为可点击卡片；用户点击左侧候选酒店时，页面打开手机内酒店详情弹窗，不再向 Agent 发送“我想查看{酒店名}的详情”。客服回复中出现已知候选酒店名时，酒店名渲染为明显的蓝色可点击文本，点击打开同一个详情弹窗。为避免工具结果解析时序导致酒店名不可点，页面保留 35 家 Dida Demo 酒店本地兜底目录，但该目录只用于匹配可点击名称和打开加载态；弹窗正文必须通过 `/api/client-demos/zuolian/hotel-details` 调用 Dida Demo MCP fixture 的 `getHotelDetails()` 返回结果填充。弹窗必须限制在模拟 iPhone 内部，作为手机里的弹窗覆盖企业微信会话区域，不使用全页面 portal。弹窗展示 MCP 返回的酒店名称、地址、星级、房型、早餐/取消政策、价格、描述、设施、周边、入住说明、经纬度、来源信息，以及两个空白图片占位区，对齐 Dida `data.images.caption/url/isDefault` 字段但不加载真实图片；不得用统一模板替代 `description/address/facilities` 等详情字段。
+- 快捷动作：仍保留七个 Demo 快捷动作并接入 `AgentChat.sendMessage()`，但不在截图式企业微信顶部显示为横向工具条，避免破坏客户参考图的会话样式。
   - “制定 5 日{目的地城市}旅游攻略”
   - “预算低一点”
   - “住宿更方便”
@@ -550,7 +550,7 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 
 不要在前端硬编码完整客服回复；前端只注入上下文，回复应由 Agent 生成。
 
-机场选择未确认前，不创建 Agent 会话、不发送 seed、不允许快捷操作。用户修改已确认机场后，页面应显示“机场选择尚未确认”空态并暂停快捷操作；再次点击“确认机场并通知客服”后，才将新的扫码上下文发送给 Agent。
+机场选择未确认前，不创建 Agent 会话、不发送 seed、不允许快捷操作，并且右侧企业微信聊天画布保持空白；两侧都不显示聊天记录。用户修改已确认机场后，页面回到同样的空白聊天状态并暂停快捷操作；再次点击“确认机场并通知客服”后，才将新的扫码上下文发送给 Agent，由 Agent 客服发送第一条可见消息。
 
 ---
 
@@ -605,9 +605,10 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 - [x] 增加当前位置机场与目的地机场下拉选择，支持广州、北京、上海、杭州、香港、澳门、深圳机场。
 - [x] 增加“确认机场并通知客服”按钮，确认前不向 Agent 发送扫码上下文。
 - [x] 将扫码上下文改为登机口扫码，目的地为另一个城市机场。
-- [x] 支持点击酒店候选后查询 Dida Content API `/api/v1/hotel/details` 对齐的模拟详情。
-- [x] 酒店候选点击消息简化为“我想查看{酒店名}的详情”，不暴露工具名或 `hotelIds`。
+- [x] 支持酒店候选和客服回复中的酒店名点击打开手机内酒店详情弹窗，并通过 demo API 复用 MCP `getHotelDetails()` 填充详情。
+- [x] 将 Dida `data.images.caption/url/isDefault` 映射为空白图片占位区，不下载或加载真实酒店图片。
 - [x] 增加取消订单和修改订单快捷操作。
+- [x] 将右侧聊天窗口改为模拟 iPhone 企业微信 UI，并保留左侧状态工具栏。
 
 ### Milestone 4 — E2E Demo 脚本
 
@@ -643,6 +644,7 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 | ZL-MCP-5 | BookingSearch 状态 | `2/3/4` 标记 final；`0/1/5/6` 标记 non-final。 |
 | ZL-MCP-6 | 中文展示字段 | MCP fixture 响应带 `locale: "zh-CN"` 和 `*Zh` / `displaySummaryZh`；Dida 机器字段保持原样。 |
 | ZL-MCP-7 | 多城市 fixture 覆盖 | 深圳、广州、北京、上海、杭州、香港、澳门各返回 5 个酒店候选和 5 个景点候选。 |
+| ZL-MCP-7a | Dida 图片字段模拟 | 酒店候选和酒店详情带 `data.images.caption/url/isDefault` 对齐字段；Demo `url` 为空，网页只展示空白占位区。 |
 | ZL-MCP-8 | Booking Cancel 两步模拟 | `dida_demo_pre_cancel_booking` 返回 `ConfirmID` 和取消金额但不改变订单状态；`dida_demo_cancel_booking` 使用 `ConfirmID` 后状态变为 `3 Canceled`。 |
 | ZL-MCP-9 | 修改订单模拟 | `dida_demo_modify_booking` 按 `BookingCancel -> PriceSearch -> PriceConfirm -> BookingConfirm` 后台重订，旧订单取消，新订单确认。 |
 | ZL-AGENT-1 | 主动问候 | 扫码上下文注入后 Agent 主动发第一条问候。 |
@@ -655,8 +657,9 @@ sentura/dashboard/src/app/client-demos/zuolian/page.tsx
 | ZL-WEB-1 | 页面可用 | `/client-demos/zuolian` 可打开，聊天可发送，侧栏状态更新。 |
 | ZL-WEB-2 | 刷新恢复 | 刷新后会话历史和订单状态不丢失。 |
 | ZL-WEB-3 | 机场选择器 | 页面提供当前位置机场和目的地机场下拉，且目的地不能与当前位置相同；确认前不创建 Agent 会话，点击确认后才发送扫码上下文；切换后需再次确认。 |
-| ZL-WEB-4 | 酒店候选点击文案 | 点击酒店卡片只发送“我想查看{酒店名}的详情”，不暴露 Dida demo 工具名或 `hotelIds` wiring。 |
+| ZL-WEB-4 | 酒店详情弹窗 | 点击左侧酒店候选或客服回复里的候选酒店名时，页面打开同一个手机内酒店详情弹窗；不向 Agent 发送酒店详情消息；聊天酒店名必须有明显可点击样式，并在工具结果解析未及时进入状态时回退到 35 家本地 Demo 酒店目录匹配点击名称；弹窗必须限制在模拟 iPhone 内部，不使用全页面 portal；弹窗正文通过 `/api/client-demos/zuolian/hotel-details` 调用 Dida Demo MCP fixture 的 `getHotelDetails()` 填充，展示 `descriptionZh`、`addressZh`、`facilitiesZh`、`nearbyZh`、房型/早餐/取消政策、入住说明、经纬度、来源信息和空白图片占位区，不使用统一模板。 |
 | ZL-WEB-5 | 取消/修改快捷操作 | 页面提供“取消订单”“修改订单”快捷按钮，并将对应工具流映射到侧栏状态。 |
+| ZL-WEB-6 | iPhone 企业微信视觉包装 | 右侧聊天窗口居中显示模拟 iPhone 外壳、蓝色企业微信状态栏/会话栏、`23(创建人)` 标题、浅灰聊天背景、企业微信风格消息气泡和底部语音/输入/表情/加号栏；机场未确认前聊天区保持空白，不显示假聊天记录、假附件或提示卡片；左侧状态工具栏仍可见且不被替换。 |
 
 ---
 
