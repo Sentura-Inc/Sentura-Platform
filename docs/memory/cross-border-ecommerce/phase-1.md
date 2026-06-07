@@ -17,6 +17,10 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-08 | API key and OpenClaw setup runbook | Added a Chinese operator runbook for API key acquisition, OpenClaw onboard, Sentura setup aftermath, MCP registration, probe commands, sandbox allowlists, and paid-data budget defaults. |
 | 2026-06-08 | Sentura setup owns cross-border MCP wiring | Moved `cross-border-intel` MCP registration into `scripts/sentura-setup.{sh,ps1}`, updated docs to use `${ENV_VAR}` references, and added CE9 static checks. |
 | 2026-06-08 | MCP doctor warning clarification | Clarified that `literal sensitive value` warnings do not block `cross-border-intel` when the actual config still stores `${ENV_VAR}` placeholders; added runbook troubleshooting and CE8.11. |
+| 2026-06-08 | Milestone 4 Marketing Acquisition employee | Added the `cbe-lead-discovery` workspace, setup registration/webchat binding, lead-discovery workbench UI, and CE4 static verification script. |
+| 2026-06-08 | Milestone 4 live-data correction | Replaced the lead UI's baked-in candidate fixture with a live Tavily Dashboard API route that reads configured env from process env or `~/.openclaw/.env`; CE4 static checks now pass 102/102 and a minimal live Tavily smoke returned one public-web candidate. |
+| 2026-06-08 | Milestone 4 company-buyer filtering correction | Tightened live search to retain specific downstream buyer company websites only, rejecting social profiles, directories, marketplaces, supplier directories, public company-info pages, and wholesale supplier pages; CE4 checks now pass 110/110 and live smoke returned company domains. |
+| 2026-06-08 | Milestone 4 lead UI simplification | Removed query log, Screening handoff preview, Marketing AgentChat, and realtime tool trace panels; moved source/dedupe review into expandable candidate-buyer table rows and stretched the table across the right workspace; CE4 checks now pass 107/107. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -253,7 +257,7 @@ They specifically asked for `cross-border-intel` MCP wiring to happen through Se
   - writes API-key entries as `${ENV_VAR}` references when the env var exists;
   - omits missing optional API-key entries to avoid OpenClaw config-load failures;
   - writes non-secret defaults for `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS`;
-  - logs `TAVILY_API_KEY` only as OpenClaw `web_search` auto-detection, not as MCP env.
+  - at that point, logged `TAVILY_API_KEY` for OpenClaw `web_search` auto-detection and not as MCP env; later Milestone 4 live-data correction also uses Tavily from the Dashboard live search route.
 - Mirrored the same behavior in `scripts/sentura-setup.ps1`.
 - Updated `跨境电商/API_KEYS_OPENCLAW_SETUP.md` so the main path is:
   1. OpenClaw onboard;
@@ -307,3 +311,164 @@ The output showed `cross-border-intel: ok` plus warnings that several `env.*API_
 ### Follow-ups
 
 - No code change is required for the warning. If a future OpenClaw doctor exposes source-preserved env-substitution metadata, setup docs can be simplified.
+
+## 2026-06-08 — Milestone 4 Marketing Acquisition employee
+
+### User request
+
+The user asked to complete Milestone 4 strictly according to `跨境电商/DESIGN.md`, then check the result.
+
+### Deliverables completed
+
+- Added `sentura/agents/cbe-lead-discovery/` with exactly the 8 native OpenClaw workspace files:
+  - `AGENTS.md`
+  - `SOUL.md`
+  - `TOOLS.md`
+  - `IDENTITY.md`
+  - `USER.md`
+  - `HEARTBEAT.md`
+  - `BOOTSTRAP.md`
+  - `MEMORY.md`
+- Added `sentura/agents/cbe-lead-discovery/config.json5`:
+  - id/name/model/runtime for `cbe-lead-discovery`;
+  - `sandbox.mode = "non-main"`;
+  - normal allowlist for `web_search`, `web_fetch`, `cron`, and `group:plugins`;
+  - sandbox allowlist for `web_search`, `web_fetch`, `cron`, and `cross-border-intel__*`;
+  - denies shell, filesystem mutation, gateway, messaging, subagent, and session-spawn tools;
+  - pins OpenAI models to `agentRuntime.id: "openclaw"`.
+- Added four Milestone 4 skills:
+  - `lead-query-generation/SKILL.md`;
+  - `lead-deduplication/SKILL.md`;
+  - `lead-list-production/SKILL.md`;
+  - `handoff-to-screening/SKILL.md`.
+- Updated `scripts/sentura-setup.sh` and `scripts/sentura-setup.ps1`:
+  - added `cbe-lead-discovery` to the client-demo workspace copy/stamp/register list;
+  - applied the same tool/runtime override used by source config;
+  - added the webchat binding for `cbe-lead-discovery`.
+- Added `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`:
+  - dense operational workbench layout;
+  - keyword/persona/country run builder;
+  - deduplicated lead table with source count, confidence, duplicate status, and demo/live source label;
+  - source/evidence/dedupe panel with source URLs, query strings, source type, and timestamps;
+  - paid/unavailable source locks;
+  - real `AgentChat` session targeting `cbe-lead-discovery`;
+  - selected-lead typed handoff preview for `cbe-buyer-screening`.
+- Added sidebar route entry `CBE Leads`.
+- Added `scripts/test-cross-border-agents.ts` with CE4 offline checks.
+- Updated `跨境电商/DESIGN.md`, `跨境电商/API_KEYS_OPENCLAW_SETUP.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Design invariants locked
+
+- Workspace top-level Markdown remains exactly the 8 native OpenClaw files.
+- Phase 1 still uses normal OpenClaw employee workspaces and setup-driven `mcp.servers.cross-border-intel`; no custom runtime/gateway/Docker wrapper was added.
+- Marketing Acquisition does not send outreach. It returns lead lists, audit sources, and handoff payloads only.
+- Public search/fetch remains the default discovery path; `cross-border-intel` is allowed only as a light enrichment tool in this employee.
+- The lead UI uses demo-fixture table data for customer review and a real `AgentChat` surface for the employee. Live web-search/tool results require a running OpenClaw Gateway and configured web-search provider.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 93/93 PASS.
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` — PASS.
+- `npx tsx scripts/test-cross-border-milestone2.ts` — 39/39 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 12/12 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS, with `/client-demos/cross-border/lead-discovery` generated.
+- Browser verification against `http://localhost:3001/client-demos/cross-border/lead-discovery` — route rendered, key workbench regions were visible, and filtering console errors after a fresh load showed no new errors.
+- `git diff --check` — PASS.
+- `pwsh` was not installed locally, so PowerShell setup syntax could not be parser-checked live; CE4 static checks verified the PowerShell setup script contains the new client-demo copy, webchat binding, MCP sandbox glob, and cron allowlist entries.
+
+### Follow-ups
+
+- Milestone 5 remains pending: create `cbe-buyer-screening` and connect the handoff preview to a real Screening workflow.
+- Milestone 6 remains pending: create `cbe-accio-memory`.
+- Milestone 7 remains pending for the full three-route demo suite; CE4 covers only the lead-discovery route.
+
+## 2026-06-08 — Milestone 4 live-data correction
+
+### Trigger
+
+The user clarified that `TAVILY_API_KEY`, `COMPANIES_HOUSE_API_KEY`, `ABSTRACT_API_KEY`, `HUNTER_API_KEY`, `IMPORTYETI_API_KEY`, `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` had been manually configured and the workflow should use real sources instead of simulated lead data.
+
+### Changes
+
+- Added `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`.
+  - Calls `POST https://api.tavily.com/search` with `Authorization: Bearer ${TAVILY_API_KEY}`.
+  - Reads env from the Dashboard process first and falls back to `~/.openclaw/.env`.
+  - Returns only redacted provider status (`configured`, `enabled`, source, timeout, budget cap), never API key values.
+  - Builds mobile-accessory buyer queries, applies domain exclusions, dedupes by normalized domain, and emits source-audited `LeadCandidate` records with `source_label: "实时查询"`.
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
+  - Removed the baked-in `sampleLeads` fixture and all `.example` candidate rows.
+  - Initial table is empty; clicking `开始获客搜索` calls the live API route and then best-effort sends a redacted result summary to the real `cbe-lead-discovery` AgentChat.
+  - Replaced the old locked-source panel with live source status for Tavily, Companies House, Abstract/Hunter, ImportYeti, SEC, and paid trade-data budget state.
+- Updated `scripts/test-cross-border-agents.ts` to lock the live route behavior and absence of sample leads.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 102/102 PASS.
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- Minimal live Tavily smoke through the route function — PASS: HTTP 200, 1 query, 1 deduped candidate, env detected from `~/.openclaw/.env`, no secret values printed.
+- `cd sentura/dashboard && pnpm build` — PASS; Next generated the dynamic `/api/client-demos/cross-border/lead-discovery/run` route.
+- Browser check against `http://localhost:3001/client-demos/cross-border/lead-discovery` — PASS for live badge and empty live-table state; no sample text or `.example` domains. The only console error was the expected AgentChat WebSocket refusal while the OpenClaw Gateway was not running.
+
+## 2026-06-08 — Milestone 4 company-buyer filtering correction
+
+### Trigger
+
+The user observed that live search results were returning public information websites such as Facebook or generic wholesale pages rather than specific customer companies. The correct Marketing Acquisition target is a concrete company whose business content relates to mobile accessories, phone repair, electronics retail, accessory retail, reseller/import buying, or phone-store operations and that may need to buy from mobile-accessory wholesalers.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`.
+  - Default personas now target downstream buyers: mobile phone repair chains, electronics retailers, and cell phone accessories retailers.
+  - Query templates now use natural company/buyer terms instead of negative-operator-heavy searches that degraded Tavily relevance.
+  - Added hard blocked domains for social platforms, business directories, marketplaces, supplier directories, public company-info pages, review sites, and generic lead databases.
+  - Added candidate rejection logic for non-company source pages, supplier/manufacturer/exporter/OEM/ODM pages, generic wholesale-list pages, and pages missing mobile-accessory plus buyer-business signals.
+  - Improved company-name extraction so generic titles like `Contact` or payment-provider text fall back to the candidate domain brand.
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
+  - Default buyer chips now select repair chains, electronics retailers, and accessory retailers.
+  - Added downstream buyer personas such as accessory retailer, phone store, reseller buyer, and importer buyer.
+  - Updated the AgentChat prompt and empty-table copy to say only company-owned website candidates should be retained.
+- Updated `lead-query-generation/SKILL.md` and `lead-list-production/SKILL.md` so the employee no longer treats Facebook, LinkedIn, directories, marketplaces, supplier directories, or generic wholesale pages as leads.
+- Updated `scripts/test-cross-border-agents.ts`, `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 110/110 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- `git diff --check` — PASS.
+- Minimal live Tavily smoke through the route function — PASS: HTTP 200, 2 queries, 3 company-level candidates. Returned domains were `wavecase.co.uk`, `vendulalondon.com`, and `mobilelab.co.uk`; social/directory/generic wholesale pages were not retained.
+- `cd sentura/dashboard && pnpm build` — PASS; dynamic route remained generated.
+- Browser check against `http://localhost:3001/client-demos/cross-border/lead-discovery` — PASS for live badge, company-website empty-table copy, downstream buyer persona chips, no old wholesaler default, no demo data, and no `.example` domains. The only console error was the expected AgentChat WebSocket refusal while OpenClaw Gateway was not running.
+
+## 2026-06-08 — Milestone 4 lead UI simplification
+
+### Trigger
+
+The user asked to remove the query log, Screening handoff package, Marketing employee conversation, and realtime tool panels. They also asked to make the source/dedupe section part of the candidate buyer table, automatically expand it when the `查看` button is clicked, and extend the table to fill the right-side workspace.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
+  - Removed the `AgentChat` import, chat session state, chat prompt sending, tool-event state, query-log rendering, selected-lead state, and Screening handoff preview rendering.
+  - Changed the page from a three-column layout to `xl:grid-cols-[280px_minmax(0,1fr)]`, leaving the run builder on the left and the candidate buyer table to fill the remaining right-side workspace.
+  - Added `expandedLeadId` so the table's `查看` icon toggles an inline detail row below the selected lead.
+  - Moved `来源与去重` into that expanded table row, including `dedupe_key`, `created_at`, `dedupe_explanation`, source type, fetched timestamp, source URL, excerpt, and originating query.
+  - Kept the real Tavily API workflow and redacted live-source status in the run builder.
+- Updated `scripts/test-cross-border-agents.ts`.
+  - Added static checks that the old panels are absent.
+  - Added checks for the two-column full-width layout and inline expandable source/dedupe table row.
+  - Adjusted the CE4 total from 110 checks to 107 checks.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md` to make the simplified table workflow the current Milestone 4 acceptance contract.
+- Restored `sentura/dashboard/next-env.d.ts` after `next build` rewrote it to production route types.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 107/107 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; Next produced the expected dynamic lead-discovery API route.
+- Browser check against `http://localhost:3001/client-demos/cross-border/lead-discovery` — PASS for live badge, source status, candidate buyer table, old panel removal, company-owned website empty-state copy, and no browser console errors. Screenshot captured at `/tmp/cbe-lead-discovery-simplified.png`.

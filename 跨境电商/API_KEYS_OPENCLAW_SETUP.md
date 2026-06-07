@@ -101,11 +101,12 @@ setup 脚本会做这些事：
 | Diagnostics | 打开 diagnostics，使 cost/monitoring/audit 相关事件可见。 |
 | Dida demo MCP | 当前会自动注册 Sitlink 的 `dida-travel-demo`。 |
 | Cross-border MCP | 自动写入 `mcp.servers.cross-border-intel`，从 `~/.openclaw/.env` / 当前进程 env 检测已配置 key，并用 `${ENV_VAR}` 引用 API key。 |
+| Cross-border lead employee | Milestone 4 起会复制并注册 `cbe-lead-discovery`，用于 `/client-demos/cross-border/lead-discovery` 的真实 AgentChat 会话。 |
 
 不会自动做的事：
 
 - 不会替你购买或获取跨境电商第三方 API key。
-- 不会自动创建 `cbe-lead-discovery`、`cbe-buyer-screening`、`cbe-accio-memory` 三个客户员工，这些是 Milestone 4-6。
+- 不会自动创建 `cbe-buyer-screening`、`cbe-accio-memory` 两个客户员工，这些是 Milestone 5-6。
 
 setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会覆盖更新 `cross-border-intel` 的 MCP 定义，但不会把真实 key 写进 `openclaw.json` 明文。
 
@@ -116,7 +117,7 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / 其他模型 key | OpenClaw onboard 的模型 provider | 必需，除非使用自托管模型 | 在所选模型 provider 控制台创建。由 onboard 或 `~/.openclaw/.env` 提供。 |
 | `OLLAMA_BASE_URL` | 本地模型 provider | 自托管时需要 | 本机运行 Ollama 后填 `http://localhost:11434`。 |
 | `BRAVE_API_KEY` | OpenClaw `web_search`，主要给 Marketing 获客和 Screening web fallback | 推荐其一 | Brave Search API dashboard 订阅 Search plan 后复制 subscription token。 |
-| `TAVILY_API_KEY` | OpenClaw `web_search` provider | 推荐其一 | Tavily Platform 创建 key。本文不接入 MCP，只作为 web search provider。 |
+| `TAVILY_API_KEY` | OpenClaw `web_search` provider + CE4 Dashboard live search route | 推荐其一 | Tavily Platform 创建 key。不写入 `cross-border-intel` MCP env；Dashboard route 会从进程 env 或 `~/.openclaw/.env` 读取。 |
 | `COMPANIES_HOUSE_API_KEY` | `cross-border-intel` 英国公司注册查询 | 可选但强烈建议 | Companies House Developer Hub 创建 app/key。 |
 | `OPENCORPORATES_API_KEY` | `cross-border-intel` 全球公司注册付费 fallback | 可选，付费 | OpenCorporates API 账号/计划获取。Phase-1 默认不用。 |
 | `ABSTRACT_API_KEY` | `cross-border-intel` 可选邮箱验证 | 可选 | Abstract Email Validation API 控制台创建。 |
@@ -195,7 +196,7 @@ pnpm gateway:watch
 
 ### 5.3 `TAVILY_API_KEY`
 
-用途：OpenClaw `web_search` provider。如果客户已配置 Tavily，可以用它替代 Brave 作为 Phase-1 的搜索来源。
+用途：OpenClaw `web_search` provider，以及 CE4 Marketing Acquisition Dashboard live search route。如果客户已配置 Tavily，可以用它替代 Brave 作为 Phase-1 的搜索来源；`/api/client-demos/cross-border/lead-discovery/run` 会直接调用 Tavily Search API 生成实时候选表。
 
 获取流程：
 
@@ -209,8 +210,9 @@ TAVILY_API_KEY=tvly-REPLACE_ME
 ```
 
 5. 运行 `openclaw configure --section web`，选择 Tavily 或按 OpenClaw web docs 设置 provider。
+6. 如果只启动 Dashboard 而不启动 OpenClaw Gateway，CE4 live search route 仍会从 `~/.openclaw/.env` fallback 读取 `TAVILY_API_KEY`。
 
-注意：当前 `cross-border-intel` MCP server 不直接调用 Tavily。它只需要 agent 同时拥有 `web_search` 权限。
+注意：`cross-border-intel` MCP server 不直接调用 Tavily，也不应把 `TAVILY_API_KEY` 放进 MCP env。Tavily 用于 OpenClaw `web_search` 和 CE4 Dashboard live search route。
 
 ### 5.4 `COMPANIES_HOUSE_API_KEY`
 
@@ -495,7 +497,7 @@ powershell -ExecutionPolicy Bypass -File scripts\sentura-setup.ps1
 - 已配置的 API key 使用 `${ENV_VAR}` 引用，不会把真实 key 明文写入 `openclaw.json`。
 - 未配置的可选 API key 不会写入 `env` 块，避免 OpenClaw 因缺失 `${ENV_VAR}` 而加载失败。
 - `SEC_USER_AGENT`、`CBE_ENABLE_PAID_TRADE_DATA`、`CBE_MAX_PAID_SPEND_USD`、`CBE_INTEL_REQUEST_TIMEOUT_MS` 是非密钥控制项，setup 会写入当前值或安全默认值。
-- `TAVILY_API_KEY` 不属于 `cross-border-intel` MCP env；它由 OpenClaw `web_search` provider 自动检测。
+- `TAVILY_API_KEY` 不属于 `cross-border-intel` MCP env；它由 OpenClaw `web_search` provider 自动检测，并由 CE4 Dashboard live search route 从进程 env 或 `~/.openclaw/.env` 读取。
 
 配置形状仍然必须是 flat map：`mcp.servers.cross-border-intel`。区别只是这个位置由 Sentura setup 写入，不由操作者手工改。
 

@@ -1,0 +1,133 @@
+// Cross-Border Marketing Acquisition Employee — Agent Configuration
+//
+// Milestone 4 of `跨境电商/DESIGN.md`.
+// This source config mirrors the setup-script registration shape. The global
+// `cross-border-intel` MCP server is wired by `scripts/sentura-setup.{sh,ps1}`.
+{
+  agents: {
+    list: [
+      {
+        id: "cbe-lead-discovery",
+        name: "跨境营销获客员工",
+        model: "openai/gpt-5.4",
+        models: {
+          "openai/gpt-5.4": {
+            agentRuntime: { id: "openclaw" },
+          },
+          "openai/gpt-5.5": {
+            agentRuntime: { id: "openclaw" },
+          },
+        },
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          allow: [
+            "web_search",
+            "web_fetch",
+            "cron",
+            "group:plugins",
+          ],
+          sandbox: {
+            tools: {
+              allow: [
+                "web_search",
+                "web_fetch",
+                "cron",
+                "cross-border-intel__*",
+              ],
+            },
+          },
+          deny: [
+            "agents_list",
+            "browser",
+            "canvas",
+            "create_goal",
+            "exec",
+            "gateway",
+            "get_goal",
+            "image",
+            "image_generate",
+            "memory_get",
+            "memory_search",
+            "message",
+            "nodes",
+            "pdf",
+            "process",
+            "read",
+            "session_status",
+            "sessions_history",
+            "sessions_list",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "skill_workshop",
+            "subagents",
+            "tts",
+            "update_goal",
+            "update_plan",
+            "video_generate",
+            "edit",
+            "apply_patch",
+            "write",
+          ],
+        },
+        params: {
+          role: "Cross-border mobile-accessory Marketing Acquisition employee",
+          language: "zh-CN",
+          tenant: "cross-border-ecommerce",
+          demoScope: "Phase 1 public-search lead discovery with typed Screening handoff preview",
+          allowedActions: [
+            "public_web_lead_search",
+            "public_web_fetch",
+            "lead_deduplication",
+            "json_markdown_lead_list",
+            "screening_handoff_payload",
+            "operator_requested_cron_schedule",
+          ],
+          blockedActions: [
+            "automatic_outreach",
+            "login_gated_social_scraping",
+            "protected_marketplace_scraping",
+            "crm_write",
+            "external_message_send",
+            "secret_collection",
+          ],
+          defaultInputs: {
+            productKeywords: [
+              "phone case",
+              "tempered glass screen protector",
+              "USB-C charger",
+              "MagSafe accessories",
+            ],
+            buyerPersonas: [
+              "importer",
+              "distributor",
+              "wholesaler",
+              "mobile phone repair chain",
+              "electronics retailer",
+            ],
+            countries: ["US", "GB", "DE", "FR", "BR", "MX"],
+            languages: ["en", "de", "fr", "pt", "es"],
+            maxResultsPerQuery: 10,
+            dailyCandidateTarget: 100,
+            excludeDomains: [
+              "amazon.com",
+              "alibaba.com",
+              "aliexpress.com",
+              "temu.com",
+              "ebay.com",
+            ],
+          },
+        },
+      },
+    ],
+  },
+
+  bindings: [
+    {
+      agentId: "cbe-lead-discovery",
+      match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
+    },
+  ],
+}

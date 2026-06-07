@@ -191,7 +191,10 @@ setup. The setup script writes OpenClaw's required flat config shape:
 ```
 
 `TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider
-auto-detection, not to `cross-border-intel`'s MCP env block.
+auto-detection, not to `cross-border-intel`'s MCP env block. `TAVILY_API_KEY`
+is also read by the CE4 Dashboard live search route from process env or
+`~/.openclaw/.env` so the lead table can be populated by real public-search
+results without embedding a separate secret.
 
 Agent tool policy must include the MCP tools twice:
 
@@ -210,19 +213,19 @@ tools: {
 
 ### 3.3 Client demo UI surfaces
 
-Like the Sitlink demo, each Cross-border e-commerce employee needs its own customer-facing UI. These are not marketing landing pages; they are operational demo workbenches that expose the exact workflow a human sales team would use. Each page must use a real OpenClaw `AgentChat` session for the employee and visualize tool results beside the chat, so the customer sees both the AI conversation and the evidence trail.
+Like the Sitlink demo, each Cross-border e-commerce employee needs its own customer-facing UI. These are not marketing landing pages; they are operational demo workbenches that expose the exact workflow a human sales team would use. Use a real OpenClaw `AgentChat` session only where chat remains part of the workflow; otherwise, the page should expose the real OpenClaw/Sentura-backed employee workflow through operational controls, source provenance, and review tables.
 
 Routes:
 
 | Route | Employee | Human workflow |
 |---|---|---|
-| `/client-demos/cross-border/lead-discovery` | `cbe-lead-discovery` | Configure a lead-search run, watch query/source progress, review a deduped buyer table, select leads, and send selected leads to Screening. |
+| `/client-demos/cross-border/lead-discovery` | `cbe-lead-discovery` | Configure a lead-search run, review a deduped buyer table, and expand each buyer row to inspect source provenance and dedupe reasoning. |
 | `/client-demos/cross-border/screening` | `cbe-buyer-screening` | Investigate leads from Marketing or manually entered company/email/domain/contact data, inspect evidence, adjust enabled data sources/budget, and export risk reports. |
 | `/client-demos/cross-border/accio-memory` | `cbe-accio-memory` | Upload/select Accio chat JSON, inspect conversation threads, review extracted deal facts, approve memory write, and hand buyer context to Screening. |
 
 Shared UI conventions:
 
-- Use a dense workbench layout: left controls, center primary work table/transcript, right evidence/chat panel. Avoid hero pages or marketing copy.
+- Use a dense workbench layout: left controls plus a primary work table/transcript, with evidence embedded inline when that is the clearest workflow. Avoid hero pages or marketing copy.
 - Keep all customer-facing labels in Simplified Chinese for the demo, while preserving source URLs, API field names, and machine ids in expandable technical details.
 - Every visible result must show source type and timestamp: `official_api`, `public_web`, `paid_trade_data`, `demo_fixture`, `self_reported`, or `unverified`.
 - Paid or unavailable data sources must appear as explicit disabled/locked toggles with cost notes, not as silent missing evidence.
@@ -237,26 +240,24 @@ Primary layout:
 
 - Left run builder:
   - product keyword chips: phone case, tempered glass, USB-C charger, MagSafe accessories, custom input
-  - buyer persona multi-select: importer, distributor, wholesaler, repair chain, electronics retailer
+  - buyer persona multi-select: repair chain, electronics retailer, accessories retailer, phone store, reseller buyer, importer buyer
   - country/language selector
   - result target stepper and max-results-per-query slider
   - exclusion domain editor
   - run button: "开始获客搜索"
-- Center lead table:
+- Center/right lead table:
   - columns: company, country, buyer type, matched product, domain, contact candidate, source count, discovery confidence, duplicate status
-  - row actions: inspect sources, mark irrelevant, send selected to Screening
-  - batch actions: export JSON, export Markdown, handoff to Screening
-- Right evidence/chat panel:
-  - top: live AgentChat with `cbe-lead-discovery`
-  - below: query log, source URLs, snippets, dedupe explanation
+  - row actions: inspect sources
+  - clicking "查看" expands an inline detail row with source URLs, query strings, snippets, timestamps, dedupe key, and dedupe explanation
+  - the table extends across the available right-side workspace; query log, Screening handoff package preview, Marketing AgentChat panel, and realtime tool trace are intentionally not rendered in this page
 
 Human logic:
 
 1. Operator configures a run using business terms they understand.
 2. Agent expands queries and searches.
 3. UI streams discovered candidates into a table.
-4. Operator filters and selects plausible buyers.
-5. Selected rows become a typed handoff batch for Screening.
+4. Operator clicks "查看" on plausible buyers to inspect source provenance and dedupe reasoning inline.
+5. Qualified buyers can be exported or copied into the Screening workflow later; this page does not show a live handoff package panel.
 
 #### 3.3.2 Screening UI
 
@@ -1025,15 +1026,19 @@ Deliverables:
   - `handoff-to-screening/SKILL.md`
 - Config with `web_search`, `web_fetch`, `cron`, and `cross-border-intel__*` if needed.
 - Demo UI route: `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
+- Live Dashboard API route: `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`, using `TAVILY_API_KEY` from `process.env` or `~/.openclaw/.env`.
 - Manual command:
   - "根据手机壳、钢化膜、充电器关键词，为英国和美国找 50 个潜在 B2B 买家。"
 
 Acceptance:
 
-- Produces >= requested candidate count or explains shortage by country/source.
+- Produces >= requested candidate count or explains shortage by country/source from real public-search results.
+- Every candidate is a specific downstream buyer company, normally backed by that company's own website, not a social profile, public directory, marketplace, supplier directory, generic wholesale article, or public company-info page.
 - Every candidate has source URL(s), matched product, buyer type, and dedupe key.
 - No automated outreach is sent.
-- UI supports keyword/persona/country setup, lead table review, source inspection, and selected-lead handoff to Screening.
+- UI supports keyword/persona/country setup, lead table review, and inline source/dedupe inspection from the table's `查看` action.
+
+Implementation status (2026-06-08): complete. Added `sentura/agents/cbe-lead-discovery/`, setup-script registration, `/client-demos/cross-border/lead-discovery`, live API route `/api/client-demos/cross-border/lead-discovery/run`, and `scripts/test-cross-border-agents.ts` (CE4 107/107 offline checks). The page no longer ships baked-in lead fixtures: the candidate table starts empty and is populated only by the live Tavily route. The API route reads configured env from the Dashboard process first and falls back to `~/.openclaw/.env` without returning secret values. Current filtering keeps only company-level downstream buyer candidates whose pages show mobile-accessory, phone-repair, electronics-retail, accessory-retail, reseller, importer-buyer, or phone-store relevance, and rejects social profiles, directories, marketplaces, public company-info pages, generic wholesale lists, supplier directories, manufacturers, exporters, and wholesale supplier pages. The final lead UI is a two-column workbench with the candidate buyer table filling the right-side workspace; the old query log, Screening handoff package preview, Marketing AgentChat panel, and realtime tool-trace panel are removed, and source/dedupe details now expand inline inside the table when the operator clicks `查看`.
 
 ### Milestone 5 — Screening and Background employee
 

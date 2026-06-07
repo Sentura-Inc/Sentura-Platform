@@ -22,7 +22,7 @@ Scope: `跨境电商/DESIGN.md`
 | CE1.6 | Contextual scoring model | Manual review | Design uses contextual evidence blocks, excludes not-applicable behavior for cold Marketing leads, reports normalized score and evidence coverage separately, and keeps forced downgrades. |
 | CE1.7 | API and price sourcing | Manual review | Design lists official API/doc URLs and price/cost decisions for search, registry, domain/email, trade-record, and financial checks. |
 | CE1.8 | Safety and data classification | Manual review | Design classifies raw chats and buyer evidence, stores secrets outside code/config, blocks automatic outreach, and keeps paid API use behind budget controls. |
-| CE1.9 | Employee-specific UIs | Manual review | Design defines three distinct demo routes for lead discovery, screening, and Accio memory, each with workflow-specific controls, evidence panels, and real AgentChat sessions. |
+| CE1.9 | Employee-specific UIs | Manual review | Design defines three distinct demo routes for lead discovery, screening, and Accio memory, each with workflow-specific controls, explicit provenance, and real employee chat only where the workflow still includes a chat surface. |
 | CE1.10 | Manual screening intake | Manual review | Design allows Screening to investigate manually entered company name, domain, email, contact person/title, social/profile URL, country, product interest, and notes. |
 | CE1.11 | Demo feasibility under missing APIs | Manual review | Design marks unavailable paid/API evidence as coverage gaps rather than fraud penalties, so the demo remains explainable when only low-cost APIs are enabled. |
 
@@ -99,22 +99,41 @@ pnpm --filter @sentura/mcp-cross-border-intel build
 | CE3.11 | Accio parser/summarizer | Parser validates `跨境电商/fixtures/accio-chat-records.sample.json`; summarizer extracts company profile, requested goods, quantities, target/best prices, packaging add-on, negotiated prices, next actions, and behavior signals. |
 | CE3.12 | MCP smoke and hermetic tests | `InMemoryTransport` client lists and calls tools; all HTTP and DNS behavior is mocked/injected, so Vitest performs no real external calls and no secrets appear in outputs. |
 
-## CE4 — Marketing Acquisition Employee Workspace (Planned)
+## CE4 — Marketing Acquisition Employee Workspace
 
-Status: PEND
+Status: PASS (2026-06-08)
 
-Planned scope: `sentura/agents/cbe-lead-discovery/`
+Scope:
 
-Future checks:
+- `sentura/agents/cbe-lead-discovery/`
+- `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`
+- `sentura/dashboard/src/components/sidebar.tsx`
+- `scripts/sentura-setup.sh`
+- `scripts/sentura-setup.ps1`
+- `scripts/test-cross-border-agents.ts`
+
+Validation command:
+
+```bash
+npx tsx scripts/test-cross-border-agents.ts
+```
+
+Latest result: 107/107 PASS (2026-06-08).
 
 | # | Check | Expected |
 |---|---|---|
-| CE4.1 | Workspace convention | Exactly 8 native OpenClaw workspace files plus skills/config; no extra top-level markdown workspace files. |
-| CE4.2 | Tool policy | Allows `web_search`, `web_fetch`, and `cross-border-intel__*` only as needed, including sandbox allowlists. |
-| CE4.3 | Skills | Has a lead-generation skill with keyword expansion, market selection, source capture, dedupe, ranking, and handoff. |
-| CE4.4 | Output schema | Produces lead records with company, geography, product fit, source URLs, confidence, and next research action. |
-| CE4.5 | No outreach | Does not send emails/messages automatically in Phase 1. |
-| CE4.6 | UI handoff contract | Lead output can be rendered in `/client-demos/cross-border/lead-discovery` and selected rows can be handed to Screening as typed targets. |
+| CE4.1 | Workspace convention | Exactly 8 native OpenClaw workspace files plus `config.json5` and skills; no extra top-level markdown workspace files. |
+| CE4.2 | Tool policy | Allows `web_search`, `web_fetch`, `cron`, and `group:plugins`; sandbox allowlist includes `web_search`, `web_fetch`, `cron`, and `cross-border-intel__*`; dangerous tools and external messaging are denied. |
+| CE4.3 | Skills | Has `lead-query-generation`, `lead-deduplication`, `lead-list-production`, and `handoff-to-screening` skills covering company-owned downstream buyer query generation, social/directory/marketplace rejection, source capture, dedupe, ranking, JSON/Markdown output, and typed handoff. |
+| CE4.4 | Output schema | Produces lead records with company, geography, product fit, source URLs, source timestamps, confidence, duplicate status, and dedupe key matching the design-shaped `LeadCandidate` contract. |
+| CE4.5 | No outreach | Hard Rules, TOOLS, skills, config, and UI do not send emails/messages automatically in Phase 1. |
+| CE4.6 | Setup registration | `scripts/sentura-setup.{sh,ps1}` copy/stamp/register `cbe-lead-discovery`, apply the OpenClaw runtime/tool override, and add a webchat binding. |
+| CE4.7 | UI lead-table contract | `/client-demos/cross-border/lead-discovery` renders keyword/persona/country setup, env source status, live lead table review, and a full-width candidate buyer table where clicking the row `查看` action expands source URLs, query strings, snippets, timestamps, dedupe key, and dedupe explanation inline. The query log, Screening handoff package preview, Marketing AgentChat panel, and realtime tool-trace panel are not rendered. |
+| CE4.8 | Live Tavily route | `/api/client-demos/cross-border/lead-discovery/run` calls `https://api.tavily.com/search` with `Authorization: Bearer`, reads `TAVILY_API_KEY` from process env or `~/.openclaw/.env`, returns source-audited company-website lead candidates, and only exposes redacted configured/enabled env status for cross-border API keys. |
+| CE4.9 | No baked-in leads | The page starts with an empty table and has no `sampleLeads`, `.example` domains, or fixture-source fallback for buyer candidates. |
+| CE4.10 | Downstream buyer filtering | Live route and skills reject Facebook/LinkedIn/social profiles, directories, marketplaces, public company-info pages, supplier directories, generic wholesale lists, factories, manufacturers, exporters, and wholesale supplier pages; accepted leads must show mobile-accessory/repair/retail relevance on a company-level website. |
+| CE4.11 | UI buyer defaults | The default run builder targets downstream buyer personas such as repair chains, electronics retailers, accessory retailers, and phone stores, not generic wholesalers. |
 
 ## CE5 — Screening And Background Employee Workspace (Planned)
 
@@ -166,11 +185,11 @@ Future checks:
 
 | # | Check | Expected |
 |---|---|---|
-| CE7.1 | Lead-discovery route exists | `/client-demos/cross-border/lead-discovery` builds and opens. |
+| CE7.1 | Lead-discovery route exists | `/client-demos/cross-border/lead-discovery` builds and opens. Covered structurally by CE4; CE7 remains pending until Screening and Accio routes exist. |
 | CE7.2 | Lead run builder | Page has product keyword chips, buyer persona controls, country/language controls, target count, exclusions, and a clear run action. |
 | CE7.3 | Lead table | Page renders lead rows with company, country, buyer type, matched product, domain/contact candidate, source count, confidence, and duplicate status. |
-| CE7.4 | Lead evidence panel | Selecting a lead shows query strings, source URLs, snippets, dedupe explanation, and source timestamps. |
-| CE7.5 | Lead AgentChat | Page connects to a real `cbe-lead-discovery` AgentChat session, not static fake conversation content. |
+| CE7.4 | Lead inline evidence | Clicking a lead's `查看` action expands query strings, source URLs, snippets, dedupe explanation, dedupe key, and source timestamps inside the candidate buyer table. |
+| CE7.5 | Lead side-panel removal | Lead-discovery does not render the old query log, Screening handoff package preview, Marketing AgentChat panel, or realtime tool-trace panel. |
 | CE7.6 | Screening route exists | `/client-demos/cross-border/screening` builds and opens. |
 | CE7.7 | Screening intake tabs | Page supports both Marketing lead batch intake and manual investigation input. |
 | CE7.8 | Manual screening form | Manual form includes company name, country, website/domain, email, contact person/title, social/profile URL, product interest, and notes. |
@@ -231,4 +250,4 @@ rg -n 'cross-border-intel|buildCrossBorderIntelEnv|COMPANIES_HOUSE_API_KEY|CBE_E
 | CE9.4 | Env source handling | Static review | Setup reads both current process env and OpenClaw state `.env`, so operators can configure keys before running setup without exposing them in repo files. |
 | CE9.5 | Secret handling | Static review | API keys are stored as `${ENV_VAR}` config references when present; missing optional keys are omitted; setup never writes raw API key values into `openclaw.json`. |
 | CE9.6 | Budget/default handling | Static review | `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` use configured non-secret values or safe defaults. |
-| CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is only noted for OpenClaw `web_search` auto-detection and is not placed into the `cross-border-intel` MCP env block. |
+| CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is noted for OpenClaw `web_search` and CE4 Dashboard live-search usage, but is not placed into the `cross-border-intel` MCP env block. |
