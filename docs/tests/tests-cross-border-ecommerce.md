@@ -61,28 +61,43 @@ npx tsx scripts/test-cross-border-milestone2.ts
 | CE2.13 | Disabled paid API handling | `scripts/test-cross-border-milestone2.ts` | `disabled_by_budget` trade/financial evidence reduces `evidence_coverage` but does not reduce `normalized_score`. |
 | CE2.14 | Forced downgrade handling | `scripts/test-cross-border-milestone2.ts` | Forced downgrade flags override otherwise good normalized scores and return `high_risk`. |
 
-## CE3 — `cross-border-intel` MCP Server (Planned)
+## CE3 — `cross-border-intel` MCP Server
 
-Status: PEND
+Status: PASS (2026-06-08)
 
-Planned scope: `sentura/mcp-servers/cross-border-intel/`
+Scope:
 
-Future checks:
+- `sentura/mcp-servers/cross-border-intel/package.json`
+- `sentura/mcp-servers/cross-border-intel/tsconfig.json`
+- `sentura/mcp-servers/cross-border-intel/vitest.config.ts`
+- `sentura/mcp-servers/cross-border-intel/README.md`
+- `sentura/mcp-servers/cross-border-intel/src/index.ts`
+- `sentura/mcp-servers/cross-border-intel/src/config.ts`
+- `sentura/mcp-servers/cross-border-intel/src/schemas.ts`
+- `sentura/mcp-servers/cross-border-intel/src/tools.ts`
+- `sentura/mcp-servers/cross-border-intel/src/server.test.ts`
+
+Validation command:
+
+```bash
+pnpm --filter @sentura/mcp-cross-border-intel test
+pnpm --filter @sentura/mcp-cross-border-intel build
+```
 
 | # | Check | Expected |
 |---|---|---|
-| CE3.1 | Package/build contract | `package.json`, `tsconfig.json`, and `openclaw.plugin.json` or MCP README follow existing Sentura MCP patterns; `pnpm --filter @sentura/mcp-cross-border-intel build` passes. |
-| CE3.2 | Tool catalog | Server exposes the designed read-mostly tools: search leads, fetch evidence, registry search, domain/RDAP, email validation, trade records, financial lookup, score lead, and Accio parser. |
-| CE3.3 | Env parsing | Missing optional paid API keys disables only the paid adapter, not the whole server. |
-| CE3.4 | Search wrapper | Uses documented provider request shapes and caps result counts/budget per run. |
-| CE3.5 | Registry adapters | Companies House and SEC paths match official docs; OpenCorporates is feature-flagged. |
-| CE3.6 | Domain/email adapters | RDAP/DNS never require secrets; Abstract/Hunter/ZeroBounce paid calls are optional and redacted in logs. |
-| CE3.7 | Trade-data adapters | Volza and ImportYeti calls are budget-gated and clearly marked by source type/confidence. |
-| CE3.8 | Contextual scoring engine | Score output is deterministic for the same evidence set, excludes `not_applicable` blocks, reports evidence coverage, and implements forced downgrades. |
-| CE3.9 | Audit/safety | Tool outputs include source URLs/timestamps and never expose secret values. |
-| CE3.10 | MCP smoke | `InMemoryTransport` client can list and call tools with fixture responses. |
-| CE3.11 | Failure behavior | API errors return structured partial evidence, not uncaught exceptions. |
-| CE3.12 | Cost controls | Per-run max search calls, paid calls, and paid spend estimates are enforced. |
+| CE3.1 | Package/build contract | `package.json`, `tsconfig.json`, `vitest.config.ts`, and README follow existing Sentura MCP patterns; `pnpm --filter @sentura/mcp-cross-border-intel build` passes. |
+| CE3.2 | Tool catalog | MCP `listTools()` exposes exactly 9 designed read-only tools: registry search, company profile, RDAP, email/domain check, SEC lookup, trade-record search, contextual score, Accio parse, Accio summarize. |
+| CE3.3 | Tool annotations and source metadata | Every tool has `readOnlyHint: true`, `destructiveHint: false`, and source doc metadata pointing to `跨境电商/DESIGN.md Milestone 3`. |
+| CE3.4 | Companies House routes | `cbe_intel_company_registry_search` builds `GET /search/companies?q=...&items_per_page=...`; `cbe_intel_company_profile` builds `GET /company/{companyNumber}` and uses API-key Basic auth. |
+| CE3.5 | SEC adapter | `cbe_intel_sec_lookup` pads numeric CIKs to 10 digits and sends the configured SEC-compliant `User-Agent`. |
+| CE3.6 | RDAP adapter | `cbe_intel_domain_rdap_lookup` handles 200 found, 302 redirect, 404 not found, and 429 rate-limited responses without crashing. |
+| CE3.7 | DNS/email checks | `cbe_intel_email_domain_check` covers missing MX, free-provider flag, role inbox flag, SPF, and DMARC through injected DNS resolvers. |
+| CE3.8 | Contextual scoring tiers | `cbe_intel_score_buyer` deterministically covers `trusted_candidate`, `cautious`, `insufficient_evidence`, and `high_risk`. |
+| CE3.9 | Contextual score denominator rules | `conversation_behavior=not_applicable` is excluded from denominators; `disabled_by_budget` paid evidence lowers coverage but not normalized score; forced downgrades override score. |
+| CE3.10 | Trade-data cost controls | `cbe_intel_trade_record_search` does not call Volza/ImportYeti unless paid data is enabled, keys exist, and request budget is within cap; fallback is source-marked `public_web`. |
+| CE3.11 | Accio parser/summarizer | Parser validates `跨境电商/fixtures/accio-chat-records.sample.json`; summarizer extracts company profile, requested goods, quantities, target/best prices, packaging add-on, negotiated prices, next actions, and behavior signals. |
+| CE3.12 | MCP smoke and hermetic tests | `InMemoryTransport` client lists and calls tools; all HTTP and DNS behavior is mocked/injected, so Vitest performs no real external calls and no secrets appear in outputs. |
 
 ## CE4 — Marketing Acquisition Employee Workspace (Planned)
 
@@ -166,3 +181,54 @@ Future checks:
 | CE7.13 | Accio upload/sample load | Page supports JSON upload or loading `跨境电商/fixtures/accio-chat-records.sample.json`. |
 | CE7.14 | Accio extraction preview | Page shows transcript, extracted products/quantities/prices/terms, company summary, next actions, and behavior signals. |
 | CE7.15 | No unsafe automation | No page sends outreach, writes raw chat to long-term memory, or hides demo/live source provenance. |
+
+## CE8 — API Key And OpenClaw Setup Runbook
+
+Status: PASS (2026-06-08)
+
+Scope: `跨境电商/API_KEYS_OPENCLAW_SETUP.md`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE8.1 | OpenClaw onboard flow | Manual review | Documents build/onboard commands, gateway URL `http://localhost:18789`, model provider selection, web search provider setup, and gateway start. |
+| CE8.2 | Sentura setup aftermath | Manual review | Explains what `scripts/sentura-setup.sh` / `.ps1` does and states that it automatically registers `cross-border-intel` after env vars and MCP build are in place. |
+| CE8.3 | Key inventory | Manual review | Covers model provider keys, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `COMPANIES_HOUSE_API_KEY`, `OPENCORPORATES_API_KEY`, `ABSTRACT_API_KEY`, `HUNTER_API_KEY`, `VOLZA_API_KEY`, `IMPORTYETI_API_KEY`, `SEC_USER_AGENT`, RDAP/DNS no-key routes, and CBE budget env vars. |
+| CE8.4 | Per-key acquisition steps | Manual review | Each key section explains where to obtain it, what tool uses it, whether it is required, and how absence affects behavior. |
+| CE8.5 | Secret placement | Manual review | Uses `~/.openclaw/.env` / Windows equivalent and never instructs storing real keys in repo files, chat history, or workspace prose. |
+| CE8.6 | MCP connection | Manual review | Directs operators to rerun Sentura setup, shows the resulting `mcp.servers.cross-border-intel` JSON5 with `command: "node"`, compiled `dist/index.js`, project-root `cwd`, and `${ENV_VAR}` API-key references. |
+| CE8.7 | Verification commands | Manual review | Includes `pnpm --filter @sentura/mcp-cross-border-intel build/test`, `scripts/sentura-setup.{sh,ps1}`, `openclaw mcp status --verbose`, `openclaw mcp doctor --probe`, and `openclaw mcp probe`. |
+| CE8.8 | Sandbox tool policy | Manual review | Shows agent-level and sandbox-level allowlist examples for `web_search`, `web_fetch`, memory tools, `group:plugins`, and `cross-border-intel__*`. |
+| CE8.9 | Cost/safety defaults | Manual review | Defaults paid trade data off, requires budget caps before Volza/ImportYeti calls, and preserves the no-auto-outreach/no-secret/no-raw-Accio-external-channel boundaries. |
+| CE8.10 | Source traceability | Manual review | Lists official references for OpenClaw web/MCP/tool config and the third-party APIs used by the runbook. |
+| CE8.11 | Doctor warning interpretation | Manual review | Explains that `literal sensitive value` warnings can appear after OpenClaw resolves `${ENV_VAR}` at runtime, and provides a redaction-safe check that actual `openclaw.json` still stores API-key placeholders. |
+
+## CE9 — Sentura Setup Cross-Border MCP Wiring
+
+Status: PASS (2026-06-08)
+
+Scope:
+
+- `scripts/sentura-setup.sh`
+- `scripts/sentura-setup.ps1`
+- `docs/SETUP.md`
+- `sentura/mcp-servers/cross-border-intel/README.md`
+- `跨境电商/DESIGN.md`
+- `跨境电商/API_KEYS_OPENCLAW_SETUP.md`
+
+Validation command:
+
+```bash
+bash -n scripts/sentura-setup.sh
+rg -n 'cross-border-intel|buildCrossBorderIntelEnv|COMPANIES_HOUSE_API_KEY|CBE_ENABLE_PAID_TRADE_DATA|TAVILY_API_KEY' scripts/sentura-setup.sh scripts/sentura-setup.ps1
+! rg -n '\$secret:.*cross-border|openclaw mcp set cross-border-intel' 跨境电商/API_KEYS_OPENCLAW_SETUP.md 跨境电商/DESIGN.md sentura/mcp-servers/cross-border-intel/README.md
+```
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE9.1 | Bash syntax | `bash -n scripts/sentura-setup.sh` | Bash setup parses successfully. |
+| CE9.2 | Bash MCP registration | Static review / `rg` | Bash setup writes `config.mcp.servers['cross-border-intel']` with `command: "node"`, absolute compiled `dist/index.js`, project-root `cwd`, env block, and `requestTimeoutMs`. |
+| CE9.3 | PowerShell parity | Static review / `rg` | PowerShell setup mirrors the Bash `cross-border-intel` MCP registration behavior. |
+| CE9.4 | Env source handling | Static review | Setup reads both current process env and OpenClaw state `.env`, so operators can configure keys before running setup without exposing them in repo files. |
+| CE9.5 | Secret handling | Static review | API keys are stored as `${ENV_VAR}` config references when present; missing optional keys are omitted; setup never writes raw API key values into `openclaw.json`. |
+| CE9.6 | Budget/default handling | Static review | `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` use configured non-secret values or safe defaults. |
+| CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is only noted for OpenClaw `web_search` auto-detection and is not placed into the `cross-border-intel` MCP env block. |

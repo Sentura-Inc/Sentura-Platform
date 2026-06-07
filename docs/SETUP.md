@@ -230,6 +230,7 @@ Both scripts perform the same steps:
 7. **Seed the first platform admin** (see below) — writes a `platform_admin` user into `sentura-rbac` so agents created after setup are no longer in RBAC bootstrap mode.
 8. **Wire the dashboard `.env.local`** — injects the seeded admin's `userToken` as `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` so the dashboard acts as the admin on RBAC-guarded RPCs without any manual step.
 9. **Mark each meta-agent workspace as bootstrap-complete** (see "Meta-agent bootstrap convention" below) — stamps `setupCompletedAt` into `<workspace>/.openclaw/workspace-state.json` for `creator`, `tuner`, and `orchestrator` so OpenClaw stops treating the workspaces as `[Bootstrap pending]` and stops forcing non-primary runs (dashboard-spawned sessions) into "limited" mode. This is required because Sentura keeps `BOOTSTRAP.md` permanently as the Enterprise Context file, while OpenClaw's default convention is to delete `BOOTSTRAP.md` once setup is done.
+10. **Wire client-pilot MCP servers** — registers the Sitlink `dida-travel-demo` MCP and the Cross-border e-commerce `cross-border-intel` MCP under OpenClaw's flat `mcp.servers.<name>` config. The cross-border entry reads `~/.openclaw/.env` / process env during setup, writes API-key values as `${ENV_VAR}` references, and writes only non-secret budget/default values literally.
 
 Both scripts are idempotent — safe to re-run if agents are added later.
 
@@ -440,6 +441,7 @@ Week 3 contract rules:
 - Only stdio MCP `env` supports `$secret:` pointers this round.
 - Remote HTTP/SSE MCP `headers` remain operator-managed.
 - Shared/global MCP servers may still live in `openclaw.json -> mcp.servers`, but self-provisioned employee-local integrations should default to `config.json5 -> mcpServers`.
+- Client-pilot global MCP servers wired by `scripts/sentura-setup.{sh,ps1}` use OpenClaw config env substitution (`${ENV_VAR}`) for API keys in `mcp.servers.*.env`; do not use `$secret:` markers in that global config path.
 - Dashboard 1:1 chat sessions use keys shaped like `agent:<agentId>:dashboard:<uuid>`.
 
 ---

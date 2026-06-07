@@ -1,0 +1,41 @@
+{
+  "name": "@sentura/mcp-cross-border-intel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-mostly MCP server for Cross-border e-commerce buyer screening, public evidence collection, contextual scoring, and Accio chat fixture parsing.",
+  "type": "module",
+  "bin": {
+    "sentura-mcp-cross-border-intel": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "sentura": {
+    "sourceDocs": [
+      "跨境电商/DESIGN.md",
+      "https://developer.company-information.service.gov.uk/api/docs/",
+      "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+      "https://about.rdap.org/",
+      "https://modelcontextprotocol.io/docs/develop/build-server"
+    ],
+    "category": "client-pilot-integration",
+    "generatedFrom": "跨境电商/DESIGN.md Milestone 3"
+  }
+}

@@ -158,7 +158,12 @@ Tool set:
 | `cbe_intel_parse_accio_chat` | Memory | Validate and normalize uploaded Accio JSON fixture. |
 | `cbe_intel_summarize_accio_chat` | Memory | Produce structured summary fields for the Memory employee. |
 
-Phase 1 should avoid custom runtime/gateway work. This MCP server is a normal stdio server:
+Phase 1 should avoid custom runtime/gateway work. This MCP server is a normal
+stdio server and is wired by `scripts/sentura-setup.sh` /
+`scripts/sentura-setup.ps1` after OpenClaw onboard. Operators should not paste
+this server through the OpenClaw MCP UI during normal Sentura setup; they set
+env vars in `~/.openclaw/.env`, build the MCP package, then rerun Sentura
+setup. The setup script writes OpenClaw's required flat config shape:
 
 ```json5
 {
@@ -169,18 +174,24 @@ Phase 1 should avoid custom runtime/gateway work. This MCP server is a normal st
         args: ["sentura/mcp-servers/cross-border-intel/dist/index.js"],
         cwd: ".",
         env: {
-          BRAVE_API_KEY: "$secret:BRAVE_API_KEY",
-          COMPANIES_HOUSE_API_KEY: "$secret:COMPANIES_HOUSE_API_KEY",
-          HUNTER_API_KEY: "$secret:HUNTER_API_KEY",
-          ABSTRACT_API_KEY: "$secret:ABSTRACT_API_KEY",
-          VOLZA_API_KEY: "$secret:VOLZA_API_KEY",
-          IMPORTYETI_API_KEY: "$secret:IMPORTYETI_API_KEY"
-        }
+          COMPANIES_HOUSE_API_KEY: "${COMPANIES_HOUSE_API_KEY}",
+          HUNTER_API_KEY: "${HUNTER_API_KEY}",
+          ABSTRACT_API_KEY: "${ABSTRACT_API_KEY}",
+          IMPORTYETI_API_KEY: "${IMPORTYETI_API_KEY}",
+          SEC_USER_AGENT: "SenturaCrossBorderIntel/0.1 contact=ops@example.invalid",
+          CBE_ENABLE_PAID_TRADE_DATA: "false",
+          CBE_MAX_PAID_SPEND_USD: "0",
+          CBE_INTEL_REQUEST_TIMEOUT_MS: "30000"
+        },
+        requestTimeoutMs: 30000
       }
     }
   }
 }
 ```
+
+`TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider
+auto-detection, not to `cross-border-intel`'s MCP env block.
 
 Agent tool policy must include the MCP tools twice:
 

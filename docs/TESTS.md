@@ -2,7 +2,7 @@
 
 > **Single source of truth for what to test.** Summary matrix only; detailed test cases (methods, expected outputs, assertions) live in per-person files under [`docs/tests/`](tests/) and are read on demand.
 >
-> **Last updated**: 2026-06-08 (Cross-border e-commerce UI, manual screening intake, and contextual scoring design added.)
+> **Last updated**: 2026-06-08 (Cross-border MCP doctor warning guidance added.)
 
 ---
 
@@ -117,10 +117,16 @@ python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/
 npx tsx scripts/test-cross-border-milestone2.ts   # CE2 — 39/39 offline checks
 ```
 
-Planned implementation checks after the MCP server and employee workspaces are built:
+Milestone 3 `cross-border-intel` MCP server:
 
 ```bash
-pnpm --filter @sentura/mcp-cross-border-intel test
+pnpm --filter @sentura/mcp-cross-border-intel test   # CE3 — 12/12 offline MCP checks
+pnpm --filter @sentura/mcp-cross-border-intel build
+```
+
+Planned implementation checks after the employee workspaces are built:
+
+```bash
 npx tsx scripts/test-cross-border-agents.ts
 ```
 
@@ -282,11 +288,13 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 |----|------|------:|--------|--------|--------|
 | CE1 | Phase-1 MVP design and API sourcing | 11 review checks | Manual review of `跨境电商/DESIGN.md` plus source list: verifies the three requested employees, OpenClaw/Sentura runtime shape, low-cost API route, pricing/cost controls, contextual screening score model, three employee-specific demo UIs, manual screening intake, Accio memory workflow, safety rules, and phased implementation plan. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE1`](tests/tests-cross-border-ecommerce.md#ce1--phase-1-mvp-design-and-api-sourcing) |
 | CE2 | Shared fixtures, ontology, schemas, and contextual scoring | 39 offline checks | `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` plus `npx tsx scripts/test-cross-border-milestone2.ts`: validates the Accio fixture, cross-border mobile-accessory ontology, Zod schemas, and score behavior where cold leads mark `conversation_behavior` as `not_applicable` and disabled paid APIs reduce coverage without reducing normalized score. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE2`](tests/tests-cross-border-ecommerce.md#ce2--shared-fixtures-ontology-schemas-and-contextual-scoring) |
-| CE3 | `cross-border-intel` MCP server | 12 planned checks | Future `sentura/mcp-servers/cross-border-intel/src/server.test.ts`: tool catalog, env parsing, web-search wrapper, registry/domain/email/trade adapters, contextual scoring, budget limits, redaction, and MCP `InMemoryTransport` smoke. | PEND | [`tests/tests-cross-border-ecommerce.md § CE3`](tests/tests-cross-border-ecommerce.md#ce3--cross-border-intel-mcp-server-planned) |
+| CE3 | `cross-border-intel` MCP server | 12 offline checks | `pnpm --filter @sentura/mcp-cross-border-intel test` plus `pnpm --filter @sentura/mcp-cross-border-intel build`: validates the 9-tool read-only MCP catalog, Companies House search/profile routes, SEC CIK padding/User-Agent, RDAP 200/302/404/429 handling, DNS MX/free-provider/role/SPF/DMARC checks, contextual scoring tiers and coverage behavior, paid trade-data fallback, Accio fixture parser/summarizer, and MCP `InMemoryTransport` smoke. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE3`](tests/tests-cross-border-ecommerce.md#ce3--cross-border-intel-mcp-server) |
 | CE4 | Marketing Acquisition employee workspace | 6 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, skills present, web-search/MCP tool allowlists, mobile-accessory keyword strategy, lead output schema, UI handoff contract, no outreach auto-send. | PEND | [`tests/tests-cross-border-ecommerce.md § CE4`](tests/tests-cross-border-ecommerce.md#ce4--marketing-acquisition-employee-workspace-planned) |
 | CE5 | Screening and Background employee workspace | 8 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, low-cost evidence ladder, manual-input normalization, contextual score formula, forced downgrades, source-citation report, evidence coverage handling, no login-gated scraping. | PEND | [`tests/tests-cross-border-ecommerce.md § CE5`](tests/tests-cross-border-ecommerce.md#ce5--screening-and-background-employee-workspace-planned) |
 | CE6 | Accio Memory Processing employee workspace | 6 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, fixture parsing, summary fields, price/quantity extraction, memory-write policy, UI preview contract, and T2/T3 handling. | PEND | [`tests/tests-cross-border-ecommerce.md § CE6`](tests/tests-cross-border-ecommerce.md#ce6--accio-memory-processing-employee-workspace-planned) |
 | CE7 | Cross-border employee demo UIs | 15 planned checks | Future dashboard structural tests for `/client-demos/cross-border/lead-discovery`, `/client-demos/cross-border/screening`, and `/client-demos/cross-border/accio-memory`: workflow-specific controls, AgentChat sessions, evidence panels, manual screening form, contextual score display, Accio upload/preview, and no fake outreach. | PEND | [`tests/tests-cross-border-ecommerce.md § CE7`](tests/tests-cross-border-ecommerce.md#ce7--cross-border-employee-demo-uis-planned) |
+| CE8 | API key and OpenClaw setup runbook | 11 review checks | Manual review of `跨境电商/API_KEYS_OPENCLAW_SETUP.md`: covers OpenClaw onboard, Sentura setup aftermath, each Phase-1 API key/no-key route, `.env` secret placement, setup-driven `mcp.servers.cross-border-intel` wiring, MCP probe commands, sandbox tool allowlist, budget defaults, doctor sensitive-value warning interpretation, and source links. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE8`](tests/tests-cross-border-ecommerce.md#ce8--api-key-and-openclaw-setup-runbook) |
+| CE9 | Sentura setup cross-border MCP wiring | 7 static checks | `bash -n scripts/sentura-setup.sh` plus manual/static review of `scripts/sentura-setup.{sh,ps1}`: verifies setup writes `mcp.servers.cross-border-intel`, reads process env and `~/.openclaw/.env`, stores API keys as `${ENV_VAR}` references, omits missing optional keys, keeps budget defaults non-secret, and leaves `TAVILY_API_KEY` to OpenClaw `web_search`. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE9`](tests/tests-cross-border-ecommerce.md#ce9--sentura-setup-cross-border-mcp-wiring) |
 
 ### Documentation Hygiene
 
@@ -326,7 +334,7 @@ Person B: N/32 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3
 Person C: 21/21 sections PASS (cases: C11 17 dashboard cases; +C12 Tune surface, C13 Integrations MCP manager, C14 SkeletonShell component (now unused), C15 Group Chat fan-out, C16 /orchestrator real Manager EKG browser, C17 /testing real SuiteRunResult viewer, C18 /knowledge real per-agent EKG browser, C19 dashboard live integration harness 77/77 PASS 2026-05-03, C20 /cost real Cost Center backed by Person A's sentura-cost extension, C21 /audit real Audit Trail backed by Person D's sentura-audit extension — all 5 dashboard surfaces now real)
 Person D: N/25 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression; +D15-D18 Week 3 kickoff; +D19-D25 Week 4 audit/MCP/security work)
 Sitlink: N/7 sections PASS (S1 DidaTravel demo MCP server 16/16 PASS 2026-06-05; S2 live web demo E2E PEND; S3 Chinese output/display fields 1/2 PASS, Agent output PEND; S4 AI concierge employee workspace 80/80 PASS 2026-06-06; S5 Zuolian web demo route 98/98 PASS 2026-06-05; S6 OTA/API supplier research report with dedicated private-car matrix and cooperation-feasibility exclusions PASS 2026-06-06; S7 final supplier-selection DOCX PASS 2026-06-06)
-Cross-border e-commerce: 2/7 sections PASS (CE1 Phase-1 MVP design/API sourcing PASS 2026-06-08; CE2 shared fixtures/ontology/schemas/contextual scoring 39/39 PASS 2026-06-08; CE3-CE7 MCP server + three employee workspaces + demo UIs PEND)
+Cross-border e-commerce: 5/9 sections PASS (CE1 Phase-1 MVP design/API sourcing PASS 2026-06-08; CE2 shared fixtures/ontology/schemas/contextual scoring 39/39 PASS 2026-06-08; CE3 `cross-border-intel` MCP server 12/12 PASS 2026-06-08; CE8 API key/OpenClaw setup runbook PASS 2026-06-08; CE9 Sentura setup cross-border MCP wiring PASS 2026-06-08; CE4-CE7 three employee workspaces + demo UIs PEND)
 Cross-team: N/10 scenarios PASS (19 detailed checks)
 Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via Forge's 4-call `sentura_agents_manage` sequence (openai/gpt-5.4); prior: 2026-04-19 — penny-ap deployed in ~110s
 ```

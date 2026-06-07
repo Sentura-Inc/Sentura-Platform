@@ -337,14 +337,78 @@ if (config.agents.defaults.workspace !== '~/.openclaw/workspace') {
 # Apply per-agent tool overrides by patching the config JSON directly.
 # The CLI's `config set` doesn't support array-element addressing like
 # agents.list[id=creator].tools, so we use node to patch the file.
-SENTURA_META_AGENT_MODEL="$META_AGENT_MODEL" node -e "
+SENTURA_META_AGENT_MODEL="$META_AGENT_MODEL" OPENCLAW_STATE="$OPENCLAW_STATE" node -e "
 const fs = require('fs');
+const path = require('path');
 const configPath = '$OPENCLAW_CONFIG';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
+const openClawState = process.env.OPENCLAW_STATE || '';
 config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.models = config.agents.defaults.models || {};
+
+function readDotEnvFile(filePath) {
+  const entries = {};
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed);
+      if (!match) continue;
+      let value = match[2] ?? '';
+      if (
+        (value.startsWith('\"') && value.endsWith('\"')) ||
+        (value.startsWith(\"'\") && value.endsWith(\"'\"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      entries[match[1]] = value;
+    }
+  } catch (_) {}
+  return entries;
+}
+
+const setupDotEnv = openClawState ? readDotEnvFile(path.join(openClawState, '.env')) : {};
+const setupEnv = { ...setupDotEnv, ...process.env };
+function hasSetupEnv(name) {
+  return typeof setupEnv[name] === 'string' && setupEnv[name].trim().length > 0;
+}
+function setupEnvValue(name, fallback) {
+  return hasSetupEnv(name) ? setupEnv[name].trim() : fallback;
+}
+function setupEnvNumber(name, fallback) {
+  const parsed = Number(setupEnvValue(name, String(fallback)));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function envRef(name) {
+  return '$' + '{' + name + '}';
+}
+function buildCrossBorderIntelEnv() {
+  const env = {};
+  for (const name of [
+    'COMPANIES_HOUSE_API_KEY',
+    'ABSTRACT_API_KEY',
+    'HUNTER_API_KEY',
+    'IMPORTYETI_API_KEY',
+    // Optional adapters not required by the default Phase-1 customer setup.
+    'OPENCORPORATES_API_KEY',
+    'VOLZA_API_KEY',
+  ]) {
+    if (hasSetupEnv(name)) {
+      env[name] = envRef(name);
+    }
+  }
+  env.SEC_USER_AGENT = setupEnvValue(
+    'SEC_USER_AGENT',
+    'SenturaCrossBorderIntel/0.1 contact=ops@example.invalid',
+  );
+  env.CBE_ENABLE_PAID_TRADE_DATA = setupEnvValue('CBE_ENABLE_PAID_TRADE_DATA', 'false');
+  env.CBE_MAX_PAID_SPEND_USD = setupEnvValue('CBE_MAX_PAID_SPEND_USD', '0');
+  env.CBE_INTEL_REQUEST_TIMEOUT_MS = setupEnvValue('CBE_INTEL_REQUEST_TIMEOUT_MS', '30000');
+  return env;
+}
 
 function ensurePreferredModelAllowlistEntry(modelRef) {
   if (typeof modelRef !== 'string' || !modelRef.includes('/')) {
@@ -496,6 +560,17 @@ config.mcp.servers['dida-travel-demo'] = {
   cwd: '$PROJECT_ROOT',
   env: { DIDA_DEMO_MODE: 'fixture' },
 };
+config.mcp.servers['cross-border-intel'] = {
+  command: 'node',
+  args: ['$PROJECT_ROOT/sentura/mcp-servers/cross-border-intel/dist/index.js'],
+  cwd: '$PROJECT_ROOT',
+  env: buildCrossBorderIntelEnv(),
+  requestTimeoutMs: setupEnvNumber('CBE_INTEL_REQUEST_TIMEOUT_MS', 30000),
+};
+console.log('  Added/updated MCP server: cross-border-intel');
+if (hasSetupEnv('TAVILY_API_KEY')) {
+  console.log('  Detected TAVILY_API_KEY for OpenClaw web_search auto-detection');
+}
 
 // Grant every local sender owner privileges so the webchat control UI can
 // use owner-only tools (gateway/cron/nodes). Without this, Forge's 'gateway'
