@@ -2,7 +2,7 @@
 
 > **Single source of truth for what to test.** Summary matrix only; detailed test cases (methods, expected outputs, assertions) live in per-person files under [`docs/tests/`](tests/) and are read on demand.
 >
-> **Last updated**: 2026-06-06 (Sitlink final supplier-selection DOCX table backgrounds cleared.)
+> **Last updated**: 2026-06-08 (Cross-border e-commerce UI, manual screening intake, and contextual scoring design added.)
 
 ---
 
@@ -106,6 +106,21 @@ Gateway at `http://localhost:18789`; Control UI at same URL.
 npx tsx scripts/test-zuolian-web-demo.ts        # S5 — 98/98 offline structural checks
 cd sentura/dashboard && pnpm exec tsc --noEmit
 cd sentura/dashboard && pnpm build
+```
+
+### Cross-Border E-Commerce MVP
+
+Current Phase-1 design deliverables use manual document review plus JSON validation:
+
+```bash
+python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null
+```
+
+Planned implementation checks after the MCP server and employee workspaces are built:
+
+```bash
+pnpm --filter @sentura/mcp-cross-border-intel test
+npx tsx scripts/test-cross-border-agents.ts
 ```
 
 ---
@@ -260,6 +275,18 @@ Status codes: **PASS** = verified in most recent audit; **PEND** = pending imple
 | S6 | OTA/API supplier research report | 8 review checks | Manual document review of `座联互动/RESEARCH.md`: confirms the three supplied Word docs were used as inputs; the main supplier matrix covers hotel / attraction-ticket platforms without a private-car column; a separate private-car / airport-transfer matrix scores 曹操、首汽、神州、享道、T3、阳光; API openness is separated into full public docs, partial docs, account-gated docs, and no public docs; scoring uses an explicit five-dimension rubric including partner qualification clarity and cooperation cases; private-car cooperation feasibility separates API/enterprise-use buyer paths from fleet/rental-company paths and excludes platforms when cooperation requires Sitlink to hold automobile-rental, operating-vehicle, driver-management, or网约车运输证 resources; high-risk claims such as third-party train-ticketing and private-car compliance are caveated with regulatory sources; and key public source URLs are listed for follow-up. | PASS (2026-06-06) | [`tests/tests-sitlink.md § S6`](tests/tests-sitlink.md#s6--otaapi-supplier-research-report) |
 | S7 | Final supplier-selection DOCX | 5 review checks | Manual + render review of `座联互动/座联互动最终供应商筛选表.docx`: verifies the document contains two clear tables, selects only the top 7 hotel / attraction-ticket /综合供应平台 and top 4 private-car / airport-transfer platforms from `RESEARCH.md`, uses the requested columns, explains the scoring dimensions in plain language, keeps the private-car service-content column focused on car/transfer services, uses positive cooperation-possibility wording, contains no watermark or background logo, uses transparent/no-fill table backgrounds with uniform rows, and passes DOCX render QA without clipped or split rows. | PASS (2026-06-06) | [`tests/tests-sitlink.md § S7`](tests/tests-sitlink.md#s7--final-supplier-selection-docx) |
 
+### Cross-Border E-Commerce Project Tests
+
+| ID | Area | Cases | Method | Status | Detail |
+|----|------|------:|--------|--------|--------|
+| CE1 | Phase-1 MVP design and API sourcing | 11 review checks | Manual review of `跨境电商/DESIGN.md` plus source list: verifies the three requested employees, OpenClaw/Sentura runtime shape, low-cost API route, pricing/cost controls, contextual screening score model, three employee-specific demo UIs, manual screening intake, Accio memory workflow, safety rules, and phased implementation plan. | PASS (2026-06-08) | [`tests/tests-cross-border-ecommerce.md § CE1`](tests/tests-cross-border-ecommerce.md#ce1--phase-1-mvp-design-and-api-sourcing) |
+| CE2 | Simulated Accio chat fixture | 6 review checks | `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` plus manual schema/content review for company info, requested goods, prices, terms, and follow-ups. | PASS (2026-06-07) | [`tests/tests-cross-border-ecommerce.md § CE2`](tests/tests-cross-border-ecommerce.md#ce2--simulated-accio-chat-fixture) |
+| CE3 | `cross-border-intel` MCP server | 12 planned checks | Future `sentura/mcp-servers/cross-border-intel/src/server.test.ts`: tool catalog, env parsing, web-search wrapper, registry/domain/email/trade adapters, contextual scoring, budget limits, redaction, and MCP `InMemoryTransport` smoke. | PEND | [`tests/tests-cross-border-ecommerce.md § CE3`](tests/tests-cross-border-ecommerce.md#ce3--cross-border-intel-mcp-server-planned) |
+| CE4 | Marketing Acquisition employee workspace | 6 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, skills present, web-search/MCP tool allowlists, mobile-accessory keyword strategy, lead output schema, UI handoff contract, no outreach auto-send. | PEND | [`tests/tests-cross-border-ecommerce.md § CE4`](tests/tests-cross-border-ecommerce.md#ce4--marketing-acquisition-employee-workspace-planned) |
+| CE5 | Screening and Background employee workspace | 8 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, low-cost evidence ladder, manual-input normalization, contextual score formula, forced downgrades, source-citation report, evidence coverage handling, no login-gated scraping. | PEND | [`tests/tests-cross-border-ecommerce.md § CE5`](tests/tests-cross-border-ecommerce.md#ce5--screening-and-background-employee-workspace-planned) |
+| CE6 | Accio Memory Processing employee workspace | 6 planned checks | Future `scripts/test-cross-border-agents.ts`: 8 native files only, fixture parsing, summary fields, price/quantity extraction, memory-write policy, UI preview contract, and T2/T3 handling. | PEND | [`tests/tests-cross-border-ecommerce.md § CE6`](tests/tests-cross-border-ecommerce.md#ce6--accio-memory-processing-employee-workspace-planned) |
+| CE7 | Cross-border employee demo UIs | 15 planned checks | Future dashboard structural tests for `/client-demos/cross-border/lead-discovery`, `/client-demos/cross-border/screening`, and `/client-demos/cross-border/accio-memory`: workflow-specific controls, AgentChat sessions, evidence panels, manual screening form, contextual score display, Accio upload/preview, and no fake outreach. | PEND | [`tests/tests-cross-border-ecommerce.md § CE7`](tests/tests-cross-border-ecommerce.md#ce7--cross-border-employee-demo-uis-planned) |
+
 ### Documentation Hygiene
 
 | ID | Area | Cases | Method | Status | Detail |
@@ -298,6 +325,7 @@ Person B: N/32 sections PASS (cases: ?/? — B11 49/49 offline; B14–B23 Week 3
 Person C: 21/21 sections PASS (cases: C11 17 dashboard cases; +C12 Tune surface, C13 Integrations MCP manager, C14 SkeletonShell component (now unused), C15 Group Chat fan-out, C16 /orchestrator real Manager EKG browser, C17 /testing real SuiteRunResult viewer, C18 /knowledge real per-agent EKG browser, C19 dashboard live integration harness 77/77 PASS 2026-05-03, C20 /cost real Cost Center backed by Person A's sentura-cost extension, C21 /audit real Audit Trail backed by Person D's sentura-audit extension — all 5 dashboard surfaces now real)
 Person D: N/25 sections PASS (D3 44 unit + D7 14 unit + D8 4 e2e = 62 auto cases green at W2 close; +D11/D12/D13/D14 Round-17/18/19/20 Creator deploy regression; +D15-D18 Week 3 kickoff; +D19-D25 Week 4 audit/MCP/security work)
 Sitlink: N/7 sections PASS (S1 DidaTravel demo MCP server 16/16 PASS 2026-06-05; S2 live web demo E2E PEND; S3 Chinese output/display fields 1/2 PASS, Agent output PEND; S4 AI concierge employee workspace 80/80 PASS 2026-06-06; S5 Zuolian web demo route 98/98 PASS 2026-06-05; S6 OTA/API supplier research report with dedicated private-car matrix and cooperation-feasibility exclusions PASS 2026-06-06; S7 final supplier-selection DOCX PASS 2026-06-06)
+Cross-border e-commerce: 2/7 sections PASS (CE1 Phase-1 MVP design/API sourcing PASS 2026-06-08; CE2 simulated Accio JSON fixture PASS 2026-06-07; CE3-CE7 MCP server + three employee workspaces + demo UIs PEND)
 Cross-team: N/10 scenarios PASS (19 detailed checks)
 Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via Forge's 4-call `sentura_agents_manage` sequence (openai/gpt-5.4); prior: 2026-04-19 — penny-ap deployed in ~110s
 ```
@@ -308,7 +336,7 @@ Last live E2E (Creator): 2026-04-20 — billing-support-rep deployed in ~80s via
 
 When you add, change, or remove a testable deliverable:
 
-1. Add/update the row in the matrix above **and** add/update the detailed cases in the corresponding `docs/tests/tests-person-*.md`, `docs/tests/tests-cross-team.md`, or `docs/tests/tests-sitlink.md` file.
+1. Add/update the row in the matrix above **and** add/update the detailed cases in the corresponding `docs/tests/tests-person-*.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, or `docs/tests/tests-cross-border-ecommerce.md` file.
 2. Keep the `Last updated` date current.
 3. Never remove cases for existing behavior — only add, update, or mark as superseded.
 4. If a new script is introduced, add it under "How to Run Tests".

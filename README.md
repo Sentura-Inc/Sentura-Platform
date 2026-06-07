@@ -282,9 +282,13 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`docs/OPENCLAW.md`](docs/OPENCLAW.md) | OpenClaw technical reference | On demand — when working with plugin-sdk, gateway RPC, extensions |
 | [`docs/memory/person-*/week-*.md`](docs/memory/) | Per-owner, per-week session detail (prose, diffs, verification steps) | On demand — open from the matrix row |
 | [`docs/memory/shared/*.md`](docs/memory/shared/) | Cross-cutting sessions (architecture pivots, workspace collapses, multi-round bug hunts) | On demand — open from the matrix row |
+| [`docs/memory/sitlink/*.md`](docs/memory/sitlink/) | Sitlink / 座联互动 independent client-pilot memory | On demand — for Sitlink tasks only |
+| [`docs/memory/cross-border-ecommerce/*.md`](docs/memory/cross-border-ecommerce/) | Cross-border e-commerce / 跨境电商 independent client-pilot memory | On demand — for mobile-accessory cross-border tasks only |
+| [`座联互动/DESIGN.md`](座联互动/DESIGN.md) | Sitlink client-pilot design | On demand — for Sitlink tasks only |
+| [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce client design | On demand — for 跨境电商 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
-| [`docs/tests/*`](docs/tests/) | Detailed per-person + cross-team test cases | When running or updating tests |
+| [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases | When running or updating tests |
 | [`Documents/Demo.md`](Documents/Demo.md) | Demo scenarios and workflows | When designing demo flows |
 | [`ekg/*`](ekg/) | GradSale reference enterprise docs | When building MCP servers or integration skills |
 
