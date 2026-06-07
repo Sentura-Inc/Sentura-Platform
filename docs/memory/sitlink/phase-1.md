@@ -33,6 +33,14 @@ Independent client-project memory for the Sitlink / 座联互动 travel-service 
 | 2026-06-05 | iPhone-contained hotel modal fix | Moved the hotel-detail popup into the simulated iPhone shell as an absolute mobile-style overlay instead of a full-page Dialog portal; expanded S5 to 90/90. |
 | 2026-06-05 | MCP-backed hotel detail modal | Added a Dashboard demo API route that reuses the Dida MCP fixture client for hotel details and changed the in-phone modal to render MCP-returned details instead of a uniform template; expanded S5 to 98/98. |
 | 2026-06-06 | Plain-chat Agent output policy | Updated the Sitlink concierge workspace so customer replies use normal WeCom chat text instead of Markdown, synced the runtime OpenClaw workspace, and expanded S4 to 80/80. |
+| 2026-06-06 | OTA/API supplier research | Extracted two supplied OTA/interface Word reports, verified platform service coverage and API openness through public web sources, wrote `座联互动/RESEARCH.md`, and added S6 manual research-review tracking. |
+| 2026-06-06 | OTA/API supplier research expansion | Added partner qualification requirements and cooperation cases for every scored platform, converted the rubric to five dimensions, recalculated scores, and expanded S6 manual review tracking. |
+| 2026-06-06 | Private-car supplier research expansion | Extracted the new private-car OTA Word report, split private-car scoring into a dedicated matrix, removed the private-car column from the main matrix, and expanded S6 manual review tracking to 8 checks. |
+| 2026-06-06 | Private-car cooperation feasibility recheck | Reverified the private-car platforms with public web/API sources, separated API buyer paths from fleet/rental-company paths, excluded qualification-incompatible paths, and synced S6 review wording. |
+| 2026-06-06 | Final supplier-selection DOCX | Created a clean Word document with two final supplier tables: top 7 hotel/ticket/comprehensive suppliers and top 4 private-car suppliers, then rendered and visually checked the layout. |
+| 2026-06-06 | Final supplier-selection DOCX revisions | Revised the final Word document per user feedback: clearer scoring rationale, private-car-only service wording, positive cooperation wording, and a faint diagonal Sentura watermark. |
+| 2026-06-06 | Final supplier-selection DOCX full-page watermark revision | Enlarged and repositioned the Sentura watermark so it spans both document pages while keeping table text readable, then re-rendered both pages for visual QA. |
+| 2026-06-06 | Final supplier-selection DOCX watermark removal | Removed the Sentura watermark so the Word deliverable contains only the supplier-selection content, then re-rendered both pages for visual QA. |
 
 ## 2026-06-02 — Phase-1 MVP detailed design
 
@@ -637,6 +645,133 @@ The user shared a screenshot of the 企业微信 phone view showing hotel names 
 - `cd sentura/dashboard && pnpm exec eslint src/app/client-demos/zuolian/page.tsx src/components/agent-chat.tsx` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS; `/client-demos/zuolian` prerendered.
 
+## 2026-06-06 — Private-car cooperation feasibility recheck
+
+### Trigger
+
+The user asked to call real web sources again and recheck the private-car platforms from the scoring dimensions, with special attention to whether cooperation is actually possible for Sitlink. The user explicitly called out exclusion cases such as cooperation requirements that require the partner's business scope to include automobile rental.
+
+### Sources rechecked
+
+- `座联互动/RESEARCH.md`, `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, `docs/MEMORY.md`, and this Sitlink memory file.
+- Public web/API sources for 曹操开放平台, 曹操众悦/加盟页面, 首汽约车 OpenAPI docs, 神州专车 developer docs, 享道出行 API docs and租赁公司合作 page, T3 企业版 page, 阳光出行 official site metadata, and the网约车 regulatory baseline.
+
+### Changes
+
+- `座联互动/RESEARCH.md`
+  - Reclassified private-car cooperation paths into API / enterprise-use buyer paths versus fleet, rental-company, or operating-capacity paths.
+  - Kept 曹操出行 in the first batch only through the open-platform / enterprise-use API path, while excluding the众悦加盟/运力合作 path if it requires automobile-rental scope, operating vehicles, or driver resources. Score adjusted to 88/A.
+  - Kept 首汽约车 at 88/A because its OpenAPI documentation is public and no public page in this pass imposed an automobile-rental business-scope requirement on an API/channel buyer.
+  - Kept 神州专车 at 86/A because public developer docs cover H5/API, OAuth, callbacks, enterprise account, and payment/account states.
+  - Lowered 享道出行 to 72/B because visible API docs exist, but its租赁公司合作 page is explicitly an operating-capacity path requiring vehicle and driver compliance resources; Sitlink should proceed only if it receives an enterprise/API buyer contract and sandbox.
+  - Lowered T3 出行 to 58/C because the official enterprise page verifies enterprise-use scenarios and centralized settlement, but not an external API/H5 developer path.
+  - Lowered 阳光出行 to 45/D because official public material emphasizes aggregation-platform and fleet/rental-company cooperation rather than a travel-entry/API buyer path.
+  - Added source URLs for曹操众悦 and享道租赁公司合作.
+- `docs/TESTS.md`
+  - Updated S6 summary wording to require cooperation-feasibility exclusions for private-car platforms.
+- `docs/tests/tests-sitlink.md`
+  - Updated S6.3, S6.5, and S6.8 so manual reviewers check that private-car scoring separates buyer/API paths from incompatible fleet/rental-company paths.
+- `docs/MEMORY.md` and this file
+  - Logged the cooperation-feasibility recheck in the independent Sitlink memory lane.
+
+### Verification
+
+- Manual review confirmed Section 3.2 and Section 6 now agree on the lowered private-car scores and recommendations.
+- Manual source review confirmed 曹操、首汽、神州 have public API/H5/developer evidence; 享道 has visible API docs plus a separate rental-company cooperation page with vehicle/driver qualification requirements; T3 has an enterprise product page but no public field-level API docs; 阳光 has official aggregation/fleet cooperation claims but no public field-level API docs.
+- Manual review confirmed the next-step checklist says to exclude any platform path requiring Sitlink to hold automobile-rental scope, operating vehicles, driver-management capability, or网约车证照 resources.
+
+## 2026-06-06 — Final supplier-selection DOCX
+
+### Trigger
+
+The user made the final screening decision: use only the top 7 hotel / attraction-ticket / comprehensive suppliers and the top 4 private-car / airport-transfer suppliers, then deliver a clean DOCX with two tables. Required columns were platform name, service content across hotel / attraction / private-car, brief qualification/background description, simplified detailed API-document status, and cooperation possibility with cases.
+
+### Changes
+
+- `座联互动/座联互动最终供应商筛选表.docx`
+  - Created a two-page landscape Word document.
+  - Table 1 contains the top 7 platforms from `RESEARCH.md`: 道旅旅游 / DidaTravel、深圳捷旅国际 / 房掌柜、红色加力、票付通、易景通、泰坦云、智游宝.
+  - Table 2 contains the top 4 private-car platforms from `RESEARCH.md`: 曹操出行、首汽约车、神州专车、享道出行.
+  - Added a concise exclusion note for private-car cooperation paths requiring automobile-rental scope, operating vehicles, driver-management capability, or网约车证照 resources.
+- `docs/TESTS.md`
+  - Added Sitlink S7 as a manual/render review check for the final supplier-selection DOCX.
+- `docs/tests/tests-sitlink.md`
+  - Added S7.1-S7.5 covering final selection scope, required columns, decision-level wording, qualification exclusion, and render QA.
+- `docs/MEMORY.md` and this file
+  - Logged the final DOCX deliverable in the independent Sitlink memory lane.
+
+### Verification
+
+- Rendered the DOCX with the Documents skill renderer to page PNGs and inspected both pages.
+- Visual QA passed: the document renders as two landscape pages; page 1 contains the complete top-7综合平台 table; page 2 contains the complete top-4专车 table; no clipped rows, overlapping text, or orphaned continuation row remained after a second render pass.
+
+## 2026-06-06 — Final supplier-selection DOCX revisions
+
+### Trigger
+
+The user requested four visual/content revisions to `座联互动/座联互动最终供应商筛选表.docx`: explain the scoring dimensions in the screening rationale, remove hotel/attraction labels from the private-car table's service-content column, remove the visible negative exclusion sentence about automobile rental / vehicles / driver resources and keep the cooperation wording positive, and add the provided Sentura SVG logo as a faint diagonal watermark that does not cover document content.
+
+### Changes
+
+- `座联互动/座联互动最终供应商筛选表.docx`
+  - Rewrote the screening rationale to state the five scoring dimensions in plain language: service fit, API openness, partner-qualification clarity, cooperation cases/business authenticity, and compliance/landing risk.
+  - Replaced the private-car table's service-content cells with concise car/transfer-only descriptions matching the user's screenshot direction.
+  - Reworded private-car cooperation possibility cells positively, focusing on API/H5/enterprise-use access potential, customer basis, and documents still needed from business teams.
+  - Converted `/Users/henry/Desktop/Sentura/logo/SVG/logo side.svg` into a blurred, low-opacity diagonal watermark and placed it in the lower-right whitespace of each rendered page.
+- `docs/TESTS.md` and `docs/tests/tests-sitlink.md`
+  - Updated S7 review criteria to cover the revised rationale, private-car service wording, positive cooperation wording, and watermark QA.
+- `docs/MEMORY.md` and this file
+  - Logged the DOCX revision in the independent Sitlink memory lane.
+
+### Verification
+
+- Re-rendered the DOCX with the Documents skill renderer after the revisions.
+- Visual QA passed: both pages remain landscape; no table rows are clipped or split; the Sentura watermark is faint, blurred, diagonal, and sits in whitespace without covering the tables or reducing readability.
+- XML/text spot-check confirmed the visible document contains the updated five-dimension rationale and no longer contains the requested negative exclusion wording.
+
+## 2026-06-06 — Final supplier-selection DOCX full-page watermark revision
+
+### Trigger
+
+The user requested that the two document watermarks be made larger so they cover the whole page.
+
+### Changes
+
+- `座联互动/座联互动最终供应商筛选表.docx`
+  - Enlarged the Sentura SVG-derived blurred watermark and shifted its anchor so the diagonal mark spans each landscape page behind the content.
+  - Kept the watermark low-opacity and behind the tables so the supplier matrices remain readable.
+- `docs/TESTS.md` and `docs/tests/tests-sitlink.md`
+  - Updated S7 watermark QA wording from whitespace-only placement to full-page, faint, behind-content coverage.
+- `docs/MEMORY.md` and this file
+  - Logged the full-page watermark revision in the independent Sitlink memory lane.
+
+### Verification
+
+- Re-rendered the DOCX with the Documents skill renderer after resizing the watermark.
+- Visual QA passed on both rendered pages: the watermark spans the page area, remains diagonal and faint, and the table text is still readable.
+
+## 2026-06-06 — Final supplier-selection DOCX watermark removal
+
+### Trigger
+
+The user requested that the watermark be removed because only the supplier-selection content is needed.
+
+### Changes
+
+- `座联互动/座联互动最终供应商筛选表.docx`
+  - Removed the Sentura watermark drawing from the DOCX header.
+  - Removed the watermark image relationship and media file from the package.
+  - Preserved the existing two-table content and page layout.
+- `docs/TESTS.md` and `docs/tests/tests-sitlink.md`
+  - Updated S7 QA wording to require no watermark or background logo.
+- `docs/MEMORY.md` and this file
+  - Logged the watermark removal in the independent Sitlink memory lane.
+
+### Verification
+
+- Re-rendered the DOCX with the Documents skill renderer after removing the watermark.
+- Visual QA passed on both rendered pages: no Sentura watermark or background logo is visible, and the two supplier tables remain readable with no clipped or overlapping content.
+
 ## 2026-06-05 — MCP-backed hotel detail modal
 
 ### Trigger
@@ -701,6 +836,109 @@ The user clarified that the customer-service Agent's visible replies should look
 - `diff -qr sentura/agents/zuolian-travel-concierge ~/.openclaw/workspace/zuolian-travel-concierge` — PASS; only runtime-local `.openclaw`, `ekg`, and `memory` directories differ.
 - `rg` spot-checks confirm the normal-chat / no-Markdown rules are present in both source and runtime workspace files.
 - In-app Browser startup smoke on `http://127.0.0.1:3000/client-demos/zuolian` — PASS: title `座联互动客服`, left status toolbar, iPhone shell, blank pre-confirmation conversation, and no startup hotel overlay.
+
+## 2026-06-06 — OTA/API supplier research
+
+### Trigger
+
+The user supplied two Word reports on OTA/API openness and asked for an objective web-verified review of the platforms, split across hotel, attraction-ticket, and private-car/transfer service coverage, with API-document availability and reliability scoring written to `座联互动/RESEARCH.md`.
+
+### Inputs read
+
+- `README.md`, `docs/MEMORY.md`, `docs/TESTS.md`, `座联互动/DESIGN.md`, and this Sitlink memory file.
+- `/Users/henry/Desktop/OTA平台接口开放程度调研（酒店:机票）.docx`
+- `/Users/henry/Desktop/OTA平台接口开放程度调研报告（景点:门票）(1).docx`
+- Public web sources for official sites, API docs, industry background, and risk/regulatory checks, including DidaTravel API docs, Shenzhen Jie旅/房掌柜 pages, RedAug docs, 票付通, 智游宝, 易景通, 趣买票, 磐河, 分贝通, 泰久信息, 同天下, 思途CMS, TravelDaily, 东方财富/新浪新三板 pages, and 12306/regulatory coverage.
+
+### Findings captured
+
+- DidaTravel is the strongest fit for Sitlink's three-service direction because the public site covers hotels, ground transfers, and experiences, while the hotel Booking/Content API is fully documented and already aligns with the existing Dida demo MCP flow.
+- Shenzhen Jie旅 and RedAug are credible hotel-side candidates, but both require business onboarding for formal test/production access; Jie旅 has a stronger public hotel API-document trail.
+- For attraction tickets, 票付通 is the first candidate by scale and distribution fit; 易景通 and 趣买票 are credible alternates; 智游宝 has strong business history but weaker public API documentation.
+- 磐河 has broad API openness across hotel and scenic tickets, but train-ticketing was explicitly downgraded because 12306 repeatedly states it has not authorized third-party platforms to sell or handle train-ticket business, and third-party train-ticket platforms remain under regulatory scrutiny.
+- 分贝通 is credible as enterprise spend / corporate travel infrastructure but is not a supply-side inventory API for Sitlink's consumer travel service.
+- 泰久信息、同天下、思途CMS are real system/ERP/CMS vendors but are not direct first-wave supply APIs for Sitlink's hotel + ticket + transfer booking loop.
+
+### Files changed
+
+- `座联互动/RESEARCH.md`
+  - Added the full research report, scoring rubric, platform matrix, per-platform findings, recommended supplier order, and public source list.
+- `docs/TESTS.md`
+  - Added Sitlink S6 as a manual research-review test and updated the Sitlink summary.
+- `docs/tests/tests-sitlink.md`
+  - Added S6.1-S6.6 review checks for source-doc coverage, three-service classification, API openness classification, scoring rubric, compliance caveats, and source traceability.
+- `docs/MEMORY.md` and `docs/memory/sitlink/phase-1.md`
+  - Logged this session in the Sitlink independent memory lane.
+
+### Verification
+
+- Manual review of `座联互动/RESEARCH.md` against the extracted Word text confirmed all developed source-document platform entries are covered.
+- Manual review confirmed the report separates full public API docs, partial/account-gated docs, and no-public-doc cases.
+- Manual review confirmed the report flags 磐河 train-ticket risk and does not recommend connecting third-party 12306 / ID-card / face-verification flows.
+
+## 2026-06-06 — OTA/API supplier research expansion
+
+### Trigger
+
+The user asked to add one more research dimension: each platform's qualification requirements for cooperation/signing parties, plus cooperation cases for those platforms, then recalculate the scores.
+
+### Changes
+
+- `座联互动/RESEARCH.md`
+  - Changed the supplier-fit rubric from four dimensions to five: service fit, API openness, business authenticity/cooperation cases, partner qualification clarity, and compliance/delivery risk.
+  - Added a common qualification baseline for Sitlink:营业执照、旅行社/平台经营资质 where applicable, contract/fapiao/settlement details, developer account, IP whitelist, testing certification, refund/cancel/reconciliation rules, and data/security commitments.
+  - Added a full platform-by-platform qualification/case table for DidaTravel, 深圳捷旅/房掌柜, 红色加力, 票付通, 易景通, 趣买票, 智游宝, 磐河, 泰坦云, 龙腾捷旅, 思途CMS, 分贝通, 泰久信息, and 同天下.
+  - Recalculated the total scores and adjusted the priority ordering. DidaTravel remains first; 深圳捷旅 and 红色加力 strengthened on signing clarity/cases; 票付通 remains the first attraction-ticket candidate; 易景通/趣买票/智游宝 move to B; 磐河 moves down to C+ because qualification/security/train-ticket risk grew under the new rubric.
+  - Added source URLs for Dida go-live process, SiteMinder Dida case, Jie旅协议, RedAug/TravelDaily cases, 票付通 developer/case page, 易景通 case page, 趣买票 Meituan article, 智游宝 about/cooperation page, 磐河 API implementation article, 泰坦云 API cooperation articles, CNBooking/RateGain, 分贝通 customer cases, 同天下 customer cases, 思途CMS system/API pages, and tourism platform qualification rules.
+- `docs/TESTS.md`
+  - Updated S6 from 6 to 7 manual review checks and changed the summary text to include partner qualification/case scoring.
+- `docs/tests/tests-sitlink.md`
+  - Split S6 into explicit checks for partner qualification dimension, cooperation cases, recalculated five-dimension scoring, risk caveats, and source traceability.
+
+### Verification
+
+- Manual review confirmed every scored platform now has a qualification/signing entry and a cooperation-case or ecosystem-evidence entry.
+- Manual review confirmed the master matrix and per-platform score lines use the recalculated scores.
+- Manual review confirmed `docs/TESTS.md` and `docs/tests/tests-sitlink.md` point S6 reviewers to the new sections and source list.
+
+## 2026-06-06 — Private-car supplier research expansion
+
+### Trigger
+
+The user supplied `/Users/henry/Desktop/OTA接口开放程度调研（专车）.docx`, asked to reevaluate those private-car platforms using the same scoring approach, requested a standalone private-car overview matrix in `座联互动/RESEARCH.md`, and asked to remove the `专车/接送` column from the existing main overview matrix.
+
+### Inputs read
+
+- `座联互动/RESEARCH.md`, `docs/TESTS.md`, `docs/tests/tests-sitlink.md`, `docs/MEMORY.md`, and this Sitlink memory file.
+- `/Users/henry/Desktop/OTA接口开放程度调研（专车）.docx`
+- Public web sources for the six private-car platforms and regulatory baseline:
+  - 曹操出行 official site and open-platform docs.
+  - 首汽约车 official site and open-platform docs.
+  - 神州专车 official site, developer platform, H5 guide, API guide, and API manual.
+  - 享道出行 official site and visible order API documentation.
+  - T3 出行 official site and enterprise page.
+  - 阳光出行 official sites.
+  - `网络预约出租汽车经营服务管理暂行办法` and the MOT PDF for platform / vehicle / driver compliance.
+
+### Changes
+
+- `座联互动/RESEARCH.md`
+  - Added the new private-car Word document to the input metadata.
+  - Removed the `专车/接送` column from the main hotel / attraction-ticket /综合供应平台 matrix.
+  - Added `### 3.2 专车 / 接送机平台总览`, scoring 曹操出行 90/A, 首汽约车 88/A, 神州专车 86/A, 享道出行 76/B, T3 出行 67/B-, and 阳光出行 64/C+.
+  - Added `## 6. 专车平台复核` with per-platform service fit, API openness, signing requirements, cases, risks, score, and Sitlink recommendation.
+  - Updated the private-car next-step plan to prioritize 曹操 -> 首汽 -> 神州, then 享道, with T3/阳光 as business-inquiry candidates until they provide API/H5 docs.
+  - Added source URLs for each private-car platform and the网约车合规 rules.
+- `docs/TESTS.md`
+  - Updated S6 from 7 to 8 manual review checks and changed the row summary to mention the dedicated private-car matrix.
+- `docs/tests/tests-sitlink.md`
+  - Expanded S6.1-S6.8 to cover the third source doc, main-matrix column removal, standalone private-car matrix, private-car API classification, signing requirements, cases, recalculated scoring, and regulatory/source traceability.
+
+### Verification
+
+- Manual review confirmed the main matrix no longer contains `专车/接送` as a column.
+- Manual review confirmed the dedicated private-car matrix includes all six platforms mentioned in the new source doc: 曹操、首汽、神州、T3、享道、阳光.
+- Manual review confirmed 曹操、首汽、神州 are distinguished as full-public-doc candidates; 享道 is partial-public-doc; T3/阳光 are no-public-field-level-doc candidates.
 
 ## 2026-06-05 — iPhone-contained hotel modal fix
 
