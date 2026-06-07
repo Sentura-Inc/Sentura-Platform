@@ -12,6 +12,7 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 |---|---|---|
 | 2026-06-07 | Phase-1 MVP design and API/tool plan | Wrote the initial OpenClaw/Sentura design for three employees and created the simulated Accio chat fixture. |
 | 2026-06-08 | UI/manual-screening/contextual-scoring revision | Added employee-specific demo UI requirements, Screening manual intake, and contextual scoring behavior. |
+| 2026-06-08 | Milestone 2 shared ontology and schemas | Added cross-border mobile-accessory ontology files, reusable Zod schemas, contextual score helper, and a 39-check offline validation script. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -78,3 +79,44 @@ The user asked to add three design corrections:
 
 - `docs/TESTS.md` now tracks CE1 as PASS on 2026-06-08 and adds CE7 for the three demo UI routes.
 - `docs/tests/tests-cross-border-ecommerce.md` now includes CE1.9-CE1.11 for UI/manual intake/demo feasibility, expanded CE5 for manual input and contextual scoring, expanded CE6 for memory UI preview, and added CE7 planned UI checks.
+
+## 2026-06-08 — Milestone 2 shared ontology and schemas
+
+### User request
+
+The user asked to complete Milestone 2 strictly according to `跨境电商/DESIGN.md`, then check the result.
+
+### Deliverables completed
+
+- Added `sentura/config/industry-ontologies/cross-border-mobile-accessories/` with:
+  - `assets/product-taxonomy.json5`
+  - `rules/scoring-rules.json5`
+  - `workflows/lead-discovery-sop.json5`
+  - `workflows/buyer-screening-sop.json5`
+  - `README.md`
+- Added `sentura/lib/cross-border-ecommerce.ts` with Zod schemas for `LeadCandidate`, `ScreeningReport`, `AccioChatExport`, and `AccioChatSummary`, plus `InvestigationTarget`, score block/evidence schemas, and `calculateContextualScore`.
+- Exported the schema module from `sentura/lib/index.ts` and `sentura/lib/package.json`.
+- Added root `zod` dev dependency pinned to the existing root-compatible zod 4 line so the new script has an explicit dependency without downgrading the root MCP SDK peer.
+- Added `scripts/test-cross-border-milestone2.ts`.
+- Updated `docs/TESTS.md` and `docs/tests/tests-cross-border-ecommerce.md`; CE2 now tracks the full Milestone 2 scope instead of only the Accio fixture.
+
+### Design invariants locked
+
+- Product taxonomy includes the required mobile-accessory categories: phone cases, screen protectors, chargers, cables, mobile holders, power accessories, and repair accessories.
+- Scoring rules use contextual evidence blocks, not a single fixed denominator.
+- Cold Marketing leads set `conversation_behavior` to `not_applicable`, excluding it from score and coverage denominators.
+- Disabled paid trade/financial APIs are `disabled_by_budget`: they reduce evidence coverage but do not reduce normalized score.
+- Forced downgrade flags override otherwise good scores and return `high_risk`.
+
+### Verification
+
+- `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` — PASS.
+- `npx tsx scripts/test-cross-border-milestone2.ts` — 39/39 PASS.
+- `node openclaw/node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck --target ES2023 --module NodeNext --moduleResolution NodeNext sentura/lib/cross-border-ecommerce.ts` — PASS.
+- JSON5 parse smoke for all four new ontology JSON5 files — PASS.
+- Full `sentura/lib` typecheck remains blocked by pre-existing package config issues: missing Node type declarations and existing `.ts` extension imports not accepted by the current `sentura/lib/tsconfig.json`. The new schema file was checked independently.
+
+### Follow-ups
+
+- Milestone 3 remains pending: implement `sentura/mcp-servers/cross-border-intel/` using these schemas and the contextual score helper.
+- Milestones 4-7 remain pending: create the three employee workspaces and the three dashboard demo routes.

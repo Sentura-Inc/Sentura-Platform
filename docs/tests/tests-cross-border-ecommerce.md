@@ -26,16 +26,22 @@ Scope: `跨境电商/DESIGN.md`
 | CE1.10 | Manual screening intake | Manual review | Design allows Screening to investigate manually entered company name, domain, email, contact person/title, social/profile URL, country, product interest, and notes. |
 | CE1.11 | Demo feasibility under missing APIs | Manual review | Design marks unavailable paid/API evidence as coverage gaps rather than fraud penalties, so the demo remains explainable when only low-cost APIs are enabled. |
 
-## CE2 — Simulated Accio Chat Fixture
+## CE2 — Shared Fixtures, Ontology, Schemas, And Contextual Scoring
 
-Status: PASS (2026-06-07)
+Status: PASS (2026-06-08)
 
-Scope: `跨境电商/fixtures/accio-chat-records.sample.json`
+Scope:
+
+- `跨境电商/fixtures/accio-chat-records.sample.json`
+- `sentura/config/industry-ontologies/cross-border-mobile-accessories/`
+- `sentura/lib/cross-border-ecommerce.ts`
+- `scripts/test-cross-border-milestone2.ts`
 
 Validation command:
 
 ```bash
 python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null
+npx tsx scripts/test-cross-border-milestone2.ts
 ```
 
 | # | Check | Method | Expected |
@@ -46,6 +52,14 @@ python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/
 | CE2.4 | Company info | Manual review | Each conversation includes company name, country, buyer/contact role, domain/email where available, and marketplace context. |
 | CE2.5 | Product and commercial terms | Manual review | Each conversation includes requested mobile-accessory products, quantities, price discussions, Incoterms/payment/logistics details, and next action. |
 | CE2.6 | Memory-employee readiness | Manual review | Fixture fields are sufficient for extracting customer-company summary, goods requested, negotiated prices, risks, and follow-up tasks. |
+| CE2.7 | Product taxonomy ontology | `scripts/test-cross-border-milestone2.ts` | `assets/product-taxonomy.json5` includes phone cases, screen protectors, chargers, cables, mobile holders, power accessories, repair accessories, buyer personas, geography/language focus, and marketplace exclusions. |
+| CE2.8 | Scoring rules ontology | `scripts/test-cross-border-milestone2.ts` | `rules/scoring-rules.json5` defines contextual evidence blocks and status denominator rules instead of a single fixed denominator. |
+| CE2.9 | Lead discovery SOP ontology | `scripts/test-cross-border-milestone2.ts` | `workflows/lead-discovery-sop.json5` captures query expansion, public-search-only sourcing, dedupe, audit URLs, structured handoff, and no automatic outreach. |
+| CE2.10 | Buyer screening SOP ontology | `scripts/test-cross-border-milestone2.ts` | `workflows/buyer-screening-sop.json5` supports Marketing lead batches and manual inputs, low-cost evidence ladder, contextual scoring, paid-source gaps, and anti-fraud caution rules. |
+| CE2.11 | Shared Zod schemas | `scripts/test-cross-border-milestone2.ts` | `LeadCandidateSchema`, `ScreeningReportSchema`, `AccioChatExportSchema`, and `AccioChatSummarySchema` validate design-shaped sample records. |
+| CE2.12 | Cold lead behavior handling | `scripts/test-cross-border-milestone2.ts` | `conversation_behavior` is `not_applicable` for cold Marketing leads and is excluded from score and coverage denominators. |
+| CE2.13 | Disabled paid API handling | `scripts/test-cross-border-milestone2.ts` | `disabled_by_budget` trade/financial evidence reduces `evidence_coverage` but does not reduce `normalized_score`. |
+| CE2.14 | Forced downgrade handling | `scripts/test-cross-border-milestone2.ts` | Forced downgrade flags override otherwise good normalized scores and return `high_risk`. |
 
 ## CE3 — `cross-border-intel` MCP Server (Planned)
 

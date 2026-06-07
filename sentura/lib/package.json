@@ -16,11 +16,15 @@
     "./config-versioning": "./config-versioning.ts",
     "./secrets": "./secrets.ts",
     "./per-agent-mcp": "./per-agent-mcp.ts",
-    "./chat-sessions": "./chat-sessions.ts"
+    "./chat-sessions": "./chat-sessions.ts",
+    "./cross-border-ecommerce": "./cross-border-ecommerce.ts"
   },
   "scripts": {
     "build": "tsdown src/index.ts --format esm --dts",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

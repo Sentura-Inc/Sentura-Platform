@@ -178,6 +178,7 @@ Each row links to the detail file where that session's prose, code diffs, verifi
 |---|---|---|---|
 | 2026-06-07 | cross-border-ecommerce | Phase-1 MVP design for the mobile-accessory cross-border customer: read Sentura platform/progress docs and the supplied commercial PDF, web-verified OpenClaw docs plus low-cost search/registry/domain/email/trade APIs, wrote `跨境电商/DESIGN.md`, and added a simulated Accio JSON fixture for the Memory employee. | [`memory/cross-border-ecommerce/phase-1.md`](memory/cross-border-ecommerce/phase-1.md) |
 | 2026-06-08 | cross-border-ecommerce | Phase-1 design revision: added three employee-specific demo UIs, Screening manual-input intake, and contextual scoring that excludes not-applicable behavior records and reports evidence coverage separately from normalized score. | [`memory/cross-border-ecommerce/phase-1.md`](memory/cross-border-ecommerce/phase-1.md) |
+| 2026-06-08 | cross-border-ecommerce | Milestone 2 complete: added the cross-border mobile-accessory ontology, shared Zod schemas for lead/screening/Accio records, contextual score helper, and `scripts/test-cross-border-milestone2.ts` with 39/39 offline checks. | [`memory/cross-border-ecommerce/phase-1.md`](memory/cross-border-ecommerce/phase-1.md) |
 
 ### Week 5 (Client Pilots & Lifecycle Hardening)
 

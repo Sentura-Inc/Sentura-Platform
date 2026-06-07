@@ -1,0 +1,51 @@
+// Cross-Border Mobile Accessories — Lead Discovery SOP
+{
+  schemaVersion: "1.0",
+  pillar: "workflows",
+  domain: "cross-border-mobile-accessories.lead-discovery-sop",
+  tenant: "cross-border-ecommerce",
+  entities: [
+    {
+      id: "entity:procedure:cbe-lead-discovery",
+      type: "procedure",
+      name: "Mobile accessory B2B lead discovery",
+      attributes: {
+        ownerAgentId: "cbe-lead-discovery",
+        ownerChineseName: "跨境营销获客员工",
+        defaultInputs: {
+          productKeywords: ["phone case", "tempered glass screen protector", "USB-C charger", "MagSafe accessories"],
+          buyerPersonas: ["importer", "distributor", "wholesaler", "repair chain", "electronics retailer"],
+          countries: ["US", "GB", "DE", "FR", "BR", "MX"],
+          maxResultsPerQuery: 10,
+          dailyCandidateTarget: 100,
+          excludeDomains: ["amazon.com", "alibaba.com", "aliexpress.com", "temu.com", "ebay.com"],
+        },
+        steps: [
+          "1. Expand product keywords using the product taxonomy and buyer persona synonyms.",
+          "2. Generate buyer-type, retail/repair, trade-fair, B2B-platform, and public-social query families.",
+          "3. Run only public web_search/web_fetch checks; do not log in to LinkedIn, Meta, X, or other protected pages.",
+          "4. Extract company, country, city, buyer type, domain, contact candidates, matched products, source URLs, and snippets.",
+          "5. Exclude supplier marketplaces and irrelevant consumer-only pages.",
+          "6. Deduplicate by normalized domain, company name, and contact email.",
+          "7. Rank candidates by source count, product fit, buyer-persona fit, and contact confidence.",
+          "8. Produce JSON and Markdown outputs with every query string and source URL.",
+          "9. Handoff selected candidates to cbe-buyer-screening as typed LeadCandidate records.",
+        ],
+        prohibitedActions: [
+          "Do not send cold outreach automatically.",
+          "Do not invent contact emails or registry evidence.",
+          "Do not scrape login-gated social pages.",
+        ],
+      },
+    },
+  ],
+  relations: [
+    { from: "entity:procedure:cbe-lead-discovery", type: "hands-off-to", to: "entity:procedure:cbe-buyer-screening" },
+  ],
+  provenance: {
+    source: "跨境电商/DESIGN.md Milestone 2",
+    ingested: "2026-06-08T00:00:00Z",
+    ingestedBy: "codex",
+    confidence: 0.9,
+  },
+}
