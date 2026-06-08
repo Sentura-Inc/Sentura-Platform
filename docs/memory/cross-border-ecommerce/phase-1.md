@@ -21,6 +21,15 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-08 | Milestone 4 live-data correction | Replaced the lead UI's baked-in candidate fixture with a live Tavily Dashboard API route that reads configured env from process env or `~/.openclaw/.env`; CE4 static checks now pass 102/102 and a minimal live Tavily smoke returned one public-web candidate. |
 | 2026-06-08 | Milestone 4 company-buyer filtering correction | Tightened live search to retain specific downstream buyer company websites only, rejecting social profiles, directories, marketplaces, supplier directories, public company-info pages, and wholesale supplier pages; CE4 checks now pass 110/110 and live smoke returned company domains. |
 | 2026-06-08 | Milestone 4 lead UI simplification | Removed query log, Screening handoff preview, Marketing AgentChat, and realtime tool trace panels; moved source/dedupe review into expandable candidate-buyer table rows and stretched the table across the right workspace; CE4 checks now pass 107/107. |
+| 2026-06-08 | Milestone 5 Screening employee and live background investigation | Added `cbe-buyer-screening`, setup registration, live Screening UI/API route, real configured-provider investigation path, and contextual score/coverage reporting; CE4+CE5 checks now pass 196/196 plus live smoke. |
+| 2026-06-08 | Lead-to-Screening copy and state persistence | Added Lead copy-all/per-row Screening JSON, persisted Lead/Screening dashboard state across refresh/navigation, and expanded CE4+CE5 checks to 200/200 plus Browser validation. |
+| 2026-06-08 | API-format audit and adapter fixes | Verified OpenClaw env substitution, corrected Abstract Email Reputation and ImportYeti request formats, and made non-2xx paid/official API responses coverage gaps rather than scored evidence. |
+| 2026-06-08 | SEC/Companies House country routing | Confirmed SEC no-key access and Companies House REST Basic-auth requirements, then added US -> SEC and GB -> Companies House API/public-page automatic Screening routing. |
+| 2026-06-08 | Public adverse scoring gate | Diagnosed Mobile Lab's 86/high-risk mismatch, restricted public adverse downgrades to target-specific company/domain evidence, and confirmed Companies House API 401 remains a coverage-only key/account failure with official public-page fallback. |
+| 2026-06-08 | Screening execution-path correction | Corrected the Screening UI so formal investigations are submitted to the real `cbe-buyer-screening` OpenClaw employee through Gateway/AgentChat instead of being generated directly by the Dashboard route. |
+| 2026-06-08 | Screening employee-report visual mapping | Normalized employee-returned Screening JSON aliases into the Dashboard report model so evidence and missing-evidence details render in visual panels and survive refresh restore. |
+| 2026-06-08 | Screening official-source and paid-email ordering | Added official-site same-domain email discovery before paid validation, SEC company-name lookup before US web fallback, and stricter GB Companies House / US SEC employee ordering. |
+| 2026-06-08 | Lead execution-path correction | Corrected the Lead Discovery UI so formal lead generation is submitted to the real `cbe-lead-discovery` OpenClaw employee through Gateway/AgentChat instead of being generated directly by the Dashboard Tavily route. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -472,3 +481,357 @@ The user asked to remove the query log, Screening handoff package, Marketing emp
 - `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS; Next produced the expected dynamic lead-discovery API route.
 - Browser check against `http://localhost:3001/client-demos/cross-border/lead-discovery` — PASS for live badge, source status, candidate buyer table, old panel removal, company-owned website empty-state copy, and no browser console errors. Screenshot captured at `/tmp/cbe-lead-discovery-simplified.png`.
+
+## 2026-06-08 — Milestone 5 Screening employee and live background investigation
+
+### User request
+
+The user asked to complete Milestone 5 strictly according to `跨境电商/DESIGN.md`, using the already configured live API env vars for real background investigation:
+
+- `TAVILY_API_KEY`
+- `COMPANIES_HOUSE_API_KEY`
+- `ABSTRACT_API_KEY`
+- `HUNTER_API_KEY`
+- `IMPORTYETI_API_KEY`
+- `SEC_USER_AGENT`
+- `CBE_ENABLE_PAID_TRADE_DATA`
+- `CBE_MAX_PAID_SPEND_USD`
+- `CBE_INTEL_REQUEST_TIMEOUT_MS`
+
+They also emphasized flexible real-time scoring.
+
+### Deliverables completed
+
+- Added `sentura/agents/cbe-buyer-screening/` with exactly the 8 native OpenClaw workspace files plus `config.json5`.
+- Added the six Milestone 5 skills:
+  - `evidence-collection/SKILL.md`
+  - `registry-verification/SKILL.md`
+  - `domain-email-verification/SKILL.md`
+  - `trade-record-check/SKILL.md`
+  - `buyer-scoring/SKILL.md`
+  - `report-writing/SKILL.md`
+- Configured the Screening employee with:
+  - OpenClaw embedded runtime and model runtime pin;
+  - `sandbox.mode = "non-main"`;
+  - read-only allowlist for `web_search`, `web_fetch`, `memory_search`, `memory_get`, and `group:plugins`;
+  - sandbox allowlist for `cross-border-intel__*`;
+  - dangerous tool denials, including shell, filesystem mutation, gateway, external messaging, sessions/subagents, and uncapped paid lookups.
+- Updated `scripts/sentura-setup.sh` and `scripts/sentura-setup.ps1` to copy/stamp/register `cbe-buyer-screening`, apply the same runtime/tool overrides, and add a webchat binding.
+- Enhanced `cross-border-intel`:
+  - `cbe_intel_email_domain_check` now calls both Abstract and Hunter when `enable_paid_validation=true` and keys exist, without echoing keys.
+  - ImportYeti default base URL is now `https://data.importyeti.com`, using `GET /v1.0/company/search`.
+  - MCP tests now cover 14 cases.
+- Added `/api/client-demos/cross-border/screening/run`:
+  - reads env from the Dashboard process or `~/.openclaw/.env`;
+  - returns only redacted provider status;
+  - calls Tavily, Companies House, RDAP/DNS, Abstract, Hunter, ImportYeti with budget controls, and SEC EDGAR when CIK is supplied;
+  - normalizes manual and Marketing lead targets into one `InvestigationTarget` shape;
+  - produces evidence items with source type, URL, timestamp, confidence, cost, score block, and score impact;
+  - computes contextual normalized score and evidence coverage separately;
+  - marks unavailable/disabled evidence as coverage gaps and excludes `not_applicable` behavior from denominators.
+- Added `/client-demos/cross-border/screening`:
+  - batch `LeadCandidate[]` intake and manual investigation form;
+  - source/budget toggles for Abstract/Hunter and ImportYeti;
+  - investigation queue;
+  - evidence timeline grouped by legal registry, domain/email, public footprint, trade/customs, financial/public filing, and behavior;
+  - score/report panel with normalized score and evidence coverage separated;
+  - missing/unavailable evidence panel;
+  - JSON report export;
+  - real `AgentChat` targeting `cbe-buyer-screening`.
+- Added sidebar navigation entry `CBE Screening`.
+- Updated `跨境电商/DESIGN.md`, `sentura/mcp-servers/cross-border-intel/README.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 196/196 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 14/14 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- Live Screening route smoke — PASS:
+  - HTTP 200.
+  - Redacted env status showed Tavily, Companies House, Abstract, Hunter, ImportYeti, and SEC configured/enabled where applicable.
+  - Returned one report with 12 evidence items across Companies House, DNS/RDAP, Abstract, Hunter, Tavily, ImportYeti, and SEC EDGAR; behavior evidence was `not_applicable` for the cold manual smoke.
+
+### Notes
+
+- The live smoke used a manual target with `sec_cik` so SEC EDGAR was exercised. No secret values were printed.
+- CE7 remains pending because the Accio Memory UI is still future work, but CE4 now covers the lead UI and CE5 covers the Screening UI.
+
+## 2026-06-08 — Lead-to-Screening copy and state persistence
+
+### Trigger
+
+The user asked to add a one-click copy button to the CBE Lead page, add a copy button for every search result, align the copied format with Screening input, and keep both Lead and Screening page state/results after refresh or route navigation.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
+  - Added a table-header `一键复制到背调` action for all current candidates.
+  - Added a per-row copy icon action next to `查看`.
+  - Copy output is `{"leads":[...]}` and includes the fields Screening already normalizes: `company_name`, `website`, `domain`, `country`, `matched_products`, `contact_candidates`, source URLs/evidence, dedupe data, confidence, and timestamps.
+  - Added best-effort clipboard fallback for browsers where `navigator.clipboard.writeText` is unavailable.
+  - Persisted run configuration, env status, run message, expanded row id, and returned leads under same-origin local storage key `sentura:cbe:lead-discovery:v1`.
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx`.
+  - Persisted batch/manual input, source toggles, budget, env status, run message/status, selected report id, and generated reports under same-origin local storage key `sentura:cbe:screening:v1`.
+  - Running states restore as idle with a re-run prompt; completed/error states and reports restore as-is.
+- Updated `scripts/test-cross-border-agents.ts` with CE4/CE5 checks for copy payloads and state persistence.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- Inspected the supplied `screen-screen-target-lead-lead-run-2026-06-08-live-0003-1780888601425.json`: it was generated before this fix and is not a trustworthy final score because Companies House no-match and ImportYeti HTTP 401 were still represented as scored evidence with no missing-evidence gap.
+- `npx tsx scripts/test-cross-border-agents.ts` — 202/202 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- Browser check against `http://127.0.0.1:3001/client-demos/cross-border/lead-discovery` — PASS: a small live Tavily run returned 2/3 candidates; per-row copy produced `{"leads":[...]}` with one copied candidate; refresh retained the lead table and ready state.
+- Browser check against `http://127.0.0.1:3001/client-demos/cross-border/screening` — PASS: pasted copied Lead payload into batch mode, disabled paid source toggles for the test run, completed a live Screening run, refreshed, and the report/score remained visible. Browser console had no errors.
+
+## 2026-06-08 — API-format audit and adapter fixes
+
+### Trigger
+
+The user supplied screenshots showing configured Companies House and Abstract keys and asked why the already configured API keys were not being called normally. The audit focused on OpenClaw key loading, `~/.openclaw/.env`, `~/.openclaw/openclaw.json`, and current provider API documentation.
+
+### Findings
+
+- `~/.openclaw/.env` contains the expected CBE variables, and `~/.openclaw/openclaw.json` stores `cross-border-intel` MCP env values as `${ENV_VAR}` references.
+- OpenClaw loads `.env` before config resolution and resolves the MCP env references to actual runtime values. The Dashboard Screening route also reads `~/.openclaw/.env`, but its env cache means a running Dashboard process must be restarted after changing keys.
+- Companies House request formatting is already the official API-key Basic-auth format. A live probe still returned `401 Invalid Authorization`, so the remaining issue is key/account validity or the specific key copied into `.env`, not the code format.
+- The Abstract key shown by the user is for Abstract Email Reputation. The previous adapter used the older Email Validation endpoint, causing `401` even with a real key.
+- Hunter request formatting matches the documented `email-verifier` query-param API. The configured account returned `429 restricted_account`, which is an account/billing/restriction state, not a parameter-format bug.
+- ImportYeti current docs use `GET /v1.0/company/search` with `name` and `page_size` query params and the `IYApiKey` header. The previous adapter used `Authorization: Bearer` plus `q`, which caused `401`.
+
+### Changes
+
+- Updated `sentura/mcp-servers/cross-border-intel/src/config.ts` to default Abstract to `https://emailreputation.abstractapi.com/v1/`.
+- Updated `sentura/mcp-servers/cross-border-intel/src/tools.ts`:
+  - Abstract evidence now points to the Email Reputation docs.
+  - ImportYeti search now calls `/v1.0/company/search?name=...&page_size=...` with `IYApiKey`.
+- Updated the Screening Dashboard API route:
+  - Abstract now calls Email Reputation and parses `email_deliverability`, `email_quality`, and risk fields.
+  - ImportYeti now uses the documented company-search route and `IYApiKey`.
+  - Companies House, Abstract, Hunter, ImportYeti, and SEC non-2xx responses are represented as `unavailable_api` coverage gaps when appropriate, with `affects_score: false`, instead of being treated as matched evidence or fraud signals.
+- Updated tests and docs: `scripts/test-cross-border-agents.ts`, MCP Vitest cases, `sentura/mcp-servers/cross-border-intel/README.md`, `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Live API-format probes
+
+- Tavily: HTTP 200.
+- SEC EDGAR: HTTP 200 with configured `SEC_USER_AGENT`.
+- Abstract Email Reputation: HTTP 200 against `emailreputation.abstractapi.com/v1`, with deliverability/quality fields returned.
+- ImportYeti: HTTP 200 against the documented company-search route with `IYApiKey`.
+- Companies House: HTTP 401 `Invalid Authorization` even with official Basic-auth formatting.
+- Hunter: HTTP 429 `restricted_account`.
+
+No secret values were printed in logs or docs. Because screenshots exposed live-looking API keys in the chat, those provider keys should be rotated before production use.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 200/200 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 14/14 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS; Next generated both cross-border API routes and pages.
+- Minimal live API-format probe — Tavily 200, SEC 200, Abstract Email Reputation 200, ImportYeti 200, Companies House 401 `Invalid Authorization`, Hunter 429 `restricted_account`.
+- `git diff --check` — PASS.
+
+## 2026-06-08 — SEC/Companies House country routing
+
+### Trigger
+
+The user asked to re-check the official SEC Developer Resources and Companies House API overview/authentication pages, determine whether either source can be used without an API key, confirm the correct API-key format when needed, and ensure copied lead lists automatically call SEC for US companies and Companies House for UK companies during Screening.
+
+### Official-doc conclusions
+
+- SEC EDGAR public data does not use an API key. The official developer page documents JSON APIs on `data.sec.gov`, EDGAR index files, and a fair-access limit of no more than 10 requests/sec. The implementation uses a descriptive `User-Agent`, resolving company name/ticker through `https://www.sec.gov/files/company_tickers.json` and then calling `https://data.sec.gov/submissions/CIK##########.json`.
+- Companies House REST API requires authentication credentials on each request. The correct API-key format is HTTP Basic auth with the API key as the username and a blank password: `Authorization: Basic base64(API_KEY + ":")`, equivalent to `curl -u API_KEY:`.
+- Companies House has a no-key official public website path at `https://find-and-update.company-information.service.gov.uk/search/companies?q=...`; it is HTML, not a REST JSON API. It is acceptable as a low-volume official registry-page fallback and is marked as `official_registry_page`, not `official_api`.
+
+### Changes
+
+- Updated the Screening route:
+  - `country=US` now automatically resolves SEC CIK from company name/ticker and uses SEC submissions without any API key.
+  - SEC evidence now contributes to `legal_identity` through the company ticker/CIK mapping and to `trade_financial` through submissions when a CIK is resolved.
+  - `country=GB` uses Companies House REST API first. If the key is missing or rejected, it falls back to the official public Companies House search page.
+  - Companies House API non-2xx remains coverage-only and does not score; the public-page fallback can score separately if a candidate is found.
+  - Lead and Screening source-status UI now states SEC requires no API key, using configured `SEC_USER_AGENT` when present and a default User-Agent otherwise.
+- Updated static tests to lock:
+  - Companies House public official-page fallback;
+  - SEC no-key status;
+  - US company-name -> CIK auto resolution;
+  - preserved non-2xx coverage-gap behavior.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Live route smoke
+
+- Directly invoked `/api/client-demos/cross-border/screening/run` with copied-list shaped targets:
+  - US `Apple Inc.`: SEC `company_tickers.json` returned `AAPL` / CIK `0000320193`, and SEC submissions returned HTTP 200. `legal_identity` and `trade_financial` both scored with official SEC evidence.
+  - GB `Mobile Lab`: Companies House API returned HTTP 401 using the official Basic-auth format, then the public official search page returned HTTP 200 and found `MOBILE LAB LTD (08770672)`. The API 401 remained coverage-only; the official public-page result carried the scored registry evidence.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 205/205 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+
+## 2026-06-08 — Public adverse scoring gate
+
+### Trigger
+
+The user supplied `/Users/henry/Desktop/screen-screen-target-lead-lead-run-2026-06-08-live-0003-1780891762117.json` and asked why a report with score 86 was still `high_risk`, and why Companies House API was still returning 401 even though web search returned the correct company.
+
+### Findings
+
+- The report's `score_debug.forced_downgrades` contained three `public_adverse_result:*` entries from generic scam/fraud information pages returned by the query `Mobile Lab fraud scam complaint customs GB`.
+- Those pages did not identify Mobile Lab or `mobilelab.co.uk`; they were general Ofcom/Citizens Advice/social scam-warning results. The old public-footprint logic treated any result containing `fraud`, `scam`, or `complaint` as adverse evidence without first checking target relevance.
+- Companies House API still returned HTTP 401 `Invalid Authorization` for both search and company-profile probes while using the official Basic-auth format. The configured key is present and UUID-like, so the remaining issue is key/account validity or an un-restarted process using an older value, not the request format.
+- The official Companies House public search page returned HTTP 200 and found `MOBILE LAB LTD (08770672)`, so the registry fallback is working and scores separately from the failed API call.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/api/client-demos/cross-border/screening/run/route.ts` so public adverse keywords only affect scoring when the search result is target-specific:
+  - result domain matches the target domain; or
+  - result text includes the normalized target company name.
+- Generic scam/complaint pages are now `score_impact: "coverage_only"`, `affects_score: false`, and cannot create `public_adverse_result:*` forced downgrades.
+- Product-fit signals from public search are likewise gated to target-specific evidence instead of generic pages.
+- Added `scripts/test-cross-border-agents.ts` static coverage for target-relevant public adverse scoring and updated CE5.16.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 206/206 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- Live route smoke for `Mobile Lab`, `country=GB`, `domain=mobilelab.co.uk` — HTTP 200; score `84.44`, evidence coverage `0.9`, `risk_tier=trusted_candidate`, `forced_downgrades=[]`.
+- Live route smoke kept Companies House API as `raw_status=401`, `score_impact=coverage_only`, `affects_score=false`; Companies House public search returned `raw_status=200`, found `MOBILE LAB LTD (08770672)`, and contributed positive registry evidence.
+
+## 2026-06-08 — Screening execution-path correction
+
+### Trigger
+
+The user challenged the implementation after running `scripts/sentura-setup` and observing that results were the same before and after setup. They correctly pointed out that, before setup, the `cbe-buyer-screening` employee was not registered, so a claimed "employee completed investigation" could not have been true.
+
+### Finding
+
+- `/client-demos/cross-border/screening` was generating reports by directly calling the Dashboard Route Handler `/api/client-demos/cross-border/screening/run`.
+- That route was not mock data: it performed real provider calls and adapter diagnostics. However, it bypassed OpenClaw employee execution, so it did not prove the Screening employee was doing the work.
+- The right-side `AgentChat` was present but only as an adjacent chat/review surface. The formal run button did not submit the task to `cbe-buyer-screening`.
+- The static test suite had the wrong invariant: it required `fetch("/api/client-demos/cross-border/screening/run")`, which locked in the bypass.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx`:
+  - imports Gateway/AgentChat primitives and checks `useAgent("cbe-buyer-screening")`;
+  - changes the run button to `让背调员工开始调查`;
+  - fails visibly if Gateway is disconnected or the employee is not registered;
+  - submits a structured hidden task to `cbe-buyer-screening` through `AgentChatHandle.sendMessage`;
+  - tracks employee tool-call progress through `onToolCall`;
+  - parses employee output between `SCREENING_REPORTS_JSON_START` and `SCREENING_REPORTS_JSON_END` into the report panels;
+  - persists the employee session key along with the last input/report state.
+- Kept `/api/client-demos/cross-border/screening/run` as a live provider adapter/diagnostic route, not the formal dashboard execution path.
+- Updated `scripts/test-cross-border-agents.ts` so CE5 now asserts the page does not directly fetch the route for official report generation and instead triggers `cbe-buyer-screening` through AgentChat/Gateway.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md` to record the corrected execution contract.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 206/206 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+
+## 2026-06-08 — Screening employee-report visual mapping
+
+### Trigger
+
+The user ran the corrected real `cbe-buyer-screening` employee path and received a much stronger CPR Cell Phone Repair investigation. The employee chat contained a valid `SCREENING_REPORTS_JSON_START/END` report with 12 evidence records, but the Dashboard evidence timeline still showed every visual evidence group as `0 条`, and the missing-evidence panel showed statuses without details.
+
+### Finding
+
+- The employee returned a valid report, but its field names followed the employee/MCP output style: `source_url`, `summary`, `detail`, `source_type=official_web`, `source_type=registry_tool`, `score_impact=coverage_gap`, and `target_source=marketing_lead_batch`.
+- The Dashboard visual model expected `url`, `finding`, `recommended_next_step`, a precomputed `layer`, and a narrower target-source union. Because the page did not normalize those aliases before grouping, evidence existed in JSON but did not populate the visual timeline.
+- Stored reports from local storage also bypassed normalization on refresh, so a previously stored employee-shaped report could continue rendering as empty even after parser fixes.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx`:
+  - added report normalization for employee-returned aliases before rendering;
+  - maps score blocks and source URLs into visual layers such as legal registry, domain/email, public footprint, trade/customs, and SEC/public filing;
+  - maps `official_web`, `registry_tool`, public review/profile sources, `coverage_gap`, `caution`, and `mixed` into UI-safe source and impact values;
+  - maps missing-evidence `detail`/`summary` into the gap panel's recommended next step;
+  - normalizes Marketing lead-shaped targets, including `marketing_lead_batch` and `matched_products`;
+  - normalizes reports restored from same-origin local storage before setting state.
+- Added a static regression check in `scripts/test-cross-border-agents.ts` so CE5 requires employee report JSON normalization for visual panels.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `npx tsx scripts/test-cross-border-agents.ts` — 207/207 PASS.
+
+## 2026-06-08 — Screening official-source and paid-email ordering
+
+### Trigger
+
+The user observed that Cellairis investigation quality was good but asked why enabled email validation APIs were not called when the target had no supplied email. They also clarified the intended ordering: US companies should call SEC first and only then use web/state-registry fallback; UK companies should call Companies House first and only then use web fallback; paid validation should be usable by discovering contact emails from the target's own website.
+
+### Findings
+
+- `cbe_intel_email_domain_check` already calls Abstract Email Reputation and Hunter when `enable_paid_validation=true`, keys exist, and a concrete email is supplied. It cannot validate a bare domain through those email-verifier APIs.
+- The Screening employee skill only instructed domain-only DNS checks when no email was provided, so it did not first search the target website for public same-domain contact emails.
+- The MCP `cbe_intel_sec_lookup` accepted only numeric CIKs, so the employee could not make a first-class SEC tool call for US leads when only company name was known.
+- The skills said Companies House/SEC were prioritized, but they did not explicitly require official-source calls before public web fallback.
+
+### Changes
+
+- Updated `sentura/mcp-servers/cross-border-intel/`:
+  - added `cbe_intel_official_contact_email_search`, a read-only tool that fetches a bounded set of official-site pages and extracts same-domain public contact emails;
+  - expanded `cbe_intel_sec_lookup` to accept `company_name`, resolve SEC `company_tickers.json`, and then call submissions by ten-digit CIK;
+  - SEC private/non-filer `not_found` is returned as not-applicable/coverage gap, not negative evidence.
+- Updated `sentura/agents/cbe-buyer-screening/` and the installed runtime copy under `~/.openclaw/workspace/cbe-buyer-screening/`:
+  - GB targets must call Companies House before public web fallback;
+  - US targets must call SEC by CIK or company name before state registry / official web fallback;
+  - paid email validation first searches official website pages for same-domain emails, then validates selected emails with Abstract/Hunter.
+- Updated `/client-demos/cross-border/screening` hidden employee task prompt to enforce the same ordering from the Dashboard submission path.
+- Updated `sentura/mcp-servers/cross-border-intel/README.md`, `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 17/17 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `npx tsx scripts/test-cross-border-agents.ts` — 210/210 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS.
+- Redaction-safe live provider smoke:
+  - SEC `company_tickers.json` and `data.sec.gov/submissions/CIK0000320193.json` returned HTTP 200 with Apple resolved from company/ticker data.
+  - Abstract Email Reputation returned HTTP 200 for a public same-domain test email.
+  - ImportYeti company search returned HTTP 200 with one Cellairis result and `requestCost=0`.
+  - Hunter Email Verifier returned HTTP 429, so the endpoint/key path is reachable but current quota/rate limit blocks validation.
+  - Companies House live API still returned HTTP 401 even with the documented Basic `api_key:` format; this confirms the remaining issue is key/account acceptance by Companies House, while the employee now records it as a coverage gap and falls back to official public-page/web evidence.
+
+## 2026-06-08 — Lead execution-path correction
+
+### Trigger
+
+The user asked whether Milestone 4 lead generation was a real employee workflow or only Dashboard fixed search. The direct answer was that the lead page was using the Dashboard Tavily route for the formal run, even though `cbe-lead-discovery` existed as an OpenClaw employee. The user required the delivered workflow to use the real employee.
+
+### Finding
+
+- `/client-demos/cross-border/lead-discovery` clicked through to `/api/client-demos/cross-border/lead-discovery/run`.
+- That route performed real Tavily search and filtering, but it bypassed OpenClaw employee execution.
+- The CE4 static test encoded the wrong invariant by requiring the page to fetch the route and by forbidding the Marketing AgentChat surface.
+- The `cbe-lead-discovery` skills defined the lead schema but did not define the Dashboard marker block needed for reliable parsing.
+
+### Changes
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`:
+  - imports Gateway/AgentChat primitives and checks `useAgent("cbe-lead-discovery")`;
+  - changes the formal run button to `让获客员工开始搜索`;
+  - fails visibly if Gateway is disconnected or `cbe-lead-discovery` is not registered;
+  - sends a structured hidden task to the real employee through `AgentChatHandle.sendMessage`;
+  - tracks employee tool calls through `onToolCall`;
+  - parses employee output between `LEAD_CANDIDATES_JSON_START` and `LEAD_CANDIDATES_JSON_END`;
+  - normalizes employee-shaped lead JSON into the table model;
+  - persists the employee session key together with the last run config and returned leads.
+- Kept `/api/client-demos/cross-border/lead-discovery/run` as a live Tavily adapter/diagnostic route, not the formal Dashboard execution path.
+- Updated `sentura/agents/cbe-lead-discovery/skills/lead-list-production/SKILL.md` and the installed runtime copy under `~/.openclaw/workspace/cbe-lead-discovery/` with the Dashboard marker output contract.
+- Updated `scripts/test-cross-border-agents.ts` so CE4 now asserts the page does not directly fetch the route for official lead generation and instead triggers `cbe-lead-discovery` through AgentChat/Gateway.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 213/213 PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.

@@ -89,6 +89,21 @@ Use Chinese headings and compact rows:
 - shortage notes;
 - next action: review selected leads or generate Screening handoff.
 
+## Dashboard Output Contract
+
+When the task is sent by `/client-demos/cross-border/lead-discovery`, the final response must include the machine-readable lead list between these exact markers, without a Markdown code block:
+
+```text
+LEAD_CANDIDATES_JSON_START
+{
+  "run_id": "lead-run-YYYY-MM-DD-live",
+  "leads": []
+}
+LEAD_CANDIDATES_JSON_END
+```
+
+The `leads` array is the source of truth for the dashboard table. Markdown summaries are allowed before the marker block, but they must not replace it.
+
 ## Safety
 
 - No outreach instructions unless the operator explicitly asks for a draft, and even then produce a draft only.

@@ -279,7 +279,7 @@ function envStatus() {
     abstract_email_validation: {
       configured: configured("ABSTRACT_API_KEY"),
       source: envSource("ABSTRACT_API_KEY"),
-      provider: "Abstract Email Validation",
+      provider: "Abstract Email Reputation",
     },
     hunter_enrichment: {
       configured: configured("HUNTER_API_KEY"),
@@ -293,7 +293,9 @@ function envStatus() {
       provider: "ImportYeti API",
     },
     sec_edgar: {
-      configured: configured("SEC_USER_AGENT"),
+      configured: true,
+      no_api_key_required: true,
+      user_agent_configured: configured("SEC_USER_AGENT"),
       source: envSource("SEC_USER_AGENT"),
       provider: "SEC EDGAR public data",
     },

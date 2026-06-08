@@ -67,6 +67,7 @@ const sections: NavSection[] = [
       { label: "Chat", href: "/chat", icon: MessageSquare },
       { label: "Zuolian Demo", href: "/client-demos/zuolian", icon: Compass },
       { label: "CBE Leads", href: "/client-demos/cross-border/lead-discovery", icon: Search },
+      { label: "CBE Screening", href: "/client-demos/cross-border/screening", icon: ShieldCheck },
       { label: "Tune Employee", href: "/tune", icon: Sliders },
       { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],

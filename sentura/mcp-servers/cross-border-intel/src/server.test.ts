@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
 import { createServer } from "./index.js";
+import type { CrossBorderIntelConfig } from "./config.js";
 import type { DnsResolver, FetchLike } from "./tools.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -14,12 +15,14 @@ const NOW = new Date("2026-06-08T10:00:00.000Z");
 async function connect(options: {
   fetchFn?: FetchLike;
   dnsResolver?: DnsResolver;
+  config?: Partial<CrossBorderIntelConfig>;
 } = {}) {
   const { server } = await createServer({
     config: {
       companiesHouseApiKey: "companies-house-test-key",
       secUserAgent: "SenturaCrossBorderIntel/0.1 test-contact@example.com",
       requestTimeoutMs: 5_000,
+      ...options.config,
     },
     fetchFn: options.fetchFn ?? vi.fn(async () => new Response("{}", { status: 200 })),
     dnsResolver: options.dnsResolver ?? okDnsResolver,
@@ -57,6 +60,7 @@ describe("cross-border-intel MCP tool catalog", () => {
       "cbe_intel_company_profile",
       "cbe_intel_domain_rdap_lookup",
       "cbe_intel_email_domain_check",
+      "cbe_intel_official_contact_email_search",
       "cbe_intel_sec_lookup",
       "cbe_intel_trade_record_search",
       "cbe_intel_score_buyer",
@@ -166,6 +170,73 @@ describe("registry and public-company routes", () => {
       source_type: "official_api",
     });
   });
+
+  it("resolves SEC CIK by company name before submissions lookup", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      const headers = new Headers(init?.headers);
+      expect(headers.get("user-agent")).toBe("SenturaCrossBorderIntel/0.1 test-contact@example.com");
+      if (u.pathname === "/files/company_tickers.json") {
+        return new Response(
+          JSON.stringify({
+            0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." },
+            1: { cik_str: 1267238, ticker: "AIZ", title: "Assurant, Inc." },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (u.pathname === "/submissions/CIK0000320193.json") {
+        return new Response(
+          JSON.stringify({ cik: "320193", name: "Apple Inc.", tickers: ["AAPL"], sic: "3571" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const { client } = await connect({ fetchFn });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_sec_lookup",
+        arguments: { company_name: "Apple Inc" },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "found",
+      cik: "0000320193",
+      resolved_from_company_name: "Apple Inc",
+      resolver_endpoint: "GET /files/company_tickers.json",
+      matched_ticker: "AAPL",
+      entity_name: "Apple Inc.",
+      source_type: "official_api",
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns SEC not_found for private companies without treating it as an API error", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url) => {
+      const u = new URL(String(url));
+      expect(u.pathname).toBe("/files/company_tickers.json");
+      return new Response(JSON.stringify({ 0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const { client } = await connect({ fetchFn });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_sec_lookup",
+        arguments: { company_name: "Cellairis" },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "not_found",
+      company_name: "Cellairis",
+      endpoint: "GET /files/company_tickers.json",
+      http_status: 200,
+      source_type: "official_api",
+    });
+    expect(String(result.note)).toContain("not applicable");
+  });
 });
 
 describe("RDAP and DNS evidence", () => {
@@ -248,6 +319,82 @@ describe("RDAP and DNS evidence", () => {
     expect(result.status).toBe("no_mx");
     expect((result.checks as Record<string, Record<string, unknown>>).mx.present).toBe(false);
     expect(result.confidence).toBeLessThan(0.4);
+  });
+
+  it("calls Abstract and Hunter paid email validation when enabled and configured", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url) => {
+      const u = new URL(String(url));
+      if (u.hostname === "emailreputation.abstractapi.com") {
+        expect(u.pathname).toBe("/v1/");
+        expect(u.searchParams.get("email")).toBe("buyer@example.com");
+        expect(u.searchParams.get("api_key")).toBe("abstract-test-key");
+        return new Response(
+          JSON.stringify({
+            email_deliverability: { status: "deliverable", is_format_valid: true },
+            email_quality: { score: 0.91 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (u.hostname === "api.hunter.io") {
+        expect(u.pathname).toBe("/v2/email-verifier");
+        expect(u.searchParams.get("email")).toBe("buyer@example.com");
+        expect(u.searchParams.get("api_key")).toBe("hunter-test-key");
+        return new Response(
+          JSON.stringify({ data: { status: "valid", score: 92 } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        abstractApiKey: "abstract-test-key",
+        hunterApiKey: "hunter-test-key",
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_email_domain_check",
+        arguments: { email: "buyer@example.com", enable_paid_validation: true },
+      }),
+    );
+    const paidValidation = result.paid_validation as { providers: Array<Record<string, unknown>> };
+    expect(paidValidation.providers.map((provider) => provider.provider)).toEqual(["abstract", "hunter"]);
+    expect(JSON.stringify(paidValidation)).not.toContain("abstract-test-key");
+    expect(JSON.stringify(paidValidation)).not.toContain("hunter-test-key");
+  });
+
+  it("extracts same-domain public emails from official website contact pages", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url) => {
+      const u = new URL(String(url));
+      if (u.pathname === "/") {
+        return new Response("<html>No email here</html>", { status: 200 });
+      }
+      if (u.pathname === "/contact") {
+        return new Response(
+          "<html>Email sales@example.com or support@sub.example.com. Ignore vendor@other.com.</html>",
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    });
+    const { client } = await connect({ fetchFn });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_official_contact_email_search",
+        arguments: { domain: "example.com", website: "https://www.example.com", max_pages: 3 },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "found",
+      domain: "example.com",
+      source_type: "public_web",
+    });
+    const emails = result.emails as Array<Record<string, unknown>>;
+    expect(emails.map((email) => email.email)).toEqual(["sales@example.com", "support@sub.example.com"]);
+    expect(JSON.stringify(emails)).not.toContain("vendor@other.com");
   });
 });
 
@@ -355,6 +502,48 @@ describe("contextual score and paid evidence behavior", () => {
     expect(result.status).toBe("unavailable_api");
     expect(result.source_type).toBe("public_web");
     expect(result.note).toMatch(/Paid trade-data API is not enabled/);
+  });
+
+  it("uses the current ImportYeti company-search endpoint when paid trade data is enabled", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      expect(u.origin).toBe("https://data.importyeti.com");
+      expect(u.pathname).toBe("/v1.0/company/search");
+      expect(u.searchParams.get("name")).toBe("Wave Case Ltd");
+      expect(u.searchParams.get("page_size")).toBe("10");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("iyapikey")).toBe("importyeti-test-key");
+      return new Response(
+        JSON.stringify({ requestCost: 1, data: [{ title: "Wave Case Ltd", shipments: 12 }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        enablePaidTradeData: true,
+        importYetiApiKey: "importyeti-test-key",
+        maxPaidSpendUsd: 5,
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_trade_record_search",
+        arguments: {
+          company_name: "Wave Case Ltd",
+          country: "US",
+          product_keywords: ["phone case"],
+          source: "importyeti",
+          max_paid_spend_usd: 2,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "found",
+      provider: "importyeti",
+      endpoint: "GET /v1.0/company/search",
+      source_type: "paid_trade_data",
+    });
   });
 });
 

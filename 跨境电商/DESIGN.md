@@ -152,7 +152,8 @@ Tool set:
 | `cbe_intel_company_profile` | Screening | Fetch company profile from known registry source. |
 | `cbe_intel_domain_rdap_lookup` | Screening | RDAP lookup through RDAP.org for low volume, IANA bootstrap client for scale. |
 | `cbe_intel_email_domain_check` | Screening | Syntax, free-provider flag, disposable-domain list, DNS MX/SPF/DMARC, optional paid validation provider. |
-| `cbe_intel_sec_lookup` | Screening | SEC EDGAR lookup for US public-company candidates when a CIK/ticker is found. |
+| `cbe_intel_official_contact_email_search` | Screening | Fetch a small set of public official website pages and extract same-domain contact emails before optional paid validation. |
+| `cbe_intel_sec_lookup` | Screening | SEC EDGAR lookup for US public-company candidates; resolves company name through `company_tickers.json` when CIK is not supplied, then fetches submissions. |
 | `cbe_intel_trade_record_search` | Screening | ImportYeti when key exists; Volza when key exists; otherwise web evidence query and mark evidence as weak. |
 | `cbe_intel_score_buyer` | Screening | Deterministic contextual scoring from normalized evidence. Excludes not-applicable blocks, reports evidence coverage, and applies forced-downgrade rules. |
 | `cbe_intel_parse_accio_chat` | Memory | Validate and normalize uploaded Accio JSON fixture. |
@@ -191,10 +192,11 @@ setup. The setup script writes OpenClaw's required flat config shape:
 ```
 
 `TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider
-auto-detection, not to `cross-border-intel`'s MCP env block. `TAVILY_API_KEY`
-is also read by the CE4 Dashboard live search route from process env or
-`~/.openclaw/.env` so the lead table can be populated by real public-search
-results without embedding a separate secret.
+auto-detection, not to `cross-border-intel`'s MCP env block. The formal Lead
+Discovery table is populated from the real `cbe-lead-discovery` employee's
+OpenClaw `web_search` / `web_fetch` work. The CE4 Dashboard Tavily route may
+also read `TAVILY_API_KEY` from process env or `~/.openclaw/.env`, but only as a
+diagnostic adapter/smoke-test path, not as the official lead-generation path.
 
 Agent tool policy must include the MCP tools twice:
 
@@ -229,7 +231,7 @@ Shared UI conventions:
 - Keep all customer-facing labels in Simplified Chinese for the demo, while preserving source URLs, API field names, and machine ids in expandable technical details.
 - Every visible result must show source type and timestamp: `official_api`, `public_web`, `paid_trade_data`, `demo_fixture`, `self_reported`, or `unverified`.
 - Paid or unavailable data sources must appear as explicit disabled/locked toggles with cost notes, not as silent missing evidence.
-- Demo fixture data must be visually marked as "演示数据"; live API results must be marked as "实时查询".
+- Demo fixture data must be visually marked as "演示数据"; employee-produced live results must be marked as "员工执行"; diagnostic API adapter output can be marked as "实时查询" when used outside the formal employee workflow.
 - No page should send outreach, write external systems, or expose raw secrets. Buttons that imply downstream action should say "生成草稿", "发送到背调", "写入记忆预览", not "自动联系客户".
 
 #### 3.3.1 Marketing Acquisition UI
@@ -244,18 +246,22 @@ Primary layout:
   - country/language selector
   - result target stepper and max-results-per-query slider
   - exclusion domain editor
-  - run button: "开始获客搜索"
+  - run button: "让获客员工开始搜索"
 - Center/right lead table:
   - columns: company, country, buyer type, matched product, domain, contact candidate, source count, discovery confidence, duplicate status
   - row actions: inspect sources
   - clicking "查看" expands an inline detail row with source URLs, query strings, snippets, timestamps, dedupe key, and dedupe explanation
-  - the table extends across the available right-side workspace; query log, Screening handoff package preview, Marketing AgentChat panel, and realtime tool trace are intentionally not rendered in this page
+  - the table remains the primary workspace; query log, Screening handoff package preview, and realtime tool trace are intentionally not rendered in this page
+- Right execution panel:
+  - a real `cbe-lead-discovery` OpenClaw `AgentChat` session receives the structured task
+  - hidden task prompts are not shown as operator chat noise
+  - final lead JSON is parsed from `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END`
 
 Human logic:
 
 1. Operator configures a run using business terms they understand.
-2. Agent expands queries and searches.
-3. UI streams discovered candidates into a table.
+2. Dashboard submits the structured task to the real `cbe-lead-discovery` employee through Gateway/AgentChat.
+3. The employee expands queries, calls OpenClaw search/fetch tools, and returns structured lead JSON for the UI table.
 4. Operator clicks "查看" on plausible buyers to inspect source provenance and dedupe reasoning inline.
 5. Qualified buyers can be exported or copied into the Screening workflow later; this page does not show a live handoff package panel.
 
@@ -500,8 +506,8 @@ Phase-1 country coverage:
 
 | Country / source | Route | Cost posture | Notes |
 |---|---|---|---|
-| UK Companies House | `GET https://api.company-information.service.gov.uk/search/companies?q=...`, then `GET /company/{companyNumber}` | No public fee found; requires API key | Official docs state API key auth and live real-time public company data. |
-| US SEC EDGAR | `GET https://data.sec.gov/submissions/CIK##########.json`, `GET /api/xbrl/companyfacts/CIK##########.json` | Free; no auth/API key; max 10 requests/sec fair access | Useful only for public companies / SEC filers, not normal small importers. |
+| UK Companies House | REST API: `GET https://api.company-information.service.gov.uk/search/companies?q=...`, then `GET /company/{companyNumber}`. Auth format is HTTP Basic with API key as username and blank password: `Authorization: Basic base64(API_KEY + ":")` / `curl -u API_KEY:`. No-key fallback: official public HTML search at `https://find-and-update.company-information.service.gov.uk/search/companies?q=...`. | No public fee found; REST API requires API key; public web search is free HTML, not JSON API. | Use API first for GB. If the key is missing/401/403, fall back to the official public search page and mark it as `official_registry_page`. |
+| US SEC EDGAR | No API key. Resolve company name/ticker through `https://www.sec.gov/files/company_tickers.json`, then call `GET https://data.sec.gov/submissions/CIK##########.json`; use a descriptive `User-Agent` and respect 10 requests/sec fair access. | Free; no auth/API key. | Automatically call for US candidates copied into Screening. Useful for public companies / SEC filers, not normal small private importers. |
 | OpenCorporates | `GET https://api.opencorporates.com/v0.4/companies/search?q=...` | Paid for commercial use: Essentials £225/month for 500 calls/month; Starter £660/month for 2,500 calls/month; Basic £1,200/month for 5,000 calls/month | Not MVP default because cost per useful lead is high. Use only when client buys a plan. |
 | Other countries | Web-search official registry page + manual link capture | $0 search cost plus search API cost | Brazil, Mexico, Germany, France, Spain, Italy adapters can be added incrementally. |
 
@@ -522,7 +528,7 @@ Optional paid checks:
 
 | Provider | API route / behavior | Public price verified | MVP decision |
 |---|---|---|---|
-| Abstract Email Validation | Real-time email validation; official page lists email deliverability, sender, domain, quality, risk, breach signals. | Free: 100 requests/month. Starter: $17/month paid annually for 60,000 requests/year. Standard: $37/month paid annually. Professional: $39/month paid annually. | Best low-cost optional add-on after free DNS checks. |
+| Abstract Email Reputation | `GET https://emailreputation.abstractapi.com/v1/?api_key=...&email=...`; official response includes `email_deliverability`, `email_quality`, `email_domain`, risk, and breach signals. The customer screenshot/key is for Email Reputation, not the older Email Validation endpoint. | Free: 100 requests/month. Starter: $17/month paid annually for 60,000 requests/year. Standard: $37/month paid annually. Professional: $39/month paid annually. | Best low-cost optional add-on after free DNS checks. |
 | Hunter | Email Verifier API; Help Center says verifier costs 0.5 credit/call, Domain Search costs 1 credit for 1-10 emails, Email Count is free. | Free plan 50 credits; Starter $49/month or $34/month yearly; Growth $149/month or $104/month yearly; Scale $299/month or $209/month yearly. | Useful if customer also wants email discovery, not just validation. |
 | ZeroBounce | Email verification API. | Minimum PAYG purchase 2,000 credits for $39 (~$0.0195/credit); free account includes 100 monthly credits. | More expensive for MVP; keep as fallback for deliverability-sensitive production. |
 
@@ -542,7 +548,7 @@ Do not use login-gated LinkedIn/Meta scraping. Official LinkedIn API access is e
 
 | Source | API / route | Public price verified | MVP decision |
 |---|---|---|---|
-| ImportYeti | API page shows examples like `GET https://data.importyeti.com/v1.0/company/wal-mart`; other companies/BOLs require API key via pricing. Public site positions US import records as free to search. | API page does not expose a stable public price in the captured docs; user testimonials emphasize free public search. | MVP uses public web search / API only if key is acquired. Evidence is US-import focused. |
+| ImportYeti | Current API docs expose company search as `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with the `IYApiKey` request header; other company/BOL routes require an API key via pricing. Public site positions US import records as free to search. | API page does not expose a stable public price in the captured docs; user testimonials emphasize free public search. | MVP uses public web search / API only if key is acquired and budget is enabled. Evidence is US-import focused. |
 | Volza | Trade Intelligence APIs: Global Trade API, Buyer Insights API, Supplier Insights API, Decision Maker Contact API. | Global search $0.10/search, data from $0.02/record; Buyer/Supplier Insights $5/report; decision-maker contact $1.50/record. | Best paid trade-data option for Phase 1 because price is public and usage can be capped. |
 | Panjiva | REST API with Bearer Token and shipment data sources. S&P page claims broad shipment/company/contact data. | Public pricing not exposed; likely enterprise sales. | Post-MVP enterprise option only. |
 | ImportGenius | Global trade data platform; pricing page exists but API/pricing is account/sales oriented. | Public API price not reliably captured. | Post-MVP or manual human research source. |
@@ -940,12 +946,12 @@ For each conversation, produce:
 
 | Area | Tool | Official API facts | Cost | MVP decision |
 |---|---|---|---|---|
-| UK registry | Companies House | `GET /search/companies?q=...`; `GET /company/{companyNumber}`; API key auth required. | No fee surfaced in official docs. | Implement if customer can create API key. |
-| US public filings | SEC EDGAR | `data.sec.gov` APIs require no auth/API keys; submissions and XBRL facts are JSON. Fair access max 10 requests/sec. | Free. | Implement for public-company candidates. |
+| UK registry | Companies House | REST API `GET /search/companies?q=...`; `GET /company/{companyNumber}` requires API-key Basic auth (`API_KEY:` as username/blank password). Public no-key fallback uses the official `find-and-update.company-information.service.gov.uk/search/companies` HTML page. | No fee surfaced in official docs. | API first for GB; official public page fallback when key is missing or rejected. |
+| US public filings | SEC EDGAR | `data.sec.gov` APIs require no auth/API keys; `company_tickers.json` maps company/ticker to CIK, then submissions and XBRL facts are JSON by ten-digit CIK. Fair access max 10 requests/sec and descriptive User-Agent required. | Free. | Automatically use for US copied leads when company name or CIK is present. |
 | Global registry | OpenCorporates | REST API returns JSON/XML; API key required; usage limits depend on plan; `/v0.4/companies/search?q=...`. | Essentials £225/month, Starter £660/month, Basic £1,200/month. | Not default MVP; add paid adapter behind feature flag. |
 | Domain registration | RDAP.org / IANA | `https://rdap.org/domain/{domain}` redirects to authoritative RDAP; IANA publishes RDAP bootstrap records. | Free; RDAP.org low-volume limit 10 requests/10 sec. | Implement free low-volume; use bootstrap client for scale. |
-| Email validation | DNS + Abstract/Hunter/ZeroBounce | DNS checks are free; paid APIs add SMTP, deliverability, risk, enrichment. | Abstract free 100/month; Hunter free 50 credits; ZeroBounce free 100/month, PAYG starts 2,000 credits for $39. | Start with free DNS/RDAP; add Abstract as first paid option. |
-| US trade records | ImportYeti | API page shows sample endpoints; API key needed for non-sample endpoints. | Public API price not confirmed from captured docs. | Use public search evidence or API if key/pricing confirmed. |
+| Email validation | DNS + Abstract Email Reputation/Hunter/ZeroBounce | DNS checks are free; Abstract Email Reputation uses `emailreputation.abstractapi.com/v1` and returns deliverability/quality/risk fields; Hunter uses `api.hunter.io/v2/email-verifier`. | Abstract free 100/month; Hunter free 50 credits; ZeroBounce free 100/month, PAYG starts 2,000 credits for $39. | Start with free DNS/RDAP; add Abstract as first paid option. |
+| US trade records | ImportYeti | Current company-search route is `GET /v1.0/company/search?name=...&page_size=...` with `IYApiKey`; API key needed for non-sample endpoints. | Public API price not confirmed from captured docs. | Use public search evidence or API if key/pricing confirmed and budget is enabled. |
 | Global trade records | Volza | Global Trade API, Buyer/Supplier Insights, Decision Maker Contact API. | $0.10/search, from $0.02/record, $5/report, $1.50/contact. | Best paid Phase-1 add-on with capped budget. |
 | Enterprise trade data | Panjiva / ImportGenius | Panjiva API uses Bearer Token; enterprise supply-chain data. | Public pricing not exposed. | Post-MVP only. |
 
@@ -1008,10 +1014,13 @@ Implementation notes:
 Tests:
 
 - Tool catalog contains exactly expected tools.
-- Companies House route builds `GET /search/companies` and `GET /company/{companyNumber}`.
-- SEC route pads CIK to 10 digits and uses SEC-compliant User-Agent.
+- Companies House route builds `GET /search/companies` and `GET /company/{companyNumber}` with API-key Basic auth; non-2xx API responses are coverage gaps and trigger the official public search page fallback.
+- SEC route needs no API key, resolves US company names through `company_tickers.json`, returns `not_found` as not-applicable/coverage gap for private companies, pads CIK to 10 digits, and uses a SEC-compliant User-Agent for submissions.
 - RDAP route handles 200/302/404/429.
 - DNS checker handles no MX, free email, role email, SPF, DMARC.
+- Official contact email search fetches only a small official-site page set and extracts same-domain public emails for later paid validation.
+- Abstract route uses the Email Reputation endpoint and parses `email_deliverability` / `email_quality`.
+- ImportYeti route uses `name` / `page_size` query params and the `IYApiKey` header.
 - Scoring engine covers trusted_candidate/cautious/insufficient_evidence/high_risk, not-applicable behavior, disabled paid API evidence, and forced downgrade cases.
 - Accio fixture parser produces expected product/price fields.
 
@@ -1026,7 +1035,7 @@ Deliverables:
   - `handoff-to-screening/SKILL.md`
 - Config with `web_search`, `web_fetch`, `cron`, and `cross-border-intel__*` if needed.
 - Demo UI route: `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
-- Live Dashboard API route: `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`, using `TAVILY_API_KEY` from `process.env` or `~/.openclaw/.env`.
+- Diagnostic Dashboard API route: `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`, using `TAVILY_API_KEY` from `process.env` or `~/.openclaw/.env`. This route is retained for provider adapter diagnostics and live-search smoke tests; it is not the formal Dashboard execution path.
 - Manual command:
   - "根据手机壳、钢化膜、充电器关键词，为英国和美国找 50 个潜在 B2B 买家。"
 
@@ -1036,9 +1045,9 @@ Acceptance:
 - Every candidate is a specific downstream buyer company, normally backed by that company's own website, not a social profile, public directory, marketplace, supplier directory, generic wholesale article, or public company-info page.
 - Every candidate has source URL(s), matched product, buyer type, and dedupe key.
 - No automated outreach is sent.
-- UI supports keyword/persona/country setup, lead table review, and inline source/dedupe inspection from the table's `查看` action.
+- UI supports keyword/persona/country setup, real employee execution through Gateway/AgentChat, lead table review, inline source/dedupe inspection from the table's `查看` action, one-click/per-row copy to Screening batch JSON, and local state restoration after refresh/navigation.
 
-Implementation status (2026-06-08): complete. Added `sentura/agents/cbe-lead-discovery/`, setup-script registration, `/client-demos/cross-border/lead-discovery`, live API route `/api/client-demos/cross-border/lead-discovery/run`, and `scripts/test-cross-border-agents.ts` (CE4 107/107 offline checks). The page no longer ships baked-in lead fixtures: the candidate table starts empty and is populated only by the live Tavily route. The API route reads configured env from the Dashboard process first and falls back to `~/.openclaw/.env` without returning secret values. Current filtering keeps only company-level downstream buyer candidates whose pages show mobile-accessory, phone-repair, electronics-retail, accessory-retail, reseller, importer-buyer, or phone-store relevance, and rejects social profiles, directories, marketplaces, public company-info pages, generic wholesale lists, supplier directories, manufacturers, exporters, and wholesale supplier pages. The final lead UI is a two-column workbench with the candidate buyer table filling the right-side workspace; the old query log, Screening handoff package preview, Marketing AgentChat panel, and realtime tool-trace panel are removed, and source/dedupe details now expand inline inside the table when the operator clicks `查看`.
+Implementation status (2026-06-08): complete after execution-path correction. Added `sentura/agents/cbe-lead-discovery/`, setup-script registration, `/client-demos/cross-border/lead-discovery`, diagnostic live-search route `/api/client-demos/cross-border/lead-discovery/run`, and `scripts/test-cross-border-agents.ts` (CE4+CE5 213/213 offline checks). The formal page run path no longer fetches the Dashboard route to generate official leads. It checks OpenClaw Gateway connectivity and `cbe-lead-discovery` registration, sends the structured search task through the real employee `AgentChat` session, tracks tool calls, and parses employee-produced `LeadCandidate` JSON from `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END` into the table. The candidate table starts empty and is populated only from employee output. The diagnostic API route remains available for Tavily/provider smoke tests and reads configured env from the Dashboard process first with `~/.openclaw/.env` fallback without returning secret values. Current filtering requirements keep only company-level downstream buyer candidates whose pages show mobile-accessory, phone-repair, electronics-retail, accessory-retail, reseller, importer-buyer, or phone-store relevance, and reject social profiles, directories, marketplaces, public company-info pages, generic wholesale lists, supplier directories, manufacturers, exporters, and wholesale supplier pages. Source/dedupe details expand inline inside the table when the operator clicks `查看`; operators can copy all rows or one row as Screening-ready `{"leads":[...]}` JSON; and the last search configuration, employee session key, run status, and results are restored from same-origin local storage after refresh or route navigation.
 
 ### Milestone 5 — Screening and Background employee
 
@@ -1058,11 +1067,15 @@ Acceptance:
 
 - Takes a list of `LeadCandidate` records.
 - Takes manual company/email/domain/contact/person/product-interest input and normalizes it into the same investigation target shape.
-- Produces one `ScreeningReport` per candidate.
+- Produces one `ScreeningReport` per candidate through the `cbe-buyer-screening` OpenClaw employee session.
 - Uses low-cost route by default and clearly marks paid-source gaps.
 - Uses contextual scoring: no behavior penalty for cold leads, unavailable API data shown as coverage gap, and score/recommendation adapts to enabled sources.
 - Never invents registry/trade evidence.
-- UI supports batch queue, manual investigation tab, source toggles, evidence timeline, coverage meter, score report, and report export.
+- UI supports batch queue, manual investigation tab, source toggles, evidence timeline, coverage meter, score report, report export, and local restoration of the last investigation/report after refresh/navigation. The formal "run" action must submit the task to the OpenClaw employee through Gateway/AgentChat; it must not silently bypass the employee by generating official reports in a Dashboard-only route.
+
+Implementation status (2026-06-08): complete after execution-path, visualization-mapping, and official-source-ordering corrections. Added `sentura/agents/cbe-buyer-screening/` with exactly the 8 native workspace files, the six designed skills, config/tool policy for `web_search`, `web_fetch`, `memory_search`, `memory_get`, and `cross-border-intel__*`, setup-script registration/webchat binding, `/client-demos/cross-border/screening`, and live provider adapter route `/api/client-demos/cross-border/screening/run`. The page now checks OpenClaw Gateway connectivity and `cbe-buyer-screening` registration, then sends the structured investigation task through the real `cbe-buyer-screening` AgentChat session. If setup has not registered the employee, the UI reports that instead of producing a Dashboard-only result. Employee-produced report JSON is normalized before rendering and before local-storage restore, so aliases such as `source_url`, `summary`, `detail`, `official_web`, `registry_tool`, and `marketing_lead_batch` populate the evidence timeline, missing-evidence panel, score blocks, and restored reports instead of being treated as empty visual evidence. The employee prompt and skills now require GB targets to call Companies House before web fallback, US targets to call SEC company-name/CIK lookup before state-registry web fallback, and paid email validation to first search the target's official website for same-domain contact emails when the operator did not supply an email. The page restores the last manual/batch input, source toggles, employee session key, selected report, and generated reports from same-origin local storage after refresh or route navigation.
+
+The Screening live provider adapter route reads configured env from the Dashboard process first and falls back to `~/.openclaw/.env`; it returns only redacted configured/enabled status. This route is kept for adapter diagnostics and for parity with the MCP/provider implementation, but it is not the formal dashboard execution path. A live API-format audit on 2026-06-08 used the configured `TAVILY_API_KEY`, `COMPANIES_HOUSE_API_KEY`, `ABSTRACT_API_KEY`, `HUNTER_API_KEY`, `IMPORTYETI_API_KEY`, `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` without printing secrets. Tavily, SEC, Abstract Email Reputation, and ImportYeti returned successful live responses after the adapter correction; Companies House still returned `401 Invalid Authorization` with official Basic-auth formatting, and Hunter returned `429 restricted_account`. Those non-2xx provider responses are now represented as `unavailable_api` coverage gaps rather than positive matches or fraud evidence. Follow-up adapter smoke confirmed copied US leads automatically resolve SEC CIK by company name and call SEC submissions without an API key, while copied GB leads use Companies House API first and fall back to the official public Companies House search page when the API key is rejected. Contextual scoring remains dynamic: unavailable or disabled sources affect coverage, `not_applicable` behavior is excluded for cold leads, and forced downgrades are applied after normalized score.
 
 ### Milestone 6 — Accio Memory Processing employee
 
@@ -1190,10 +1203,14 @@ Search APIs:
 Registry / domain / finance:
 
 - `https://developer.company-information.service.gov.uk`
+- `https://developer.company-information.service.gov.uk/get-started`
+- `https://developer.company-information.service.gov.uk/authentication`
 - `https://developer-specs.company-information.service.gov.uk/companies-house-public-data-api/reference/search/search-companies`
 - `https://developer-specs.company-information.service.gov.uk/companies-house-public-data-api/reference/company-profile/company-profile`
 - `https://www.sec.gov/search-filings/edgar-application-programming-interfaces`
 - `https://www.sec.gov/about/developer-resources`
+- `https://www.sec.gov/files/company_tickers.json`
+- `https://www.sec.gov/search-filings/cik-lookup`
 - `https://api.opencorporates.com/documentation/API-Reference`
 - `https://opencorporates.com/pricing/`
 - `https://about.rdap.org/`
@@ -1201,7 +1218,7 @@ Registry / domain / finance:
 
 Email and trade data:
 
-- `https://www.abstractapi.com/api/email-verification-validation-api`
+- `https://docs.abstractapi.com/api/email-reputation`
 - `https://hunter.io/pricing/`
 - `https://help.hunter.io/en/articles/1970956-hunter-api`
 - `https://www.zerobounce.net/docs/frequently-asked-questions/billing-and-payments/how-is-pricing-determined-for-email-verification`

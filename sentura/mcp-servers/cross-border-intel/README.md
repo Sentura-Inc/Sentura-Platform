@@ -11,8 +11,9 @@ All tools are registered with `readOnlyHint: true` and return `source_url`, `sou
 | `cbe_intel_company_registry_search` | Companies House search for GB when an API key exists; OpenCorporates only when configured; otherwise public-web registry fallback. |
 | `cbe_intel_company_profile` | Companies House company profile by company number, or manual registry URL review stub. |
 | `cbe_intel_domain_rdap_lookup` | RDAP.org domain lookup with 200/302/404/429 handling. |
-| `cbe_intel_email_domain_check` | Syntax, free/disposable provider, role-email, MX, SPF, DMARC, and optional paid validation. |
-| `cbe_intel_sec_lookup` | SEC EDGAR submissions lookup by numeric CIK, padded to ten digits. |
+| `cbe_intel_email_domain_check` | Syntax, free/disposable provider, role-email, MX, SPF, DMARC, and optional Abstract + Hunter paid validation. |
+| `cbe_intel_official_contact_email_search` | Fetch a small set of public official website pages and extract same-domain contact emails for optional paid validation. |
+| `cbe_intel_sec_lookup` | SEC EDGAR company-name-to-CIK resolution through `company_tickers.json`, then submissions lookup by ten-digit CIK. |
 | `cbe_intel_trade_record_search` | Volza/ImportYeti paid search only when keys and spend caps are enabled; otherwise weak public-web fallback. |
 | `cbe_intel_score_buyer` | Deterministic contextual score with normalized score and evidence coverage separated. |
 | `cbe_intel_parse_accio_chat` | Validate and normalize an Accio JSON export fixture. |
@@ -27,8 +28,8 @@ Secrets must live in OpenClaw's `.env` / secret store, not in config prose or co
 | `COMPANIES_HOUSE_API_KEY` | No | Enables GB Companies House search/profile. |
 | `OPENCORPORATES_API_KEY` | No | Paid global registry fallback. Disabled when absent. |
 | `SEC_USER_AGENT` | Recommended | SEC requests need a descriptive User-Agent. Default is a non-secret Sentura identifier. |
-| `ABSTRACT_API_KEY` | No | Optional paid email validation when `enable_paid_validation` is requested. |
-| `HUNTER_API_KEY` | No | Reserved for later paid email enrichment. |
+| `ABSTRACT_API_KEY` | No | Optional Abstract Email Reputation lookup when `enable_paid_validation` is requested. |
+| `HUNTER_API_KEY` | No | Optional Hunter Email Verifier call when `enable_paid_validation` is requested. |
 | `VOLZA_API_KEY` | No | Optional paid trade-data search. |
 | `IMPORTYETI_API_KEY` | No | Optional paid trade-data search. |
 | `CBE_ENABLE_PAID_TRADE_DATA` | No | Must be `true`/`1` before paid trade calls run. |
@@ -97,6 +98,9 @@ The Phase-1 default is low-cost and public:
 - RDAP/DNS/SEC are free public routes.
 - Companies House requires an API key but no paid route is assumed here.
 - OpenCorporates, Volza, ImportYeti, Abstract, and Hunter are optional. Missing keys disable only those adapters.
+- `cbe_intel_official_contact_email_search` performs a small public official-site fetch and does not validate deliverability by itself; pass a discovered same-domain email into `cbe_intel_email_domain_check` with `enable_paid_validation=true` to trigger Abstract/Hunter.
+- Hunter uses `GET https://api.hunter.io/v2/email-verifier`; Abstract uses `GET https://emailreputation.abstractapi.com/v1/?api_key=...&email=...`. API keys are never returned in tool output.
+- ImportYeti uses `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with the documented `IYApiKey` header when paid trade data and budget are enabled.
 - `cbe_intel_trade_record_search` will not call paid trade providers unless `CBE_ENABLE_PAID_TRADE_DATA=true` and the request budget is within `CBE_MAX_PAID_SPEND_USD`.
 - Disabled paid evidence is reported as coverage gap, not as a buyer fraud penalty.
 

@@ -121,8 +121,15 @@ export const EmailDomainCheckInputShape = {
   enable_paid_validation: z.boolean().default(false),
 };
 
+export const OfficialContactEmailSearchInputShape = {
+  domain: z.string().min(3),
+  website: z.string().url().optional(),
+  max_pages: z.number().int().min(1).max(8).default(5),
+};
+
 export const SecLookupInputShape = {
-  cik: z.string().regex(/^\d{1,10}$/, "CIK must be numeric and at most 10 digits"),
+  cik: z.string().regex(/^\d{1,10}$/, "CIK must be numeric and at most 10 digits").optional(),
+  company_name: z.string().min(2).optional(),
 };
 
 export const TradeRecordSearchInputShape = {

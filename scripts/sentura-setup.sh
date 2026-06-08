@@ -204,7 +204,7 @@ mkdir -p "$WORKSPACE_BASE"
 log "Step 2: Copying source-agent workspace files..."
 
 META_AGENTS=("creator" "tuner" "orchestrator" "mcp-builder" "data-scavenger")
-CLIENT_DEMO_AGENTS=("zuolian-travel-concierge" "cbe-lead-discovery")
+CLIENT_DEMO_AGENTS=("zuolian-travel-concierge" "cbe-lead-discovery" "cbe-buyer-screening")
 SOURCE_AGENTS=("${META_AGENTS[@]}" "${CLIENT_DEMO_AGENTS[@]}")
 SENTURA_AGENTS_DIR="$PROJECT_ROOT/sentura/agents"
 
@@ -534,6 +534,18 @@ const cbeLeadToolsDeny = [
   'sessions_spawn','sessions_yield','skill_workshop','subagents','tts','update_goal',
   'update_plan','video_generate','edit','apply_patch','write'
 ];
+const cbeScreeningToolAllow = ['web_search','web_fetch','memory_search','memory_get','group:plugins'];
+const cbeScreeningSandboxAllow = ['web_search','web_fetch','memory_search','memory_get','cross-border-intel__*'];
+const cbeScreeningModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const cbeScreeningToolsDeny = [
+  'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
+  'image','image_generate','message','nodes','pdf','process','read','session_status',
+  'sessions_history','sessions_list','sessions_send','sessions_spawn','sessions_yield',
+  'skill_workshop','subagents','tts','update_goal','update_plan','video_generate',
+  'edit','apply_patch','write'
+];
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
@@ -543,6 +555,7 @@ const overrides = {
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
   'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
   'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', allow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { allow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 public-search lead discovery with typed Screening handoff preview' } },
+  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', allow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { allow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 low-cost live buyer background investigation with contextual scoring' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -570,6 +583,13 @@ if (!config.bindings.some((b) => b && b.agentId === 'cbe-lead-discovery' && b.ma
     match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
   });
   console.log('  Added webchat binding for cbe-lead-discovery');
+}
+if (!config.bindings.some((b) => b && b.agentId === 'cbe-buyer-screening' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'cbe-buyer-screening',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for cbe-buyer-screening');
 }
 
 config.mcp = config.mcp || {};

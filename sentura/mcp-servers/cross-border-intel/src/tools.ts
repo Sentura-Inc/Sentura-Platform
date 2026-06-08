@@ -10,6 +10,7 @@ import {
   CompanyRegistrySearchInputShape,
   DomainRdapLookupInputShape,
   EmailDomainCheckInputShape,
+  OfficialContactEmailSearchInputShape,
   ParseAccioChatInputShape,
   ScoreBuyerInputShape,
   SecLookupInputShape,
@@ -351,6 +352,58 @@ const ROLE_EMAIL_LOCAL_PARTS = new Set([
   "support",
 ]);
 
+const CONTACT_PAGE_PATHS = [
+  "/",
+  "/contact",
+  "/contact-us",
+  "/about",
+  "/about-us",
+  "/support",
+  "/customer-service",
+  "/sales",
+  "/wholesale",
+];
+
+function emailDomain(email: string): string {
+  return normalizeDomain(email.split("@")[1] ?? "");
+}
+
+function roleEmailLocalPart(email: string): boolean {
+  return ROLE_EMAIL_LOCAL_PARTS.has(email.split("@")[0]?.toLowerCase() ?? "");
+}
+
+function baseWebsiteUrl(domain: string, website: string | undefined): URL {
+  const raw = website?.trim() || `https://${domain}`;
+  return new URL(raw.includes("://") ? raw : `https://${raw}`);
+}
+
+function contactPageUrls(domain: string, website: string | undefined, maxPages: number): string[] {
+  const base = baseWebsiteUrl(domain, website);
+  const urls = new Set<string>();
+  for (const path of CONTACT_PAGE_PATHS) {
+    const next = new URL(path, base.origin);
+    urls.add(next.toString());
+    if (urls.size >= maxPages) break;
+  }
+  return Array.from(urls);
+}
+
+function extractEmails(text: string, domain: string, sourceUrl: string) {
+  const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+  const normalizedTargetDomain = normalizeDomain(domain);
+  return Array.from(new Set(matches.map((email) => email.toLowerCase()))).flatMap((email) => {
+    const foundDomain = emailDomain(email);
+    const domainMatch = foundDomain === normalizedTargetDomain || foundDomain.endsWith(`.${normalizedTargetDomain}`);
+    if (!domainMatch) return [];
+    return {
+      email,
+      domain: foundDomain,
+      source_url: sourceUrl,
+      local_part_role: roleEmailLocalPart(email),
+    };
+  });
+}
+
 function flattenTxt(records: string[][]): string[] {
   return records.map((parts) => parts.join(""));
 }
@@ -390,7 +443,7 @@ async function emailDomainCheck(ctx: ToolContext, rawArgs: unknown) {
   if (disposableDomain) confidence = Math.min(confidence, 0.18);
   if (spfRecords.length > 0 && dmarcRecords.length > 0 && mxRecords.length > 0 && !freeProvider) confidence = 0.86;
 
-  let paidValidation: Record<string, unknown> | undefined;
+  const paidValidationProviders: Array<Record<string, unknown>> = [];
   if (args.enable_paid_validation && ctx.config.abstractApiKey && email) {
     const url = new URL(ctx.config.abstractBaseUrl);
     url.searchParams.set("api_key", ctx.config.abstractApiKey);
@@ -399,13 +452,30 @@ async function emailDomainCheck(ctx: ToolContext, rawArgs: unknown) {
       method: "GET",
       headers: { Accept: "application/json" },
     });
-    paidValidation = {
+    paidValidationProviders.push({
       provider: "abstract",
       http_status: response.status,
       result: body,
-      source_url: "https://www.abstractapi.com/api/email-verification-validation-api",
+      source_url: "https://docs.abstractapi.com/api/email-reputation",
       source_type: "official_api",
-    };
+    });
+  }
+  if (args.enable_paid_validation && ctx.config.hunterApiKey && email) {
+    const url = new URL(joinUrl(ctx.config.hunterBaseUrl, "/email-verifier"));
+    url.searchParams.set("email", email);
+    url.searchParams.set("api_key", ctx.config.hunterApiKey);
+    const { response, body } = await fetchJson(ctx, url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    paidValidationProviders.push({
+      provider: "hunter",
+      endpoint: "GET /v2/email-verifier",
+      http_status: response.status,
+      result: body,
+      source_url: "https://hunter.io/api-documentation/v2#email-verifier",
+      source_type: "official_api",
+    });
   }
 
   return source(
@@ -435,9 +505,59 @@ async function emailDomainCheck(ctx: ToolContext, rawArgs: unknown) {
           error: dmarc.ok ? undefined : dmarc.error,
         },
       },
-      paid_validation: paidValidation,
+      paid_validation:
+        paidValidationProviders.length > 0
+          ? {
+              providers: paidValidationProviders,
+            }
+          : undefined,
     },
     { sourceUrl: `https://${domain}`, sourceType: "public_dns", confidence },
+  );
+}
+
+async function officialContactEmailSearch(ctx: ToolContext, rawArgs: unknown) {
+  const args = z.object(OfficialContactEmailSearchInputShape).parse(rawArgs);
+  const domain = normalizeDomain(args.domain);
+  const urls = contactPageUrls(domain, args.website, args.max_pages);
+  const checkedUrls: Array<{ url: string; http_status?: number; error?: string }> = [];
+  const emails: Array<{ email: string; domain: string; source_url: string; local_part_role: boolean }> = [];
+
+  for (const url of urls) {
+    try {
+      const { response, body } = await fetchJson(ctx, url, {
+        method: "GET",
+        headers: {
+          Accept: "text/html, text/plain;q=0.9,*/*;q=0.8",
+        },
+      });
+      checkedUrls.push({ url, http_status: response.status });
+      if (!response.ok) continue;
+      const text = typeof body === "string" ? body : JSON.stringify(body);
+      emails.push(...extractEmails(text, domain, url));
+    } catch (err) {
+      checkedUrls.push({ url, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const uniqueEmails = Array.from(new Map(emails.map((email) => [email.email, email])).values());
+  return source(
+    ctx,
+    {
+      status: uniqueEmails.length > 0 ? "found" : "not_found",
+      domain,
+      checked_urls: checkedUrls,
+      emails: uniqueEmails,
+      note:
+        uniqueEmails.length > 0
+          ? "Found public same-domain contact emails on the target's official website pages. Validate selected addresses with cbe_intel_email_domain_check when paid validation is enabled."
+          : "No public same-domain contact email was found on the checked official website pages.",
+    },
+    {
+      sourceUrl: uniqueEmails[0]?.source_url ?? urls[0] ?? `https://${domain}`,
+      sourceType: "public_web",
+      confidence: uniqueEmails.length > 0 ? 0.72 : 0.35,
+    },
   );
 }
 
@@ -445,9 +565,73 @@ function padCik(cik: string): string {
   return cik.padStart(10, "0");
 }
 
+function normalizeCompanyName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(incorporated|inc|corp|corporation|company|co|ltd|llc|plc|holdings|group|international)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function secCompanyCandidates(body: unknown) {
+  return Object.values(asRecord(body)).flatMap((entry) => {
+    const record = asRecord(entry);
+    const cik = typeof record.cik_str === "number" || typeof record.cik_str === "string" ? String(record.cik_str) : undefined;
+    const title = firstString(record.title);
+    const ticker = firstString(record.ticker);
+    return cik && title ? [{ cik, title, ticker }] : [];
+  });
+}
+
+async function resolveSecCikByCompanyName(ctx: ToolContext, companyName: string) {
+  const url = "https://www.sec.gov/files/company_tickers.json";
+  const { response, body } = await fetchJson(ctx, url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": ctx.config.secUserAgent,
+    },
+  });
+  if (!response.ok) {
+    return { response, url, match: undefined };
+  }
+  const normalizedQuery = normalizeCompanyName(companyName);
+  const candidates = secCompanyCandidates(body);
+  const match =
+    candidates.find((candidate) => normalizeCompanyName(candidate.title) === normalizedQuery) ??
+    candidates.find((candidate) => {
+      const normalizedTitle = normalizeCompanyName(candidate.title);
+      return normalizedTitle.includes(normalizedQuery) || normalizedQuery.includes(normalizedTitle);
+    });
+  return { response, url, match };
+}
+
 async function secLookup(ctx: ToolContext, rawArgs: unknown) {
   const args = z.object(SecLookupInputShape).parse(rawArgs);
-  const padded = padCik(args.cik);
+  let cik = args.cik;
+  let resolution: Awaited<ReturnType<typeof resolveSecCikByCompanyName>> | undefined;
+  if (!cik && args.company_name) {
+    resolution = await resolveSecCikByCompanyName(ctx, args.company_name);
+    cik = resolution.match?.cik;
+    if (!cik) {
+      return source(
+        ctx,
+        {
+          status: "not_found",
+          company_name: args.company_name,
+          endpoint: "GET /files/company_tickers.json",
+          http_status: resolution.response.status,
+          note: "No SEC company_tickers.json CIK match was found for this company name. Treat as not applicable for private/non-filer targets, not as negative evidence.",
+        },
+        { sourceUrl: resolution.url, sourceType: "official_api", confidence: 0.35 },
+      );
+    }
+  }
+  if (!cik) {
+    throw new Error("sec_lookup requires either cik or company_name.");
+  }
+  const padded = padCik(cik);
   const url = joinUrl(ctx.config.secBaseUrl, `/submissions/CIK${padded}.json`);
   const { response, body } = await fetchJson(ctx, url, {
     method: "GET",
@@ -464,6 +648,11 @@ async function secLookup(ctx: ToolContext, rawArgs: unknown) {
       cik: padded,
       endpoint: "GET /submissions/CIK##########.json",
       http_status: response.status,
+      resolved_from_company_name: args.company_name,
+      resolver_endpoint: resolution ? "GET /files/company_tickers.json" : undefined,
+      resolver_http_status: resolution?.response.status,
+      matched_ticker: resolution?.match?.ticker,
+      matched_title: resolution?.match?.title,
       entity_name: firstString(record.name),
       sic: firstString(record.sic),
       tickers: Array.isArray(record.tickers) ? record.tickers : [],
@@ -515,13 +704,14 @@ async function tradeRecordSearch(ctx: ToolContext, rawArgs: unknown) {
     ctx.config.importYetiApiKey &&
     budget > 0
   ) {
-    const url = new URL(joinUrl(ctx.config.importYetiBaseUrl, "/search"));
-    url.searchParams.set("q", args.company_name);
+    const url = new URL(joinUrl(ctx.config.importYetiBaseUrl, "/v1.0/company/search"));
+    url.searchParams.set("name", args.company_name);
+    url.searchParams.set("page_size", String(args.max_records));
     const { response, body } = await fetchJson(ctx, url.toString(), {
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${ctx.config.importYetiApiKey}`,
+        IYApiKey: ctx.config.importYetiApiKey,
       },
     });
     return source(
@@ -529,6 +719,7 @@ async function tradeRecordSearch(ctx: ToolContext, rawArgs: unknown) {
       {
         status: response.ok ? "found" : "api_error",
         provider: "importyeti",
+        endpoint: "GET /v1.0/company/search",
         http_status: response.status,
         records: body,
       },
@@ -810,11 +1001,20 @@ export const TOOLS: ToolDefinition[] = [
     handler: emailDomainCheck,
   },
   {
+    name: "cbe_intel_official_contact_email_search",
+    title: "Official Contact Email Search",
+    description:
+      "Fetch a small set of public official website pages and extract same-domain contact emails for optional paid validation.",
+    endpoint: "GET official website contact/about pages",
+    inputShape: OfficialContactEmailSearchInputShape,
+    handler: officialContactEmailSearch,
+  },
+  {
     name: "cbe_intel_sec_lookup",
     title: "SEC EDGAR Lookup",
     description:
-      "Fetch SEC company submissions by numeric CIK for US public-company candidates. Pads CIK to 10 digits and sends a configured User-Agent.",
-    endpoint: "GET /submissions/CIK##########.json",
+      "Resolve SEC CIK by company name when needed, then fetch SEC company submissions for US public-company candidates. Pads CIK to 10 digits and sends a configured User-Agent.",
+    endpoint: "GET /files/company_tickers.json + GET /submissions/CIK##########.json",
     inputShape: SecLookupInputShape,
     handler: secLookup,
   },
