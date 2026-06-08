@@ -234,6 +234,7 @@ export const AccioPurchaseIntentSchema = z.object({
   product: z.string().min(1),
   models: z.array(z.string().min(1)).default([]),
   quantity: z.number().int().positive().optional(),
+  monthly_potential_quantity: z.number().int().positive().optional(),
   packaging: z.string().min(1).optional(),
   target_price_usd: z.number().positive().optional(),
   seller_best_price_usd: z.number().positive().optional(),
@@ -241,6 +242,7 @@ export const AccioPurchaseIntentSchema = z.object({
   incoterm: z.string().min(1).optional(),
   payment_terms: z.string().min(1).optional(),
   logistics_terms: z.string().min(1).optional(),
+  certification_terms: z.string().min(1).optional(),
 });
 
 export const AccioBehaviorSignalsSchema = z.object({

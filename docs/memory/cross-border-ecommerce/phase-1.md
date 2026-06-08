@@ -30,6 +30,8 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-08 | Screening employee-report visual mapping | Normalized employee-returned Screening JSON aliases into the Dashboard report model so evidence and missing-evidence details render in visual panels and survive refresh restore. |
 | 2026-06-08 | Screening official-source and paid-email ordering | Added official-site same-domain email discovery before paid validation, SEC company-name lookup before US web fallback, and stricter GB Companies House / US SEC employee ordering. |
 | 2026-06-08 | Lead execution-path correction | Corrected the Lead Discovery UI so formal lead generation is submitted to the real `cbe-lead-discovery` OpenClaw employee through Gateway/AgentChat instead of being generated directly by the Dashboard Tavily route. |
+| 2026-06-08 | Milestone 6 Accio Memory employee and UI | Added `cbe-accio-memory`, Accio fixture sample route/UI, report preview flow, memory-write previews, Screening handoff payloads, and CE6/CE7 validation. |
+| 2026-06-08 | Accio Memory execution-path correction | Removed Dashboard precomputed reports/highlights so sample upload waits for employee `ACCIO_SUMMARIES_JSON`; strengthened Accio summarizer coverage for all three fixture conversations. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -835,3 +837,110 @@ The user asked whether Milestone 4 lead generation was a real employee workflow 
 
 - `npx tsx scripts/test-cross-border-agents.ts` — 213/213 PASS.
 - `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+
+## 2026-06-08 — Milestone 6 Accio Memory employee and UI
+
+### User request
+
+The user asked to complete Milestone 6 strictly according to `跨境电商/DESIGN.md`, then check the result. They also required the final effect to produce correct reports from the three simulated Accio conversations in the design/fixture.
+
+### Deliverables completed
+
+Correction note: this section records the initial Milestone 6 implementation. The 2026-06-08 "Accio Memory execution-path correction" section below supersedes the Dashboard behavior described here: the current UI no longer precomputes reports/highlights on sample load and waits for employee-returned JSON instead.
+
+- Added `sentura/agents/cbe-accio-memory/` with exactly the 8 native OpenClaw workspace files:
+  - `AGENTS.md`
+  - `SOUL.md`
+  - `TOOLS.md`
+  - `IDENTITY.md`
+  - `USER.md`
+  - `HEARTBEAT.md`
+  - `BOOTSTRAP.md`
+  - `MEMORY.md`
+- Added `sentura/agents/cbe-accio-memory/config.json5`:
+  - id/name/model/runtime for `cbe-accio-memory`;
+  - `sandbox.mode = "non-main"`;
+  - normal allowlist for `memory_search`, `memory_get`, and `group:plugins`;
+  - sandbox allowlist for `memory_search`, `memory_get`, and `cross-border-intel__*`;
+  - denylist for shell, filesystem mutation, raw read, gateway, external messaging, sessions/subagents, and media/browser tools;
+  - OpenClaw `agentRuntime.id = "openclaw"` model pin.
+- Added the five Milestone 6 skills:
+  - `accio-upload-intake/SKILL.md`
+  - `chat-normalization/SKILL.md`
+  - `deal-summary/SKILL.md`
+  - `customer-profile-memory/SKILL.md`
+  - `handoff-to-screening/SKILL.md`
+- Updated `scripts/sentura-setup.sh` and `scripts/sentura-setup.ps1` so setup copies/stamps/registers `cbe-accio-memory`, applies the same tool/runtime override, and adds a webchat binding.
+- Added `/api/client-demos/cross-border/accio-memory/sample` to read `跨境电商/fixtures/accio-chat-records.sample.json` from the repo and return it as marked `演示数据`.
+- Added `/client-demos/cross-border/accio-memory`:
+  - JSON upload and "加载演示 Accio 记录";
+  - validation status, data classification, and conversation count;
+  - conversation list with company/country/product/quantity context;
+  - original transcript with product/quantity/price/payment/logistics highlights;
+  - attachment list;
+  - structured report table for all three simulated conversations;
+  - right-side company summary, purchase intent, negotiated price/terms, next actions, behavior signals, `memory_write_preview`, and `screening_handoff_target`;
+  - real `AgentChat` targeting `cbe-accio-memory` and parsing `ACCIO_SUMMARIES_JSON_START/END`;
+  - local storage restore for last export, summaries, selected conversation, run status, and employee session key.
+- Added sidebar route entry `CBE Accio`.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md`; CE6 and CE7 are now PASS.
+
+### Report correctness locked
+
+- `accio_conv_001` / Andes Mobile Parts SpA: tempered glass screen protectors, iPhone 15/Samsung S24, 10,000 pcs, USD 0.35 target, USD 0.36 best price, USD 0.03 packaging add-on, FOB Shenzhen, T/T 30% deposit terms, PI next action, and behavior points.
+- `accio_conv_002` / Berlin Gadget Wholesale GmbH: 65W GaN EU plug chargers, 500 pcs trial request, MOQ 1,000 pcs, USD 6.50 target, USD 6.80 quote, EXW, Hamburg warehouse delivery, CE/RoHS requirements, and a next-action warning to verify company/domain because the contact uses Gmail.
+- `accio_conv_003` / Northstar Wireless LLC: clear MagSafe phone cases, iPhone 16 / 16 Pro / 16 Pro Max, 15,000 pcs current quote, 20,000 pcs/month potential, USD 1.10 best price, FBA barcode sticker USD 0.015, drop-test packaging USD 0.08, formal quote next action, and Screening handoff.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 291/291 PASS.
+- `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` — PASS.
+- `npx tsx scripts/test-cross-border-milestone2.ts` — 39/39 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 17/17 PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- Initial pre-correction Browser check against `http://127.0.0.1:3001/client-demos/cross-border/accio-memory` — PASS at that time: page opened, "加载演示 Accio 记录" loaded the fixture, Andes/Berlin/Northstar reports rendered, key product/quantity fields appeared, memory/report panel rendered, and console error count was 0. This Dashboard-rendered report behavior was superseded by the execution-path correction below. Screenshot saved at `/tmp/cbe-accio-memory.png`.
+- `git diff --check` — PASS.
+
+### Known verification limitation
+
+- `cd sentura/dashboard && pnpm build` did not complete because `next/font` failed to fetch the Google Fonts `Geist` resource during production build. The failure came from `src/app/layout.tsx` font loading and is unrelated to the Accio changes; dashboard TypeScript passed and the dev-server/browser validation succeeded.
+- Later correction note: the 2026-06-08 execution-path correction re-ran `cd sentura/dashboard && pnpm build`, and the production build completed successfully.
+
+## 2026-06-08 — Accio Memory execution-path correction
+
+### User correction
+
+The user clarified that even though the Accio records are simulated, the Memory employee must receive the chat records and return the report. The Dashboard must not contain or display pre-set reports. Raw conversation highlights, the structured report table, memory preview, and Screening preview must wait for the employee's analysis response.
+
+### Changes made
+
+- Removed the Dashboard-side deterministic Accio report generator from `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`.
+- Changed sample loading and JSON upload so they only validate/cache the Accio export, select the first conversation, clear summaries, and set the UI to `待员工分析`.
+- Changed transcript highlighting so it is derived only from the selected employee-returned `AccioSummary`; before employee output, the transcript is plain text with a waiting notice.
+- Changed the report table and right-side memory/Screening preview so they remain empty until the page parses employee JSON between `ACCIO_SUMMARIES_JSON_START` and `ACCIO_SUMMARIES_JSON_END`.
+- Strengthened the employee prompt and `deal-summary` skill: the employee must use the Accio parser/summarizer tools, verify raw messages, and avoid filling facts from UI templates or file names.
+- Extended Accio schemas in `sentura/lib/cross-border-ecommerce.ts` and `sentura/mcp-servers/cross-border-intel/src/schemas.ts` with `monthly_potential_quantity` and `certification_terms`.
+- Improved `cross-border-intel` Accio summarization logic so employee tool output correctly distinguishes current quantity vs monthly potential, MOQ vs requested quantity, current quote vs tier price, and product price vs packaging/labeling add-ons.
+- Updated `scripts/test-cross-border-agents.ts` so CE6/CE7 assert that the Dashboard does not precompute fixture reports and waits for employee-returned summaries.
+- Updated `跨境电商/DESIGN.md`, `docs/TESTS.md`, and `docs/tests/tests-cross-border-ecommerce.md` to reflect the employee-driven Accio report flow.
+
+### Correct report path
+
+- Andes/Berlin/Northstar correctness is now locked in the employee/tool path, not in the UI:
+  - `cross-border-intel` parser validates the fixture and conversation count.
+  - `cross-border-intel` summarizer extracts Andes, Berlin, and Northstar product/quantity/price/terms fields from raw messages.
+  - `cbe-accio-memory` receives the full JSON through AgentChat and returns Dashboard-renderable JSON markers.
+  - Dashboard renders highlights, report table, memory preview, and Screening handoff only from the returned JSON.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 291/291 PASS.
+- `npx tsx scripts/test-cross-border-milestone2.ts` — 39/39 PASS.
+- `python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null` — PASS.
+- `pnpm --filter @sentura/mcp-cross-border-intel test` — 17/17 PASS, including all three Accio fixture summaries.
+- `pnpm --filter @sentura/mcp-cross-border-intel build` — PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
+- `cd sentura/dashboard && pnpm build` — PASS.
+- Browser check against `http://127.0.0.1:3001/client-demos/cross-border/accio-memory` — PASS: page opened, "加载演示 Accio 记录" loaded the fixture, UI showed `待员工分析`, raw conversations appeared, report table kept the `ACCIO_SUMMARIES_JSON` waiting copy, no pre-set reports rendered, and console error count was 0. Screenshot saved at `/tmp/cbe-accio-memory-wait.png`.

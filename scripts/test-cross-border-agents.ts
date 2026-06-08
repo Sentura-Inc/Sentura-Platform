@@ -6,6 +6,7 @@
  *
  * Milestone 4 covers Marketing Acquisition and the lead-discovery UI.
  * Milestone 5 covers Screening and Background Investigation.
+ * Milestone 6 covers Accio Memory Processing and the Accio UI.
  */
 
 import fs from "node:fs";
@@ -16,6 +17,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const AGENT_DIR = path.join(ROOT, "sentura/agents/cbe-lead-discovery");
 const SCREENING_AGENT_DIR = path.join(ROOT, "sentura/agents/cbe-buyer-screening");
+const ACCIO_AGENT_DIR = path.join(ROOT, "sentura/agents/cbe-accio-memory");
+const ACCIO_FIXTURE = path.join(ROOT, "跨境电商/fixtures/accio-chat-records.sample.json");
 const PAGE = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx",
@@ -28,9 +31,17 @@ const SCREENING_PAGE = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx",
 );
+const ACCIO_PAGE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx",
+);
 const SCREENING_API_ROUTE = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/screening/run/route.ts",
+);
+const ACCIO_SAMPLE_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/accio-memory/sample/route.ts",
 );
 const SIDEBAR = path.join(ROOT, "sentura/dashboard/src/components/sidebar.tsx");
 const SETUP_SH = path.join(ROOT, "scripts/sentura-setup.sh");
@@ -60,6 +71,13 @@ const screeningSkillFiles = [
   "skills/trade-record-check/SKILL.md",
   "skills/buyer-scoring/SKILL.md",
   "skills/report-writing/SKILL.md",
+];
+const accioSkillFiles = [
+  "skills/accio-upload-intake/SKILL.md",
+  "skills/chat-normalization/SKILL.md",
+  "skills/deal-summary/SKILL.md",
+  "skills/customer-profile-memory/SKILL.md",
+  "skills/handoff-to-screening/SKILL.md",
 ];
 
 let passed = 0;
@@ -93,21 +111,38 @@ const agentFiles = exists(AGENT_DIR) ? fs.readdirSync(AGENT_DIR) : [];
 const topLevelMarkdown = agentFiles.filter((file) => file.endsWith(".md")).sort();
 const screeningAgentFiles = exists(SCREENING_AGENT_DIR) ? fs.readdirSync(SCREENING_AGENT_DIR) : [];
 const screeningTopLevelMarkdown = screeningAgentFiles.filter((file) => file.endsWith(".md")).sort();
+const accioAgentFiles = exists(ACCIO_AGENT_DIR) ? fs.readdirSync(ACCIO_AGENT_DIR) : [];
+const accioTopLevelMarkdown = accioAgentFiles.filter((file) => file.endsWith(".md")).sort();
 const config = read(path.join(AGENT_DIR, "config.json5"));
 const screeningConfig = read(path.join(SCREENING_AGENT_DIR, "config.json5"));
+const accioConfig = read(path.join(ACCIO_AGENT_DIR, "config.json5"));
 const agents = read(path.join(AGENT_DIR, "AGENTS.md"));
 const screeningAgents = read(path.join(SCREENING_AGENT_DIR, "AGENTS.md"));
+const accioAgents = read(path.join(ACCIO_AGENT_DIR, "AGENTS.md"));
 const tools = read(path.join(AGENT_DIR, "TOOLS.md"));
 const screeningTools = read(path.join(SCREENING_AGENT_DIR, "TOOLS.md"));
+const accioTools = read(path.join(ACCIO_AGENT_DIR, "TOOLS.md"));
 const bootstrap = read(path.join(AGENT_DIR, "BOOTSTRAP.md"));
 const screeningBootstrap = read(path.join(SCREENING_AGENT_DIR, "BOOTSTRAP.md"));
+const accioBootstrap = read(path.join(ACCIO_AGENT_DIR, "BOOTSTRAP.md"));
 const page = read(PAGE);
 const apiRoute = read(API_ROUTE);
 const screeningPage = read(SCREENING_PAGE);
 const screeningApiRoute = read(SCREENING_API_ROUTE);
+const accioPage = read(ACCIO_PAGE);
+const accioSampleRoute = read(ACCIO_SAMPLE_ROUTE);
 const sidebar = read(SIDEBAR);
 const setupSh = read(SETUP_SH);
 const setupPs1 = read(SETUP_PS1);
+const accioFixture = JSON.parse(read(ACCIO_FIXTURE)) as {
+  export_metadata: Record<string, unknown>;
+  conversations: Array<{
+    conversation_id: string;
+    buyer: Record<string, unknown>;
+    messages: Array<{ text: string; sender: string }>;
+    attachments?: unknown[];
+  }>;
+};
 
 section("CE4 workspace convention");
 check("agent directory exists", exists(AGENT_DIR));
@@ -339,6 +374,94 @@ check("screening route returns redacted env status only", [
 check("screening route normalizes manual and lead targets", screeningApiRoute.includes("normalizeManualTarget") && screeningApiRoute.includes("normalizeLeadTarget") && screeningApiRoute.includes("supplied_fields") && screeningApiRoute.includes("missing_fields"));
 check("screening route applies contextual scoring and forced downgrades", screeningApiRoute.includes("calculateScore") && screeningApiRoute.includes("not_applicable") && screeningApiRoute.includes("forcedDowngrades"));
 check("screening route preserves source metadata", ["source_type", "fetched_at", "confidence", "cost_usd", "score_block", "score_impact"].every((needle) => screeningApiRoute.includes(needle)));
+
+section("CE6 Accio workspace convention");
+check("accio agent directory exists", exists(ACCIO_AGENT_DIR));
+for (const file of nativeFiles) {
+  check(`accio native file exists: ${file}`, exists(path.join(ACCIO_AGENT_DIR, file)));
+}
+check(
+  "accio top-level markdown files are exactly the 8 OpenClaw-native files",
+  JSON.stringify(accioTopLevelMarkdown) === JSON.stringify([...nativeFiles].sort()),
+  accioTopLevelMarkdown.join(", "),
+);
+check("accio config.json5 exists", exists(path.join(ACCIO_AGENT_DIR, "config.json5")));
+check("accio BOOTSTRAP.md carries Enterprise Context", accioBootstrap.includes("## Enterprise Context"));
+
+section("CE6 config and tool policy");
+check("accio config targets cbe-accio-memory", accioConfig.includes('id: "cbe-accio-memory"'));
+check("accio config uses embedded OpenClaw runtime", accioConfig.includes('runtime: { type: "embedded" }'));
+check("accio config pins non-main sandbox", accioConfig.includes('sandbox: { mode: "non-main" }'));
+check("accio config includes OpenClaw agentRuntime pin", accioConfig.includes('agentRuntime: { id: "openclaw" }'));
+for (const tool of ['"memory_search"', '"memory_get"', '"group:plugins"']) {
+  check(`accio allowlist includes ${tool}`, accioConfig.includes(tool));
+}
+check("accio sandbox allowlist includes cross-border MCP glob", accioConfig.includes('"cross-border-intel__*"'));
+for (const denied of ['"exec"', '"gateway"', '"write"', '"edit"', '"apply_patch"', '"sessions_spawn"', '"subagents"', '"sessions_yield"', '"message"', '"read"']) {
+  check(`accio dangerous tool denied: ${denied}`, accioConfig.includes(denied));
+}
+check("accio config blocks raw chat external share", accioConfig.includes('"raw_chat_external_share"') && accioConfig.includes('"raw_chat_memory_write"'));
+
+section("CE6 skills");
+for (const file of accioSkillFiles) {
+  check(`accio skill exists: ${file}`, exists(path.join(ACCIO_AGENT_DIR, file)));
+}
+const accioIntakeSkill = read(path.join(ACCIO_AGENT_DIR, "skills/accio-upload-intake/SKILL.md"));
+const accioNormalizationSkill = read(path.join(ACCIO_AGENT_DIR, "skills/chat-normalization/SKILL.md"));
+const accioDealSkill = read(path.join(ACCIO_AGENT_DIR, "skills/deal-summary/SKILL.md"));
+const accioMemorySkill = read(path.join(ACCIO_AGENT_DIR, "skills/customer-profile-memory/SKILL.md"));
+const accioHandoffSkill = read(path.join(ACCIO_AGENT_DIR, "skills/handoff-to-screening/SKILL.md"));
+check("intake skill validates Accio export and parser tool", accioIntakeSkill.includes("cbe_intel_parse_accio_chat") && accioIntakeSkill.includes("conversation count"));
+check("normalization skill preserves source identifiers and attachments", accioNormalizationSkill.includes("conversation_id") && accioNormalizationSkill.includes("attachments") && accioNormalizationSkill.includes("source identifiers"));
+check("deal skill calls Accio summarizer and JSON markers", accioDealSkill.includes("cbe_intel_summarize_accio_chat") && accioDealSkill.includes("ACCIO_SUMMARIES_JSON_START") && accioDealSkill.includes("ACCIO_SUMMARIES_JSON_END"));
+check("memory skill produces preview_only facts without raw chat", accioMemorySkill.includes("memory_write_preview") && accioMemorySkill.includes("preview_only") && accioMemorySkill.includes("Do not include raw message text"));
+check("handoff skill emits accio_memory InvestigationTarget", accioHandoffSkill.includes('source: "accio_memory"') && accioHandoffSkill.includes("InvestigationTarget") && accioHandoffSkill.includes("Do not call Screening tools yourself"));
+check("accio Hard Rules forbid raw chat leakage and invented deal facts", accioAgents.includes("NEVER send raw Accio chat") && accioAgents.includes("NEVER invent buyer company information"));
+check("accio TOOLS.md lists Accio parser/summarizer tools only", accioTools.includes("cross-border-intel__cbe_intel_parse_accio_chat") && accioTools.includes("cross-border-intel__cbe_intel_summarize_accio_chat") && accioTools.includes("Do not use registry"));
+
+section("CE6 setup integration");
+for (const setup of [
+  ["bash", setupSh],
+  ["powershell", setupPs1],
+] as const) {
+  check(`${setup[0]} setup copies cbe accio workspace`, setup[1].includes("cbe-accio-memory"));
+  check(`${setup[0]} setup registers accio webchat binding`, setup[1].includes("Added webchat binding for cbe-accio-memory"));
+  check(`${setup[0]} setup applies accio MCP sandbox glob`, setup[1].includes("cbeAccioSandboxAllow") && setup[1].includes("cross-border-intel__*"));
+  check(`${setup[0]} setup allows accio memory tools`, setup[1].includes("'memory_search','memory_get','group:plugins'"));
+}
+
+section("CE6 fixture and report correctness");
+check("Accio fixture contains exactly three conversations", accioFixture.conversations.length === 3);
+check("fixture identifies Alibaba Accio and T3 demo data", accioFixture.export_metadata.platform === "Alibaba Accio" && String(accioFixture.export_metadata.data_classification).includes("T3"));
+const fixtureCompanies = accioFixture.conversations.map((conversation) => conversation.buyer.company_name);
+check("fixture covers Andes/Berlin/Northstar buyers", ["Andes Mobile Parts SpA", "Berlin Gadget Wholesale GmbH", "Northstar Wireless LLC"].every((name) => fixtureCompanies.includes(name)));
+const fixtureText = accioFixture.conversations.map((conversation) => conversation.messages.map((message) => message.text).join(" ")).join("\n");
+check("fixture covers required products", ["tempered glass", "65W GaN chargers", "MagSafe accessories"].every((needle) => fixtureText.includes(needle)));
+check("fixture covers required quantities", ["10,000 pcs", "500 pcs", "15,000 pcs", "20,000 pcs"].every((needle) => fixtureText.includes(needle)));
+check("fixture covers negotiated prices and add-ons", ["USD 0.35", "USD 0.36", "USD 0.03", "USD 6.50", "USD 6.80", "USD 1.10", "USD 0.015", "USD 0.08"].every((needle) => fixtureText.includes(needle)));
+check("Accio page does not precompute fixture reports", !["function summarizeExport", "function summarizeConversation", "quantityValue = 10000", "monthlyPotential = 20000"].some((needle) => accioPage.includes(needle)));
+check("Accio load clears reports and waits for employee analysis", accioPage.includes("setSummaries([])") && accioPage.includes('setRunStatus("loaded")') && accioPage.includes("等待记忆员工分析后展示高亮、报告和背调预览"));
+check("Accio highlights depend on employee returned summary", accioPage.includes("highlightText(text: string, summary?: AccioSummary)") && accioPage.includes("for (const intent of summary.purchase_intent)") && accioPage.includes("highlightText(message.text, selectedSummary)"));
+check("Accio summaries include memory preview and Screening handoff", accioPage.includes("memory_write_preview") && accioPage.includes("screening_handoff_target") && accioPage.includes('source: "accio_memory"'));
+
+section("CE7 Accio UI route");
+check("accio page exists", exists(ACCIO_PAGE));
+check("accio sample API route exists", exists(ACCIO_SAMPLE_ROUTE));
+check("accio page is a client component", accioPage.startsWith('"use client";'));
+check("accio sample route reads fixture from 跨境电商/fixtures", accioSampleRoute.includes("accio-chat-records.sample.json") && accioSampleRoute.includes("fs.readFile") && accioSampleRoute.includes("演示数据"));
+check("accio UI supports sample load and JSON upload", accioPage.includes("加载演示 Accio 记录") && accioPage.includes("上传 Accio JSON") && accioPage.includes("accept=\"application/json,.json\""));
+check("accio UI shows validation status and conversation count", accioPage.includes("conversationCount") && accioPage.includes("数据等级") && accioPage.includes("对话数"));
+check("accio UI shows conversation list with company/country/product/price context", accioPage.includes("对话列表") && accioPage.includes("conversation.buyer.company_name") && accioPage.includes("intent?.product") && accioPage.includes("quantity(intent?.quantity)"));
+check("accio UI renders transcript and employee-returned highlights", accioPage.includes("原始对话与提取高亮") && accioPage.includes("员工返回结构化报告前不显示提取高亮") && accioPage.includes("addHighlightPrice"));
+check("accio UI renders attachment list", accioPage.includes("附件") && accioPage.includes("selectedConversation.attachments"));
+check("accio UI renders structured report table", accioPage.includes("三条模拟对话结构化报告") && ["公司", "产品/型号", "数量", "目标价", "最佳/约定价", "下一步"].every((needle) => accioPage.includes(needle)));
+check("accio UI renders memory/report panel", ["记忆 / 背调预览", "采购意向", "谈判摘要", "行为信号", "写入记忆预览", "发送到背调"].every((needle) => accioPage.includes(needle)));
+check("accio UI triggers real cbe-accio-memory AgentChat", accioPage.includes('const ACCIO_AGENT_ID = "cbe-accio-memory"') && accioPage.includes("<AgentChat") && accioPage.includes("agentId={ACCIO_AGENT_ID}") && accioPage.includes("useAgent(ACCIO_AGENT_ID)") && accioPage.includes("onMessage={handleEmployeeMessage}"));
+check("accio employee prompt requires tool analysis and JSON markers", accioPage.includes("buildEmployeePrompt") && accioPage.includes("先调用 Accio parser 工具") && accioPage.includes("不要使用示例模板") && accioPage.includes("ACCIO_SUMMARIES_JSON_START") && accioPage.includes("ACCIO_SUMMARIES_JSON_END"));
+check("accio UI parses employee summaries from markers", accioPage.includes("extractSummariesFromEmployeeText") && accioPage.includes("normalizeSummary") && accioPage.includes("setSummaries(parsed)"));
+check("accio UI preserves local T2/T3 and preview-only memory behavior", accioPage.includes("memory_write_preview 已复制，仍未写入长期记忆") && accioPage.includes("preview_only") && !accioPage.includes("自动联系客户"));
+check("accio UI persists last upload/report/session state", accioPage.includes("ACCIO_STORAGE_KEY") && accioPage.includes("sentura:cbe:accio-memory:v2") && accioPage.includes("localStorage.setItem") && accioPage.includes("localStorage.getItem") && accioPage.includes("accioSessionKey"));
+check("sidebar links to CBE Accio demo", sidebar.includes('href: "/client-demos/cross-border/accio-memory"') && sidebar.includes("CBE Accio"));
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 if (failed > 0) {

@@ -595,5 +595,49 @@ describe("Accio fixture parser and summarizer", () => {
     expect(summary.next_actions).toEqual(
       expect.arrayContaining([expect.stringContaining("Send PI")]),
     );
+
+    const allSummaryResult = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_summarize_accio_chat",
+        arguments: { chat_export: chatExport },
+      }),
+    );
+    expect(allSummaryResult).toMatchObject({
+      status: "summarized",
+      summary_count: 3,
+      source_type: "demo_fixture",
+    });
+    const summaries = allSummaryResult.summaries as Array<Record<string, unknown>>;
+    const byCompany = new Map(
+      summaries.map((item) => [
+        (item.customer_profile as Record<string, unknown>).company_name as string,
+        item,
+      ]),
+    );
+
+    const berlinIntent = (byCompany.get("Berlin Gadget Wholesale GmbH")?.purchase_intent as Array<Record<string, unknown>>)[0];
+    expect(berlinIntent).toMatchObject({
+      product: "65W GaN chargers",
+      quantity: 500,
+      target_price_usd: 6.5,
+      seller_best_price_usd: 6.8,
+      incoterm: "EXW",
+      logistics_terms: "Delivery to Hamburg warehouse requested.",
+      certification_terms: "CE and RoHS certificates requested or available.",
+    });
+
+    const northstarIntent = (byCompany.get("Northstar Wireless LLC")?.purchase_intent as Array<Record<string, unknown>>)[0];
+    expect(northstarIntent).toMatchObject({
+      product: "clear MagSafe phone cases",
+      quantity: 15000,
+      monthly_potential_quantity: 20000,
+      seller_best_price_usd: 1.1,
+      packaging_addon_usd: 0.08,
+      packaging: "Amazon FBA barcode stickers and drop-test packaging",
+      incoterm: "FOB Shenzhen",
+    });
+    expect(northstarIntent.models).toEqual(
+      expect.arrayContaining(["iPhone 16", "iPhone 16 Pro", "iPhone 16 Pro Max"]),
+    );
   });
 });

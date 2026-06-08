@@ -199,40 +199,66 @@ Live adapter smoke summary (2026-06-08):
 | CE5.19 | Official-source-first employee ordering | Screening skills and Dashboard employee prompt require GB Companies House and US SEC lookup before public web registry fallback. |
 | CE5.20 | Paid email discovery ordering | Screening skills and Dashboard employee prompt require official-site same-domain email discovery before Abstract/Hunter paid validation when the operator enables paid validation but does not supply an email. |
 
-## CE6 — Accio Memory Processing Employee Workspace (Planned)
+## CE6 — Accio Memory Processing Employee Workspace + Report Correctness
 
-Status: PEND
+Status: PASS (2026-06-08)
 
-Planned scope: `sentura/agents/cbe-accio-memory/`
+Scope:
 
-Future checks:
+- `sentura/agents/cbe-accio-memory/`
+- `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/accio-memory/sample/route.ts`
+- `scripts/sentura-setup.sh`
+- `scripts/sentura-setup.ps1`
+- `scripts/test-cross-border-agents.ts`
+- `跨境电商/fixtures/accio-chat-records.sample.json`
+
+Validation command:
+
+```bash
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 291/291
+python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null
+pnpm --filter @sentura/mcp-cross-border-intel test
+cd sentura/dashboard && pnpm exec tsc --noEmit
+cd sentura/dashboard && pnpm build
+```
 
 | # | Check | Expected |
 |---|---|---|
 | CE6.1 | Workspace convention | Exactly 8 native OpenClaw workspace files plus skills/config; no extra top-level markdown workspace files. |
-| CE6.2 | Fixture intake | Parses `跨境电商/fixtures/accio-chat-records.sample.json` without schema errors. |
-| CE6.3 | Summary extraction | Summary includes company info, buyer role, goods requested, quantities, negotiated prices, terms, risks, and follow-up tasks. |
-| CE6.4 | Memory policy | Writes only structured customer summaries and source references; raw chat retention follows T2/T3 policy. |
-| CE6.5 | Handoff | Can feed buyer context back to Screening without losing source provenance. |
-| CE6.6 | UI preview contract | Summary output can be rendered in `/client-demos/cross-border/accio-memory` with transcript, extracted facts, memory-write preview, and Screening handoff. |
+| CE6.2 | Tool policy | Allows `memory_search`, `memory_get`, and `group:plugins`; sandbox allowlist includes `memory_search`, `memory_get`, and `cross-border-intel__*`; dangerous tools, raw filesystem read, external messaging, session/subagent spawn, and mutation tools are denied. |
+| CE6.3 | Skills | Has `accio-upload-intake`, `chat-normalization`, `deal-summary`, `customer-profile-memory`, and `handoff-to-screening`; skills call the Accio parser/summarizer tools, preserve source identifiers, emit `ACCIO_SUMMARIES_JSON_START/END`, and produce `preview_only` memory facts plus `accio_memory` Screening targets. |
+| CE6.4 | Setup registration | `scripts/sentura-setup.{sh,ps1}` copy/stamp/register `cbe-accio-memory`, apply OpenClaw runtime/tool overrides, and add a webchat binding. |
+| CE6.5 | Fixture intake | `跨境电商/fixtures/accio-chat-records.sample.json` parses as JSON and contains exactly three Alibaba Accio demo conversations with T3 business-conversation classification. |
+| CE6.6 | Andes report correctness | Employee-returned `accio_conv_001` report, backed by the Accio summarizer tool, extracts Andes Mobile Parts SpA, Chile, tempered glass screen protectors, iPhone 15/Samsung S24, 10,000 pcs, target USD 0.35, best USD 0.36, packaging add-on USD 0.03, FOB Shenzhen, T/T 30% deposit terms, PI next action, and behavior points. |
+| CE6.7 | Berlin report correctness | Employee-returned `accio_conv_002` report, backed by the Accio summarizer tool, extracts Berlin Gadget Wholesale GmbH, Germany, 65W GaN EU plug chargers, 500 pcs trial request, seller MOQ 1,000 pcs, target USD 6.50, quote/best USD 6.80, EXW, Hamburg warehouse delivery, CE/RoHS requirements, and a Gmail/domain-screening warning in next actions. |
+| CE6.8 | Northstar report correctness | Employee-returned `accio_conv_003` report, backed by the Accio summarizer tool, extracts Northstar Wireless LLC, US, clear MagSafe phone cases, iPhone 16 / 16 Pro / 16 Pro Max, 15,000 pcs current quote, 20,000 pcs/month potential, USD 1.10 best price, FBA barcode sticker USD 0.015, drop-test packaging USD 0.08, and quote/Screening next actions. |
+| CE6.9 | Memory policy | Reports include `memory_write_preview.status="preview_only"` with concise facts and source references only; raw chat text is not written to long-term memory or external systems. |
+| CE6.10 | Handoff | Reports include `screening_handoff_target.source="accio_memory"` with company, country, website/email/contact where available, product interest, behavior notes, supplied fields, missing fields, and source provenance. |
+| CE6.11 | UI preview contract | `/client-demos/cross-border/accio-memory` renders raw transcript immediately, then renders highlighted extracted facts, report table, memory-write preview, and Screening handoff actions only after parsing employee `ACCIO_SUMMARIES_JSON_START/END` output. |
+| CE6.12 | Browser validation | Browser loaded the Accio page, clicked "加载演示 Accio 记录", and confirmed the page displays raw conversations, `待员工分析`, and the `ACCIO_SUMMARIES_JSON` waiting copy instead of pre-set Andes/Berlin/Northstar reports; console error count was 0. Screenshot: `/tmp/cbe-accio-memory-wait.png`. |
 
-## CE7 — Cross-Border Employee Demo UIs (Planned)
+## CE7 — Cross-Border Employee Demo UIs
 
-Status: PEND
+Status: PASS (2026-06-08)
 
-Note: lead-discovery route checks are covered by CE4, and Screening route checks are covered by CE5. CE7 stays PEND until the Accio Memory route exists and the full three-route demo suite can be verified together.
-
-Planned scope:
+Scope:
 
 - `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`
 - `sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx`
 - `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`
 
-Future checks:
+Validation command:
+
+```bash
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 291/291
+```
+
+Note: CE4 owns detailed Lead route checks, CE5 owns detailed Screening route checks, and CE6 owns detailed Accio route/report checks. CE7 is the combined three-route demo-suite contract.
 
 | # | Check | Expected |
 |---|---|---|
-| CE7.1 | Lead-discovery route exists | `/client-demos/cross-border/lead-discovery` builds and opens. Covered structurally by CE4; CE7 remains pending until Screening and Accio routes exist. |
+| CE7.1 | Lead-discovery route exists | `/client-demos/cross-border/lead-discovery` exists and is covered structurally by CE4. |
 | CE7.2 | Lead run builder | Page has product keyword chips, buyer persona controls, country/language controls, target count, exclusions, and a clear run action. |
 | CE7.3 | Lead table | Page renders lead rows with company, country, buyer type, matched product, domain/contact candidate, source count, confidence, and duplicate status. |
 | CE7.4 | Lead inline evidence | Clicking a lead's `查看` action expands query strings, source URLs, snippets, dedupe explanation, dedupe key, and source timestamps inside the candidate buyer table. |
@@ -245,10 +271,10 @@ Future checks:
 | CE7.11 | Screening evidence timeline | Covered by CE5; page groups evidence by legal registry, domain/email, public footprint, trade/customs, financial/public filing, and behavior. |
 | CE7.12 | Contextual score UI | Covered by CE5; page displays normalized score and evidence coverage separately, shows `not_applicable` behavior for cold leads, and marks disabled/unavailable API evidence as coverage gap. |
 | CE7.13 | Screening AgentChat | Covered by CE5; page connects to a real `cbe-buyer-screening` AgentChat session. |
-| CE7.14 | Accio route exists | `/client-demos/cross-border/accio-memory` builds and opens. |
-| CE7.15 | Accio upload/sample load | Page supports JSON upload or loading `跨境电商/fixtures/accio-chat-records.sample.json`. |
-| CE7.16 | Accio extraction preview | Page shows transcript, extracted products/quantities/prices/terms, company summary, next actions, and behavior signals. |
-| CE7.17 | No unsafe automation | No page sends outreach, writes raw chat to long-term memory, or hides demo/live source provenance. |
+| CE7.14 | Accio route exists | `/client-demos/cross-border/accio-memory` exists, opens in Browser, and exposes a dense Accio ingestion workbench. |
+| CE7.15 | Accio upload/sample load | Page supports JSON upload and loading `跨境电商/fixtures/accio-chat-records.sample.json` through the local sample API route. |
+| CE7.16 | Accio extraction preview | Page shows transcript immediately, then shows highlighted product/quantity/price/payment/logistics facts, extracted report table, company summary, next actions, memory-write preview, Screening handoff, and behavior signals only after the Accio Memory employee returns structured JSON markers. |
+| CE7.17 | No unsafe automation | No page sends outreach, writes raw chat to long-term memory, exposes secrets, or hides demo/live source provenance. |
 
 ## CE8 — API Key And OpenClaw Setup Runbook
 

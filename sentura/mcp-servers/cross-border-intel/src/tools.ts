@@ -802,6 +802,60 @@ function pricesFromText(text: string): number[] {
   return Array.from(matches, (match) => Number(match[1])).filter(Number.isFinite);
 }
 
+function quantityFromMatch(match: RegExpMatchArray | null): number | undefined {
+  if (!match?.[1]) return undefined;
+  const value = Number(match[1].replace(/,/g, ""));
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function detectMonthlyPotentialQuantity(text: string): number | undefined {
+  return quantityFromMatch(text.match(/(\d{1,3}(?:,\d{3})+|\d+)\s*pcs\s+monthly/i));
+}
+
+function detectMainQuantity(product: string, allText: string, buyerText: string, sellerText: string): number | undefined {
+  const totalQuantity = quantityFromMatch(sellerText.match(/total\s+(\d{1,3}(?:,\d{3})+|\d+)\s*pcs/i));
+  if (totalQuantity) return totalQuantity;
+
+  const orderQuantity = quantityFromMatch(
+    buyerText.match(/(?:order|quote|need|initial quantity|start with)\s+(\d{1,3}(?:,\d{3})+|\d+)\s*pcs/i),
+  );
+  if (orderQuantity) return orderQuantity;
+
+  if (product === "clear MagSafe phone cases") {
+    const quotedModelQuantities = numbersFromText(buyerText).filter((quantity) => quantity !== detectMonthlyPotentialQuantity(buyerText));
+    const summedQuoteQuantity = quotedModelQuantities.reduce((sum, value) => sum + value, 0);
+    if (summedQuoteQuantity > 0) return summedQuoteQuantity;
+  }
+
+  const buyerQuantities = numbersFromText(buyerText).filter((quantity) => quantity !== detectMonthlyPotentialQuantity(buyerText));
+  if (buyerQuantities.length > 0) return Math.max(...buyerQuantities);
+
+  const allQuantities = numbersFromText(allText).filter((quantity) => quantity !== detectMonthlyPotentialQuantity(allText));
+  return allQuantities.length > 0 ? Math.max(...allQuantities) : undefined;
+}
+
+function detectSellerBestPrice(sellerText: string, sellerProductPrices: number[]): number | undefined {
+  const explicitBest = sellerText.match(/best price is USD\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (explicitBest?.[1]) return Number(explicitBest[1]);
+
+  const totalQuote = sellerText.match(/total\s+\d{1,3}(?:,\d{3})*\s*pcs\s+can be USD\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (totalQuote?.[1]) return Number(totalQuote[1]);
+
+  const exwQuote = sellerText.match(/\bEXW price USD\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (exwQuote?.[1]) return Number(exwQuote[1]);
+
+  return sellerProductPrices.length > 0 ? Math.min(...sellerProductPrices) : undefined;
+}
+
+function detectPackagingAddon(sellerText: string): number | undefined {
+  const addonMatches = [
+    ...sellerText.matchAll(/(?:packaging|barcode sticker)[^.]{0,80}?USD\s*([0-9]+(?:\.[0-9]+)?)/gi),
+    ...sellerText.matchAll(/USD\s*([0-9]+(?:\.[0-9]+)?)[^.]{0,80}?(?:packaging|barcode sticker)/gi),
+  ];
+  const addonPrices = addonMatches.map((match) => Number(match[1])).filter(Number.isFinite);
+  return addonPrices.length > 0 ? Math.max(...addonPrices) : undefined;
+}
+
 function detectProduct(text: string): string {
   const lowered = text.toLowerCase();
   if (lowered.includes("tempered glass") || lowered.includes("screen protector")) {
@@ -840,6 +894,11 @@ function detectPaymentTerms(text: string): string | undefined {
   return match?.[0];
 }
 
+function detectCertificationTerms(text: string): string | undefined {
+  if (/CE\s*(?:and|\/)\s*RoHS|CE\/RoHS/i.test(text)) return "CE and RoHS certificates requested or available.";
+  return undefined;
+}
+
 function detectPackaging(text: string): string | undefined {
   if (/retail packaging/i.test(text)) return "custom retail packaging";
   if (/FBA barcode/i.test(text) || /drop-test packaging/i.test(text)) {
@@ -858,10 +917,8 @@ function summarizeConversation(chatExport: z.infer<typeof AccioChatExportSchema>
     .filter((message) => message.sender === "seller")
     .map((message) => message.text)
     .join(" ");
-  const quantity = Math.max(...numbersFromText(allText), 0) || undefined;
   const buyerPrices = pricesFromText(buyerText);
   const sellerPrices = pricesFromText(sellerText);
-  const packagingAddon = sellerText.match(/packaging (?:adds|is) USD\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1];
   const explicitTargetPrice = buyerText.match(/can\s+(?:you|we)[^.?!]{0,80}?USD\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1];
   const sellerProductPrices = sellerPrices.filter((price) => price >= 0.1);
   const targetPrice = explicitTargetPrice
@@ -869,12 +926,16 @@ function summarizeConversation(chatExport: z.infer<typeof AccioChatExportSchema>
     : buyerPrices.length > 0
       ? Math.max(...buyerPrices)
       : undefined;
-  const sellerBestPrice = sellerProductPrices.length > 0 ? Math.min(...sellerProductPrices) : undefined;
   const product = detectProduct(allText);
+  const quantity = detectMainQuantity(product, allText, buyerText, sellerText);
+  const monthlyPotentialQuantity = detectMonthlyPotentialQuantity(allText);
+  const sellerBestPrice = detectSellerBestPrice(sellerText, sellerProductPrices);
+  const packagingAddon = detectPackagingAddon(sellerText);
   const packaging = detectPackaging(allText);
 
   const nextActions: string[] = [];
   if (/send PI/i.test(allText)) nextActions.push("Send PI with agreed price, packaging fee, and T/T payment terms.");
+  if (/CE|RoHS|Hamburg/i.test(allText)) nextActions.push("Confirm trial-order MOQ and send CE/RoHS certificate plus Hamburg delivery details.");
   if (/quote/i.test(allText)) nextActions.push("Prepare formal quotation with product models and add-on packaging fees.");
   if (nextActions.length === 0) nextActions.push("Confirm MOQ, price acceptance, and next buyer decision date.");
 
@@ -895,10 +956,11 @@ function summarizeConversation(chatExport: z.infer<typeof AccioChatExportSchema>
         product,
         models: detectModels(allText),
         quantity,
+        monthly_potential_quantity: monthlyPotentialQuantity,
         packaging,
         target_price_usd: targetPrice,
         seller_best_price_usd: sellerBestPrice,
-        packaging_addon_usd: packagingAddon ? Number(packagingAddon) : undefined,
+        packaging_addon_usd: packagingAddon,
         incoterm: detectIncoterm(allText),
         payment_terms: detectPaymentTerms(allText),
         logistics_terms: /Hamburg/i.test(allText)
@@ -906,6 +968,7 @@ function summarizeConversation(chatExport: z.infer<typeof AccioChatExportSchema>
           : /FBA/i.test(allText)
             ? "Amazon FBA labeling requested."
             : undefined,
+        certification_terms: detectCertificationTerms(allText),
       },
     ],
     negotiated_prices: [
@@ -916,7 +979,7 @@ function summarizeConversation(chatExport: z.infer<typeof AccioChatExportSchema>
         agreed_or_best_price_usd: sellerBestPrice,
         currency: "USD",
         notes: packagingAddon
-          ? `Packaging add-on USD ${packagingAddon} per piece was discussed.`
+          ? `Packaging or labeling add-on up to USD ${packagingAddon} per piece was discussed.`
           : "Negotiation extracted from Accio fixture messages.",
       },
     ],

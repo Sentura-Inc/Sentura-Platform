@@ -192,7 +192,7 @@ if (-not (Test-Path $WorkspaceBase)) {
 Log "Step 2: Copying source-agent workspace files..."
 
 $MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder", "data-scavenger")
-$ClientDemoAgents = @("zuolian-travel-concierge", "cbe-lead-discovery", "cbe-buyer-screening")
+$ClientDemoAgents = @("zuolian-travel-concierge", "cbe-lead-discovery", "cbe-buyer-screening", "cbe-accio-memory")
 $SourceAgents = @($MetaAgents + $ClientDemoAgents)
 $SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
 
@@ -485,6 +485,18 @@ const cbeScreeningToolsDeny = [
   'skill_workshop','subagents','tts','update_goal','update_plan','video_generate',
   'edit','apply_patch','write'
 ];
+const cbeAccioToolAllow = ['memory_search','memory_get','group:plugins'];
+const cbeAccioSandboxAllow = ['memory_search','memory_get','cross-border-intel__*'];
+const cbeAccioModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const cbeAccioToolsDeny = [
+  'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
+  'image','image_generate','message','nodes','pdf','process','read','session_status',
+  'sessions_history','sessions_list','sessions_send','sessions_spawn','sessions_yield',
+  'skill_workshop','subagents','tts','update_goal','update_plan','video_generate',
+  'edit','apply_patch','write'
+];
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
@@ -495,6 +507,7 @@ const overrides = {
   'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
   'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', allow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { allow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 public-search lead discovery with typed Screening handoff preview' } },
   'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', allow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { allow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 low-cost live buyer background investigation with contextual scoring' } },
+  'cbe-accio-memory': { name: '跨境记忆处理员工', model: preferredModel, models: cbeAccioModels, tools: { profile: 'minimal', allow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { allow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 simulated Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -527,6 +540,13 @@ if (!config.bindings.some((b) => b && b.agentId === 'cbe-buyer-screening' && b.m
     match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
   });
   console.log('  Added webchat binding for cbe-buyer-screening');
+}
+if (!config.bindings.some((b) => b && b.agentId === 'cbe-accio-memory' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'cbe-accio-memory',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for cbe-accio-memory');
 }
 
 config.mcp = config.mcp || {};

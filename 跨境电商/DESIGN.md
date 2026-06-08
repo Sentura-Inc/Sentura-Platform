@@ -1099,6 +1099,10 @@ Acceptance:
 - Stores concise memory facts without leaking raw chat to external channels.
 - UI supports JSON upload/sample loading, transcript review, extracted fact highlights, memory-write preview, and handoff to Screening.
 
+Implementation status (2026-06-08): complete. Added `sentura/agents/cbe-accio-memory/` with exactly the 8 native workspace files, the five designed skills, config/tool policy for `memory_search`, `memory_get`, and `cross-border-intel__*`, setup-script registration/webchat binding, `/client-demos/cross-border/accio-memory`, and local sample route `/api/client-demos/cross-border/accio-memory/sample`. The Accio page reads `跨境电商/fixtures/accio-chat-records.sample.json`, supports JSON upload, validates the Accio export, displays the raw conversation list/transcript, and sends the full JSON to the real `cbe-accio-memory` AgentChat execution panel. It does not precompute reports in the Dashboard. Extracted highlights, structured report rows, `memory_write_preview`, and `screening_handoff_target` render only after the employee returns JSON wrapped in `ACCIO_SUMMARIES_JSON_START` / `ACCIO_SUMMARIES_JSON_END`.
+
+The employee/tool analysis path is validated against the three simulated conversations. `cbe-accio-memory` must call the Accio parser/summarizer tools and then verify the raw messages so Andes Mobile Parts SpA extracts tempered glass protectors, 10,000 pcs, USD 0.35 target, USD 0.36 best price, USD 0.03 packaging add-on, FOB Shenzhen, T/T payment terms, and PI next action; Berlin Gadget Wholesale GmbH extracts 65W GaN EU plug chargers, 500 pcs trial request, MOQ 1,000 pcs, USD 6.50 target, USD 6.80 quote, EXW, Hamburg delivery, CE/RoHS requirements, and a domain/email Screening warning; Northstar Wireless LLC extracts clear MagSafe cases, 15,000 pcs current quote, 20,000 pcs/month potential, USD 1.10 best price, FBA barcode sticker USD 0.015, drop-test packaging USD 0.08, and Screening handoff. `scripts/test-cross-border-agents.ts` now validates CE4+CE5+CE6+CE7 with 291/291 offline checks, and Browser validation confirmed loading the sample keeps the UI in a "待员工分析" state with no pre-set reports and no console errors.
+
 ### Milestone 7 — Client demo UI surfaces
 
 Deliverables:
@@ -1121,6 +1125,8 @@ Acceptance:
 - Screening page supports both Marketing handoff and manual investigation.
 - Screening page displays normalized score and evidence coverage separately.
 - Accio page previews structured memory writes before committing or handing off.
+
+Implementation status (2026-06-08): complete for the three Phase-1 demo routes. Lead Discovery is covered by CE4, Screening is covered by CE5, and Accio Memory is covered by CE6/CE7. The combined script `npx tsx scripts/test-cross-border-agents.ts` now checks all three route contracts, setup registration, state persistence, employee AgentChat surfaces, source/provenance display, and unsafe-action boundaries.
 
 ### Milestone 8 — End-to-end MVP smoke
 
