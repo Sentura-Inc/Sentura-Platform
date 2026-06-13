@@ -10,7 +10,7 @@ Detailed test cases for the mobile-accessory Cross-border e-commerce / 跨境电
 
 Status: PASS (2026-06-08)
 
-Scope: `跨境电商/DESIGN.md`
+Scope: `跨境电商/DESIGN.md`, `跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, and `跨境电商/MEMORY_PROCESSING.md`
 
 | # | Check | Method | Expected |
 |---|---|---|---|
@@ -326,3 +326,116 @@ rg -n 'cross-border-intel|buildCrossBorderIntelEnv|COMPANIES_HOUSE_API_KEY|CBE_E
 | CE9.5 | Secret handling | Static review | API keys are stored as `${ENV_VAR}` config references when present; missing optional keys are omitted; setup never writes raw API key values into `openclaw.json`. |
 | CE9.6 | Budget/default handling | Static review | `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` use configured non-secret values or safe defaults. |
 | CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is noted for OpenClaw `web_search` and CE4 Dashboard live-search usage, but is not placed into the `cross-border-intel` MCP env block. |
+
+## CE10 — Production Cloud/Database/Multi-Agent Operating Plan
+
+Status: PASS (2026-06-13)
+
+Scope: `跨境电商/DESIGN.md`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE10.1 | Database boundary | Manual review | Plan uses one tenant-scoped CBE business database for pipeline records plus three per-agent LanceDB memory namespaces; it does not split the three employees into unrelated databases. |
+| CE10.2 | OpenClaw state preservation | Manual review | Plan keeps OpenClaw runtime state, workspaces, sessions, and MCP process management under OpenClaw-managed state/directories. |
+| CE10.3 | Structured schema coverage | Manual review | Plan covers lead runs/candidates/sources, screening targets/reports/evidence/score blocks, Accio imports/conversations/messages/summaries, handoff events, memory facts, API call ledger, and audit events. |
+| CE10.4 | Typed write boundary | Manual review | Agents do not receive raw SQL credentials or free-form SQL tools; writes go through Dashboard validation in Phase 1 and a future typed Sentura/MCP store tool in production hardening. |
+| CE10.5 | Multi-agent runtime shape | Manual review | Plan uses one primary OpenClaw Gateway with three persistent configured CBE agents for the single customer trust boundary, and reserves multiple Gateways for separate tenants, rescue, or stronger isolation. |
+| CE10.6 | Sub-agent restraint | Manual review | Plan keeps the three worker employees from spawning recursive sub-agents and makes a future `cbe-orchestrator` the only CBE component allowed to use session/subagent tools. |
+| CE10.7 | 30-50 user concurrency | Manual review | Plan defines practical active-run limits for dashboard sessions, Lead runs, Screening batches, Accio imports, browser tasks, and model-call headroom with visible queue/backpressure behavior. |
+| CE10.8 | Cloud region decision | Manual review | Plan chooses China primary hosting for the Shenzhen customer, preferably Alibaba Cloud China (Shenzhen) with Tencent Cloud South China as a valid procurement alternative, and explicitly rejects US primary hosting for latency/data-transfer reasons. |
+| CE10.9 | Model API decision | Manual review | Plan defaults to China-accessible Qwen/DeepSeek/Volcengine/Kimi routes through OpenClaw providers and does not default to OpenAI for mainland China production traffic. |
+| CE10.10 | Compliance posture | Manual review | Plan records ICP filing needs for public mainland hosting and treats overseas hosting/model calls with buyer contact/raw Accio data as PIPL outbound-transfer work. |
+| CE10.11 | Security and backups | Manual review | Plan includes data-tier handling, no-auto-outreach, dangerous-tool denial, budget approval, secret handling, encrypted storage, backup/restore, and `openclaw security audit --deep` checks. |
+| CE10.12 | Source traceability and self-check | Manual review | Plan lists current OpenClaw, cloud, model, OpenAI availability, and CAC sources, then includes a proofreading/self-check section confirming no custom runtime and no reintroduced deprecated workspace files. |
+
+## CE11 — Alibaba International Station API Access And Screening Optimization Plan
+
+Status: PASS (2026-06-13)
+
+Scope: `跨境电商/SCREENING.md § 12`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE11.1 | Signed-seller access caveat | Manual review | Plan says a signed seller is likely eligible only after live Open Platform console/API-test proof, and does not assume all APIs are automatically granted. |
+| CE11.2 | Enablement flow | Manual review | Plan covers customer account confirmation, developer app creation, callback URL, `app_key` / `app_secret`, seller authorization, code-to-token exchange, token storage, smoke tests, and production refresh. |
+| CE11.3 | API status taxonomy | Manual review | Plan distinguishes free APIs, value-added APIs, authorization-required methods, Jushita-only methods, and private/hidden documents. |
+| CE11.4 | High-value seller-owned APIs | Manual review | Plan prioritizes seller-owned customer/order/note methods for Screening, especially customer batch sync, order list/detail, order fund/logistics/address context, and customer notes. |
+| CE11.5 | Buyer-side/procurement boundary | Manual review | Plan excludes buyer procurement history APIs unless the buyer separately authorizes, preventing misuse of buyer-side data in seller Screening. |
+| CE11.6 | Opaque risk endpoint restraint | Manual review | Plan keeps `alibaba.icbu.risk.send` out of Screening until Alibaba confirms intended partner use and does not turn it into an unexplained fraud score. |
+| CE11.7 | Evidence model update | Manual review | Plan adds Alibaba first-party evidence blocks while preserving public registry/domain/email/trade checks and neutral treatment for missing Alibaba records. |
+| CE11.8 | Read-only MCP boundary | Manual review | Plan proposes `icbu-openapi` read-only MCP tools and rejects direct employee token/SDK access or mutation APIs. |
+| CE11.9 | Data classification | Manual review | Plan treats CRM/customer/order/note data as T2/T3, redacts raw values from LLM prompts, and blocks raw data from vector memory/external APIs. |
+| CE11.10 | Source traceability | Manual review | Plan lists the user-supplied doc, Alibaba Open API overview, authorization manual, and each prioritized API doc used for the decision. |
+
+## CE12 — Concurrent Lead Discovery Dedupe Plan
+
+Status: PASS (2026-06-13)
+
+Scope: `跨境电商/MARKET_ACQUISITION.md § 9`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE12.1 | Problem framing | Manual review | Plan covers the exact User A/User B concurrent 20-lead, 5-minute run scenario and identifies duplicate search/API spend plus lead ownership conflict. |
+| CE12.2 | Scope fingerprinting | Manual review | Plan defines canonical product/persona/country/language/source/exclusion fields, exact `scope_hash`, and weighted near-duplicate `scope_similarity`. |
+| CE12.3 | Duplicate policy | Manual review | Exact active scope joins the running task by default; high-overlap scopes show shared-results, unassigned-only top-up, or narrow-search choices. |
+| CE12.4 | DB-backed lease | Manual review | Plan uses `lead_discovery_scopes` with `locked_until` and heartbeat instead of in-memory locks or long database transactions. |
+| CE12.5 | Shared result pool | Manual review | User B can attach to User A's active scope and see the same progress/final pool rather than starting another AgentChat run. |
+| CE12.6 | Candidate identity uniqueness | Manual review | Plan adds `lead_identities` with tenant-scoped unique `identity_key` and defines identity-key precedence from Alibaba customer id, domain, email domain, then country/company fallback. |
+| CE12.7 | Allocation separation | Manual review | Plan separates discovered shared leads from active sales ownership via `lead_allocations`, so display does not automatically reserve a buyer. |
+| CE12.8 | Top-up behavior | Manual review | Plan starts only missing-count top-up runs when shared/unallocated unique leads cannot satisfy the new user's requested count. |
+| CE12.9 | Employee task contract | Manual review | Plan passes existing identity keys and covered queries into top-up employee tasks so the employee avoids known duplicates. |
+| CE12.10 | Incremental output option | Manual review | Plan proposes `LEAD_CANDIDATE_BATCH_JSON` for partial persistence while preserving the final `LEAD_CANDIDATES_JSON` contract. |
+| CE12.11 | Crash and RBAC handling | Manual review | Plan covers lease expiry/partial-result recovery and RBAC-restricted dedupe with hidden details plus hashed denylist behavior. |
+| CE12.12 | OpenClaw boundary | Manual review | Plan keeps OpenClaw sessions simple and places business dedupe/ownership coordination in Sentura's database/run coordinator. |
+
+## CE13 — Cross-Border Design Documentation Reorganization
+
+Status: PASS (2026-06-13)
+
+Scope: `跨境电商/DESIGN.md`, `跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, `跨境电商/MEMORY_PROCESSING.md`, `README.md`, `AGENTS.md`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE13.1 | Shared design ownership | Manual review | `跨境电商/DESIGN.md` is simplified to shared platform, MCP, database, deployment, cross-agent flow, common safety/cost policy, milestone status, source index, and links to the three agent files. |
+| CE13.2 | Marketing detail ownership | Manual review | `MARKET_ACQUISITION.md` contains Lead Discovery role/status, inputs, search strategy, tool policy, output schema, UI behavior, acceptance criteria, database/persistence, concurrent dedupe, implementation plan, and source/test traceability. |
+| CE13.3 | Screening detail ownership | Manual review | `SCREENING.md` contains Screening role/status, intake schemas, UI, evidence ladder, registry/domain/email/social/trade/finance checks, scoring model, output schema, Alibaba API enhancement, database/persistence, budget controls, implementation plan, and sources. |
+| CE13.4 | Memory detail ownership | Manual review | `MEMORY_PROCESSING.md` contains Accio Memory role/status, upload routes, fixture schema, required extraction results, summary output contract, UI, tool policy, memory write rules, database/persistence, Screening handoff, implementation plan, and sources. |
+| CE13.5 | Implementation status preserved | Manual review | Each agent doc explicitly lists already implemented work and still-to-implement work; prior CE4/CE5/CE6/CE7 status is not lost. |
+| CE13.6 | Recent design decisions preserved | Manual review | CE10 production deployment remains in shared design, CE11 Alibaba API moves to Screening, and CE12 concurrent lead dedupe moves to Marketing. |
+| CE13.7 | Cross-links | Manual review | Shared design links to all three agent docs; each agent doc links back to shared design and the other relevant agent docs. |
+| CE13.8 | README entrypoint | Manual review | README Key Documentation lists shared CBE design plus the three agent-specific CBE documents. |
+| CE13.9 | AGENTS entrypoint | Manual review | AGENTS.md Cross-border task instructions require reading shared design plus the relevant agent detail file. |
+| CE13.10 | On-demand banners | Manual review | The shared design and three agent docs carry on-demand-reference banners; the agent docs also carry back-links to the shared design. |
+| CE13.11 | Test matrix sync | Manual review | `docs/TESTS.md` includes CE13 and updates CE1/CE10/CE11/CE12 paths to the reorganized docs. |
+| CE13.12 | Memory sync | Manual review | `docs/MEMORY.md` and `docs/memory/cross-border-ecommerce/phase-1.md` record the reorganization and changed doc map. |
+| CE13.13 | No forbidden workspace artifact reintroduction | Static diff review | The reorganization does not introduce forbidden historical workspace artifacts in new cross-border docs. |
+| CE13.14 | Link/path smoke | Static review | New docs exist, are non-empty, and contain the expected headings for shared design plus three agent docs. |
+
+## CE14 — Cross-Border Employee Role UI Design
+
+Status: PASS (2026-06-13)
+
+Scope:
+
+- `跨境电商/UI.md`
+- `跨境电商/DESIGN.md`
+- `跨境电商/MARKET_ACQUISITION.md`
+- `跨境电商/SCREENING.md`
+- `跨境电商/MEMORY_PROCESSING.md`
+- `README.md`
+- `AGENTS.md`
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE14.1 | Role split | Manual review | `UI.md` separates `employee` and `admin`, fully designs Employee pages, and explicitly defers detailed Admin pages. |
+| CE14.2 | Navigation | Manual review | Employee navigation has Sentura logo on the left, `获客与背调` / `记忆整理` center navigation, and a right user center with personal center, messages, settings, and logout. |
+| CE14.3 | Personal center | Manual review | Login landing page tracks personal counts for Marketing Acquisition leads, Screening investigations, Accio chat records organized, high-score buyers, pending work, recent activity, and message reminders. |
+| CE14.4 | Customer list layout | Manual review | `获客与背调` specifies one customer list with company, country, type, product, website, found time, score, and operation columns. |
+| CE14.5 | Customer row status colors | Manual review | Customer rows map uninvestigated to white, running to blue, high score to green, medium score to orange, and low score to red, with text badges. |
+| CE14.6 | Customer search/filter/actions | Manual review | Page supports company-name search; country/type/product/found-time/scored/score-tier filters; and `寻找客户`, `批量背调`, `手动背调`, `开始调研`, `查看报告` actions. |
+| CE14.7 | Memory list layout | Manual review | `记忆整理` specifies one chat-record list with name, source, import time, and operation columns. |
+| CE14.8 | Memory row status colors | Manual review | Memory rows map analyzed records to green and not-analyzed records to white, with running/error states documented for operational feedback. |
+| CE14.9 | Memory search/filter/actions | Manual review | Page supports name search; source/import-time/analysis filters; `添加新记录`; and row-level `开始分析` / `查看报告`. |
+| CE14.10 | No visible direct Agent chat | Manual review | Employee pages must not render a free-form Agent chat session; business actions use buttons/forms and task progress instead. |
+| CE14.11 | Hidden Agent connection | Manual review | Backend connection stays on OpenClaw/Sentura: hidden sessions through Gateway `sessions.create` / `chat.send`, employee registration checks, event subscription, and structured JSON marker parsing for all three employees. |
+| CE14.12 | Documentation sync | Manual/static review | README, AGENTS, shared design, and three agent docs link to `UI.md`; tests and memory matrix record this UI design session. |

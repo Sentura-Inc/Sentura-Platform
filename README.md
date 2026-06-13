@@ -285,7 +285,11 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`docs/memory/sitlink/*.md`](docs/memory/sitlink/) | Sitlink / 座联互动 independent client-pilot memory | On demand — for Sitlink tasks only |
 | [`docs/memory/cross-border-ecommerce/*.md`](docs/memory/cross-border-ecommerce/) | Cross-border e-commerce / 跨境电商 independent client-pilot memory | On demand — for mobile-accessory cross-border tasks only |
 | [`座联互动/DESIGN.md`](座联互动/DESIGN.md) | Sitlink client-pilot design | On demand — for Sitlink tasks only |
-| [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce client design | On demand — for 跨境电商 tasks only |
+| [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce shared platform, database, deployment, MCP, and cross-agent design | On demand — for 跨境电商 tasks only |
+| [`跨境电商/UI.md`](跨境电商/UI.md) | Cross-border Employee/Admin role UI design, Employee page layouts, status colors, and hidden Agent task connection contract | On demand — for 跨境电商 UI/UX tasks only |
+| [`跨境电商/MARKET_ACQUISITION.md`](跨境电商/MARKET_ACQUISITION.md) | Cross-border Marketing Acquisition / Lead Discovery employee design, implementation status, and plan | On demand — for 跨境电商获客 tasks only |
+| [`跨境电商/SCREENING.md`](跨境电商/SCREENING.md) | Cross-border Screening and Background employee design, evidence model, Alibaba API plan, implementation status, and plan | On demand — for 跨境电商背调 tasks only |
+| [`跨境电商/MEMORY_PROCESSING.md`](跨境电商/MEMORY_PROCESSING.md) | Cross-border Accio Memory Processing employee design, fixture/upload workflow, memory policy, implementation status, and plan | On demand — for 跨境电商记忆处理 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
 | [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases | When running or updating tests |

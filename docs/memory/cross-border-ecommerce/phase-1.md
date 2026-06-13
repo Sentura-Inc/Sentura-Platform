@@ -32,6 +32,11 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-08 | Lead execution-path correction | Corrected the Lead Discovery UI so formal lead generation is submitted to the real `cbe-lead-discovery` OpenClaw employee through Gateway/AgentChat instead of being generated directly by the Dashboard Tavily route. |
 | 2026-06-08 | Milestone 6 Accio Memory employee and UI | Added `cbe-accio-memory`, Accio fixture sample route/UI, report preview flow, memory-write previews, Screening handoff payloads, and CE6/CE7 validation. |
 | 2026-06-08 | Accio Memory execution-path correction | Removed Dashboard precomputed reports/highlights so sample upload waits for employee `ACCIO_SUMMARIES_JSON`; strengthened Accio summarizer coverage for all three fixture conversations. |
+| 2026-06-13 | Production cloud/database/multi-agent operating plan | Added the production deployment design for database layout, OpenClaw/Sentura multi-agent concurrency, China-vs-US hosting, model API routing, and cloud sizing for 30-50 Shenzhen customer users. |
+| 2026-06-13 | Alibaba International Station API access investigation | Investigated signed-seller API access, Alibaba Open API authorization flow, ICBU seller/customer/order/member APIs, and documented a read-only `icbu-openapi` Screening enhancement plan. |
+| 2026-06-13 | Concurrent Lead Discovery dedupe design | Designed DB-backed run-scope dedupe, shared result pools, candidate identity uniqueness, and top-up-only reruns for overlapping multi-user Lead Discovery tasks. |
+| 2026-06-13 | Cross-border design documentation reorganization | Split the monolithic design into shared platform design plus three agent-specific design/status/plan documents while preserving implemented and pending work. |
+| 2026-06-13 | Employee role UI design | Added `跨境电商/UI.md` with Employee/Admin role split, Employee navigation, personal center, unified customer list, memory-record list, status colors, and hidden Agent task connection. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -944,3 +949,351 @@ The user clarified that even though the Accio records are simulated, the Memory 
 - `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS.
 - Browser check against `http://127.0.0.1:3001/client-demos/cross-border/accio-memory` — PASS: page opened, "加载演示 Accio 记录" loaded the fixture, UI showed `待员工分析`, raw conversations appeared, report table kept the `ACCIO_SUMMARIES_JSON` waiting copy, no pre-set reports rendered, and console error count was 0. Screenshot saved at `/tmp/cbe-accio-memory-wait.png`.
+
+## 2026-06-13 — Production cloud/database/multi-agent operating plan
+
+### User request
+
+The user asked for a rigorous investigation and final design covering three production questions for the Shenzhen cross-border customer:
+
+- how to establish the databases for the three agents;
+- how OpenClaw + Sentura should run the three agents concurrently;
+- how to choose the cloud server region/provider and model API route for a cloud deployment where 30-50 people use the three agent templates on one server.
+
+The user also provided the OpenClaw multi-agent docs link and asked to write the final方案 into `跨境电商/DESIGN.md`.
+
+### Sources checked
+
+- OpenClaw official docs:
+  - `https://docs.openclaw.ai/concepts/multi-agent`
+  - `https://docs.openclaw.ai/gateway/multiple-gateways`
+  - `https://docs.openclaw.ai/gateway/security`
+  - `https://docs.openclaw.ai/gateway/sandboxing`
+  - `https://docs.openclaw.ai/tools/subagents`
+  - `https://docs.openclaw.ai/concepts/session-tool`
+  - `https://docs.openclaw.ai/gateway/config-tools`
+- Cloud / ICP docs:
+  - Alibaba Cloud ECS regions and zones (`cn-shenzhen`, `cn-guangzhou`);
+  - Alibaba Cloud global infrastructure and ICP filing docs;
+  - Tencent Cloud global infrastructure and ICP docs;
+  - Huawei Cloud region availability as a South China cross-check.
+- Model / API docs:
+  - OpenAI supported countries;
+  - Alibaba Cloud Model Studio model/deployment/pricing pages;
+  - DeepSeek pricing and context-cache docs.
+- Compliance:
+  - CAC `个人信息出境标准合同办法`.
+- Local OpenClaw source scan confirmed provider extension support for Qwen, DeepSeek, Volcengine/Doubao, Moonshot/Kimi, MiniMax, and custom OpenAI-compatible providers.
+
+### Decisions added to `跨境电商/DESIGN.md §13`
+
+- **Database shape:** do not create three unrelated databases. Use one tenant-scoped CBE business database for Lead, Screening, Accio, handoff, cost, and audit records; keep three per-agent LanceDB memory namespaces; keep OpenClaw runtime state/workspaces under OpenClaw-managed state directories.
+- **Production DB recommendation:** managed PostgreSQL-compatible database for production; SQLite WAL is only a single-server pilot fallback with the same schema and explicit migration plan.
+- **Typed write boundary:** agents must not get raw SQL credentials or free-form SQL tools. Phase 1 can persist validated employee JSON through Dashboard routes; production hardening should add typed `cross-border-store` MCP/Sentura tools.
+- **Multi-agent runtime:** for one customer company trust boundary, run one primary OpenClaw Gateway with three persistent configured agents (`cbe-lead-discovery`, `cbe-buyer-screening`, `cbe-accio-memory`). Do not split one Gateway per employee.
+- **Subagent policy:** worker employees continue denying session/subagent tools. If automated Mode-B routing is needed later, add a dedicated `cbe-orchestrator` with allowlisted `sessions_send` / `sessions_spawn`.
+- **Concurrency:** set practical active-run limits for 30-50 users: 50-80 web sessions, 8-12 active Lead runs, 8-12 Screening targets or 3-5 Screening batches, 3-5 Accio imports, no normal browser tasks, and provider-quota headroom.
+- **Cloud choice:** use a Chinese cloud provider as primary, not a US region. Preferred default is Alibaba Cloud China (Shenzhen) because the customer is in Shenzhen and the lane is Alibaba/Accio-heavy; Tencent Cloud South China is a valid procurement alternative.
+- **Egress caveat:** if overseas public-source APIs are unreliable from mainland China, add a later Hong Kong/Singapore low-sensitivity egress worker for public search/registry queries only.
+- **Model route:** default to China-accessible model APIs through OpenClaw providers: Qwen and DeepSeek first, Volcengine/Doubao or Kimi as fallback. Do not use OpenAI as the default mainland production route.
+- **Compliance posture:** public mainland hosting needs ICP/PSB filing path; raw Accio chats and buyer contacts sent to US hosting or overseas model endpoints should be treated as personal-information outbound-transfer work.
+- **Verification:** added a go-live checklist covering OpenClaw setup, MCP doctor, security audit, CBE tests, live China-region API smoke, 50-user load smoke, backup restore, workspace invariant checks, and Simplified Chinese/evidence-source UI checks.
+
+### Files changed
+
+- Updated `跨境电商/DESIGN.md` with `§13 Production Cloud, Database, and Multi-Agent Operating Plan (2026-06-13)`.
+- Updated `docs/TESTS.md` with CE10 and the 2026-06-13 Last updated line.
+- Updated `docs/tests/tests-cross-border-ecommerce.md` with CE10 detailed review checks.
+- Updated `docs/MEMORY.md` and this detail file.
+
+### Verification
+
+- Manual review against the checked web sources and local OpenClaw provider extension scan.
+- Static checks:
+  - `rg -n "Production Cloud|CE10|2026-06-13|cn-shenzhen|OpenAI" 跨境电商/DESIGN.md docs/TESTS.md docs/tests/tests-cross-border-ecommerce.md docs/MEMORY.md docs/memory/cross-border-ecommerce/phase-1.md`
+  - `git diff --check`
+
+### Follow-ups
+
+- Implement the production persistence layer when the customer approves managed PostgreSQL/TDSQL/PolarDB vs SQLite pilot fallback.
+- Run real China-region reachability tests from the selected cloud VM for Tavily/Brave, Companies House, SEC, Abstract, Hunter, ImportYeti, and chosen model providers before final procurement.
+
+## 2026-06-13 — Alibaba International Station API access investigation
+
+### User request
+
+The user provided an Alibaba developer URL for International Station API doc `25408` and asked to investigate whether the cross-border customer, as a signed Alibaba International Station seller, can obtain API permissions, what the flow is, and which APIs can optimize the Screening and Background employee.
+
+### Sources checked
+
+- User-supplied International Station API doc: `https://developer.alibaba.com/docs/api.htm?apiId=25408`
+- Alibaba.com Open API overview / How to Start: `https://developer.alibaba.com/docs/doc.htm?articleId=118416&docType=1&treeId=684`
+- Taobao Global / Alibaba Open Platform development manual authorization flow: `https://developer.alibaba.com/docs/doc.htm?articleId=121120&docType=1&treeId=735`
+- ICBU transaction APIs: `alibaba.seller.order.list`, `alibaba.seller.order.fund.get`, related order/logistics/address method lists.
+- ICBU seller APIs: `alibaba.seller.customer.batch.get`, `alibaba.seller.customer.get`, `alibaba.seller.customer.note.get`, `alibaba.member.info.get`, `alibaba.member.sub.account.info.get`.
+- International Station / ICBU docs for `alibaba.buyer.companyprofile.find`, `alibaba.member.basicprofile.find`, `alibaba.icbu.supplier.identity.verified.get`, `alibaba.icbu.data.verified.get`, `alibaba.procurement.*`, and `alibaba.icbu.risk.send`.
+
+### Findings
+
+- The Alibaba.com Open API docs describe a three-step access flow: developer registration, authorization/access token, and API calls. The overview states the beta Open API is free for paid GGS users, but individual method pages still determine authorization and commercial requirements.
+- A signed seller should be treated as likely eligible for a self-use developer app, but not automatically entitled to every API. Methods can be free, value-added, authorization-required, Jushita-only, or private/hidden.
+- The practical proof point is a live customer-account console/API-test run: create an app, get `app_key` / `app_secret`, configure callback, have the seller main account authorize, exchange `code` for token, then smoke call harmless read methods.
+- High-value Screening methods are seller-owned first-party data: customer batch records, order list/detail, order fund/logistics/address context, customer notes, member/account mapping.
+- Buyer-side procurement history and opaque risk submission APIs are not safe defaults for seller-side buyer background checks unless Alibaba or the buyer explicitly authorizes the use case.
+
+### Decisions added to `跨境电商/DESIGN.md §14`
+
+- Added signed-seller API-access caveat: verify permissions in Alibaba Open Platform console; do not assume contract status grants every method.
+- Added enablement flow covering account confirmation, developer app/callback, scope request, seller OAuth/TOP session token, smoke tests, and production refresh.
+- Added API priority table for Screening:
+  - P0: `alibaba.seller.customer.batch.get`, conditional `alibaba.seller.customer.get`, `alibaba.seller.order.list`, `alibaba.seller.order.get`;
+  - P1: order fund/logistics/address context, customer notes, member info, sub-account mapping;
+  - P2: buyer/company/member profile enrichment only after seller-scope validation; verified-supplier APIs only when screening suppliers or buyer-as-supplier targets;
+  - P3: buyer procurement APIs and `alibaba.icbu.risk.send` out of scope until explicit authorization/confirmation.
+- Added Screening evidence blocks for Alibaba first-party customer records, order history, payment/logistics context, customer behavior notes, account mapping, and conditional profile enrichment.
+- Added proposed read-only `icbu-openapi` MCP tools: auth status, customer sync, order history, customer notes, profile enrichment.
+- Added DB additions for authorizations, method status, customer snapshots, order evidence, and customer-note evidence.
+- Added data-classification requirements: CRM/customer/order/note data is T2/T3, raw values are redacted from LLM prompts, and raw data must not enter vector memory or external APIs.
+
+### Files changed
+
+- Updated `跨境电商/DESIGN.md` with `§14 Alibaba International Station API Access Plan For Screening Optimization (2026-06-13)`.
+- Updated `docs/TESTS.md` with CE11 and the 2026-06-13 Last updated line.
+- Updated `docs/tests/tests-cross-border-ecommerce.md` with CE11 detailed review checks.
+- Updated `docs/MEMORY.md` and this detail file.
+
+### Verification
+
+- Manual review against Alibaba official/developer documentation and indexed Alibaba API method pages.
+- Static checks:
+  - `rg -n "Alibaba International Station API|CE11|icbu-openapi|alibaba.seller.customer.batch.get|alibaba.seller.order.list" 跨境电商/DESIGN.md docs/TESTS.md docs/tests/tests-cross-border-ecommerce.md docs/MEMORY.md docs/memory/cross-border-ecommerce/phase-1.md`
+  - `git diff --check`
+
+### Follow-ups
+
+- Ask the customer to confirm the exact Alibaba International Station seller package and whether it is paid GGS / equivalent.
+- Run a live Open Platform console proof with the customer's main seller account and record which APIs are enabled, denied, value-added, Jushita-only, or private.
+- Implement `icbu-openapi` only after the access proof, and keep it read-only with no mutation methods.
+
+## 2026-06-13 — Concurrent Lead Discovery dedupe design
+
+### User request
+
+The user described a concrete concurrency problem: User A starts a Marketing Acquisition / Lead Discovery run for 20 customers that takes about 5 minutes. At minute 2.5, User B starts a similar 20-customer Lead Discovery run. The overlap probability is high, so the platform needs a design that avoids duplicate searches, duplicate lead records, and repeated buyer assignment.
+
+### Context checked
+
+- Existing design already dedupes final lead candidates by normalized domain and dedupe key.
+- Existing production database plan has `lead_runs`, `lead_candidates`, `lead_sources`, and `agent_runs`, but no run-scope coordination table.
+- Existing concurrency plan limits active Lead Discovery runs to 8-12 but did not yet prevent two active runs from searching the same scope.
+- Existing formal Lead Discovery execution path sends tasks through the real `cbe-lead-discovery` OpenClaw AgentChat session; the Dashboard route is diagnostics only.
+
+### Design decisions added to `跨境电商/DESIGN.md §15`
+
+- Add three dedupe layers:
+  - run-scope dedupe before launching an employee session;
+  - candidate-identity dedupe when saving results;
+  - allocation/ownership dedupe only when a user acts on a lead.
+- Normalize each Lead Discovery request into product, buyer-persona, country/region, language, source-policy, exclusion, and time-window fields, then compute exact `scope_hash` and weighted `scope_similarity`.
+- Exact active scope match: User B joins User A's active run by default and does not start a second AgentChat session.
+- High-overlap scope: UI offers shared results, unassigned-only top-up, or narrowing the search.
+- Add DB-backed lease tables:
+  - `lead_discovery_scopes`
+  - `lead_run_memberships`
+  - `lead_identities`
+  - `lead_run_results`
+  - `lead_allocations`
+- Use `locked_until` and heartbeat leases, not in-memory locks or long database transactions.
+- Define `identity_key` precedence: Alibaba customer id, normalized domain, same-domain email domain, then country plus normalized company name.
+- If the shared pool does not satisfy User B's requested unique/unallocated count, start a top-up-only run for the missing count and pass an `existing_identity_keys` denylist to `cbe-lead-discovery`.
+- Preserve OpenClaw's role: employees perform search; Sentura coordinates business dedupe, leases, identity pool, and lead ownership.
+
+### Files changed
+
+- Updated `跨境电商/DESIGN.md` with `§15 Concurrent Lead Discovery Dedupe Plan (2026-06-13)`.
+- Updated `docs/TESTS.md` with CE12 and the 2026-06-13 Last updated line.
+- Updated `docs/tests/tests-cross-border-ecommerce.md` with CE12 detailed review checks.
+- Updated `docs/MEMORY.md` and this detail file.
+
+### Verification
+
+- Manual review against the existing Lead Discovery execution path and production DB/multi-agent sections.
+- Static checks:
+  - `rg -n "Concurrent Lead Discovery|CE12|lead_discovery_scopes|lead_identities|scope_hash|top-up" 跨境电商/DESIGN.md docs/TESTS.md docs/tests/tests-cross-border-ecommerce.md docs/MEMORY.md docs/memory/cross-border-ecommerce/phase-1.md`
+  - `git diff --check`
+
+### Follow-ups
+
+- Implement the run coordinator in the Dashboard/server layer before launching AgentChat.
+- Add database migrations for the scope, identity, result, and allocation tables.
+- Extend the Lead Discovery UI to show duplicate-scope warnings, shared progress, and top-up-only mode.
+- Add automated tests that simulate two concurrent start requests for the same `scope_hash` and assert that only one AgentChat run is launched.
+
+## 2026-06-13 — Cross-border design documentation reorganization
+
+### User request
+
+The user said the cross-border design documentation had become cluttered and asked to reorganize it by the three employees:
+
+- `跨境电商/MARKET_ACQUISITION.md`
+- `跨境电商/SCREENING.md`
+- `跨境电商/MEMORY_PROCESSING.md`
+
+They also asked to simplify `跨境电商/DESIGN.md` so it mainly keeps platform integration and common cross-agent detailed design, while preserving all implemented and still-to-implement information in the appropriate documents.
+
+### Reorganization decisions
+
+- `跨境电商/DESIGN.md` is now the shared platform/cross-agent design. It owns:
+  - customer baseline and input summary;
+  - employee roster and document map;
+  - shared product/persona/geography knowledge pack;
+  - shared OpenClaw/Sentura implementation shape;
+  - cross-agent data flow;
+  - client demo route map;
+  - `cross-border-intel` MCP design;
+  - shared business database schema;
+  - multi-agent runtime/concurrency;
+  - China cloud/model deployment plan;
+  - shared cost, safety, compliance, data classification;
+  - milestone/status overview;
+  - go-live checklist;
+  - open questions and source index.
+- `跨境电商/MARKET_ACQUISITION.md` now owns:
+  - `cbe-lead-discovery` role/status;
+  - inputs and run-builder controls;
+  - search strategy and exclusions;
+  - tool/model policy;
+  - output schema and marker contract;
+  - lead UI design;
+  - acceptance criteria;
+  - Marketing-specific database/persistence;
+  - concurrent Lead Discovery dedupe design from the previous CE12 work;
+  - implemented vs still-to-implement plan;
+  - source/test traceability.
+- `跨境电商/SCREENING.md` now owns:
+  - `cbe-buyer-screening` role/status;
+  - batch/manual intake schemas;
+  - Screening UI;
+  - evidence ladder;
+  - registry, domain/email, social, trade, and financial checks;
+  - contextual scoring model and report schema;
+  - Alibaba International Station API enhancement from the previous CE11 work;
+  - Screening-specific database/persistence and budget controls;
+  - implemented vs still-to-implement plan;
+  - source/test traceability.
+- `跨境电商/MEMORY_PROCESSING.md` now owns:
+  - `cbe-accio-memory` role/status;
+  - upload/sample routes;
+  - Accio fixture schema and required extraction results;
+  - memory summary output contract;
+  - Accio UI design;
+  - tool/model policy;
+  - memory write rules;
+  - Accio-specific database/persistence;
+  - Screening handoff;
+  - implemented vs still-to-implement plan;
+  - source/test traceability.
+
+### Files changed
+
+- Rewrote `跨境电商/DESIGN.md` as the shared platform/cross-agent design.
+- Populated `跨境电商/MARKET_ACQUISITION.md`.
+- Populated `跨境电商/SCREENING.md`.
+- Populated `跨境电商/MEMORY_PROCESSING.md`.
+- Updated `README.md` Key Documentation with all four CBE docs.
+- Updated `AGENTS.md` Cross-border read instructions with the shared design plus relevant agent detail files.
+- Updated `docs/TESTS.md`:
+  - CE1 now references shared + three agent docs;
+  - CE10 remains shared design;
+  - CE11 now points to Screening doc;
+  - CE12 now points to Marketing doc;
+  - CE13 added for documentation reorganization.
+- Updated `docs/tests/tests-cross-border-ecommerce.md` with CE13 detailed checks and updated CE10/CE11/CE12 scopes.
+- Updated `docs/MEMORY.md` Current Ground Truth and matrix row.
+
+### Verification
+
+- Manual review of the original monolithic `跨境电商/DESIGN.md` structure before replacement.
+- Static checks planned/run:
+  - key heading/path checks for all four CBE docs;
+  - CE13 keyword checks across README, AGENTS, tests, and memory;
+  - `git diff --check`;
+  - current diff check for forbidden historical workspace artifact reintroduction.
+
+### Follow-ups
+
+- Implement the production persistence layer from the now-separated shared/agent docs.
+- When future work touches only one employee, update that employee doc first and keep `DESIGN.md` limited to shared/cross-agent changes.
+
+## 2026-06-13 — Employee role UI design
+
+### User request
+
+The user asked for a professional UI/UX design specifically for the cross-border e-commerce customer, written to `跨境电商/UI.md`. The requested scope was Employee-first:
+
+- Admin and Employee are distinct roles, but Admin pages can be designed later.
+- Employee navigation: Sentura logo left, `获客与背调` / `记忆整理` switcher center, user center right with personal center, messages, settings, etc.
+- Personal center is the first login page and summarizes the user's personal data.
+- `获客与背调` is one customer list with company, country, type, product, website, found time, score, and actions, plus search/filter and `寻找客户` / `批量背调` / `手动背调`.
+- `记忆整理` is one chat-record list with name, source, import time, action, search/filter, and `添加新记录`.
+- Employee pages should not expose direct Agent chat sessions for now.
+- The design must explain how UI actions connect to backend Agents.
+
+### Context read
+
+- Mandatory/current context: `README.md`, `docs/MEMORY.md`, `docs/TESTS.md`.
+- Cross-border detail memory: `docs/memory/cross-border-ecommerce/phase-1.md`.
+- Cross-border design: `跨境电商/DESIGN.md`, `MARKET_ACQUISITION.md`, `SCREENING.md`, and `MEMORY_PROCESSING.md`.
+- Existing Dashboard implementation points for the current CBE demo routes, `AgentChat`, and gateway client.
+- Official/current implementation references for OpenClaw Gateway/MCP/tool config and Next.js route handlers.
+
+### Design decisions
+
+- Created `跨境电商/UI.md` as the role-level CBE UI design document.
+- Defined target Employee routes:
+  - `/client-demos/cross-border/employee` for `个人中心`;
+  - `/client-demos/cross-border/employee/customers` for `获客与背调`;
+  - `/client-demos/cross-border/employee/memory` for `记忆整理`;
+  - `/client-demos/cross-border/admin` reserved for Admin.
+- Kept current implemented demo routes documented as source workbenches that can be folded into the new Employee role pages.
+- Made the visible Employee product UI list/form/action-driven, with no direct free-form Agent chat surface.
+- Preserved the real OpenClaw employee execution path behind the UI: business actions create hidden/auditable Gateway sessions for `cbe-lead-discovery`, `cbe-buyer-screening`, or `cbe-accio-memory`, then parse the established JSON markers:
+  - `LEAD_CANDIDATES_JSON_START/END`
+  - `SCREENING_REPORTS_JSON_START/END`
+  - `ACCIO_SUMMARIES_JSON_START/END`
+- Documented the customer-row colors requested by the user:
+  - white for not investigated;
+  - blue for running;
+  - green for high score;
+  - orange for medium score;
+  - red for low score.
+- Documented the memory-row colors:
+  - white for not analyzed;
+  - green for analyzed;
+  - blue/red as operational running/error extensions.
+
+### Files changed
+
+- Wrote `跨境电商/UI.md`.
+- Updated `跨境电商/DESIGN.md` to link `UI.md` and clarify current demo routes vs target Employee role UI.
+- Added `UI.md` cross-links to `MARKET_ACQUISITION.md`, `SCREENING.md`, and `MEMORY_PROCESSING.md`.
+- Updated `README.md` Key Documentation with the new UI document.
+- Updated `AGENTS.md` cross-border read instructions and on-demand reference list.
+- Updated `docs/TESTS.md` with CE14 and the test-summary count.
+- Updated `docs/tests/tests-cross-border-ecommerce.md` with CE14 detailed checks.
+- Updated `docs/MEMORY.md` matrix and this detail file.
+
+### Verification
+
+- Manual review against the user's requested page structure.
+- Static/documentation checks:
+  - `UI.md` is non-empty and carries the on-demand banner.
+  - README / AGENTS / shared design / agent docs all link to `UI.md`.
+  - CE14 exists in both the test matrix and detailed test file.
+  - No TeamPlan row was added because this is independent cross-border client work.
+
+### Follow-ups
+
+- Implement the Employee shell and hidden `EmployeeTaskRunner`.
+- Fold the existing Lead Discovery, Screening, and Accio demo routes into the new Employee role pages.
+- Add browser/Playwright verification after the UI implementation exists.

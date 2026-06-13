@@ -25,7 +25,7 @@ You are an expert AI/ML engineer building the Sentura platform: an **enterprise 
 4. `docs/TESTS.md` — test matrix (one row per deliverable). Single source of truth for what to test.
 5. Independent client-pilot tasks only:
    - Sitlink / 座联互动: `docs/memory/sitlink/*.md` and `座联互动/DESIGN.md`. Read these instead of TeamPlan when the task is about Sitlink / 座联互动.
-   - Cross-border e-commerce / 跨境电商: `docs/memory/cross-border-ecommerce/*.md` and `跨境电商/DESIGN.md`. Read these instead of TeamPlan when the task is about the mobile-accessory cross-border e-commerce customer.
+   - Cross-border e-commerce / 跨境电商: `docs/memory/cross-border-ecommerce/*.md`, `跨境电商/DESIGN.md`, `跨境电商/UI.md` for UI/UX tasks, and the relevant agent detail file (`跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, or `跨境电商/MEMORY_PROCESSING.md`). Read these instead of TeamPlan when the task is about the mobile-accessory cross-border e-commerce customer.
 
 Cross-border e-commerce / 跨境电商 Phase-1 requirements:
 - Build on OpenClaw/Sentura, not a custom runtime. Use normal employee workspaces, skills, and MCP/config wiring.
@@ -42,6 +42,7 @@ Cross-border e-commerce / 跨境电商 Phase-1 requirements:
 - `docs/memory/shared/*.md` — cross-cutting sessions (architecture pivots, workspace convention changes, multi-round bug hunts like `creator-deployment-rounds-1-14.md`). Same rule — open from the matrix, not pre-emptively.
 - `docs/memory/sitlink/*.md` — independent Sitlink / 座联互动 project memory. Use this lane for Sitlink work, not `docs/memory/shared/` and not TeamPlan week files.
 - `docs/memory/cross-border-ecommerce/*.md` — independent Cross-border e-commerce / 跨境电商 project memory for the mobile-accessory customer. Use this lane for Cross-border e-commerce work, not `docs/memory/shared/` and not TeamPlan week files.
+- `跨境电商/DESIGN.md`, `跨境电商/UI.md`, `跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, `跨境电商/MEMORY_PROCESSING.md` — cross-border e-commerce shared platform design, role UI design, plus the three agent-specific design/implementation-plan documents. Read the shared design first, then `UI.md` for UI/UX work, and only the agent file relevant to the task.
 - `docs/tests/tests-person-{a,b,c,d}.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, `docs/tests/tests-cross-border-ecommerce.md` — detailed test cases (methods, assertions). Read when implementing or debugging a specific test row.
 - `ekg/database.md`, `ekg/backend.md`, `ekg/web.md`, `ekg/admin-panel.md`, `ekg/api-admin.md`, `ekg/api-web.md` — GradSale reference enterprise docs. Read when building MCP servers or enterprise integration scenarios.
 - `Documents/Demo.md` — original pitch deck and demo scenarios. Read when building features that relate to Mode A/Mode B demo flows, employee creation UI, or enterprise integration scenes.

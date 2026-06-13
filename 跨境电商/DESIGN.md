@@ -1,124 +1,159 @@
-# Sentura x Cross-Border E-Commerce Phase-1 MVP Design
+# Sentura x Cross-Border E-Commerce — Shared Platform Design
 
+> **On-demand reference — not read by default.**
+>
 > Customer: cross-border B2B exporter of mobile-phone accessories.
-> Date: 2026-06-07.
-> Status: detailed design and development plan. No production employee workspaces have been generated in this session.
+>
+> Original design date: 2026-06-07.
+>
+> Reorganized: 2026-06-13.
+>
+> Status: Phase-1 employee workspaces and demo routes are implemented for the three-agent MVP; production persistence, cloud deployment, Alibaba API integration, and concurrent lead-run coordinator remain planned implementation work.
 
-## 1. Inputs and Current Platform Baseline
+This file is now the shared platform and cross-agent design for the mobile-accessory cross-border e-commerce client lane. Agent-specific design, implementation status, and future work live in:
 
-### 1.1 Inputs read
+| Agent | File | Owns |
+|---|---|---|
+| Marketing Acquisition / Lead Discovery | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) | `cbe-lead-discovery`, lead search strategy, lead UI, output schema, copy-to-Screening, concurrent lead-run dedupe. |
+| Screening and Background | [`SCREENING.md`](SCREENING.md) | `cbe-buyer-screening`, evidence ladder, registry/domain/email/trade checks, contextual scoring, Alibaba International Station API enhancement. |
+| Accio Memory Processing | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) | `cbe-accio-memory`, Accio JSON fixture/upload, chat summarization, memory-write preview, Screening handoff. |
 
-- `README.md` — Sentura is an enterprise AI employee platform built on OpenClaw. Each AI employee is an OpenClaw agent with its own workspace files, skills, tools, guardrails, memory, approvals, and channel bindings.
-- `docs/MEMORY.md` — current ground truth: OpenClaw `2026.6.2`, exactly 8 OpenClaw-native workspace files, Creator deployment path is green, MCP server wiring lives at `mcp.servers.<name>`, sandboxed employees need sandbox tool allowlists for MCP/plugin tools.
-- `docs/TeamPlan.md` and `docs/TESTS.md` — current sprint/test policy. This customer lane should be tracked as an independent client project, not as A/B/C/D core sprint progress.
-- `docs/PLATFORM-DESIGN.md` — current product direction: multi-tenant Sentura control plane, local OpenClaw runtime, connector layer via MCP servers, future Cloud SQL/GCS/Secret Manager/Cloud Run migration.
+Role-level UI design lives in [`UI.md`](UI.md). It defines the target Employee/Admin role split, the Employee navigation, personal center, unified customer list for Lead Discovery + Screening, memory-record list, status colors, and the hidden Agent task connection contract.
+
+Independent client memory and tests:
+
+- Memory detail: [`docs/memory/cross-border-ecommerce/phase-1.md`](../docs/memory/cross-border-ecommerce/phase-1.md)
+- Test detail: [`docs/tests/tests-cross-border-ecommerce.md`](../docs/tests/tests-cross-border-ecommerce.md)
+- Role UI design: [`UI.md`](UI.md)
+- API/setup runbook: [`API_KEYS_OPENCLAW_SETUP.md`](API_KEYS_OPENCLAW_SETUP.md)
+
+## 1. Inputs And Customer Baseline
+
+Inputs used across the lane:
+
+- `README.md` — Sentura is an enterprise AI employee platform built on OpenClaw.
+- `docs/MEMORY.md` — current ground truth: OpenClaw `2026.6.2`, exactly 8 OpenClaw-native workspace files, MCP wiring via `mcp.servers.<name>`, sandboxed employees require sandbox tool allowlists for MCP/plugin tools.
+- `docs/TESTS.md` — cross-border e-commerce is an independent client lane, not A/B/C/D TeamPlan work.
+- `docs/PLATFORM-DESIGN.md` — Sentura control plane, multi-tenant design, connector layer through MCP servers, future cloud migration path.
 - `跨境电商/Sentura_跨境电商_Agent_商业汇报_v2.pdf` — customer problem statement and three-agent proposal.
-- OpenClaw official docs:
-  - Agent workspace: `https://docs.openclaw.ai/agent-workspace`
-  - Agent runtime: `https://docs.openclaw.ai/agent`
-  - Web search tool: `https://docs.openclaw.ai/tools/web`
-  - MCP CLI/config: `https://docs.openclaw.ai/cli/mcp`
-  - Tool config and sandbox MCP/plugin allowlist: `https://docs.openclaw.ai/gateway/config-tools`
-  - Config RPC/hot reload: `https://docs.openclaw.ai/gateway/configuration`
+- OpenClaw docs for agent workspace, agent runtime, web search, MCP config, tool config, sandbox filtering, configuration RPC, multi-agent routing, multiple gateways, security, session tools, and sub-agents.
 
-### 1.2 Customer facts from the PDF
+Customer facts:
 
-The customer sells mobile-phone accessories through cross-border B2B channels, mainly Alibaba International Station and overseas social / public channels. Current market coverage includes Europe, North America, and South America.
+- Customer sells mobile-phone accessories through cross-border B2B channels.
+- Primary commercial context is Alibaba International Station / Accio-style sales conversations plus overseas public channels.
+- Current market coverage includes Europe, North America, and South America.
+- Customer coordinates from Shenzhen and has decided on cloud deployment.
 
-The sales team is blocked by five front-end problems:
+Sales-front-end problems:
 
-1. Inconsistent buyer authenticity judgement.
-2. Low stickiness from disposable or weak buyer emails.
-3. Heavy manual company background research across many overseas sources.
-4. Fragmented customer records across chats, spreadsheets, and memory.
-5. No quantitative scoring system.
+1. Buyer authenticity judgment is inconsistent.
+2. Disposable or weak buyer emails reduce follow-up stickiness.
+3. Salespeople manually research overseas companies across many public and paid sources.
+4. Customer records are fragmented across chats, spreadsheets, and personal memory.
+5. There is no quantitative buyer score or evidence coverage model.
 
-The project promise is to let AI replace the sales front-end work of finding customers, verifying authenticity, and retaining records, while human sales focus on final conversion with verified buyers.
+Project promise:
 
-### 1.3 Sentura capability status relevant to this MVP
+- AI handles finding customers, verifying authenticity, and retaining customer context.
+- Human sales focus on final conversion with verified buyers.
+- No Phase-1 employee sends outreach automatically.
 
-Built and usable now:
+## 2. Employee Roster
 
-- Creator, Tuner, Orchestrator, Data Scavenger, and MCP Builder source workspaces exist; Creator deployment path has passed E2E.
-- `sentura-agents` can write workspace files and register agents in-process without Gateway pairing deadlock.
-- RBAC, approval, audit, cost, monitoring, MCP health, and tenant memory extensions exist.
-- Existing MCP server pattern is proven under `sentura/mcp-servers/*` with TypeScript + Zod + `@modelcontextprotocol/sdk`.
-- OpenClaw native `web_search`, `web_fetch`, `memory_search`, `memory_get`, `cron`, and MCP bundle tooling are available when allowlisted.
+Tenant slug:
 
-Not fully implemented or deferred:
+```text
+cross-border-ecommerce
+```
 
-- GCP Cloud SQL/GCS/Secret Manager/Cloud Run connector migration is design-stage.
-- REST API connector MCP server is planned but not yet added.
-- MCP Builder and Data Scavenger are built but deferred; Phase 1 should not depend on them being autonomous.
-- No customer-specific Cross-Border E-Commerce employees or MCP server exist yet.
+Employees:
 
-MVP consequence: implement this client using local OpenClaw agent workspaces plus local stdio MCP server(s), storing secrets in `~/.openclaw/.env` / OpenClaw secret references. Keep the design compatible with future Cloud Run MCP migration, but do not require it for Phase 1.
+| Employee | Agent id | Chinese name | Primary output | Detail file |
+|---|---|---|---|---|
+| Marketing Acquisition | `cbe-lead-discovery` | 跨境营销获客员工 | Daily/source-audited potential buyer list | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) |
+| Screening and Background | `cbe-buyer-screening` | 跨境筛选背调员工 | Buyer authenticity score report with evidence chain | [`SCREENING.md`](SCREENING.md) |
+| Accio Memory Processing | `cbe-accio-memory` | 跨境记忆处理员工 | Accio chat summary report + structured customer memory preview | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) |
 
-## 2. Target Employees
-
-### 2.1 Employee roster
-
-| Employee | Proposed agent id | Chinese name | Primary output |
-|---|---|---|---|
-| Marketing Acquisition Employee | `cbe-lead-discovery` | 跨境营销获客员工 | Daily deduplicated potential buyer list for phone accessories |
-| Screening and Background Employee | `cbe-buyer-screening` | 跨境筛选背调员工 | Buyer authenticity score report with evidence chain |
-| Accio Memory Processing Employee | `cbe-accio-memory` | 跨境记忆处理员工 | Uploaded Accio chat summary report + structured customer memory |
-
-Tenant slug for this client lane: `cross-border-ecommerce`.
-
-Workspace ids should be tenant-prefixed if deployed into a shared Sentura instance:
+Tenant-prefixed workspace ids for a shared Sentura instance:
 
 - `cross-border-ecommerce-lead-discovery`
 - `cross-border-ecommerce-buyer-screening`
 - `cross-border-ecommerce-accio-memory`
 
-### 2.2 Shared knowledge base
+## 3. Shared Knowledge Pack
 
-All three employees share a cross-border mobile-accessory knowledge pack:
+All employees share a cross-border mobile-accessory knowledge pack.
 
-- Product category tree:
-  - phone cases: TPU, silicone, leather, rugged, clear case, MagSafe case
-  - screen protectors: tempered glass, privacy glass, hydrogel film
-  - chargers: USB-C charger, GaN charger, wall charger, travel adapter
-  - cables: USB-C cable, Lightning cable, braided cable, fast charging cable
-  - mobile holders: car mount, magnetic holder, desk stand
-  - power accessories: power bank, wireless charger, MagSafe charger
-  - repair accessories: LCD screen replacement, battery replacement, tool kits
-- Buyer personas:
-  - importer, distributor, wholesaler, retailer, repair chain, e-commerce seller, marketplace seller, electronics store, mobile shop chain.
-- Geographic focus:
-  - Phase 1: US, UK, Germany, France, Spain, Italy, Brazil, Mexico, Chile, Colombia.
-  - Expandable through country adapter files.
-- Scoring rules:
-  - The PDF model remains the starting point: authenticity 60, business fit 25, behavior signal 15.
-- Outreach boundary:
-  - Phase 1 does not send cold email automatically. It produces buyer lists, reports, and email drafts only if asked.
+Product category tree:
 
-## 3. High-Level Architecture
+- phone cases:
+  - TPU
+  - silicone
+  - leather
+  - rugged
+  - clear case
+  - MagSafe case
+- screen protectors:
+  - tempered glass
+  - privacy glass
+  - hydrogel film
+- chargers:
+  - USB-C charger
+  - GaN charger
+  - wall charger
+  - travel adapter
+- cables:
+  - USB-C cable
+  - Lightning cable
+  - braided cable
+  - fast charging cable
+- mobile holders:
+  - car mount
+  - magnetic holder
+  - desk stand
+- power accessories:
+  - power bank
+  - wireless charger
+  - MagSafe charger
+- repair accessories:
+  - LCD screen replacement
+  - battery replacement
+  - tool kits
 
-```mermaid
-flowchart LR
-  A["Marketing Acquisition Employee"] -->|"candidate leads"| B["Screening and Background Employee"]
-  B -->|"verified buyers + score reports"| C["Accio Memory Processing Employee"]
-  C -->|"customer profiles + historical deal signals"| A
-  C -->|"conversation behavior signals"| B
+Buyer personas:
 
-  A --> WS["OpenClaw web_search / web_fetch"]
-  B --> WS
-  B --> MCP["cross-border-intel MCP server"]
-  C --> FS["manual JSON upload / local file"]
-  C --> MEM["OpenClaw memory + Sentura EKG files"]
+- importer
+- distributor
+- wholesaler
+- retailer
+- repair chain
+- e-commerce seller
+- marketplace seller
+- electronics store
+- mobile shop chain
 
-  MCP --> R1["Companies House / SEC / RDAP / DNS"]
-  MCP --> R2["Email validation providers"]
-  MCP --> R3["ImportYeti / Volza / paid customs data"]
-```
+Geographic focus:
 
-### 3.1 OpenClaw/Sentura implementation shape
+- Phase 1: US, UK, Germany, France, Spain, Italy, Brazil, Mexico, Chile, Colombia.
+- Expandable through country adapter files.
 
-Each employee is an OpenClaw embedded agent with:
+Scoring reference:
 
-- exactly the 8 native files:
+- Long-term PDF model: authenticity 60, business fit 25, behavior signal 15.
+- Phase 1 uses contextual scoring so cold leads do not lose behavior points and disabled paid APIs reduce evidence coverage rather than producing false negative scores.
+- Detailed scoring blocks live in [`SCREENING.md`](SCREENING.md#10-contextual-scoring-model).
+
+Outreach boundary:
+
+- No Phase-1 employee sends cold email or messages automatically.
+- Employees can produce buyer lists, risk reports, memory previews, and draft text only when explicitly requested.
+
+## 4. Shared OpenClaw/Sentura Implementation Shape
+
+Each employee is a normal OpenClaw embedded agent with:
+
+- exactly the 8 OpenClaw-native top-level workspace files:
   - `AGENTS.md`
   - `SOUL.md`
   - `TOOLS.md`
@@ -128,43 +163,135 @@ Each employee is an OpenClaw embedded agent with:
   - `BOOTSTRAP.md`
   - `MEMORY.md`
 - `skills/*/SKILL.md`
-- optional `ekg/` files for structured product keywords, scoring rules, and customer memory.
-- `sandbox: { mode: "non-main" }`.
-- MCP/plugin tools allowed at both the normal tool-policy layer and the sandbox tool-policy layer.
+- optional `ekg/` structured seed files
+- `config.json5`
+- sandbox mode `non-main`
+- MCP/plugin tools allowed at both normal tool-policy and sandbox tool-policy layers
 
-OpenClaw docs confirm that `TOOLS.md` is guidance only; actual tool availability is controlled by config. OpenClaw docs also confirm MCP tools in sandboxed sessions are filtered unless `tools.sandbox.tools` includes `bundle-mcp`, `group:plugins`, or exact MCP server globs.
+OpenClaw/Sentura rules:
 
-### 3.2 Proposed MCP server
+- OpenClaw is the runtime. Sentura is the control plane layer.
+- Do not build a custom agent runtime, gateway, Docker wrapper, or channel adapter for this customer lane.
+- Do not call model APIs directly from Sentura business logic; route through OpenClaw providers.
+- Do not give agents raw SQL credentials or free-form SQL tools.
+- Runtime config changes go through OpenClaw config patching/setup, not ad hoc file mutation at runtime.
+- Tool access is enforced by config; `TOOLS.md` is guidance only.
+- Sandbox sessions need explicit allowlists for MCP/plugin tools.
 
-Add one read-mostly MCP server in Phase 1:
+Shared tool policy shape:
+
+```json5
+tools: {
+  profile: "minimal",
+  allow: ["web_search", "web_fetch", "memory_search", "memory_get", "cron", "group:plugins"],
+  sandbox: {
+    tools: {
+      allow: ["web_search", "web_fetch", "memory_search", "memory_get", "cross-border-intel__*"]
+    }
+  },
+  deny: ["exec", "gateway", "write", "edit", "apply_patch", "sessions_spawn", "subagents", "sessions_yield"]
+}
+```
+
+The three worker employees continue to deny recursive session/sub-agent tools. If future Mode-B automation is needed, add a dedicated `cbe-orchestrator` employee that is the only CBE component allowed to use `sessions_send` / `sessions_spawn`.
+
+## 5. Cross-Agent Architecture
+
+```mermaid
+flowchart LR
+  U["30-50 Shenzhen sales users"] --> D["Sentura Dashboard / WebChat"]
+  D --> G["OpenClaw Gateway"]
+  G --> L["cbe-lead-discovery"]
+  G --> S["cbe-buyer-screening"]
+  G --> M["cbe-accio-memory"]
+
+  L -->|"LeadCandidate JSON markers"| DB["CBE business DB"]
+  DB -->|"selected leads"| S
+  M -->|"accio_memory handoff target"| DB
+  DB -->|"behavior summary"| S
+  S -->|"ScreeningReport JSON markers"| DB
+
+  L --> WS["OpenClaw web_search / web_fetch"]
+  S --> INTEL["cross-border-intel MCP"]
+  M --> INTEL
+  DB --> MEM["Per-agent LanceDB memory namespaces"]
+```
+
+Formal Phase-1 execution remains UI-driven:
+
+1. User starts Lead Discovery from `/client-demos/cross-border/lead-discovery`.
+2. Dashboard sends a structured task through the real `cbe-lead-discovery` AgentChat session.
+3. Lead employee calls `web_search` / `web_fetch` and returns `LEAD_CANDIDATES_JSON_START/END`.
+4. Dashboard validates JSON, persists the lead run, and lets the user copy or submit selected records to Screening.
+5. Screening page sends batch/manual tasks through `cbe-buyer-screening`; the employee calls `cross-border-intel__*` tools and returns `SCREENING_REPORTS_JSON_START/END`.
+6. Accio page sends uploaded JSON through `cbe-accio-memory`; the employee calls parser/summarizer tools and returns `ACCIO_SUMMARIES_JSON_START/END`.
+7. Memory writes remain preview-first. A human approves before concise facts are promoted to `memory_facts` and vector memory.
+
+Agent-to-agent messaging is not enabled for Phase 1. Handoff is typed DB/Dashboard handoff, not free-form inter-agent chat.
+
+## 6. Client Demo UI Surfaces
+
+The current routes below are the implemented demo workbenches. The target customer-facing role UI is specified in [`UI.md`](UI.md): Employee users should see `个人中心`, `获客与背调`, and `记忆整理` pages, with no visible direct free-form Agent chat session. Business buttons still run the real OpenClaw employees through hidden structured tasks and JSON marker parsing.
+
+Routes:
+
+| Route | Employee | Human workflow | Detail |
+|---|---|---|---|
+| `/client-demos/cross-border/lead-discovery` | `cbe-lead-discovery` | Configure lead-search run, review deduped buyer table, inspect source provenance and dedupe reasoning. | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md#6-ui-design) |
+| `/client-demos/cross-border/screening` | `cbe-buyer-screening` | Investigate Marketing leads or manual company/email/domain/contact inputs, inspect evidence, adjust source/budget toggles, export reports. | [`SCREENING.md`](SCREENING.md#3-ui-design) |
+| `/client-demos/cross-border/accio-memory` | `cbe-accio-memory` | Upload/select Accio JSON, inspect transcript, review extracted deal facts, preview memory write, hand buyer context to Screening. | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md#7-ui-design) |
+
+Shared UI conventions:
+
+- Dense operational workbench layout, not landing pages.
+- Customer-facing labels in Simplified Chinese.
+- Source URLs, API field names, and machine ids remain available in expandable technical details.
+- Every visible result shows source type and timestamp.
+- Paid/unavailable sources appear as disabled/locked toggles with cost notes, not as silent missing evidence.
+- Demo fixture data is marked `演示数据`.
+- Employee-produced live results are marked `员工执行`.
+- Diagnostic API adapter output can be marked `实时查询` when used outside the formal employee workflow.
+- Buttons that imply downstream action use safe language such as `生成草稿`, `发送到背调`, `写入记忆预览`; no `自动联系客户`.
+
+## 7. Shared MCP Servers
+
+### 7.1 `cross-border-intel`
+
+Phase-1 read-mostly MCP server:
 
 ```text
 sentura/mcp-servers/cross-border-intel/
 ```
 
-Purpose: wrap deterministic low-cost APIs and local checks behind audited tools so the agents do not hand-roll HTTP calls.
+Purpose:
 
-Tool set:
+- Wrap deterministic low-cost APIs and local checks behind audited tools.
+- Avoid ad hoc HTTP logic in employee prompts.
+- Keep external evidence normalized, source-tagged, and testable.
 
-| Tool | Used by | Phase-1 behavior |
+Tool catalog:
+
+| Tool | Used by | Behavior |
 |---|---|---|
-| `cbe_intel_company_registry_search` | Screening | UK Companies House exact API when country is UK; OpenCorporates only if paid key exists; otherwise web-search registry fallback. |
-| `cbe_intel_company_profile` | Screening | Fetch company profile from known registry source. |
-| `cbe_intel_domain_rdap_lookup` | Screening | RDAP lookup through RDAP.org for low volume, IANA bootstrap client for scale. |
-| `cbe_intel_email_domain_check` | Screening | Syntax, free-provider flag, disposable-domain list, DNS MX/SPF/DMARC, optional paid validation provider. |
-| `cbe_intel_official_contact_email_search` | Screening | Fetch a small set of public official website pages and extract same-domain contact emails before optional paid validation. |
-| `cbe_intel_sec_lookup` | Screening | SEC EDGAR lookup for US public-company candidates; resolves company name through `company_tickers.json` when CIK is not supplied, then fetches submissions. |
-| `cbe_intel_trade_record_search` | Screening | ImportYeti when key exists; Volza when key exists; otherwise web evidence query and mark evidence as weak. |
-| `cbe_intel_score_buyer` | Screening | Deterministic contextual scoring from normalized evidence. Excludes not-applicable blocks, reports evidence coverage, and applies forced-downgrade rules. |
+| `cbe_intel_company_registry_search` | Screening | UK Companies House API when country is GB; OpenCorporates only with paid key; otherwise web-search registry fallback. |
+| `cbe_intel_company_profile` | Screening | Fetch profile from known registry source. |
+| `cbe_intel_domain_rdap_lookup` | Screening | RDAP through RDAP.org for low volume, IANA bootstrap client for scale. |
+| `cbe_intel_email_domain_check` | Screening | Syntax, free-provider flag, disposable-domain list, DNS MX/SPF/DMARC, optional paid validation. |
+| `cbe_intel_official_contact_email_search` | Screening | Fetch bounded official-site pages and extract same-domain contact emails before paid validation. |
+| `cbe_intel_sec_lookup` | Screening | SEC EDGAR lookup for US public-company candidates; resolves company name through `company_tickers.json` when CIK is absent. |
+| `cbe_intel_trade_record_search` | Screening | ImportYeti if key exists; Volza if key exists; otherwise web evidence query marked weak. |
+| `cbe_intel_score_buyer` | Screening | Deterministic contextual scoring from normalized evidence. |
 | `cbe_intel_parse_accio_chat` | Memory | Validate and normalize uploaded Accio JSON fixture. |
-| `cbe_intel_summarize_accio_chat` | Memory | Produce structured summary fields for the Memory employee. |
+| `cbe_intel_summarize_accio_chat` | Memory | Produce structured summary fields for Memory employee. |
 
-Phase 1 should avoid custom runtime/gateway work. This MCP server is a normal
-stdio server and is wired by `scripts/sentura-setup.sh` /
-`scripts/sentura-setup.ps1` after OpenClaw onboard. Operators should not paste
-this server through the OpenClaw MCP UI during normal Sentura setup; they set
-env vars in `~/.openclaw/.env`, build the MCP package, then rerun Sentura
-setup. The setup script writes OpenClaw's required flat config shape:
+Wiring:
+
+- Normal stdio MCP server.
+- Wired by `scripts/sentura-setup.sh` / `scripts/sentura-setup.ps1`.
+- Operators set env vars in `~/.openclaw/.env`, build MCP package, rerun Sentura setup.
+- Do not require manual OpenClaw UI paste during normal setup.
+
+Config shape:
 
 ```json5
 {
@@ -191,979 +318,246 @@ setup. The setup script writes OpenClaw's required flat config shape:
 }
 ```
 
-`TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider
-auto-detection, not to `cross-border-intel`'s MCP env block. The formal Lead
-Discovery table is populated from the real `cbe-lead-discovery` employee's
-OpenClaw `web_search` / `web_fetch` work. The CE4 Dashboard Tavily route may
-also read `TAVILY_API_KEY` from process env or `~/.openclaw/.env`, but only as a
-diagnostic adapter/smoke-test path, not as the official lead-generation path.
+Notes:
 
-Agent tool policy must include the MCP tools twice:
+- `TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider auto-detection, not this MCP env block.
+- All tools are read-only in Phase 1.
+- Every tool returns source URL/type, fetched timestamp, confidence, and provider status.
+- Non-2xx provider responses are coverage gaps unless they are target-specific adverse evidence.
 
-```json5
-tools: {
-  profile: "minimal",
-  allow: ["web_search", "web_fetch", "memory_search", "memory_get", "cron", "group:plugins"],
-  sandbox: {
-    tools: {
-      allow: ["web_search", "web_fetch", "memory_search", "memory_get", "cross-border-intel__*"]
-    }
-  },
-  deny: ["exec", "gateway", "write", "edit", "apply_patch", "sessions_spawn", "subagents", "sessions_yield"]
-}
-```
+### 7.2 Future `icbu-openapi`
 
-### 3.3 Client demo UI surfaces
+Alibaba International Station API access is Screening-specific and conditional on customer account proof. The planned read-only MCP is documented in [`SCREENING.md`](SCREENING.md#12-alibaba-international-station-api-enhancement).
 
-Like the Sitlink demo, each Cross-border e-commerce employee needs its own customer-facing UI. These are not marketing landing pages; they are operational demo workbenches that expose the exact workflow a human sales team would use. Use a real OpenClaw `AgentChat` session only where chat remains part of the workflow; otherwise, the page should expose the real OpenClaw/Sentura-backed employee workflow through operational controls, source provenance, and review tables.
+It must:
 
-Routes:
+- use seller-authorized tokens stored only in secret storage;
+- expose only read-only tools;
+- redact CRM/order/note data before LLM prompts;
+- return coverage statuses and source method metadata;
+- reject mutation APIs.
 
-| Route | Employee | Human workflow |
+## 8. Shared Business Database
+
+Do not create three independent business databases. Use one tenant-scoped CBE business database for the whole workflow, plus three per-agent LanceDB memory namespaces.
+
+Production recommendation:
+
+- Managed PostgreSQL-compatible DB.
+- SQLite WAL only for single-server pilot fallback with explicit migration plan.
+- On Alibaba Cloud: PolarDB/RDS PostgreSQL if available.
+- On Tencent Cloud: TencentDB/TDSQL-C PostgreSQL if procurement prefers Tencent.
+
+Storage layout:
+
+| Layer | Store | Purpose |
 |---|---|---|
-| `/client-demos/cross-border/lead-discovery` | `cbe-lead-discovery` | Configure a lead-search run, review a deduped buyer table, and expand each buyer row to inspect source provenance and dedupe reasoning. |
-| `/client-demos/cross-border/screening` | `cbe-buyer-screening` | Investigate leads from Marketing or manually entered company/email/domain/contact data, inspect evidence, adjust enabled data sources/budget, and export risk reports. |
-| `/client-demos/cross-border/accio-memory` | `cbe-accio-memory` | Upload/select Accio chat JSON, inspect conversation threads, review extracted deal facts, approve memory write, and hand buyer context to Screening. |
+| OpenClaw runtime state | OpenClaw native state directory on encrypted disk | Gateway config, sessions, transcripts, task state, MCP process state. |
+| Agent workspaces | `~/.openclaw/workspace/{cbe-*}` copied from `sentura/agents/cbe-*` | 8 native files, skills, EKG seed files. |
+| Vector memory | LanceDB / Sentura memory extension namespaces per employee | Concise semantic recall; not raw Accio chat. |
+| Structured business records | Managed PostgreSQL-compatible database | Runs, candidates, reports, evidence, imports, summaries, handoff, cost, audit. |
+| Uploaded files | OSS/COS or encrypted server volume | Raw Accio JSON uploads, exports, screenshots. |
+| Secrets | `~/.openclaw/.env`, OpenClaw secret references, cloud KMS/env injection | Model/search/API keys. |
 
-Shared UI conventions:
+Core schema:
 
-- Use a dense workbench layout: left controls plus a primary work table/transcript, with evidence embedded inline when that is the clearest workflow. Avoid hero pages or marketing copy.
-- Keep all customer-facing labels in Simplified Chinese for the demo, while preserving source URLs, API field names, and machine ids in expandable technical details.
-- Every visible result must show source type and timestamp: `official_api`, `public_web`, `paid_trade_data`, `demo_fixture`, `self_reported`, or `unverified`.
-- Paid or unavailable data sources must appear as explicit disabled/locked toggles with cost notes, not as silent missing evidence.
-- Demo fixture data must be visually marked as "演示数据"; employee-produced live results must be marked as "员工执行"; diagnostic API adapter output can be marked as "实时查询" when used outside the formal employee workflow.
-- No page should send outreach, write external systems, or expose raw secrets. Buttons that imply downstream action should say "生成草稿", "发送到背调", "写入记忆预览", not "自动联系客户".
+```sql
+-- Shared dimensions
+tenants(id, slug, display_name, data_region, created_at)
+sentura_users(id, tenant_id, display_name, role, department_id, user_token_hash, created_at)
+agent_runs(id, tenant_id, user_id, agent_id, session_key, status, started_at, finished_at, model_ref, cost_usd_estimate)
 
-#### 3.3.1 Marketing Acquisition UI
+-- Marketing Acquisition
+lead_runs(id, tenant_id, user_id, agent_run_id, query_config_json, status, target_count, created_at)
+lead_candidates(id, tenant_id, lead_run_id, normalized_domain, company_name, country, buyer_type, confidence, dedupe_key, status, created_at)
+lead_sources(id, tenant_id, lead_candidate_id, source_type, source_url, query, excerpt, fetched_at, confidence)
 
-Page goal: make lead generation feel like a sales-research console, not a chat-only bot.
+-- Screening and Background
+screening_targets(id, tenant_id, source, lead_candidate_id, company_name, country, domain, email, contact_person, product_interest_json, supplied_fields_json, created_at)
+screening_reports(id, tenant_id, screening_target_id, agent_run_id, risk_tier, normalized_score, evidence_coverage, recommended_action, created_at)
+screening_evidence(id, tenant_id, screening_report_id, layer, source_type, source, source_url, finding, confidence, cost_usd, score_block, score_impact, fetched_at)
+screening_score_blocks(id, tenant_id, screening_report_id, block, status, max_points, earned_points, reason)
 
-Primary layout:
+-- Accio Memory
+accio_imports(id, tenant_id, user_id, agent_run_id, source_file_name, file_hash, storage_key, validation_status, classification, uploaded_at)
+accio_conversations(id, tenant_id, accio_import_id, external_conversation_id, company_name, country, contact_person, email, website)
+accio_messages(id, tenant_id, accio_conversation_id, message_ts, sender_role, text_hash, text_redacted, attachment_json)
+accio_summaries(id, tenant_id, accio_conversation_id, agent_run_id, customer_profile_json, purchase_intent_json, negotiated_price_json, next_actions_json, behavior_signals_json, created_at)
 
-- Left run builder:
-  - product keyword chips: phone case, tempered glass, USB-C charger, MagSafe accessories, custom input
-  - buyer persona multi-select: repair chain, electronics retailer, accessories retailer, phone store, reseller buyer, importer buyer
-  - country/language selector
-  - result target stepper and max-results-per-query slider
-  - exclusion domain editor
-  - run button: "让获客员工开始搜索"
-- Center/right lead table:
-  - columns: company, country, buyer type, matched product, domain, contact candidate, source count, discovery confidence, duplicate status
-  - row actions: inspect sources
-  - clicking "查看" expands an inline detail row with source URLs, query strings, snippets, timestamps, dedupe key, and dedupe explanation
-  - the table remains the primary workspace; query log, Screening handoff package preview, and realtime tool trace are intentionally not rendered in this page
-- Right execution panel:
-  - a real `cbe-lead-discovery` OpenClaw `AgentChat` session receives the structured task
-  - hidden task prompts are not shown as operator chat noise
-  - final lead JSON is parsed from `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END`
-
-Human logic:
-
-1. Operator configures a run using business terms they understand.
-2. Dashboard submits the structured task to the real `cbe-lead-discovery` employee through Gateway/AgentChat.
-3. The employee expands queries, calls OpenClaw search/fetch tools, and returns structured lead JSON for the UI table.
-4. Operator clicks "查看" on plausible buyers to inspect source provenance and dedupe reasoning inline.
-5. Qualified buyers can be exported or copied into the Screening workflow later; this page does not show a live handoff package panel.
-
-#### 3.3.2 Screening UI
-
-Page goal: make background investigation understandable and controllable. The user must be able to screen a Marketing lead batch or manually enter a single company/contact.
-
-Primary layout:
-
-- Top intake tabs:
-  - "来自获客列表": choose a lead batch or pasted `LeadCandidate[]`.
-  - "手动背调": form fields for company name, country, website/domain, email, contact person, title, social/profile URL, notes, and optional product interest.
-- Left investigation queue:
-  - lead cards with status: pending, running, needs human clue, complete, insufficient evidence, high risk
-  - batch controls: run low-cost checks, enable paid trade check for selected, export reports
-- Center evidence workspace:
-  - evidence timeline grouped by legal registry, domain/email, website/social footprint, trade/customs, financial/public filing, behavior
-  - each evidence card shows source type, confidence, cost, and whether it affects score or only coverage
-  - missing API evidence is shown as "未启用/不可用", not as a fraud signal
-- Right score/report panel:
-  - contextual score gauge
-  - evidence coverage meter
-  - risk tier and forced-downgrade flags
-  - recommended next action
-  - live AgentChat with `cbe-buyer-screening`
-
-Manual investigation must support these inputs independently:
-
-```json
-{
-  "investigation_id": "manual-screen-2026-06-08-001",
-  "source": "manual_input",
-  "company_name": "Berlin Gadget Wholesale GmbH",
-  "country": "DE",
-  "domain": "berlin-gadget-wholesale.example",
-  "email": "daniel.weber@gmail.com",
-  "contact_person": "Daniel Weber",
-  "contact_title": "Owner",
-  "social_or_profile_url": "https://www.linkedin.com/company/example",
-  "product_interest": ["65W GaN charger", "EU plug charger"],
-  "operator_notes": "客户从 Accio 聊天中出现，但未进入获客列表。"
-}
+-- Cross-agent handoff, audit, and cost
+handoff_events(id, tenant_id, from_agent_id, to_agent_id, source_record_type, source_record_id, payload_json, status, created_at)
+memory_facts(id, tenant_id, agent_id, source_record_type, source_record_id, fact_json, vector_memory_ref, status, created_at)
+api_call_ledger(id, tenant_id, agent_run_id, provider, endpoint, source_type, request_units, cost_usd, status, created_at)
+audit_events(id, tenant_id, user_id, agent_id, event_type, data_tier, metadata_json, created_at)
 ```
 
-The Screening employee must normalize manual input into the same internal `InvestigationTarget` shape as Marketing leads. Missing fields are allowed; the report must state which fields were supplied, inferred, or absent.
-
-#### 3.3.3 Accio Memory UI
-
-Page goal: make chat-record ingestion auditable before anything is written to memory.
-
-Primary layout:
-
-- Left upload/source panel:
-  - JSON upload or "加载演示 Accio 记录"
-  - validation status and conversation count
-  - conversation list with company, country, product, price, and follow-up status
-- Center transcript and extraction view:
-  - original chat transcript
-  - highlighted product/quantity/price/payment/shipping entities
-  - attachment list
-- Right memory/report panel:
-  - company summary
-  - purchase intent cards
-  - negotiated price table
-  - next actions
-  - behavior signals, only when a conversation exists
-  - "写入记忆预览" and "发送到背调" actions
-  - live AgentChat with `cbe-accio-memory`
-
-The UI must never write raw chat content directly to long-term memory without showing the structured preview. Raw chat remains local T2/T3 data; memory writes are concise structured facts plus source references.
-
-## 4. Employee A — Marketing Acquisition
-
-### 4.1 Work content
-
-The Marketing Acquisition Employee finds potential overseas B2B buyers for mobile-phone accessories by calling web-search APIs with product keywords, buyer-persona keywords, and country/language targeting.
-
-Phase-1 requirement: all functionality complete.
-
-### 4.2 Inputs
-
-```json
-{
-  "run_id": "lead-run-2026-06-07-us-uk",
-  "product_keywords": ["phone case", "tempered glass screen protector", "USB-C charger", "MagSafe accessories"],
-  "buyer_personas": ["importer", "distributor", "wholesaler", "mobile phone repair chain", "electronics retailer"],
-  "countries": ["US", "GB", "DE", "FR", "BR", "MX"],
-  "languages": ["en", "de", "fr", "pt", "es"],
-  "max_results_per_query": 10,
-  "daily_candidate_target": 100,
-  "exclude_domains": ["amazon.com", "alibaba.com", "aliexpress.com", "temu.com", "ebay.com"]
-}
-```
-
-### 4.3 Search strategy
-
-For each product keyword and target country, generate query families:
-
-1. Buyer type:
-   - `"phone accessories importer" "United Kingdom"`
-   - `"mobile accessories distributor" Germany`
-   - `"tempered glass wholesaler" Brazil`
-2. Retail and repair channels:
-   - `"mobile phone repair chain" "phone parts" "contact"`
-   - `"electronics retailer" "mobile accessories" "wholesale"`
-3. Trade fair and exhibitor channels:
-   - `"MWC exhibitor" "mobile accessories distributor"`
-   - `"IFA exhibitor" "phone accessories"`
-   - `"CES exhibitor" "mobile accessories"`
-   - `"Canton Fair buyer mobile accessories"`
-4. B2B platform cross-check:
-   - `site:globalsources.com "phone accessories" importer`
-   - `site:made-in-china.com "phone accessories" distributor`
-5. Public social/business pages through search only:
-   - `site:linkedin.com/company "mobile accessories" "distributor"`
-   - `site:facebook.com "mobile phone accessories" "wholesale"`
-   - `site:youtube.com "phone repair" "parts supplier"`
-
-Do not log in to LinkedIn, Meta, X, or scrape protected pages in Phase 1. Use only public search result snippets and publicly fetchable pages.
-
-### 4.4 Output schema
-
-```json
-{
-  "lead_id": "lead_20260607_0001",
-  "source_run_id": "lead-run-2026-06-07-us-uk",
-  "company_name": "Example Mobile Distribution Ltd",
-  "website": "https://example-mobile-distribution.co.uk",
-  "country": "GB",
-  "city": "Manchester",
-  "buyer_type": "distributor",
-  "matched_products": ["phone case", "screen protector"],
-  "contact_candidates": [
-    {
-      "type": "email",
-      "value": "sales@example-mobile-distribution.co.uk",
-      "source_url": "https://example-mobile-distribution.co.uk/contact",
-      "confidence": 0.74
-    }
-  ],
-  "source_urls": [
-    "https://example-mobile-distribution.co.uk",
-    "https://www.linkedin.com/company/example-mobile-distribution"
-  ],
-  "discovery_evidence": [
-    {
-      "signal": "website_mentions_mobile_accessories",
-      "source_url": "https://example-mobile-distribution.co.uk/products",
-      "excerpt": "Wholesale mobile accessories and repair parts",
-      "confidence": 0.82
-    }
-  ],
-  "dedupe_key": "example-mobile-distribution.co.uk",
-  "created_at": "2026-06-07T00:00:00Z"
-}
-```
-
-### 4.5 Completion criteria
-
-- Runs from a manual chat command and from a scheduled `cron`/heartbeat run.
-- Produces JSON and Markdown list outputs.
-- Deduplicates by normalized domain, company name, and contact email.
-- Applies marketplace/supplier exclusions.
-- Hands candidates to Screening Employee in a structured list.
-- Logs every source URL and query string for audit.
-
-## 5. Employee B — Screening and Background Investigation
-
-### 5.1 Work content
-
-The Screening Employee investigates every candidate buyer and returns an authenticity/risk report. The user requested web search, social media, customs records, company financials, and email/domain verification. Phase 1 must use tools that are low-cost and realistically accessible.
-
-The Screening Employee has two intake modes:
-
-1. Batch mode from the Marketing Acquisition Employee: accepts `LeadCandidate[]` and preserves `source_run_id`, discovery source URLs, matched products, and contact candidates.
-2. Manual investigation mode: accepts user-entered company name, email, domain, website, contact person, role/title, social/profile URL, country, product interest, and notes. This mode is required because the operator may want to check a buyer from Accio, email, trade fair, or offline sales context before it appears in a Marketing lead list.
-
-Manual input schema:
-
-```json
-{
-  "investigation_target": {
-    "source": "manual_input",
-    "company_name": "Berlin Gadget Wholesale GmbH",
-    "country": "DE",
-    "website": "https://berlin-gadget-wholesale.example",
-    "domain": "berlin-gadget-wholesale.example",
-    "email": "daniel.weber@gmail.com",
-    "contact_person": "Daniel Weber",
-    "contact_title": "Owner",
-    "social_or_profile_url": "https://www.linkedin.com/company/example",
-    "product_interest": ["65W GaN charger", "EU plug charger"],
-    "operator_notes": "客户来自 Accio 对话，需要先判断真实性。"
-  }
-}
-```
-
-The employee must normalize batch and manual inputs into one internal shape:
-
-```json
-{
-  "target_id": "screen_target_20260608_0001",
-  "source": "manual_input",
-  "lead_id": null,
-  "company_name": "Berlin Gadget Wholesale GmbH",
-  "country": "DE",
-  "domain": "berlin-gadget-wholesale.example",
-  "email": "daniel.weber@gmail.com",
-  "contact_person": "Daniel Weber",
-  "product_interest": ["65W GaN charger", "EU plug charger"],
-  "supplied_fields": ["company_name", "country", "domain", "email", "contact_person", "product_interest"],
-  "missing_fields": ["official_registry_number"]
-}
-```
-
-Missing fields are acceptable. The report must state whether each key field was supplied by the operator, inferred from search, or unavailable.
-
-### 5.2 Low-cost evidence ladder
-
-The Screening Employee must use the following ladder in order:
-
-1. Registry and legal existence.
-2. Website/domain/email credibility.
-3. Public digital footprint.
-4. Trade behavior / customs evidence.
-5. Financial/public filing evidence where applicable.
-6. Conversation behavior signals only if Accio history or sales interaction exists.
-
-Each evidence item must be tagged as one of:
-
-- `official_api`
-- `official_registry_page`
-- `public_web`
-- `paid_trade_data`
-- `demo_fixture`
-- `self_reported`
-- `unverified`
-
-### 5.3 Registry checks
-
-Phase-1 country coverage:
-
-| Country / source | Route | Cost posture | Notes |
-|---|---|---|---|
-| UK Companies House | REST API: `GET https://api.company-information.service.gov.uk/search/companies?q=...`, then `GET /company/{companyNumber}`. Auth format is HTTP Basic with API key as username and blank password: `Authorization: Basic base64(API_KEY + ":")` / `curl -u API_KEY:`. No-key fallback: official public HTML search at `https://find-and-update.company-information.service.gov.uk/search/companies?q=...`. | No public fee found; REST API requires API key; public web search is free HTML, not JSON API. | Use API first for GB. If the key is missing/401/403, fall back to the official public search page and mark it as `official_registry_page`. |
-| US SEC EDGAR | No API key. Resolve company name/ticker through `https://www.sec.gov/files/company_tickers.json`, then call `GET https://data.sec.gov/submissions/CIK##########.json`; use a descriptive `User-Agent` and respect 10 requests/sec fair access. | Free; no auth/API key. | Automatically call for US candidates copied into Screening. Useful for public companies / SEC filers, not normal small private importers. |
-| OpenCorporates | `GET https://api.opencorporates.com/v0.4/companies/search?q=...` | Paid for commercial use: Essentials £225/month for 500 calls/month; Starter £660/month for 2,500 calls/month; Basic £1,200/month for 5,000 calls/month | Not MVP default because cost per useful lead is high. Use only when client buys a plan. |
-| Other countries | Web-search official registry page + manual link capture | $0 search cost plus search API cost | Brazil, Mexico, Germany, France, Spain, Italy adapters can be added incrementally. |
-
-### 5.4 Domain and email checks
-
-Free checks:
-
-- Email syntax and normalization.
-- Domain extraction.
-- Free-provider flag (`gmail.com`, `outlook.com`, `yahoo.com`, etc.).
-- Role inbox flag (`sales@`, `info@`, `admin@`, `采购@` when encountered).
-- DNS MX lookup.
-- DNS TXT lookup for SPF and DMARC.
-- RDAP domain lookup through `https://rdap.org/domain/{domain}` at low volume.
-- For scale, use IANA RDAP bootstrap registries instead of RDAP.org because RDAP.org documents a 10 requests / 10 seconds Cloudflare limit.
-
-Optional paid checks:
-
-| Provider | API route / behavior | Public price verified | MVP decision |
-|---|---|---|---|
-| Abstract Email Reputation | `GET https://emailreputation.abstractapi.com/v1/?api_key=...&email=...`; official response includes `email_deliverability`, `email_quality`, `email_domain`, risk, and breach signals. The customer screenshot/key is for Email Reputation, not the older Email Validation endpoint. | Free: 100 requests/month. Starter: $17/month paid annually for 60,000 requests/year. Standard: $37/month paid annually. Professional: $39/month paid annually. | Best low-cost optional add-on after free DNS checks. |
-| Hunter | Email Verifier API; Help Center says verifier costs 0.5 credit/call, Domain Search costs 1 credit for 1-10 emails, Email Count is free. | Free plan 50 credits; Starter $49/month or $34/month yearly; Growth $149/month or $104/month yearly; Scale $299/month or $209/month yearly. | Useful if customer also wants email discovery, not just validation. |
-| ZeroBounce | Email verification API. | Minimum PAYG purchase 2,000 credits for $39 (~$0.0195/credit); free account includes 100 monthly credits. | More expensive for MVP; keep as fallback for deliverability-sensitive production. |
-
-### 5.5 Social and digital-footprint checks
-
-Phase 1 uses public search and fetch only:
-
-- Search for official website.
-- Search public LinkedIn company result via `site:linkedin.com/company`.
-- Search public Facebook/Instagram business pages via web search only.
-- Search YouTube channels related to repair/e-commerce if relevant.
-- Fetch public pages for title, description, product/category evidence, contact page, and last-updated hints.
-
-Do not use login-gated LinkedIn/Meta scraping. Official LinkedIn API access is either self-service limited or requires enterprise product/program approval; it is not a reliable low-cost MVP route. Meta/Instagram Graph API permissions are also app-review and business-asset dependent, so they are post-MVP only.
-
-### 5.6 Customs and trade-record checks
-
-| Source | API / route | Public price verified | MVP decision |
-|---|---|---|---|
-| ImportYeti | Current API docs expose company search as `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with the `IYApiKey` request header; other company/BOL routes require an API key via pricing. Public site positions US import records as free to search. | API page does not expose a stable public price in the captured docs; user testimonials emphasize free public search. | MVP uses public web search / API only if key is acquired and budget is enabled. Evidence is US-import focused. |
-| Volza | Trade Intelligence APIs: Global Trade API, Buyer Insights API, Supplier Insights API, Decision Maker Contact API. | Global search $0.10/search, data from $0.02/record; Buyer/Supplier Insights $5/report; decision-maker contact $1.50/record. | Best paid trade-data option for Phase 1 because price is public and usage can be capped. |
-| Panjiva | REST API with Bearer Token and shipment data sources. S&P page claims broad shipment/company/contact data. | Public pricing not exposed; likely enterprise sales. | Post-MVP enterprise option only. |
-| ImportGenius | Global trade data platform; pricing page exists but API/pricing is account/sales oriented. | Public API price not reliably captured. | Post-MVP or manual human research source. |
-
-Trade-data scoring must not assume missing customs data means the company is fake. Many legitimate small buyers will not appear in public or affordable customs datasets. Missing trade data should reduce evidence confidence, not automatically fail the buyer.
-
-### 5.7 Financial checks
-
-Low-cost route:
-
-- SEC EDGAR for US public companies or SEC filers.
-- Official company annual reports found through web search/fetch.
-- Registry filing history when a registry exposes it.
-
-Not Phase 1:
-
-- Paid D&B, Creditsafe, Experian, S&P Capital IQ, or equivalent credit reports.
-- Direct credit-risk scoring.
-
-### 5.8 Scoring model
-
-The PDF's 60/25/15 model remains the long-term reference, but Phase 1 must use a contextual scoring model. The reason is practical: a cold lead discovered by the Marketing employee has no inquiry professionalism or responsiveness yet, so behavior must be `not_applicable` rather than zero. Likewise, demo quality depends on what APIs are actually enabled. Missing paid customs data should lower evidence coverage, not automatically make the buyer look fake.
-
-Scoring principles:
-
-1. Score only evidence blocks that are applicable to the current context.
-2. Show `evidence_coverage` separately from `normalized_score`.
-3. Mark unavailable paid/API evidence as `unavailable_api` or `disabled_by_budget`; do not silently penalize it as fraud.
-4. Apply forced-downgrade rules after normalized scoring.
-5. For demo mode, prefer a transparent "score based on available evidence" over a fake-looking fixed 100-point score.
-
-Evidence block statuses:
-
-| Status | Meaning | In score denominator? | In coverage denominator? |
-|---|---|---:|---:|
-| `scored` | Evidence was checked and produced positive/negative/neutral points. | Yes | Yes |
-| `not_applicable` | The block does not apply to this target, e.g. behavior for a cold lead with no chat history. | No | No |
-| `unavailable_api` | The block is relevant but the required API/key/source is unavailable. | No | Yes |
-| `disabled_by_budget` | The block is relevant but the operator did not enable paid checks. | No | Yes |
-| `pending_human_input` | The block needs an operator clue, such as registry number or confirmed legal name. | No | Yes |
-
-Default Phase-1 block library:
-
-| Block | Max points | Applicable when | Low-cost source |
-|---|---:|---|---|
-| `legal_identity` | 25 | company name or registry number exists | Companies House/SEC where applicable, official registry web result, public official page |
-| `domain_email` | 25 | domain, website, or email exists or can be discovered | DNS MX/SPF/DMARC, RDAP, email syntax/free-provider/disposable checks, optional Abstract/Hunter |
-| `public_footprint` | 20 | website, social/profile URL, or public search result exists | `web_search`, `web_fetch`, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
-| `business_fit` | 20 | product interest or discovered product/category evidence exists | website categories, search snippets, Accio product requests, lead matched products |
-| `trade_financial` | 10 | country/source supports an affordable check or operator enables paid data | ImportYeti/Volza/SEC/annual report/registry filings |
-| `conversation_behavior` | 15 | Accio chat or sales interaction exists | Accio Memory summary, CRM/chat transcript, manual sales notes |
-
-Formula:
-
-```text
-applicable_blocks = blocks where status != not_applicable
-scored_blocks = blocks where status == scored
-score_denominator = sum(max_points of scored_blocks)
-raw_score = sum(earned_points of scored_blocks)
-normalized_score = raw_score / score_denominator * 100
-evidence_coverage = sum(max_points of scored_blocks) / sum(max_points of applicable_blocks)
-```
-
-If `score_denominator` is `0`, the report must return `risk_tier="insufficient_evidence"` and explain which minimum clues are needed.
-
-Cold lead example from Marketing, no behavior record:
-
-```json
-{
-  "score": {
-    "profile": "cold_lead_low_cost",
-    "normalized_score": 76,
-    "evidence_coverage": 0.9,
-    "risk_tier": "trusted_candidate",
-    "blocks": [
-      {
-        "block": "legal_identity",
-        "status": "scored",
-        "max_points": 25,
-        "earned_points": 19,
-        "source_count": 2
-      },
-      {
-        "block": "domain_email",
-        "status": "scored",
-        "max_points": 25,
-        "earned_points": 20,
-        "source_count": 3
-      },
-      {
-        "block": "public_footprint",
-        "status": "scored",
-        "max_points": 20,
-        "earned_points": 15,
-        "source_count": 4
-      },
-      {
-        "block": "business_fit",
-        "status": "scored",
-        "max_points": 20,
-        "earned_points": 15,
-        "source_count": 2
-      },
-      {
-        "block": "trade_financial",
-        "status": "disabled_by_budget",
-        "max_points": 10,
-        "earned_points": null,
-        "reason": "Volza/ImportYeti key not enabled for this demo run"
-      },
-      {
-        "block": "conversation_behavior",
-        "status": "not_applicable",
-        "max_points": 15,
-        "earned_points": null,
-        "reason": "Cold lead from Marketing; no Accio or sales conversation yet"
-      }
-    ]
-  }
-}
-```
-
-Risk tiers:
-
-- `trusted_candidate`: normalized score >= 75, evidence coverage >= 0.70, and no forced downgrade.
-- `cautious`: normalized score 55-74, or score >= 75 with evidence coverage 0.40-0.69.
-- `insufficient_evidence`: evidence coverage < 0.40 and no forced downgrade.
-- `high_risk`: normalized score < 55 with evidence coverage >= 0.40, or any forced downgrade.
-
-Demo display rule:
-
-- The UI should show both values, e.g. `可信候选 76/100 · 证据覆盖 90%`.
-- If coverage is low, the main message should be "证据不足，建议补充公司注册号/域名/公司邮箱", not "客户很差".
-- If behavior is not applicable, the UI must display "行为记录：未适用（冷启动潜客）" rather than `0/15`.
-
-Forced downgrade rules:
-
-- Company name cannot be matched to any registry or stable official source, and the website/domain is younger than 90 days.
-- Contact uses only disposable/free email and no business domain can be verified.
-- Website claims a different company/legal name than registry and no explanation is found.
-- Customs/trade evidence contradicts claimed country or product category in a material way.
-- Public sources show fraud/scam accusations from credible official or repeated independent sources.
-- Requested payment / compliance behavior in Accio chat is abnormal, e.g. asks for unrelated third-party bank payment before any formal order.
-
-### 5.9 Screening output schema
-
-```json
-{
-  "report_id": "screen_20260607_0001",
-  "lead_id": "lead_20260607_0001",
-  "target_source": "marketing_lead",
-  "company_name": "Example Mobile Distribution Ltd",
-  "risk_tier": "trusted_candidate",
-  "normalized_score": 76,
-  "evidence_coverage": 0.9,
-  "recommended_action": "试探接触，要求对方使用公司域名邮箱确认需求，并补充公司注册号或采购历史。",
-  "score_blocks": [
-    {
-      "block": "legal_identity",
-      "status": "scored",
-      "max_points": 25,
-      "earned_points": 19,
-      "summary": "Company active; registered address matches website footer."
-    },
-    {
-      "block": "conversation_behavior",
-      "status": "not_applicable",
-      "max_points": 15,
-      "earned_points": null,
-      "summary": "Cold lead from Marketing; no Accio or sales conversation exists yet."
-    }
-  ],
-  "evidence": [
-    {
-      "layer": "registry",
-      "source_type": "official_api",
-      "source": "Companies House",
-      "url": "https://api.company-information.service.gov.uk/company/12345678",
-      "finding": "Company active; registered address matches website footer.",
-      "score_block": "legal_identity",
-      "score_impact": "positive"
-    },
-    {
-      "layer": "domain_email",
-      "source_type": "public_dns",
-      "source": "DNS MX/TXT/RDAP",
-      "finding": "Domain has MX and SPF; RDAP creation date older than 3 years.",
-      "score_block": "domain_email",
-      "score_impact": "positive"
-    }
-  ],
-  "open_questions": [
-    "未找到可验证的海关记录；如果客户愿意购买 Volza Buyer Insights，可进一步确认采购历史。"
-  ],
-  "missing_or_unavailable_evidence": [
-    {
-      "block": "trade_financial",
-      "status": "disabled_by_budget",
-      "recommended_next_step": "如需提高证据覆盖率，可为此客户启用一次 Volza Buyer Insights。"
-    }
-  ],
-  "created_at": "2026-06-07T00:00:00Z"
-}
-```
-
-## 6. Employee C — Accio Memory Processing
-
-### 6.1 Work content
-
-The Memory Processing Employee receives manually uploaded Alibaba cross-border e-commerce Accio chat records, analyzes the conversation, and writes a summary report emphasizing:
-
-- buyer company information
-- requested products
-- quantities/specifications
-- negotiated price
-- agreed or disputed terms
-- next actions
-
-Phase-1 requirement: create simulated Accio chat records in JSON format and fully implement parsing/summarization against that fixture.
-
-### 6.2 Manual upload route
-
-Phase 1 supports either:
-
-1. User sends a JSON file to the Memory employee in chat if the active OpenClaw surface supports attachments.
-2. Operator places JSON under a local client fixture folder and asks the agent to process it:
-
-```text
-跨境电商/fixtures/accio-chat-records.sample.json
-```
-
-This session also creates the fixture file at `跨境电商/fixtures/accio-chat-records.sample.json` so the later Memory employee implementation has a stable test input with no real customer data.
-
-### 6.3 Simulated Accio JSON schema
-
-```json
-{
-  "export_metadata": {
-    "platform": "Alibaba Accio",
-    "exported_at": "2026-06-07T09:30:00Z",
-    "seller_company": "Sentura Demo Mobile Accessories Co., Ltd.",
-    "source_file": "accio-chat-records.sample.json"
-  },
-  "conversations": [
-    {
-      "conversation_id": "accio_conv_001",
-      "buyer": {
-        "display_name": "Maria Torres",
-        "company_name": "Andes Mobile Parts SpA",
-        "country": "CL",
-        "city": "Santiago",
-        "email": "purchasing@andesmobileparts.cl",
-        "website": "https://andesmobileparts.cl",
-        "claimed_role": "Purchasing Manager"
-      },
-      "messages": [
-        {
-          "timestamp": "2026-06-01T14:05:00Z",
-          "sender": "buyer",
-          "text": "Hello, we distribute mobile phone repair parts in Chile. We need tempered glass screen protectors for iPhone 15 and Samsung S24. What is your MOQ and FOB Shenzhen price?"
-        },
-        {
-          "timestamp": "2026-06-01T14:12:00Z",
-          "sender": "seller",
-          "text": "MOQ is 2,000 pcs per model. FOB Shenzhen price is USD 0.38 per piece for iPhone 15 and USD 0.42 per piece for Samsung S24."
-        },
-        {
-          "timestamp": "2026-06-01T14:30:00Z",
-          "sender": "buyer",
-          "text": "If we order 10,000 pcs mixed models, can you do USD 0.35? We need retail packaging with our brand."
-        },
-        {
-          "timestamp": "2026-06-01T14:44:00Z",
-          "sender": "seller",
-          "text": "For 10,000 pcs, best price is USD 0.36 per piece. Custom retail packaging adds USD 0.03 per piece and 7 days lead time."
-        },
-        {
-          "timestamp": "2026-06-01T15:10:00Z",
-          "sender": "buyer",
-          "text": "Please send PI for 10,000 pcs at USD 0.36 plus USD 0.03 packaging. Payment by T/T 30% deposit, balance before shipment is acceptable."
-        }
-      ],
-      "attachments": [
-        {
-          "file_name": "brand_packaging_reference.pdf",
-          "type": "packaging_reference",
-          "description": "Buyer brand packaging sample"
-        }
-      ]
-    },
-    {
-      "conversation_id": "accio_conv_002",
-      "buyer": {
-        "display_name": "Daniel Weber",
-        "company_name": "Berlin Gadget Wholesale GmbH",
-        "country": "DE",
-        "city": "Berlin",
-        "email": "daniel.weber@gmail.com",
-        "website": "https://berlin-gadget-wholesale.example",
-        "claimed_role": "Owner"
-      },
-      "messages": [
-        {
-          "timestamp": "2026-06-03T08:20:00Z",
-          "sender": "buyer",
-          "text": "We are looking for 65W GaN chargers with EU plug, CE and RoHS certificates. Initial quantity 500 pcs for testing."
-        },
-        {
-          "timestamp": "2026-06-03T08:35:00Z",
-          "sender": "seller",
-          "text": "For 65W GaN charger EU plug, MOQ is 1,000 pcs. EXW price USD 6.80 per piece. CE/RoHS certificates available."
-        },
-        {
-          "timestamp": "2026-06-03T09:05:00Z",
-          "sender": "buyer",
-          "text": "Can we start with 500 pcs at USD 6.50? We need delivery to Hamburg warehouse."
-        }
-      ],
-      "attachments": []
-    }
-  ]
-}
-```
-
-### 6.4 Memory summary output
-
-For each conversation, produce:
-
-```json
-{
-  "conversation_id": "accio_conv_001",
-  "customer_profile": {
-    "company_name": "Andes Mobile Parts SpA",
-    "country": "CL",
-    "city": "Santiago",
-    "contact_person": "Maria Torres",
-    "role": "Purchasing Manager",
-    "email": "purchasing@andesmobileparts.cl",
-    "website": "https://andesmobileparts.cl",
-    "company_evidence_status": "needs_screening"
-  },
-  "purchase_intent": [
-    {
-      "product": "tempered glass screen protector",
-      "models": ["iPhone 15", "Samsung S24"],
-      "quantity": 10000,
-      "packaging": "custom retail packaging with buyer brand",
-      "target_price_usd": 0.35,
-      "seller_best_price_usd": 0.36,
-      "packaging_addon_usd": 0.03,
-      "incoterm": "FOB Shenzhen",
-      "payment_terms": "T/T 30% deposit, balance before shipment"
-    }
-  ],
-  "negotiation_summary": "Buyer requested 10,000 mixed tempered glass protectors, pushed price from USD 0.38/0.42 to USD 0.35, seller countered USD 0.36 plus USD 0.03 packaging. Buyer accepted PI request.",
-  "next_actions": [
-    "Prepare PI with 10,000 pcs at USD 0.36 plus USD 0.03 packaging.",
-    "Send packaging artwork requirements.",
-    "Send buyer profile to Screening Employee for registry/domain/trade verification."
-  ],
-  "behavior_signals": {
-    "inquiry_professionalism_points": 8,
-    "responsiveness_points": 7,
-    "notes": "Specific products, models, volume, Incoterm, payment terms, and packaging requirements supplied."
-  }
-}
-```
-
-### 6.5 Memory write policy
-
-- Store structured summaries under the customer profile EKG, not as unbounded prose only.
-- Keep raw chat files local and classify as at least T2/T3 because they contain business contacts, prices, and negotiation history.
-- Do not send raw chats through external channels.
-- Only promote concise facts to `MEMORY.md` / vector memory:
-  - buyer name/company/domain
-  - verified product interest
-  - accepted or discussed price
-  - next action
-  - risk tier if Screening Employee has scored it
-
-## 7. API and Tool Selection
-
-### 7.1 Web search APIs
-
-| Tool | Official docs / route | Public pricing verified | MVP use |
-|---|---|---|---|
-| OpenClaw `web_search` | Native tool. Params include `query`, `count` 1-10, `country`, `language`, freshness/date filters. Provider auto-detection supports Brave, MiniMax, Gemini, Grok, Kimi, Perplexity, Firecrawl, Exa, Tavily, Parallel, DuckDuckGo, Ollama, SearXNG. | OpenClaw itself is runtime; provider pricing applies. Docs state Parallel Free and DuckDuckGo can work without API key when no API-backed provider is configured. | Default abstraction for Marketing and Screening employees. |
-| Brave Search API | `GET https://api.search.brave.com/res/v1/web/search` or other Brave endpoints with `X-Subscription-Token`. | Search API page lists Free AI / Base AI / Pro AI plans in public snippets; captured official page also shows API key header examples. Use current dashboard before purchase. | Recommended paid provider for stable search because OpenClaw supports `BRAVE_API_KEY`. |
-| Tavily Search | `POST /search` with Bearer API key. Params include `query`, `search_depth`, date filters, include/exclude domains, country, raw content. | Free 1,000 credits/month; pay-as-you-go $0.008/credit; basic search 1 credit, advanced 2 credits. | Optional if we want search + extracted content in one call. |
-| Exa Search | `POST https://api.exa.ai/search` with `x-api-key`; can return contents/highlights. | Search $7/1,000 requests up to 10 results; Deep Search $12/1,000; Contents $1/1,000 pages. | Optional for high-quality AI search; not lowest-cost default. |
-| SerpApi | Google Search API endpoint `https://serpapi.com/search?engine=google`; many search engines supported. | Free 250 searches/month; Starter $25/month for 1,000; Developer $75/month for 5,000; Production $150/month for 15,000. | Optional fallback when exact Google SERP behavior is needed. |
-| Google Custom Search JSON API | Requires API key and Programmable Search Engine ID. | Official docs state existing customers only until discontinuation on 2027-01-01; not available to new customers. Existing customers get 100/day free, then $5/1,000 up to 10k/day. | Do not choose for new customer MVP. |
-
-### 7.2 Registry, domain, email, trade, and finance APIs
-
-| Area | Tool | Official API facts | Cost | MVP decision |
-|---|---|---|---|---|
-| UK registry | Companies House | REST API `GET /search/companies?q=...`; `GET /company/{companyNumber}` requires API-key Basic auth (`API_KEY:` as username/blank password). Public no-key fallback uses the official `find-and-update.company-information.service.gov.uk/search/companies` HTML page. | No fee surfaced in official docs. | API first for GB; official public page fallback when key is missing or rejected. |
-| US public filings | SEC EDGAR | `data.sec.gov` APIs require no auth/API keys; `company_tickers.json` maps company/ticker to CIK, then submissions and XBRL facts are JSON by ten-digit CIK. Fair access max 10 requests/sec and descriptive User-Agent required. | Free. | Automatically use for US copied leads when company name or CIK is present. |
-| Global registry | OpenCorporates | REST API returns JSON/XML; API key required; usage limits depend on plan; `/v0.4/companies/search?q=...`. | Essentials £225/month, Starter £660/month, Basic £1,200/month. | Not default MVP; add paid adapter behind feature flag. |
-| Domain registration | RDAP.org / IANA | `https://rdap.org/domain/{domain}` redirects to authoritative RDAP; IANA publishes RDAP bootstrap records. | Free; RDAP.org low-volume limit 10 requests/10 sec. | Implement free low-volume; use bootstrap client for scale. |
-| Email validation | DNS + Abstract Email Reputation/Hunter/ZeroBounce | DNS checks are free; Abstract Email Reputation uses `emailreputation.abstractapi.com/v1` and returns deliverability/quality/risk fields; Hunter uses `api.hunter.io/v2/email-verifier`. | Abstract free 100/month; Hunter free 50 credits; ZeroBounce free 100/month, PAYG starts 2,000 credits for $39. | Start with free DNS/RDAP; add Abstract as first paid option. |
-| US trade records | ImportYeti | Current company-search route is `GET /v1.0/company/search?name=...&page_size=...` with `IYApiKey`; API key needed for non-sample endpoints. | Public API price not confirmed from captured docs. | Use public search evidence or API if key/pricing confirmed and budget is enabled. |
-| Global trade records | Volza | Global Trade API, Buyer/Supplier Insights, Decision Maker Contact API. | $0.10/search, from $0.02/record, $5/report, $1.50/contact. | Best paid Phase-1 add-on with capped budget. |
-| Enterprise trade data | Panjiva / ImportGenius | Panjiva API uses Bearer Token; enterprise supply-chain data. | Public pricing not exposed. | Post-MVP only. |
-
-## 8. Phase-1 Build Plan
-
-### Milestone 1 — Design and source tracking
-
-Deliverables:
-
-- Complete this `跨境电商/DESIGN.md`.
-- Add independent memory/test classification in `AGENTS.md`, `docs/MEMORY.md`, `docs/TESTS.md`, and detail files.
-
-Status: this session.
-
-### Milestone 2 — Shared data fixtures and schemas
-
-Deliverables:
-
-- `跨境电商/fixtures/accio-chat-records.sample.json` — created in this session as the first fixture input.
-- `sentura/config/industry-ontologies/cross-border-mobile-accessories/`
-  - `assets/product-taxonomy.json5`
-  - `rules/scoring-rules.json5`
-  - `workflows/lead-discovery-sop.json5`
-  - `workflows/buyer-screening-sop.json5`
-- Zod schemas for:
-  - `LeadCandidate`
-  - `ScreeningReport`
-  - `AccioChatExport`
-  - `AccioChatSummary`
-
-Tests:
-
-- JSON fixture validates.
-- Product keyword ontology includes the required mobile-accessory categories.
-- Scoring rules define contextual evidence blocks, not a single fixed denominator.
-- Cold Marketing leads exclude `conversation_behavior` as `not_applicable`.
-- Disabled paid APIs reduce evidence coverage but do not automatically reduce normalized score.
-
-### Milestone 3 — `cross-border-intel` MCP server
-
-Deliverables:
-
-- `sentura/mcp-servers/cross-border-intel/package.json`
-- `src/index.ts`
-- `src/config.ts`
-- `src/tools.ts`
-- `src/schemas.ts`
-- `src/server.test.ts`
-- README with API key setup and cost controls.
-
-Implementation notes:
-
-- Use `@modelcontextprotocol/sdk` + `McpServer`.
-- Use `StdioServerTransport` for Phase 1.
-- Use Zod for every input schema.
-- Mock all external HTTP calls in Vitest.
-- Every tool returns `source_url`, `source_type`, `fetched_at`, and `confidence`.
-- Tool annotations should mark all tools read-only except any future write/import tool.
-
-Tests:
-
-- Tool catalog contains exactly expected tools.
-- Companies House route builds `GET /search/companies` and `GET /company/{companyNumber}` with API-key Basic auth; non-2xx API responses are coverage gaps and trigger the official public search page fallback.
-- SEC route needs no API key, resolves US company names through `company_tickers.json`, returns `not_found` as not-applicable/coverage gap for private companies, pads CIK to 10 digits, and uses a SEC-compliant User-Agent for submissions.
-- RDAP route handles 200/302/404/429.
-- DNS checker handles no MX, free email, role email, SPF, DMARC.
-- Official contact email search fetches only a small official-site page set and extracts same-domain public emails for later paid validation.
-- Abstract route uses the Email Reputation endpoint and parses `email_deliverability` / `email_quality`.
-- ImportYeti route uses `name` / `page_size` query params and the `IYApiKey` header.
-- Scoring engine covers trusted_candidate/cautious/insufficient_evidence/high_risk, not-applicable behavior, disabled paid API evidence, and forced downgrade cases.
-- Accio fixture parser produces expected product/price fields.
-
-### Milestone 4 — Marketing Acquisition employee
-
-Deliverables:
-
-- `sentura/agents/cbe-lead-discovery/` with 8 native workspace files and skills:
-  - `lead-query-generation/SKILL.md`
-  - `lead-deduplication/SKILL.md`
-  - `lead-list-production/SKILL.md`
-  - `handoff-to-screening/SKILL.md`
-- Config with `web_search`, `web_fetch`, `cron`, and `cross-border-intel__*` if needed.
-- Demo UI route: `sentura/dashboard/src/app/client-demos/cross-border/lead-discovery/page.tsx`.
-- Diagnostic Dashboard API route: `sentura/dashboard/src/app/api/client-demos/cross-border/lead-discovery/run/route.ts`, using `TAVILY_API_KEY` from `process.env` or `~/.openclaw/.env`. This route is retained for provider adapter diagnostics and live-search smoke tests; it is not the formal Dashboard execution path.
-- Manual command:
-  - "根据手机壳、钢化膜、充电器关键词，为英国和美国找 50 个潜在 B2B 买家。"
-
-Acceptance:
-
-- Produces >= requested candidate count or explains shortage by country/source from real public-search results.
-- Every candidate is a specific downstream buyer company, normally backed by that company's own website, not a social profile, public directory, marketplace, supplier directory, generic wholesale article, or public company-info page.
-- Every candidate has source URL(s), matched product, buyer type, and dedupe key.
-- No automated outreach is sent.
-- UI supports keyword/persona/country setup, real employee execution through Gateway/AgentChat, lead table review, inline source/dedupe inspection from the table's `查看` action, one-click/per-row copy to Screening batch JSON, and local state restoration after refresh/navigation.
-
-Implementation status (2026-06-08): complete after execution-path correction. Added `sentura/agents/cbe-lead-discovery/`, setup-script registration, `/client-demos/cross-border/lead-discovery`, diagnostic live-search route `/api/client-demos/cross-border/lead-discovery/run`, and `scripts/test-cross-border-agents.ts` (CE4+CE5 213/213 offline checks). The formal page run path no longer fetches the Dashboard route to generate official leads. It checks OpenClaw Gateway connectivity and `cbe-lead-discovery` registration, sends the structured search task through the real employee `AgentChat` session, tracks tool calls, and parses employee-produced `LeadCandidate` JSON from `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END` into the table. The candidate table starts empty and is populated only from employee output. The diagnostic API route remains available for Tavily/provider smoke tests and reads configured env from the Dashboard process first with `~/.openclaw/.env` fallback without returning secret values. Current filtering requirements keep only company-level downstream buyer candidates whose pages show mobile-accessory, phone-repair, electronics-retail, accessory-retail, reseller, importer-buyer, or phone-store relevance, and reject social profiles, directories, marketplaces, public company-info pages, generic wholesale lists, supplier directories, manufacturers, exporters, and wholesale supplier pages. Source/dedupe details expand inline inside the table when the operator clicks `查看`; operators can copy all rows or one row as Screening-ready `{"leads":[...]}` JSON; and the last search configuration, employee session key, run status, and results are restored from same-origin local storage after refresh or route navigation.
-
-### Milestone 5 — Screening and Background employee
-
-Deliverables:
-
-- `sentura/agents/cbe-buyer-screening/` with 8 native workspace files and skills:
-  - `evidence-collection/SKILL.md`
-  - `registry-verification/SKILL.md`
-  - `domain-email-verification/SKILL.md`
-  - `trade-record-check/SKILL.md`
-  - `buyer-scoring/SKILL.md`
-  - `report-writing/SKILL.md`
-- Config with `web_search`, `web_fetch`, `cross-border-intel__*`, `memory_search`, `memory_get`.
-- Demo UI route: `sentura/dashboard/src/app/client-demos/cross-border/screening/page.tsx`.
-
-Acceptance:
-
-- Takes a list of `LeadCandidate` records.
-- Takes manual company/email/domain/contact/person/product-interest input and normalizes it into the same investigation target shape.
-- Produces one `ScreeningReport` per candidate through the `cbe-buyer-screening` OpenClaw employee session.
-- Uses low-cost route by default and clearly marks paid-source gaps.
-- Uses contextual scoring: no behavior penalty for cold leads, unavailable API data shown as coverage gap, and score/recommendation adapts to enabled sources.
-- Never invents registry/trade evidence.
-- UI supports batch queue, manual investigation tab, source toggles, evidence timeline, coverage meter, score report, report export, and local restoration of the last investigation/report after refresh/navigation. The formal "run" action must submit the task to the OpenClaw employee through Gateway/AgentChat; it must not silently bypass the employee by generating official reports in a Dashboard-only route.
-
-Implementation status (2026-06-08): complete after execution-path, visualization-mapping, and official-source-ordering corrections. Added `sentura/agents/cbe-buyer-screening/` with exactly the 8 native workspace files, the six designed skills, config/tool policy for `web_search`, `web_fetch`, `memory_search`, `memory_get`, and `cross-border-intel__*`, setup-script registration/webchat binding, `/client-demos/cross-border/screening`, and live provider adapter route `/api/client-demos/cross-border/screening/run`. The page now checks OpenClaw Gateway connectivity and `cbe-buyer-screening` registration, then sends the structured investigation task through the real `cbe-buyer-screening` AgentChat session. If setup has not registered the employee, the UI reports that instead of producing a Dashboard-only result. Employee-produced report JSON is normalized before rendering and before local-storage restore, so aliases such as `source_url`, `summary`, `detail`, `official_web`, `registry_tool`, and `marketing_lead_batch` populate the evidence timeline, missing-evidence panel, score blocks, and restored reports instead of being treated as empty visual evidence. The employee prompt and skills now require GB targets to call Companies House before web fallback, US targets to call SEC company-name/CIK lookup before state-registry web fallback, and paid email validation to first search the target's official website for same-domain contact emails when the operator did not supply an email. The page restores the last manual/batch input, source toggles, employee session key, selected report, and generated reports from same-origin local storage after refresh or route navigation.
-
-The Screening live provider adapter route reads configured env from the Dashboard process first and falls back to `~/.openclaw/.env`; it returns only redacted configured/enabled status. This route is kept for adapter diagnostics and for parity with the MCP/provider implementation, but it is not the formal dashboard execution path. A live API-format audit on 2026-06-08 used the configured `TAVILY_API_KEY`, `COMPANIES_HOUSE_API_KEY`, `ABSTRACT_API_KEY`, `HUNTER_API_KEY`, `IMPORTYETI_API_KEY`, `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` without printing secrets. Tavily, SEC, Abstract Email Reputation, and ImportYeti returned successful live responses after the adapter correction; Companies House still returned `401 Invalid Authorization` with official Basic-auth formatting, and Hunter returned `429 restricted_account`. Those non-2xx provider responses are now represented as `unavailable_api` coverage gaps rather than positive matches or fraud evidence. Follow-up adapter smoke confirmed copied US leads automatically resolve SEC CIK by company name and call SEC submissions without an API key, while copied GB leads use Companies House API first and fall back to the official public Companies House search page when the API key is rejected. Contextual scoring remains dynamic: unavailable or disabled sources affect coverage, `not_applicable` behavior is excluded for cold leads, and forced downgrades are applied after normalized score.
-
-### Milestone 6 — Accio Memory Processing employee
-
-Deliverables:
-
-- `sentura/agents/cbe-accio-memory/` with 8 native workspace files and skills:
-  - `accio-upload-intake/SKILL.md`
-  - `chat-normalization/SKILL.md`
-  - `deal-summary/SKILL.md`
-  - `customer-profile-memory/SKILL.md`
-  - `handoff-to-screening/SKILL.md`
-- Fixture processing using `跨境电商/fixtures/accio-chat-records.sample.json`.
-- Demo UI route: `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`.
-
-Acceptance:
-
-- Reads fixture JSON.
-- Writes structured summary for every conversation.
-- Extracts company info, requested products, negotiated prices, quantities, payment/shipping terms, and next actions.
-- Produces behavior signal points for Screening Employee.
-- Stores concise memory facts without leaking raw chat to external channels.
-- UI supports JSON upload/sample loading, transcript review, extracted fact highlights, memory-write preview, and handoff to Screening.
-
-Implementation status (2026-06-08): complete. Added `sentura/agents/cbe-accio-memory/` with exactly the 8 native workspace files, the five designed skills, config/tool policy for `memory_search`, `memory_get`, and `cross-border-intel__*`, setup-script registration/webchat binding, `/client-demos/cross-border/accio-memory`, and local sample route `/api/client-demos/cross-border/accio-memory/sample`. The Accio page reads `跨境电商/fixtures/accio-chat-records.sample.json`, supports JSON upload, validates the Accio export, displays the raw conversation list/transcript, and sends the full JSON to the real `cbe-accio-memory` AgentChat execution panel. It does not precompute reports in the Dashboard. Extracted highlights, structured report rows, `memory_write_preview`, and `screening_handoff_target` render only after the employee returns JSON wrapped in `ACCIO_SUMMARIES_JSON_START` / `ACCIO_SUMMARIES_JSON_END`.
-
-The employee/tool analysis path is validated against the three simulated conversations. `cbe-accio-memory` must call the Accio parser/summarizer tools and then verify the raw messages so Andes Mobile Parts SpA extracts tempered glass protectors, 10,000 pcs, USD 0.35 target, USD 0.36 best price, USD 0.03 packaging add-on, FOB Shenzhen, T/T payment terms, and PI next action; Berlin Gadget Wholesale GmbH extracts 65W GaN EU plug chargers, 500 pcs trial request, MOQ 1,000 pcs, USD 6.50 target, USD 6.80 quote, EXW, Hamburg delivery, CE/RoHS requirements, and a domain/email Screening warning; Northstar Wireless LLC extracts clear MagSafe cases, 15,000 pcs current quote, 20,000 pcs/month potential, USD 1.10 best price, FBA barcode sticker USD 0.015, drop-test packaging USD 0.08, and Screening handoff. `scripts/test-cross-border-agents.ts` now validates CE4+CE5+CE6+CE7 with 291/291 offline checks, and Browser validation confirmed loading the sample keeps the UI in a "待员工分析" state with no pre-set reports and no console errors.
-
-### Milestone 7 — Client demo UI surfaces
-
-Deliverables:
-
-- `/client-demos/cross-border/lead-discovery`
-- `/client-demos/cross-border/screening`
-- `/client-demos/cross-border/accio-memory`
-- Shared demo utilities for:
-  - opening/creating the correct employee session
-  - streaming AgentChat messages
-  - parsing MCP/tool results into UI side panels
-  - marking demo fixture vs live API data
-  - exporting JSON/Markdown reports
-
-Acceptance:
-
-- Each page is directly usable without reading instructions.
-- Each page has one primary workflow and does not collapse into a generic chat UI.
-- Each page clearly shows source/evidence/provenance beside the chat.
-- Screening page supports both Marketing handoff and manual investigation.
-- Screening page displays normalized score and evidence coverage separately.
-- Accio page previews structured memory writes before committing or handing off.
-
-Implementation status (2026-06-08): complete for the three Phase-1 demo routes. Lead Discovery is covered by CE4, Screening is covered by CE5, and Accio Memory is covered by CE6/CE7. The combined script `npx tsx scripts/test-cross-border-agents.ts` now checks all three route contracts, setup registration, state persistence, employee AgentChat surfaces, source/provenance display, and unsafe-action boundaries.
-
-### Milestone 8 — End-to-end MVP smoke
-
-Scenario:
-
-1. Marketing Employee finds 20 buyers for phone cases and chargers in UK/US.
-2. Operator sends selected leads to Screening through the lead-discovery UI.
-3. Screening Employee scores the top 5 with evidence reports using contextual scoring.
-4. Operator manually enters one company/domain/email from outside the lead list and gets a report.
-5. Memory Employee processes the simulated Accio JSON through the Accio UI.
-6. Screening Employee updates one buyer score using chat behavior when Accio summary exists.
-
-Expected output:
-
-- `lead_candidates.json`
-- `screening_reports/*.json`
-- `accio_summaries/*.json`
-- UI screenshots or Playwright snapshots for all three pages
-- `mvp_summary.md` in Chinese with:
-  - trusted buyers
-  - cautious buyers
-  - high-risk buyers
-  - insufficient-evidence buyers
-  - missing paid data
-  - recommended next sales action
-
-## 9. Cost-Control Policy
-
-Phase-1 default cost target:
-
-- Web search: start with OpenClaw managed free provider or Brave/Tavily low tier.
-- Email/domain: free DNS/RDAP checks first.
-- Registry: Companies House + SEC free/low-cost official APIs first.
-- Trade records: only public/free search unless customer approves Volza budget.
-- Paid monthly tools require human approval and budget cap.
-
-Suggested MVP budget caps:
+Minimum indexes:
+
+- `lead_candidates(tenant_id, normalized_domain)` unique per tenant when non-null.
+- `screening_targets(tenant_id, domain, email)`.
+- `screening_reports(tenant_id, screening_target_id, created_at desc)`.
+- `accio_conversations(tenant_id, company_name, email)`.
+- `api_call_ledger(tenant_id, created_at, provider)`.
+- `audit_events(tenant_id, created_at, event_type, data_tier)`.
+
+Controlled write path:
+
+- Phase 1: Dashboard route handlers persist structured records after validating employee JSON markers.
+- Production hardening: add `cross-border-store` MCP server or Sentura plugin tools:
+  - `cbe_store_lead_run`
+  - `cbe_store_screening_report`
+  - `cbe_store_accio_summary`
+  - `cbe_store_handoff`
+- Typed tools validate Zod schemas, apply tenant/user IDs from RBAC context, redact PII for logs, and write the DB.
+
+Per-employee database details:
+
+- Lead-specific persistence and concurrent dedupe: [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md#8-business-database-and-persistence) and [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md#9-concurrent-lead-discovery-dedupe).
+- Screening-specific evidence tables and Alibaba additions: [`SCREENING.md`](SCREENING.md#13-database-and-persistence).
+- Accio-specific import/message/summary tables: [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md#10-database-and-persistence).
+
+## 9. Multi-Agent Runtime And Concurrency
+
+Recommended topology for one customer company:
+
+- One primary OpenClaw Gateway on one cloud VM.
+- Three persistent OpenClaw agents registered in `agents.list`.
+- One Sentura Dashboard instance talking to Gateway through WebSocket RPC.
+- One compiled `cross-border-intel` stdio MCP server spawned by OpenClaw.
+- One tenant business database plus per-agent LanceDB memory.
+- Optional rescue Gateway profile for operations recovery only.
+
+Why not one Gateway per employee:
+
+- OpenClaw supports multiple agents and channels in one Gateway.
+- These three employees share one tenant, RBAC model, audit/cost ledger, and pipeline data.
+- Multiple Gateways would complicate handoff, memory, cost attribution, and deployment without improving trust isolation for one cooperative customer team.
+
+When to split Gateways:
+
+- A second external customer is onboarded.
+- Customer requires hard department separation with different tool authority.
+- A privileged admin/rescue bot is needed.
+- A future outbound-action agent gets broader tools than the current read-only employees.
+
+Concurrency targets for 30-50 users:
+
+| Workload | Initial limit | Reason |
+|---|---:|---|
+| Concurrent user web sessions | 50-80 | Dashboard sessions are cheap; users often review existing reports. |
+| Active Lead Discovery runs | 8-12 | Search APIs are rate/cost limited; duplicate-scope coordinator should further reduce waste. |
+| Active Screening runs | 8-12 targets or 3-5 batches | Registry/RDAP/search/paid API pressure must be controlled. |
+| Active Accio imports | 3-5 files | Large uploads create long contexts. |
+| Browser/Playwright tasks | 0 normally; max 1-2 for self-provisioning | Not needed for normal Phase-1 customer use. |
+| Model calls | Provider quota minus 20% headroom | Prevent throttling cascades. |
+
+Backpressure:
+
+- If limits are exceeded, Dashboard creates queued `agent_runs` and shows `排队中`.
+- Long tasks need server-side timeout and visible partial-result path.
+- Every external API call writes `api_call_ledger`.
+- Paid trade/email checks require budget flag and per-run confirmation above cap.
+
+Session isolation:
+
+- Every run includes `tenant_id`, `user_id`, `agent_id`, and `session_key`.
+- Sentura user tokens drive per-user memory injection and tag business DB writes.
+- Users inside one company may share buyer records according to RBAC. This is cooperative multi-user operation, not hostile multi-tenant isolation.
+
+## 10. Cloud Deployment And Model Routing
+
+Decision:
+
+- Use a Chinese cloud provider as primary production host.
+- Do not choose a US region as primary host for this Shenzhen customer.
+
+Preferred:
+
+- Alibaba Cloud ECS China (Shenzhen) `cn-shenzhen`.
+- China (Guangzhou) fallback if required instance family or procurement constraints apply.
+- Rationale: close to Shenzhen users, mainland data residency, easier ICP path, and natural fit with Alibaba/Accio/Qwen ecosystem.
+
+Acceptable alternative:
+
+- Tencent Cloud CVM South China Shenzhen/Guangzhou if customer already procures from Tencent, WeCom/WeChat integration matters, or Tencent has better availability.
+
+Do not default to US primary hosting because:
+
+- Shenzhen latency/access is worse.
+- Raw Accio chats, buyer contacts, and reports would be outside mainland China by default.
+- PIPL outbound-transfer work increases.
+- US hosting does not solve OpenAI availability for mainland production traffic.
+
+Optional international egress:
+
+- If mainland VM cannot reliably reach Companies House, SEC, ImportYeti, Brave/Tavily, or other overseas public sources, add a small Hong Kong/Singapore egress worker later.
+- It receives only low-sensitivity public-search queries and target domains.
+- It must not receive raw Accio chats, complete contact lists, or memory facts.
+
+ICP/access model:
+
+- Public mainland HTTPS domain requires ICP and public-security filing path before customer-wide rollout.
+- Before ICP, use VPN/private network/bastion and avoid presenting the service as a public website.
+
+Recommended initial production size:
+
+| Component | Starting size |
+|---|---|
+| App VM | 8 vCPU, 16 GB RAM, Ubuntu LTS, Node 24 or Node 22.19+, pnpm 11.2.2+ |
+| Safer headroom | 16 vCPU, 32 GB RAM for frequent Screening batches/Accio imports |
+| System disk | 100 GB SSD |
+| Data disk | 200-500 GB encrypted SSD |
+| Managed PostgreSQL | 2 vCPU / 4-8 GB RAM, 100 GB storage, backups enabled |
+| Bandwidth | 10 Mbps minimum; 20 Mbps recommended |
+| Object storage | 100 GB initial bucket |
+| Backup | Daily DB backup, daily OpenClaw state snapshot, weekly encrypted full archive, restore drill |
+
+Model routing:
+
+| Task | Default | Fallback |
+|---|---|---|
+| Lead query expansion / lead JSON cleanup | `deepseek/deepseek-v4-flash` or `qwen/qwen3.5-plus` | Volcengine/Doubao fast model |
+| Screening report synthesis | `qwen/qwen3.5-plus` or `deepseek/deepseek-v4-pro` for difficult cases | `deepseek/deepseek-v4-flash` for normal batch runs |
+| Accio chat parsing/summarization | `qwen/qwen3.5-plus` or `deepseek/deepseek-v4-flash` | Kimi/Moonshot if customer already uses it |
+| Embeddings/memory | configured Sentura memory provider; mainland-accessible embedding endpoint if OpenAI unavailable | self-hosted embedding if required |
+
+Operational policy:
+
+- Store model keys in `~/.openclaw/.env` or cloud secret injection only.
+- Configure fallbacks in OpenClaw config.
+- Do not call provider SDKs directly from Dashboard routes.
+- Use deterministic MCP scoring for risk tiers.
+- LLM may explain score but must not invent evidence.
+- Track tokens/cost by `tenant_id`, `agent_id`, `user_id`, and `agent_run_id`.
+- Overseas model APIs require compliance approval, data minimization/redaction, and explicit customer sign-off.
+
+## 11. Security, Compliance, Cost, And Data Classification
+
+Data tiers:
+
+| Data | Tier | Handling |
+|---|---|---|
+| Public company websites, public registry URLs, search snippets | T0/T1 | Store as evidence with source URL and timestamp. |
+| Buyer contact names, work emails, phone numbers, lead lists | T2 | Mask in demo/export where possible; RBAC-gated internal view. |
+| Raw Accio chats, negotiated prices, payment terms, customer notes | T3 | Store encrypted; never send to external channels; summarize before memory write. |
+| API keys, model keys, provider credentials | T4 | Secret store / `.env`; never in DB, workspace prose, logs, or chat. |
+
+China data posture:
+
+- Mainland primary hosting keeps customer operational data local by default.
+- US server or overseas model endpoint for raw chats/contact data can become personal-information outbound transfer work.
+- Search egress follows minimum data principle: overseas search providers receive query terms/target domains only.
+
+Safety rules:
+
+- No login-gated social scraping.
+- No automatic outreach in Phase 1.
+- No fraud claim solely because evidence is missing.
+- Mask personal emails/phones in demo reports unless operator requests full internal view.
+- Every report includes source URLs and evidence confidence.
+- Every paid lookup is traceable with query, provider, timestamp, and approximate cost.
+
+Cost defaults:
 
 | Category | Default cap |
 |---|---:|
@@ -1172,19 +566,78 @@ Suggested MVP budget caps:
 | Trade records | $0 for demo; optional Volza pilot capped at $50-$100 |
 | Company registry | $0 unless OpenCorporates is approved |
 
-Any paid API key must live in OpenClaw secrets / `~/.openclaw/.env`, never in config files or chat.
+Security controls before production:
 
-## 10. Safety, Compliance, and Data Classification
+- Gateway behind HTTPS reverse proxy and auth.
+- Dashboard uses Sentura RBAC and per-user tokens.
+- `openclaw security audit --deep` passes or findings have explicit exception.
+- Dangerous tools denied for all three employees.
+- Paid API usage has budget caps and human approval for cap increases.
+- Logs redact secrets and direct personal contact values where feasible.
 
-- Do not scrape login-gated social media or bypass anti-bot controls.
-- Do not send outreach automatically in Phase 1.
-- Do not claim a buyer is fraudulent solely because evidence is missing.
-- Mark raw Accio chats as T2/T3 business data.
-- Mask personal emails/phone numbers in demo reports unless the operator requests full internal report view.
-- Every report must include source URLs and evidence confidence.
-- Every paid lookup must be traceable with query, provider, timestamp, and approximate cost.
+## 12. Build Milestones And Current Status
 
-## 11. Official Sources Checked
+| Milestone | Scope | Status | Detail |
+|---|---|---|---|
+| 1 | Design and source tracking | Complete | Initial design, independent memory/test lane. |
+| 2 | Shared fixtures, ontology, schemas, contextual scoring | Complete | Accio fixture, mobile-accessory ontology, Zod schemas, 39-check validation. |
+| 3 | `cross-border-intel` MCP server | Complete | 10 read-only tools, 17/17 tests plus build. |
+| 4 | Marketing Acquisition employee | Complete after execution-path correction | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) |
+| 5 | Screening and Background employee | Complete after execution-path, visual mapping, official-source ordering fixes | [`SCREENING.md`](SCREENING.md) |
+| 6 | Accio Memory Processing employee | Complete after execution-path correction | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) |
+| 7 | Three client demo UI surfaces | Complete | Lead, Screening, Accio routes covered by CE4/CE5/CE6/CE7. |
+| 8 | End-to-end MVP smoke | Designed, still to execute in production-like environment | Scenario below. |
+| 9 | Production cloud/database/multi-agent deployment | Designed, not implemented | China cloud, managed DB, model routes, go-live checklist. |
+| 10 | Alibaba International Station API enhancement | Designed, access proof pending | Screening-specific. |
+| 11 | Concurrent Lead Discovery dedupe | Designed, implementation pending | Marketing-specific. |
+
+End-to-end MVP smoke scenario:
+
+1. Marketing employee finds 20 buyers for phone cases and chargers in UK/US.
+2. Operator sends selected leads to Screening through Lead Discovery UI.
+3. Screening employee scores top 5 with evidence reports using contextual scoring.
+4. Operator manually enters one company/domain/email outside lead list and gets a report.
+5. Memory employee processes simulated Accio JSON through Accio UI.
+6. Screening employee updates one buyer score using chat behavior when Accio summary exists.
+
+Expected outputs:
+
+- `lead_candidates.json`
+- `screening_reports/*.json`
+- `accio_summaries/*.json`
+- UI screenshots or Playwright snapshots for all three pages
+- `mvp_summary.md` in Chinese with trusted/cautious/high-risk/insufficient-evidence buyers, missing paid data, and recommended next sales action.
+
+## 13. Go-Live Verification Checklist
+
+Before giving the customer a production URL:
+
+1. Build OpenClaw and Sentura on the target VM using Node 24 or Node 22.19+ and pnpm 11.2.2+.
+2. Run OpenClaw production setup using OpenClaw's own setup path.
+3. Build `@sentura/mcp-cross-border-intel` and rerun Sentura setup so `mcp.servers.cross-border-intel` is registered.
+4. Run `openclaw mcp doctor cross-border-intel --probe`.
+5. Run `openclaw security audit --deep`.
+6. Run `npx tsx scripts/test-cross-border-agents.ts`.
+7. Run `pnpm --filter @sentura/mcp-cross-border-intel test`.
+8. Run `pnpm --filter @sentura/mcp-cross-border-intel build`.
+9. Run live search/API smoke from selected China region for Tavily/Brave and required registry/trade APIs.
+10. Run 50-user load smoke: 50 dashboard sessions, 10 active Lead runs, 5 active Screening batches, 3 Accio imports, with p95 dashboard API latency and provider throttling recorded.
+11. Verify backup restore: DB restore, OpenClaw state restore, one Accio upload restore.
+12. Confirm every employee workspace uses only the 8 OpenClaw-native top-level workspace files.
+13. Confirm all customer-facing labels remain Simplified Chinese.
+14. Confirm all reports show evidence source URLs, timestamps, and source type.
+
+## 14. Open Questions
+
+1. Does the customer already have Brave/Tavily/Exa/SerpApi, Companies House, Hunter/Abstract, ImportYeti, or Volza accounts?
+2. Which countries are mandatory for first live demo: US/UK only, or include Brazil/Mexico/EU from day one?
+3. Should Marketing output only buyer lists, or also draft first-contact emails in Chinese/English/Spanish/Portuguese/German?
+4. Where should uploaded Accio chat files enter production: dashboard upload, chat attachment, object storage upload, or local operator drop folder?
+5. Should Phase 1 persist customer profiles in local JSON first, or directly write business DB + reviewed memory facts?
+6. Which Alibaba International Station seller package does the customer have, and can the main account authorize API access?
+7. Does the customer need department-level separation for lead visibility/allocation, or one shared sales pool?
+
+## 15. Sources Checked
 
 OpenClaw:
 
@@ -1194,56 +647,39 @@ OpenClaw:
 - `https://docs.openclaw.ai/cli/mcp`
 - `https://docs.openclaw.ai/gateway/config-tools`
 - `https://docs.openclaw.ai/gateway/configuration`
+- `https://docs.openclaw.ai/concepts/multi-agent`
+- `https://docs.openclaw.ai/gateway/multiple-gateways`
+- `https://docs.openclaw.ai/gateway/security`
+- `https://docs.openclaw.ai/gateway/sandboxing`
+- `https://docs.openclaw.ai/tools/subagents`
+- `https://docs.openclaw.ai/concepts/session-tool`
 
-Search APIs:
+Cloud/model/compliance:
 
-- `https://brave.com/search/api/`
-- `https://docs.tavily.com/documentation/api-reference/endpoint/search`
-- `https://docs.tavily.com/documentation/api-credits`
-- `https://exa.ai/docs/reference/search`
-- `https://exa.ai/pricing`
-- `https://serpapi.com/search-api`
-- `https://serpapi.com/pricing`
-- `https://developers.google.com/custom-search/v1/overview`
+- `https://www.alibabacloud.com/help/en/ecs/user-guide/regions-and-zones`
+- `https://www.alibabacloud.com/en/global-locations`
+- `https://www.alibabacloud.com/help/en/icp-filing/basic-icp-service/product-overview/icp-filing-application-for-enterprises-outside-the-chinese-mainland`
+- `https://www.tencentcloud.com/global-infrastructure`
+- `https://www.tencentcloud.com/solutions/icp-registration-support`
+- `https://support.huaweicloud.com/intl/en-us/productdesc-cc/cc_01_0004.html`
+- `https://developers.openai.com/api/docs/supported-countries`
+- `https://www.alibabacloud.com/help/en/model-studio/models`
+- `https://www.alibabacloud.com/help/en/model-studio/model-pricing`
+- `https://api-docs.deepseek.com/quick_start/pricing`
+- `https://api-docs.deepseek.com/guides/kv_cache`
+- `https://www.cac.gov.cn/2023-02/24/c_1678884830036813.htm`
 
-Registry / domain / finance:
+Agent-specific source lists:
 
-- `https://developer.company-information.service.gov.uk`
-- `https://developer.company-information.service.gov.uk/get-started`
-- `https://developer.company-information.service.gov.uk/authentication`
-- `https://developer-specs.company-information.service.gov.uk/companies-house-public-data-api/reference/search/search-companies`
-- `https://developer-specs.company-information.service.gov.uk/companies-house-public-data-api/reference/company-profile/company-profile`
-- `https://www.sec.gov/search-filings/edgar-application-programming-interfaces`
-- `https://www.sec.gov/about/developer-resources`
-- `https://www.sec.gov/files/company_tickers.json`
-- `https://www.sec.gov/search-filings/cik-lookup`
-- `https://api.opencorporates.com/documentation/API-Reference`
-- `https://opencorporates.com/pricing/`
-- `https://about.rdap.org/`
-- `https://www.iana.org/help/rdap-requirements`
+- Marketing/search sources: [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md#11-source-and-test-traceability)
+- Screening/registry/domain/email/trade/Alibaba sources: [`SCREENING.md`](SCREENING.md#16-source-and-test-traceability)
+- Accio fixture and memory-processing files: [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md#13-source-and-test-traceability)
 
-Email and trade data:
+## 16. Self-Check
 
-- `https://docs.abstractapi.com/api/email-reputation`
-- `https://hunter.io/pricing/`
-- `https://help.hunter.io/en/articles/1970956-hunter-api`
-- `https://www.zerobounce.net/docs/frequently-asked-questions/billing-and-payments/how-is-pricing-determined-for-email-verification`
-- `https://www.importyeti.com/yeti-api`
-- `https://data.importyeti.com/`
-- `https://www.volza.com/trade-intelligence-apis/`
-- `https://panjiva.com/api-guide/`
-- `https://www.spglobal.com/market-intelligence/en/solutions/products/panjiva-supply-chain-intelligence`
-
-Social API constraints:
-
-- `https://www.linkedin.com/help/linkedin/answer/a526048/accessing-linkedin-apis`
-- `https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access`
-- `https://docs.x.com/x-api`
-
-## 12. Open Questions Before Implementation
-
-1. Does the customer already have Brave/Tavily/Exa/SerpApi, Companies House, Hunter/Abstract, ImportYeti, or Volza accounts?
-2. Which countries are mandatory for the first live demo: US/UK only, or include Brazil/Mexico/EU from day one?
-3. Should Marketing Employee output only buyer lists, or also draft first-contact emails in Chinese/English/Spanish/Portuguese/German?
-4. Where should uploaded Accio chat files enter the system: dashboard upload, chat attachment, or local operator drop folder?
-5. Should Phase 1 persist customer profiles in local JSON files first, or directly write EKG pillar files under the Memory employee workspace?
+- Shared design keeps OpenClaw as runtime and Sentura as control plane.
+- Three agent files now own agent-specific design, implementation details, and implementation plans.
+- This shared design keeps platform integration, data architecture, deployment, cross-agent flow, and common safety/cost policy.
+- Phase-1 employees remain read-only toward external systems and do not perform automatic outreach.
+- Raw Accio chats and internal Alibaba/CRM/order/note data are treated as T2/T3 and do not enter vector memory without preview/approval.
+- Production implementation still requires DB migrations, typed store tools, cloud setup, live provider smoke tests, backup restore drill, Alibaba API access proof, and concurrent Lead Discovery run coordinator.
