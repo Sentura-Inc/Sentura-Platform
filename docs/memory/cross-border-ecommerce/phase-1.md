@@ -32,6 +32,7 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-08 | Lead execution-path correction | Corrected the Lead Discovery UI so formal lead generation is submitted to the real `cbe-lead-discovery` OpenClaw employee through Gateway/AgentChat instead of being generated directly by the Dashboard Tavily route. |
 | 2026-06-08 | Milestone 6 Accio Memory employee and UI | Added `cbe-accio-memory`, Accio fixture sample route/UI, report preview flow, memory-write previews, Screening handoff payloads, and CE6/CE7 validation. |
 | 2026-06-08 | Accio Memory execution-path correction | Removed Dashboard precomputed reports/highlights so sample upload waits for employee `ACCIO_SUMMARIES_JSON`; strengthened Accio summarizer coverage for all three fixture conversations. |
+| 2026-06-12 | Mainland domestic-model options (DeepSeek/Qwen/Kimi) | Added the three domestic models as selectable options across cbe source configs and setup registration, added the `SENTURA_CBE_AGENT_MODEL` primary switch with allowlist aliases, and documented mainland key/base-URL guidance in the runbook; CE coverage now 296/296. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -944,3 +945,40 @@ The user clarified that even though the Accio records are simulated, the Memory 
 - `cd sentura/dashboard && pnpm exec tsc --noEmit` — PASS.
 - `cd sentura/dashboard && pnpm build` — PASS.
 - Browser check against `http://127.0.0.1:3001/client-demos/cross-border/accio-memory` — PASS: page opened, "加载演示 Accio 记录" loaded the fixture, UI showed `待员工分析`, raw conversations appeared, report table kept the `ACCIO_SUMMARIES_JSON` waiting copy, no pre-set reports rendered, and console error count was 0. Screenshot saved at `/tmp/cbe-accio-memory-wait.png`.
+
+## 2026-06-12 — Mainland domestic-model options (DeepSeek/Qwen/Kimi)
+
+### Context
+
+The customer platform will launch on a mainland-China cloud server, where OpenAI/Anthropic APIs are not directly reachable. All three cbe employees were pinned to `openai/gpt-5.4` only. This session makes DeepSeek, Qwen (通义千问), and Kimi (Moonshot) selectable for the cross-border employees without changing the default behavior on existing dev machines.
+
+### Provider facts (verified against vendored OpenClaw `2026.6.2` extensions)
+
+- `openclaw/extensions/deepseek` — env `DEEPSEEK_API_KEY`; model ref `deepseek/deepseek-chat` (catalog also carries `deepseek-reasoner`, `deepseek-v4-flash`, `deepseek-v4-pro`); base `api.deepseek.com` is mainland-reachable.
+- `openclaw/extensions/qwen` — env `QWEN_API_KEY`; default model `qwen3.5-plus`; default base URL is the international DashScope coding endpoint, mainland override is `models.providers.qwen.baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1"`.
+- `openclaw/extensions/moonshot` — env `MOONSHOT_API_KEY`; default model `kimi-k2.6`; default base `https://api.moonshot.ai/v1`, mainland override `models.providers.moonshot.baseUrl = "https://api.moonshot.cn/v1"` (the runtime reads `openClawConfig.models.providers.moonshot.baseUrl`).
+
+### Changes
+
+- `sentura/agents/cbe-{lead-discovery,buyer-screening,accio-memory}/config.json5`: `models` maps now list `deepseek/deepseek-chat`, `qwen/qwen3.5-plus`, and `moonshot/kimi-k2.6`, each with the OpenClaw `agentRuntime` pin (same pattern as the Sitlink OpenAI runtime pin). Primary `model` stays `openai/gpt-5.4` in source configs.
+- `scripts/sentura-setup.sh` + `scripts/sentura-setup.ps1` (embedded node block, kept in parity): added `cbePreferredModel = process.env.SENTURA_CBE_AGENT_MODEL || preferredModel`, `cbeDomesticModelRefs`, and `cbeDomesticModelOptions`; the three cbe agents now register with `model: cbePreferredModel` and models maps spread the domestic options; `ensurePreferredModelAllowlistEntry` gained `qwen → 'Qwen'` and `moonshot → 'Kimi'` aliases and is now called for `cbePreferredModel` plus every domestic ref. No shell-level env plumbing was needed — a user-exported `SENTURA_CBE_AGENT_MODEL` inherits into the node subprocess naturally. Constraint respected: the `.sh` node block is a double-quoted shell string, so the added JS uses no backticks and no `${}` template syntax.
+- `跨境电商/API_KEYS_OPENCLAW_SETUP.md`: §4 key table gained the `DEEPSEEK_API_KEY` / `QWEN_API_KEY` / `MOONSHOT_API_KEY` row; new §5.1.1 covers key acquisition entries (platform.deepseek.com / 阿里云百炼 / platform.moonshot.cn), `.env` placement, the `SENTURA_CBE_AGENT_MODEL` switch usage, mainland base-URL overrides for Qwen/Moonshot, and the post-switch requirement to re-smoke employee structured-JSON output (`LEAD_CANDIDATES_JSON_START/END`, `ACCIO_SUMMARIES_JSON_START/END`) — model substitution is the biggest regression risk for marker-wrapped JSON contracts.
+- `scripts/test-cross-border-agents.ts`: +5 checks — per-config domestic-model option checks (CE4.14 / CE5.21 / CE6.13) and per-setup-script `SENTURA_CBE_AGENT_MODEL` switch checks (bash + powershell under CE4 setup integration).
+- `docs/TESTS.md` + `docs/tests/tests-cross-border-ecommerce.md`: CE4 113→116, CE5 100→101, CE6 61→62, CE8 11→12 (new CE8.12 mainland-model guidance row); combined CE4–CE7 count 291→296; statuses refreshed to 2026-06-12.
+
+### Verification
+
+- `npx tsx scripts/test-cross-border-agents.ts` — 296/296 PASS (was 291 before the +5 new checks).
+- `bash -n scripts/sentura-setup.sh` — PASS.
+- Embedded node block extracted (`sed` range on the `OPENCLAW_STATE… node -e` heredoc, unescaped) and `node --check` — PASS; 15 references to the new `cbePreferredModel`/`cbeDomesticModel*` symbols present.
+
+### Operator usage (mainland server)
+
+```bash
+# ~/.openclaw/.env
+DEEPSEEK_API_KEY=sk-...
+# then flip the cbe primary at install time:
+SENTURA_CBE_AGENT_MODEL=deepseek/deepseek-chat bash scripts/sentura-setup.sh
+```
+
+Without the env var, the cbe primary stays on `SENTURA_META_AGENT_MODEL` (default `openai/gpt-5.5`) and the three domestic models remain selectable fallbacks.

@@ -343,10 +343,31 @@ const path = require('path');
 const configPath = '$OPENCLAW_CONFIG';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
+// Cross-border employees keep mainland-deployable domestic models selectable.
+// SENTURA_CBE_AGENT_MODEL flips their primary (e.g. 'deepseek/deepseek-chat')
+// at install time without editing source configs.
+const cbePreferredModel = process.env.SENTURA_CBE_AGENT_MODEL || preferredModel;
+const cbeDomesticModelRefs = ['deepseek/deepseek-chat', 'qwen/qwen3.5-plus', 'moonshot/kimi-k2.6'];
+const cbeDomesticModelOptions = Object.fromEntries(
+  cbeDomesticModelRefs.map((modelRef) => [modelRef, { agentRuntime: { id: 'openclaw' } }]),
+);
+// 429/quota resilience: a 429 on the primary otherwise suspends the shared
+// Main lane (all agents) for 30 min. Configure a real fallback chain so the
+// runtime switches provider instead of self-suspending under load.
+const cbeFallbackModels = cbeDomesticModelRefs.filter((m) => m !== cbePreferredModel);
+const cbeAgentModel = { primary: cbePreferredModel, fallbacks: cbeFallbackModels };
+// Bounded Docker sandbox resources (scope=agent => one container per cbe agent).
+// 3 x 2g leaves ~10g for the host gateway, which runs the embedded turns OUTSIDE
+// the containers and is the real memory consumer.
+const cbeSandboxDocker = { memory: '2g', memorySwap: '2g', cpus: 1, pidsLimit: 256, ulimits: { nofile: '4096:8192' } };
 const openClawState = process.env.OPENCLAW_STATE || '';
 config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.models = config.agents.defaults.models || {};
+// Concurrency: the shared process-wide Main lane is capped at
+// agents.defaults.maxConcurrent (OpenClaw default 4). Set it explicitly so the
+// platform is not silently throttled to 4 concurrent agent turns. Tune per host.
+config.agents.defaults.maxConcurrent = Number(process.env.SENTURA_MAX_CONCURRENT) || 8;
 
 function readDotEnvFile(filePath) {
   const entries = {};
@@ -424,6 +445,8 @@ function ensurePreferredModelAllowlistEntry(modelRef) {
     if (providerId === 'openai') entry.alias = 'GPT';
     if (providerId === 'openai-codex') entry.alias = 'Codex';
     if (providerId === 'deepseek' && modelId === 'deepseek-chat') entry.alias = 'DeepSeek';
+    if (providerId === 'qwen') entry.alias = 'Qwen';
+    if (providerId === 'moonshot') entry.alias = 'Kimi';
   }
   config.agents.defaults.models[modelRef] = entry;
   if (!existing) {
@@ -432,6 +455,10 @@ function ensurePreferredModelAllowlistEntry(modelRef) {
 }
 
 ensurePreferredModelAllowlistEntry(preferredModel);
+ensurePreferredModelAllowlistEntry(cbePreferredModel);
+for (const modelRef of cbeDomesticModelRefs) {
+  ensurePreferredModelAllowlistEntry(modelRef);
+}
 // NOTE: we deliberately do NOT set \`agent.skills\` here.
 // In OpenClaw, \`agents.list[].skills\` is a name filter (array of skill
 // names), not a path glob. Writing a path like \`{workspace}/skills/*\`
@@ -525,7 +552,8 @@ const zuolianToolsDeny = [
 const cbeLeadToolAllow = ['web_search','web_fetch','cron','group:plugins'];
 const cbeLeadSandboxAllow = ['web_search','web_fetch','cron','cross-border-intel__*'];
 const cbeLeadModels = {
-  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+  [cbePreferredModel]: { agentRuntime: { id: 'openclaw' } },
+  ...cbeDomesticModelOptions
 };
 const cbeLeadToolsDeny = [
   'agents_list','browser','canvas','create_goal','exec','gateway','get_goal',
@@ -537,7 +565,8 @@ const cbeLeadToolsDeny = [
 const cbeScreeningToolAllow = ['web_search','web_fetch','memory_search','memory_get','group:plugins'];
 const cbeScreeningSandboxAllow = ['web_search','web_fetch','memory_search','memory_get','cross-border-intel__*'];
 const cbeScreeningModels = {
-  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+  [cbePreferredModel]: { agentRuntime: { id: 'openclaw' } },
+  ...cbeDomesticModelOptions
 };
 const cbeScreeningToolsDeny = [
   'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
@@ -549,7 +578,8 @@ const cbeScreeningToolsDeny = [
 const cbeAccioToolAllow = ['memory_search','memory_get','group:plugins'];
 const cbeAccioSandboxAllow = ['memory_search','memory_get','cross-border-intel__*'];
 const cbeAccioModels = {
-  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+  [cbePreferredModel]: { agentRuntime: { id: 'openclaw' } },
+  ...cbeDomesticModelOptions
 };
 const cbeAccioToolsDeny = [
   'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
@@ -566,9 +596,9 @@ const overrides = {
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
   'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
-  'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', allow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { allow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 public-search lead discovery with typed Screening handoff preview' } },
-  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', allow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { allow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 low-cost live buyer background investigation with contextual scoring' } },
-  'cbe-accio-memory': { name: '跨境记忆处理员工', model: preferredModel, models: cbeAccioModels, tools: { profile: 'minimal', allow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { allow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 simulated Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
+  'cbe-lead-discovery': { name: '跨境营销获客员工', model: cbeAgentModel, models: cbeLeadModels, tools: { profile: 'minimal', alsoAllow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { alsoAllow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main', docker: cbeSandboxDocker }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 public-search lead discovery with typed Screening handoff preview' } },
+  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: cbeAgentModel, models: cbeScreeningModels, tools: { profile: 'minimal', alsoAllow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { alsoAllow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main', docker: cbeSandboxDocker }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 low-cost live buyer background investigation with contextual scoring' } },
+  'cbe-accio-memory': { name: '跨境记忆处理员工', model: cbeAgentModel, models: cbeAccioModels, tools: { profile: 'minimal', alsoAllow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { alsoAllow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main', docker: cbeSandboxDocker }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 simulated Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
 };
 
 for (const agent of (config.agents?.list || [])) {

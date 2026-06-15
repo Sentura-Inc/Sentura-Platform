@@ -16,12 +16,29 @@
           "openai/gpt-5.5": {
             agentRuntime: { id: "openclaw" },
           },
+          // Mainland-deployable options; setup's SENTURA_CBE_AGENT_MODEL flips the primary.
+          "deepseek/deepseek-chat": {
+            agentRuntime: { id: "openclaw" },
+          },
+          "qwen/qwen3.5-plus": {
+            agentRuntime: { id: "openclaw" },
+          },
+          "moonshot/kimi-k2.6": {
+            agentRuntime: { id: "openclaw" },
+          },
         },
         runtime: { type: "embedded" },
-        sandbox: { mode: "non-main" },
+        // Bounded Docker sandbox resources (scope=agent => one container per agent).
+        sandbox: {
+          mode: "non-main",
+          docker: { memory: "2g", memorySwap: "2g", cpus: 1, pidsLimit: 256, ulimits: { nofile: "4096:8192" } },
+        },
         tools: {
           profile: "minimal",
-          allow: [
+          // alsoAllow (not allow): the "minimal" profile is a leading intersecting
+          // filter that strips web/memory/MCP tools; allow can only narrow further.
+          // alsoAllow merges INTO the profile allowlist before that filter.
+          alsoAllow: [
             "web_search",
             "web_fetch",
             "memory_search",
@@ -30,7 +47,7 @@
           ],
           sandbox: {
             tools: {
-              allow: [
+              alsoAllow: [
                 "web_search",
                 "web_fetch",
                 "memory_search",

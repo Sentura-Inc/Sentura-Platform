@@ -813,7 +813,11 @@ export default function CrossBorderAccioMemoryPage() {
                 </thead>
                 <tbody>
                   {summaries.map((summary) => {
-                    const intent = summary.purchase_intent[0];
+                    // Guard: a model may return an empty purchase_intent array.
+                    // Without optional chaining this dereferences undefined during
+                    // render (outside the try block) and white-screens the page,
+                    // and the bad data persists in localStorage. Render a placeholder.
+                    const intent = summary.purchase_intent?.[0];
                     return (
                       <tr
                         key={summary.conversation_id}
@@ -828,18 +832,18 @@ export default function CrossBorderAccioMemoryPage() {
                           <div className="text-xs text-muted-foreground">{summary.customer_profile.country} · {summary.customer_profile.contact_person}</div>
                         </td>
                         <td className="py-3 pr-3">
-                          <div>{intent.product}</div>
-                          <div className="text-xs text-muted-foreground">{intent.models.join(", ") || "未提及具体型号"}</div>
+                          <div>{intent?.product ?? "未提取到采购意向"}</div>
+                          <div className="text-xs text-muted-foreground">{(intent?.models ?? []).join(", ") || "未提及具体型号"}</div>
                         </td>
                         <td className="py-3 pr-3">
-                          {quantity(intent.quantity)}
-                          {intent.monthly_potential_quantity && (
+                          {quantity(intent?.quantity)}
+                          {intent?.monthly_potential_quantity && (
                             <div className="text-xs text-muted-foreground">月潜量 {quantity(intent.monthly_potential_quantity)}</div>
                           )}
                         </td>
-                        <td className="py-3 pr-3">{price(intent.target_price_usd)}</td>
-                        <td className="py-3 pr-3">{price(intent.seller_best_price_usd)}</td>
-                        <td className="py-3 pr-3">{summary.next_actions[0]}</td>
+                        <td className="py-3 pr-3">{price(intent?.target_price_usd)}</td>
+                        <td className="py-3 pr-3">{price(intent?.seller_best_price_usd)}</td>
+                        <td className="py-3 pr-3">{summary.next_actions?.[0]}</td>
                       </tr>
                     );
                   })}

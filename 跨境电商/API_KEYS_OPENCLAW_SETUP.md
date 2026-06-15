@@ -115,6 +115,7 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | Key / 配置 | 谁使用 | 必需性 | 获取方式摘要 |
 |---|---|---:|---|
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / 其他模型 key | OpenClaw onboard 的模型 provider | 必需，除非使用自托管模型 | 在所选模型 provider 控制台创建。由 onboard 或 `~/.openclaw/.env` 提供。 |
+| `DEEPSEEK_API_KEY` / `QWEN_API_KEY` / `MOONSHOT_API_KEY` | 大陆部署的国产模型 provider（跨境员工已预置 DeepSeek/千问/Kimi 三个可选模型） | 大陆云服务器上线时必需其一 | DeepSeek 开放平台 / 阿里云百炼（DashScope）/ Moonshot 开放平台控制台创建。见 §5.1 大陆部署小节。 |
 | `OLLAMA_BASE_URL` | 本地模型 provider | 自托管时需要 | 本机运行 Ollama 后填 `http://localhost:11434`。 |
 | `BRAVE_API_KEY` | OpenClaw `web_search`，主要给 Marketing 获客和 Screening web fallback | 推荐其一 | Brave Search API dashboard 订阅 Search plan 后复制 subscription token。 |
 | `TAVILY_API_KEY` | OpenClaw `web_search` provider + CE4 Dashboard live search route | 推荐其一 | Tavily Platform 创建 key。不写入 `cross-border-intel` MCP env；Dashboard route 会从进程 env 或 `~/.openclaw/.env` 读取。 |
@@ -159,6 +160,51 @@ pnpm gateway:watch
 ```
 
 注意：模型 key 是全局运行基础，不属于 `cross-border-intel` MCP server。不要把它写进 `mcp.servers.cross-border-intel.env`。
+
+#### 5.1.1 大陆部署：国产模型（DeepSeek / 千问 / Kimi）
+
+中国大陆云服务器无法直连 OpenAI/Anthropic API。三个跨境员工（`cbe-lead-discovery` / `cbe-buyer-screening` / `cbe-accio-memory`）的源配置和 setup 注册已预置三个国产模型为可选项：
+
+| Provider | 模型 ref | API key 环境变量 | key 获取入口 |
+|---|---|---|---|
+| DeepSeek | `deepseek/deepseek-chat` | `DEEPSEEK_API_KEY` | `https://platform.deepseek.com` |
+| 通义千问（阿里云百炼） | `qwen/qwen3.5-plus` | `QWEN_API_KEY` | `https://bailian.console.aliyun.com` |
+| Kimi（Moonshot） | `moonshot/kimi-k2.6` | `MOONSHOT_API_KEY` | `https://platform.moonshot.cn` |
+
+流程：
+
+1. 在上表入口为选定的 provider 创建 API key，写入 `~/.openclaw/.env`：
+
+```bash
+DEEPSEEK_API_KEY=sk-REPLACE_ME
+# 或
+QWEN_API_KEY=sk-REPLACE_ME
+# 或
+MOONSHOT_API_KEY=sk-REPLACE_ME
+```
+
+2. 切换跨境员工的主模型（不改任何配置文件）——在运行 Sentura setup 时带上 `SENTURA_CBE_AGENT_MODEL`：
+
+```bash
+SENTURA_CBE_AGENT_MODEL=deepseek/deepseek-chat bash scripts/sentura-setup.sh
+```
+
+不设置该变量时主模型沿用 `SENTURA_META_AGENT_MODEL`（默认 `openai/gpt-5.5`），三个国产模型仍保持在可选列表里，可在会话中切换。
+
+3. 大陆端点说明：DeepSeek 的 `api.deepseek.com` 大陆可直连，无需额外配置。千问 provider 默认指向国际 DashScope 端点，Kimi 默认指向 `api.moonshot.ai`（国际）；如在大陆服务器遇到连通问题，在 `~/.openclaw/openclaw.json` 覆写 provider base URL：
+
+```json5
+{
+  models: {
+    providers: {
+      qwen: { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+      moonshot: { baseUrl: "https://api.moonshot.cn/v1" },
+    },
+  },
+}
+```
+
+4. 切换模型后必须重跑一次员工冒烟：让每个员工产出一次 JSON（`LEAD_CANDIDATES_JSON_START/END`、`ACCIO_SUMMARIES_JSON_START/END` 标记），确认所选国产模型能稳定遵循结构化输出约定——这是换模型后最大的回归风险点。
 
 ### 5.2 `BRAVE_API_KEY`
 

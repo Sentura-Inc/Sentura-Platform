@@ -104,7 +104,7 @@ pnpm --filter @sentura/mcp-cross-border-intel build
 
 ## CE4 — Marketing Acquisition Employee Workspace
 
-Status: PASS (2026-06-08)
+Status: PASS (2026-06-12)
 
 Scope:
 
@@ -122,7 +122,7 @@ Validation command:
 npx tsx scripts/test-cross-border-agents.ts
 ```
 
-Latest CE4+CE5 coverage after Lead execution-path correction: 213/213 PASS (2026-06-08).
+Latest CE4+CE5 coverage after Lead execution-path correction: 213/213 PASS (2026-06-08). Latest combined CE4–CE7 coverage after mainland domestic-model options: 296/296 PASS (2026-06-12). After pre-load-test audit fixes (P0/P1-4, see CE10): **302/302 PASS (2026-06-13)**.
 
 | # | Check | Expected |
 |---|---|---|
@@ -140,10 +140,11 @@ Latest CE4+CE5 coverage after Lead execution-path correction: 213/213 PASS (2026
 | CE4.11 | UI buyer defaults | The default run builder targets downstream buyer personas such as repair chains, electronics retailers, accessory retailers, and phone stores, not generic wholesalers. |
 | CE4.12 | Copy to Screening | Lead page has a one-click copy-all action and a per-result copy action; copied JSON is `{"leads":[...]}` with `matched_products`, `contact_candidates`, source URLs, evidence, dedupe, and confidence fields accepted by Screening batch input. |
 | CE4.13 | Lead state persistence | Lead page stores run configuration, env status, run message, expanded row, employee session key, and returned leads in same-origin local storage so refresh/navigation return does not clear the last search result. |
+| CE4.14 | Domestic model options | `config.json5` lists `deepseek/deepseek-chat`, `qwen/qwen3.5-plus`, and `moonshot/kimi-k2.6` as selectable models with the OpenClaw `agentRuntime` pin, and `scripts/sentura-setup.{sh,ps1}` expose the `SENTURA_CBE_AGENT_MODEL` primary-model switch plus the same three allowlisted domestic refs for mainland deployment. |
 
 ## CE5 — Screening And Background Employee Workspace + Employee-Executed UI/API
 
-Status: PASS (2026-06-08)
+Status: PASS (2026-06-12)
 
 Scope:
 
@@ -158,7 +159,7 @@ Scope:
 Validation command:
 
 ```bash
-npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 — 213/213
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 302/302
 cd sentura/dashboard && pnpm exec tsc --noEmit
 ```
 
@@ -198,10 +199,11 @@ Live adapter smoke summary (2026-06-08):
 | CE5.18 | Employee-report visual mapping | Employee JSON returned by `cbe-buyer-screening` is normalized before rendering and before restoring from local storage, so `source_url`/`summary` evidence and `detail` missing-evidence fields appear in the visual evidence timeline and gap panel. |
 | CE5.19 | Official-source-first employee ordering | Screening skills and Dashboard employee prompt require GB Companies House and US SEC lookup before public web registry fallback. |
 | CE5.20 | Paid email discovery ordering | Screening skills and Dashboard employee prompt require official-site same-domain email discovery before Abstract/Hunter paid validation when the operator enables paid validation but does not supply an email. |
+| CE5.21 | Domestic model options | Screening `config.json5` lists `deepseek/deepseek-chat`, `qwen/qwen3.5-plus`, and `moonshot/kimi-k2.6` as selectable models with the OpenClaw `agentRuntime` pin for mainland deployment. |
 
 ## CE6 — Accio Memory Processing Employee Workspace + Report Correctness
 
-Status: PASS (2026-06-08)
+Status: PASS (2026-06-12)
 
 Scope:
 
@@ -216,7 +218,7 @@ Scope:
 Validation command:
 
 ```bash
-npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 291/291
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 302/302
 python3 -m json.tool 跨境电商/fixtures/accio-chat-records.sample.json >/dev/null
 pnpm --filter @sentura/mcp-cross-border-intel test
 cd sentura/dashboard && pnpm exec tsc --noEmit
@@ -237,10 +239,11 @@ cd sentura/dashboard && pnpm build
 | CE6.10 | Handoff | Reports include `screening_handoff_target.source="accio_memory"` with company, country, website/email/contact where available, product interest, behavior notes, supplied fields, missing fields, and source provenance. |
 | CE6.11 | UI preview contract | `/client-demos/cross-border/accio-memory` renders raw transcript immediately, then renders highlighted extracted facts, report table, memory-write preview, and Screening handoff actions only after parsing employee `ACCIO_SUMMARIES_JSON_START/END` output. |
 | CE6.12 | Browser validation | Browser loaded the Accio page, clicked "加载演示 Accio 记录", and confirmed the page displays raw conversations, `待员工分析`, and the `ACCIO_SUMMARIES_JSON` waiting copy instead of pre-set Andes/Berlin/Northstar reports; console error count was 0. Screenshot: `/tmp/cbe-accio-memory-wait.png`. |
+| CE6.13 | Domestic model options | Accio `config.json5` lists `deepseek/deepseek-chat`, `qwen/qwen3.5-plus`, and `moonshot/kimi-k2.6` as selectable models with the OpenClaw `agentRuntime` pin for mainland deployment. |
 
 ## CE7 — Cross-Border Employee Demo UIs
 
-Status: PASS (2026-06-08)
+Status: PASS (2026-06-12)
 
 Scope:
 
@@ -251,7 +254,7 @@ Scope:
 Validation command:
 
 ```bash
-npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 291/291
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 — 302/302
 ```
 
 Note: CE4 owns detailed Lead route checks, CE5 owns detailed Screening route checks, and CE6 owns detailed Accio route/report checks. CE7 is the combined three-route demo-suite contract.
@@ -278,7 +281,7 @@ Note: CE4 owns detailed Lead route checks, CE5 owns detailed Screening route che
 
 ## CE8 — API Key And OpenClaw Setup Runbook
 
-Status: PASS (2026-06-08)
+Status: PASS (2026-06-12)
 
 Scope: `跨境电商/API_KEYS_OPENCLAW_SETUP.md`
 
@@ -295,6 +298,7 @@ Scope: `跨境电商/API_KEYS_OPENCLAW_SETUP.md`
 | CE8.9 | Cost/safety defaults | Manual review | Defaults paid trade data off, requires budget caps before Volza/ImportYeti calls, and preserves the no-auto-outreach/no-secret/no-raw-Accio-external-channel boundaries. |
 | CE8.10 | Source traceability | Manual review | Lists official references for OpenClaw web/MCP/tool config and the third-party APIs used by the runbook. |
 | CE8.11 | Doctor warning interpretation | Manual review | Explains that `literal sensitive value` warnings can appear after OpenClaw resolves `${ENV_VAR}` at runtime, and provides a redaction-safe check that actual `openclaw.json` still stores API-key placeholders. |
+| CE8.12 | Mainland domestic model guidance | Manual review | §4 key table and §5.1.1 cover `DEEPSEEK_API_KEY` / `QWEN_API_KEY` / `MOONSHOT_API_KEY` acquisition entries, the `SENTURA_CBE_AGENT_MODEL` setup switch, mainland base-URL overrides for Qwen/Moonshot via `models.providers.<id>.baseUrl`, and the post-switch structured-JSON employee smoke requirement. |
 
 ## CE9 — Sentura Setup Cross-Border MCP Wiring
 
@@ -326,3 +330,77 @@ rg -n 'cross-border-intel|buildCrossBorderIntelEnv|COMPANIES_HOUSE_API_KEY|CBE_E
 | CE9.5 | Secret handling | Static review | API keys are stored as `${ENV_VAR}` config references when present; missing optional keys are omitted; setup never writes raw API key values into `openclaw.json`. |
 | CE9.6 | Budget/default handling | Static review | `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` use configured non-secret values or safe defaults. |
 | CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is noted for OpenClaw `web_search` and CE4 Dashboard live-search usage, but is not placed into the `cross-border-intel` MCP env block. |
+
+## CE10 — Pre-Load-Test Audit Fixes (P0 + P1-4)
+
+Status: PASS (2026-06-13)
+
+Scope (source + server runtime double-write):
+
+- `sentura/agents/cbe-lead-discovery/config.json5`
+- `sentura/agents/cbe-buyer-screening/config.json5`
+- `sentura/agents/cbe-accio-memory/config.json5`
+- `scripts/sentura-setup.sh`
+- `scripts/sentura-setup.ps1`
+- `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`
+- `scripts/test-cross-border-agents.ts`
+
+Context: 2026-06-13 pre-load-test 8-dimension adversarial audit (see [`跨境电商/research/pre-loadtest-audit-2026-06-13.md`](../../跨境电商/research/pre-loadtest-audit-2026-06-13.md)) found 4 P0 load-test blockers + P1-4 (container caps). All fixed and verified.
+
+Validation command:
+
+```bash
+npx tsx scripts/test-cross-border-agents.ts   # CE4 + CE5 + CE6 + CE7 + CE10 regression guards — 302/302
+```
+
+| # | Check | Expected |
+|---|---|---|
+| CE10.1 | P0-1 maxConcurrent explicit | `scripts/sentura-setup.{sh,ps1}` set `agents.defaults.maxConcurrent` explicitly (default 8, env-overridable via `SENTURA_MAX_CONCURRENT`) so the gateway Main lane is not silently capped at `DEFAULT_AGENT_MAX_CONCURRENT=4`. Server `~/.openclaw/openclaw.json` mirrors this. |
+| CE10.2 | P0-2 model fallback chain | Each `cbe-*/config.json5` `model` is `{ primary: "deepseek/deepseek-chat", fallbacks: ["qwen/qwen3.5-plus", "moonshot/kimi-k2.6"] }` (a real fallback source via `agents.defaults.model.fallbacks` / per-agent `model.fallbacks`, NOT the `models:` registration map). Setup builds the same via `cbeAgentModel`. A 429 switches provider instead of suspending the Main lane for 30 min. |
+| CE10.3 | P0-3 alsoAllow not bare allow (regression guard) | All three `cbe-*/config.json5` and the setup scripts use `tools.alsoAllow` (agent layer) and `tools.sandbox.tools.alsoAllow` (sandbox layer) — never bare `tools.allow`. `test-cross-border-agents.ts` asserts `alsoAllow:` present AND no bare `allow: [` line, so a future regression to `allow` fails the test. Reason: `profile:minimal` is a leading intersecting filter; `allow` can only narrow it (→ zero tools), `alsoAllow` merges into the profile allowlist before the filter. |
+| CE10.4 | P1-4 sandbox docker caps | Each `cbe-*/config.json5` `sandbox.docker = { memory: "2g", memorySwap: "2g", cpus: 1, pidsLimit: 256, ulimits: { nofile: "4096:8192" } }`; setup builds the same via `cbeSandboxDocker`. `test-cross-border-agents.ts` asserts `docker:` + `pidsLimit` present. Verified live via `docker inspect`: `Memory=2147483648 NanoCpus=1000000000 PidsLimit=256`. |
+| CE10.5 | P0-4 accio empty-intent guard | `accio-memory/page.tsx:816` uses `summary.purchase_intent?.[0]` and all `intent` field reads use optional chaining (`intent?.product`, `(intent?.models ?? [])`, `next_actions?.[0]`); an empty `purchase_intent` array renders a placeholder row ("未提取到采购意向") instead of a render-time TypeError / white screen. |
+| CE10.6 | Test-suite multi-line sandbox assertion | The 3 `pins non-main sandbox` checks match the multi-line `mode: "non-main"` structure (not the old single-line `sandbox: { mode: "non-main" }` string), so the sandbox-docker block does not break the non-main assertion. |
+| CE10.7 | Combined regression count | `npx tsx scripts/test-cross-border-agents.ts` returns 302/302 (was 296; +6 from CE10.3 ×3 alsoAllow guards and CE10.4 ×3 docker-cap guards). |
+
+Outstanding (not blocking load test): P1-1 a real tool-policy resolver test (current alsoAllow string guard is a cheap proxy, not a resolver-level assertion).
+
+## CE11 — Mainland Cloud Load Test (Sweep 1 + Sweep 2 + Sweep 3)
+
+Status: PASS — Sweep 1 (offered-concurrency, pure inference) + Sweep 2 (maxConcurrent sweep) on 2026-06-13; Sweep 3 (real tool-calling load) on 2026-06-15.
+
+Scope:
+
+- `scripts/cbe-loadtest.mjs` (gateway WS production-path driver — pure-inference load)
+- `scripts/cbe-loadtest-tools.mjs` (dual-mode real tool-calling driver via `CBE_MODE` — screening: `cbe-buyer-screening` real US-company backgrounding (RDAP+DNS+SEC); lead: `cbe-lead-discovery` real buyer search via Tavily `web_search`)
+- `scripts/cbe-loadmon.sh` (resource sampler)
+- Report: [`跨境电商/research/loadtest-report.md`](../../跨境电商/research/loadtest-report.md)
+
+Environment: Aliyun ECS `ecs.g9i.xlarge` (4 vCPU / 16 GiB, Ubuntu 24.04), IP `47.96.40.237`, three cbe employees on DeepSeek `deepseek-chat` + Docker non-main sandbox, `maxConcurrent=8` fixed.
+
+How to run (on the server, gateway running, loopback):
+
+```bash
+setsid bash /root/sentura/scripts/cbe-loadmon.sh >/dev/null 2>&1 &      # start sampler → /root/loadmon.log
+cd /root/sentura/openclaw
+OPENCLAW_DIR=/root/sentura/openclaw node /root/sentura/scripts/cbe-loadtest.mjs <concurrency> <total> <rungLabel>
+```
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE11.1 | Production path, not /run | Code review | Driver uses gateway WS `agent` (enqueue → runId) + `agent.wait` (block to completion) — the shared Main-lane path, NOT the Next.js `/run` diagnostic routes (off-path, unauthenticated, real-money). |
+| CE11.2 | Gateway protocol | Code review | Driver uses the OpenClaw `connect.challenge` handshake + `gateway.auth.token` from `~/.openclaw/openclaw.json` (NOT JSON-RPC 2.0); `agent` params include required `message` + `idempotencyKey`. |
+| CE11.3 | Real inference verified | Trajectory + monitor | Rung0 trajectory shows `prompt.submitted → model.completed → session.ended`; `model.completed` carries `provider: deepseek`, `modelId: deepseek-chat`, `usage {input:82, output:152, cacheRead:13568}`; the two idle cbe sandbox containers spin up during the run. |
+| CE11.4 | Sweep 1 success rate | Driver summary | Across rungs C=1/4/8/12/30 (N=3/40/80/96/150 = 369 requests), `ok` = total, `errors` = {} — 100% success, 0 timeouts, 0 empty, 0 DeepSeek 429. |
+| CE11.5 | Throughput plateau | Driver summary | Beyond `maxConcurrent=8`, throughput plateaus at ~74–76 tasks/min (C=8/12/30 → 76/73.9/74.5); raising offered concurrency only deepens the queue, never increases throughput. |
+| CE11.6 | Graceful queueing | Driver summary | Mean latency grows monotonically with offered concurrency (C=1/8/12/30 → ~3.7/6.1/9.2/22.4 s) with zero drops/errors — FIFO queueing, not collapse. |
+| CE11.7 | Bottleneck = gateway RSS | Monitor log | Host load stays ~1.0 on 4 cores; per-container mem stays ~432 KiB (inference is remote at DeepSeek); gateway RSS climbs 447 → 1610 MB and stays ~1630 MB after load stops (~3.1 MB/session sticky) — RSS, not CPU/containers/429, is the single-gateway ceiling. |
+| CE11.8 | Container caps active under load | Monitor log | `docker stats` shows each cbe container against a 2 GiB limit throughout (P1-4 / CE10.4 confirmed live under load). |
+| CE11.9 | Sweep 2 — maxConcurrent is past optimum at 8 | Driver summary | Raising `agents.defaults.maxConcurrent` (8→12→16, each with a gateway restart and offered C = maxConcurrent) monotonically REDUCES throughput (76→68.2→65.8 tasks/min) and raises mean latency (6.1→10.0→13.8 s), all at 100% success. `maxConcurrent=8` is optimal for this 4C16G + single DeepSeek key; higher is a net negative due to host-side `workspace-sandbox` prep contention (gateway log shows single-run `workspace-sandbox:5383ms`) plus DeepSeek single-key soft slowdown. No hard 429 even at 16 concurrent (key tolerance > 16), so the P0-2 fallback chain remains unvalidated under a real 429. |
+| CE11.10 | Sweep 2 — gateway restart must fully warm (pitfall guard) | Code review / log | Changing `maxConcurrent` requires a gateway restart (Main lane sized at boot). The restart helper must wait for `agent runtime plugins pre-warmed` in `gateway.log` before driving load and must kill all prior gateway instances — otherwise a `--force` start SIGTERMs the instance mid-test (`[gateway] signal SIGTERM received`), producing a false "0/N total collapse" that looks like a capacity cliff but is a test-harness race. `gw-restart2.sh` (full-warm wait + thorough kill) fixes it; the same scenario re-run cleanly returned 96/96. Lesson: a "total failure" rung is a harness/process-race suspect first, a capacity conclusion last. |
+
+| CE11.11 | Sweep 3 — real tool-calling is ~5–8× heavier than pure inference | Driver summary | `scripts/cbe-loadtest-tools.mjs` (`CBE_MODE` switch) drives two tool-heavy employees: `cbe-buyer-screening` (RDAP+DNS+SEC) and `cbe-lead-discovery` (Tavily `web_search`). Real task ≈ 20–25 s solo / 26–42 s at 8-concurrent (vs 4–6 s pure inference). Throughput @ `maxConcurrent=8` ≈ 10/min (screening) and 15/min (lead-discovery) ≈ 600–900/hour (vs 76/min pure inference — ~1/5–1/8). Both employees C=8 and C=30 = 100% success, 0 errors/timeouts/429; C=30 tail latency 187 s (screening) / 153 s (lead-discovery). Pure-inference numbers overstate real-world capacity ~5–8×. |
+| CE11.12 | Sweep 3 — tools actually fired (real foreign data) | Trajectory | Screening answer contains real RDAP data (apple.com registered 1987-02-19), input tokens jump 82 → ~3900; lead-discovery answer returns real UK firms (Carphone Warehouse, MobileBitz ~70 stores) with input tokens ~11000 (search results fed back) — confirms real multi-turn tool-calling, not hallucination. host load < 0.7 and container CPU ~0 throughout (work is remote DeepSeek + cross-border network wait). |
+| CE11.13 | Sweep 3 — mainland foreign-API friction | Trajectory / answer | **RDAP and Tavily web_search reachable from mainland** (real data returned); **SEC (data.sec.gov) fails from mainland** — agent retries then falls back to RDAP/DNS evidence, inflating screening per-task time + variance. A data point for the server-location decision (mainland egress to foreign APIs is uneven). Note: server `.env` had only `DEEPSEEK_API_KEY`; a free `SEC_USER_AGENT` + a user-provided Tavily key (free tier, test usage well within 1000/mo) were added for this sweep; Companies House/Hunter keys still absent. |
+
+Pass criteria for any rung: 100% success, no `agent_timeout`, no sustained 429 (a 429 must show provider fallback, never a 30-min Main-lane suspension), gwRSS not approaching host limit, no container OOM-kill. **A rung showing 0/N total failure is a restart-race / SSH-drop artifact until `gateway.log` is checked for `SIGTERM` — never a capacity conclusion on its own.**
