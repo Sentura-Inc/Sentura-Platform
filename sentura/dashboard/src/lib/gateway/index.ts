@@ -18,8 +18,10 @@ export {
 } from "./chat-sessions";
 export type { GatewayEventHandlerMap } from "./hooks";
 export { parseAgentIdFromKey, getSessionAgentId } from "./helpers";
+export { modelPrimary } from "./types";
 export type {
   AgentConfig,
+  AgentModel,
   AgentFileContent,
   AgentFileEntry,
   ApprovalRequest,

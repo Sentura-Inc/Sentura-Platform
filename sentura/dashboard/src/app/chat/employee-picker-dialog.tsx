@@ -2,6 +2,7 @@
 
 import { Bot, Loader2 } from "lucide-react";
 import type { AgentConfig } from "@/lib/gateway";
+import { modelPrimary } from "@/lib/gateway";
 import {
   Dialog,
   DialogContent,
@@ -94,7 +95,7 @@ export function EmployeePickerDialog({
                         {agent.name ?? agent.id}
                       </p>
                       <p className="text-[11px] font-mono text-muted-foreground truncate">
-                        {agent.id} · {agent.model}
+                        {agent.id} · {modelPrimary(agent.model)}
                       </p>
                     </div>
                   </button>

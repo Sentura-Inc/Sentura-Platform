@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAgents } from "@/lib/gateway";
+import { useAgents, modelPrimary } from "@/lib/gateway";
 import type { AgentConfig } from "@/lib/gateway";
 import { usePermission } from "@/lib/auth/use-permission";
 import { useAgentRosterStore } from "@/stores/use-agent-roster";
@@ -86,7 +86,7 @@ export default function EmployeesPage() {
     return (
       agent.id.toLowerCase().includes(q) ||
       (agent.name?.toLowerCase().includes(q) ?? false) ||
-      agent.model.toLowerCase().includes(q)
+      modelPrimary(agent.model).toLowerCase().includes(q)
     );
   });
 
@@ -232,7 +232,7 @@ export default function EmployeesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="font-mono text-xs">{agent.model}</span>
+                        <span className="font-mono text-xs">{modelPrimary(agent.model)}</span>
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={status} />

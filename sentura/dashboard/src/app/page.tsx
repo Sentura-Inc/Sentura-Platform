@@ -1,6 +1,6 @@
 "use client";
 
-import { useAgents, useApprovals, useGateway } from "@/lib/gateway";
+import { useAgents, useApprovals, useGateway, modelPrimary } from "@/lib/gateway";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bot, ShieldCheck, Plus, ExternalLink, WifiOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -235,7 +235,7 @@ export default function DashboardPage() {
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs text-muted-foreground font-mono truncate">
-                          {agent.model}
+                          {modelPrimary(agent.model)}
                         </span>
                         {agent.sandbox?.mode && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">

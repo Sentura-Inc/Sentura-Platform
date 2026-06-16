@@ -28,6 +28,10 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // Browser extensions (e.g. Immersive Translate) inject attributes like
+      // data-immersive-translate-page-theme on <html> before React hydrates;
+      // suppress the resulting one-node attribute mismatch warning.
+      suppressHydrationWarning
     >
       <body className="h-full">
         <TooltipProvider delay={0}>

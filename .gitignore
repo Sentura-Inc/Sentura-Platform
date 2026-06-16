@@ -3,6 +3,8 @@ node_modules/
 .gradle
 .next/
 **/.next/
+.playwright-mcp/
+**/.playwright-mcp/
 dist/
 **/dist/
 dist-runtime/

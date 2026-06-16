@@ -1,7 +1,19 @@
+/**
+ * An agent's model is either a plain model id, or an OpenClaw model-routing
+ * object with a primary model and ordered fallbacks, e.g.
+ * `{ primary: "deepseek/deepseek-chat", fallbacks: ["qwen/qwen3.5-plus"] }`.
+ */
+export type AgentModel = string | { primary: string; fallbacks?: string[] };
+
+/** Display model id, collapsing the routing object to its primary model. */
+export function modelPrimary(model: AgentModel): string {
+  return typeof model === "string" ? model : model.primary;
+}
+
 export interface AgentConfig {
   id: string;
   name?: string;
-  model: string;
+  model: AgentModel;
   runtime?: { type: string };
   sandbox?: { mode: string };
   tools?: {

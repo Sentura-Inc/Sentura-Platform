@@ -18,7 +18,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useGateway } from "@/lib/gateway";
+import { useGateway, modelPrimary } from "@/lib/gateway";
 import type {
   AgentConfig,
   AgentFileContent,
@@ -457,7 +457,7 @@ function ConfigSummaryCard({ agent }: { agent: AgentConfig }) {
   const items: { label: string; value: React.ReactNode }[] = [
     {
       label: "Model",
-      value: <span className="font-mono text-xs">{agent.model}</span>,
+      value: <span className="font-mono text-xs">{modelPrimary(agent.model)}</span>,
     },
     {
       label: "Runtime",

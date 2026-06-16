@@ -982,3 +982,31 @@ SENTURA_CBE_AGENT_MODEL=deepseek/deepseek-chat bash scripts/sentura-setup.sh
 ```
 
 Without the env var, the cbe primary stays on `SENTURA_META_AGENT_MODEL` (default `openai/gpt-5.5`) and the three domestic models remain selectable fallbacks.
+
+## 2026-06-16 — Dashboard 连接修复 + 地毯式排查 + 服务器清理
+
+用 `superpowers:systematic-debugging` skill(铁律:先查根因再动手)。用户报"服务器 openclaw 版本太老、连不上 Sentura UI"。
+
+**根因调查(证伪版本假设)**:本地与服务器 `openclaw/package.json` 都是 `2026.6.2`;`/root/gateway.log` 全量 `grep -a "protocol mismatch"` = **0 次**;原生 Control UI(`client=openclaw-control-ui`)一直成功连(`config.get`/`models.list` 全 `✓`)。所以**不是版本/协议问题**。真因三条:
+1. **dashboard 进程死了**——`ss` 显示 3000 没监听(`dashboard.log` 显示它 00:02 起过 Next.js 16.2.2 然后退了)。
+2. **`.env.local` 网关地址填错**——`NEXT_PUBLIC_GATEWAY_URL=ws://localhost:18789`,但 `NEXT_PUBLIC_*` 在**浏览器**求值,浏览器在 Mac 走隧道,只有 `:28789` 被隧道转发到服务器 `:18789`,`:18789` 在 Mac 本机没隧道 → 连不上。`/root/dash-dev2.sh` 专门把这行改成 `:28789`,但之前是用不改 URL 的 `dash-dev.sh`/`dash-start.sh` 启的。
+3. **Mac→服务器 SSH 隧道断了**(13000/28789 都 CLOSED)。
+   修复:`bash /root/dash-dev2.sh`(改 URL + 重启)+ 重建隧道(`ssh -f -N -L 13000:127.0.0.1:3000 -L 28789:127.0.0.1:18789`)。用一个协议探针(`scripts/gw-protocol-probe.mjs`,模拟 dashboard 精确握手:`client.id=openclaw-control-ui`、协议 4、token、`Origin: http://localhost:13000`)实证网关 **CONNECT_OK + config.get**,坐实非版本问题。期间学到:网关对 `client.id` 有**枚举白名单**(乱填报 `invalid connect params: at /client/id`),且 `client.id=openclaw-control-ui` 触发 **Origin 白名单检查**(空 Origin 被拒 `origin not allowed`,但 localhost Origin 因 `gateway.controlUi.allowInsecureAuth=true` 放行)。
+
+**第二个 bug(连上后的渲染崩溃)**:`Objects are not valid as a React child (found: object with keys {primary, fallbacks})`。根因——cbe 三员工(`openclaw.json` agents 索引 7/8/9)的 `model` 是路由对象 `{primary:"deepseek/deepseek-chat", fallbacks:["qwen/qwen3.5-plus","moonshot/kimi-k2.6"]}`(CE10.2/P0-2 配置侧本就如此、网关认、压测跑通),但 dashboard **5 处把 `agent.model` 当字符串**渲染/过滤会崩:`src/app/page.tsx:238`、`chat/employee-picker-dialog.tsx:97`、`employees/page.tsx:89`(`.toLowerCase()` 过滤)+`:235`、`employees/[id]/page.tsx:460`。修复:
+- `src/lib/gateway/types.ts`:`AgentConfig.model: string` → `model: AgentModel`,新增 `export type AgentModel = string | { primary: string; fallbacks?: string[] }` + `export function modelPrimary(model): string`(对象取 `.primary`,字符串原样);barrel `index.ts` 导出 `modelPrimary`(值)+ `AgentModel`(类型)。
+- 5 处渲染/过滤全改 `modelPrimary(agent.model)`。
+- `src/app/layout.tsx` `<html>` 加 `suppressHydrationWarning`——第一个 issue 的水合警告 `data-immersive-translate-page-theme` 是用户**沉浸式翻译浏览器插件**注入的属性,无害,官方建议就是这个。
+
+**地毯式审计**(general-purpose 子代理,只读跑 13 页+组件+gateway lib):模型 bug 是**孤例**;其余 config 对象字段(`runtime?.type`/`sandbox?.mode`/`tools.*`/`memorySearch?.enabled`/binding `match.*`)全部正确取原始子字段、有守卫;`approvals`/`audit` 的 object 字段用 `JSON.stringify`;无字符串操作崩溃;30 个 gateway RPC 方法全合法。`unknown method: workboard.cards.list` 来自 **OpenClaw 自带 Lit Control UI 的 Workboard 标签页**(`openclaw/ui/src/ui/controllers/workboard.ts`)调一个没启用的 `workboard` 扩展,**与 Sentura dashboard 无关**(dashboard 只 link-out 到 Control UI)。
+
+**清理(用户三项全批准)**:
+- **移除坏 MCP**:服务器 `openclaw.json` 的 `mcp.servers.dida-travel-demo` 没 build 出 `dist`(每次网关启动 `[bundle-mcp] failed to start ... -32000`),它服务 `zuolian-travel-concierge`(座联/Sitlink demo)。node 脚本删该键(先备份 `openclaw.json.bak-cleanup`)+ `gw-restart2.sh` 重启 → 0 dida 报错、仅剩 `cross-border-intel`。**源码 `sentura/mcp-servers/dida-travel-demo/` 保留**(要恢复就 build 它再加回 config)。
+- **`next.config.ts` 加 `turbopack.root`**(指向 monorepo 根 = dashboard 上两级):消掉 Next.js "Detected additional lockfiles / inferred workspace root" 警告(根因是 dashboard 子包里有个多余 `pnpm-workspace.yaml`,非破坏性地用 config 静默,不删文件)。
+- 删冗余 `/root/dash-dev.sh` `/root/dash-start.sh`(被唯一正确的 `dash-dev2.sh` 取代,留着会误用重引入 `:18789` bug)。
+- `.env.local` 加 `NEXT_PUBLIC_CONTROL_UI_URL=http://localhost:28789`(让"Open in Control UI"从 Mac 走隧道能开)。
+- 删 6 个临时日志(512K→284K);`.next`(409M)清空 + `dash-clean.sh` 干净重建(冷编译 6s,`✓ Ready in 242ms`,警告消失)。磁盘本就只用 10%,清缓存是图干净非省空间。
+
+**验证**:无头 Playwright 两次加载 `http://localhost:13000/employees`(渲染含对象-model 的 cbe 员工 + 过滤),`browser_console_messages level=error all=true` = **0 errors / 0 warnings**;`deepseek` 文本可见。网关探针 `CONNECT_OK protocol=4 + config.get`。
+
+**改动文件**:7 个 dashboard 源(`types.ts`/`index.ts`/`page.tsx`/`employee-picker-dialog.tsx`/`employees/page.tsx`/`employees/[id]/page.tsx`/`layout.tsx`)+ `next.config.ts`,本地改 + scp 服务器,**未 commit**。服务器侧改动(`.env.local`/`openclaw.json`/删脚本)是部署 runtime 状态,不入仓库。新增工具脚本:本地 `scripts/gw-protocol-probe.mjs`、服务器 `/root/gw-protocol-probe.mjs`、`/root/dash-clean.sh`。**两个小遗留**:`gw-restart2.sh` warm 检测误报 `TIMEOUT_NOT_WARM`(网关其实正常)、它 bash-source `.env` 对含空格值报 `CBE: command not found`(网关自身用 dotenv 不受影响)。关联 [[cbe-mainland-cloud-deploy]] [[cbe-mainland-deploy-pitfalls]]。
