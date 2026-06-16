@@ -8,7 +8,7 @@
       {
         id: "cbe-buyer-screening",
         name: "跨境筛选背调员工",
-        model: "openai/gpt-5.4",
+        model: "openai/gpt-5.5",
         models: {
           "openai/gpt-5.4": {
             agentRuntime: { id: "openclaw" },
@@ -21,7 +21,7 @@
         sandbox: { mode: "non-main" },
         tools: {
           profile: "minimal",
-          allow: [
+          alsoAllow: [
             "web_search",
             "web_fetch",
             "memory_search",
@@ -30,7 +30,7 @@
           ],
           sandbox: {
             tools: {
-              allow: [
+              alsoAllow: [
                 "web_search",
                 "web_fetch",
                 "memory_search",
@@ -76,7 +76,7 @@
           role: "Cross-border mobile-accessory Screening and Background Investigation employee",
           language: "zh-CN",
           tenant: "cross-border-ecommerce",
-          demoScope: "Phase 1 low-cost live buyer background investigation with contextual scoring",
+          operationScope: "Low-cost live buyer background investigation with contextual scoring",
           allowedActions: [
             "lead_batch_screening",
             "manual_input_screening",
@@ -109,4 +109,3 @@
     },
   ],
 }
-

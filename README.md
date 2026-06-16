@@ -274,8 +274,10 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| [`outputs/resume_card.md`](outputs/resume_card.md) | Short continuation card for unfinished work: current goal, state, next 3 actions, working set, last verification | First file for continuing an unfinished task |
+| [`outputs/task_handoff.md`](outputs/task_handoff.md) | Full current task handoff with decisions, commands, verification, blockers, and next steps | After `resume_card.md` points to it, or before handing off unfinished work |
 | [`README.md`](README.md) | High-level overview + 17-capability map (this file) | Every session |
-| [`docs/MEMORY.md`](docs/MEMORY.md) | Development session **matrix / TOC** — policy preamble, Current Ground Truth, one row per session linking to a detail file | Every session |
+| [`docs/MEMORY.md`](docs/MEMORY.md) | Development session **matrix / TOC** — policy preamble, Current Ground Truth, one row per session linking to a detail file | New independent sessions; targeted lookup during continuation |
 | [`docs/TeamPlan.md`](docs/TeamPlan.md) | 8-week sprint plan with per-person task breakdowns | Every session |
 | [`docs/TESTS.md`](docs/TESTS.md) | Test matrix — what to test and how | When adding/changing deliverables |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Deep technical design (architecture, EKG, memory, orchestration, deployment) | On demand — when making architectural decisions |

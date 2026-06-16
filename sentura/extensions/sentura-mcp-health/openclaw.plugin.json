@@ -1,5 +1,8 @@
 {
   "id": "sentura-mcp-health",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura MCP Health",
   "description": "MCP server health monitoring — periodically pings configured MCP servers, tracks connection status / errors / latency, exposes the live snapshot via gateway RPC and an agent-callable tool, and emits audit events on every status change.",
   "enabledByDefault": true,

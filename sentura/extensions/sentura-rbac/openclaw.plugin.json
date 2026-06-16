@@ -1,5 +1,8 @@
 {
   "id": "sentura-rbac",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura RBAC",
   "description": "Enterprise role-based access control — enforces seven-role permission model (Platform Admin, Manager, EKG Manager, Agent Manager, Auditor, End User, Viewer) across all gateway RPC methods with department and ownership scoping.",
   "enabledByDefault": true,

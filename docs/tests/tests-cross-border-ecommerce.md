@@ -439,3 +439,139 @@ Scope:
 | CE14.10 | No visible direct Agent chat | Manual review | Employee pages must not render a free-form Agent chat session; business actions use buttons/forms and task progress instead. |
 | CE14.11 | Hidden Agent connection | Manual review | Backend connection stays on OpenClaw/Sentura: hidden sessions through Gateway `sessions.create` / `chat.send`, employee registration checks, event subscription, and structured JSON marker parsing for all three employees. |
 | CE14.12 | Documentation sync | Manual/static review | README, AGENTS, shared design, and three agent docs link to `UI.md`; tests and memory matrix record this UI design session. |
+
+## CE15 — Cross-Border Employee UI Implementation
+
+Status: PASS (2026-06-14)
+
+Scope:
+
+- `sentura/dashboard/src/app/page.tsx`
+- `sentura/dashboard/src/app/layout.tsx`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/public/sentura-logo-icon.svg`
+- `sentura/dashboard/public/sentura-logo-side.svg`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts`
+- `sentura/dashboard/src/components/cross-border/employee-cost.tsx`
+- `sentura/dashboard/src/lib/gateway/{client,index,types}.ts`
+
+Validation command:
+
+```bash
+cd sentura/dashboard && pnpm exec tsc --noEmit
+cd sentura/dashboard && pnpm build
+```
+
+Browser validation:
+
+- Dev server: `cd sentura/dashboard && pnpm exec next dev --hostname 127.0.0.1 --port 3000`
+- Checked `/client-demos/cross-border/employee`, `/client-demos/cross-border/employee/customers`, and `/client-demos/cross-border/employee/memory`.
+- Checked default desktop viewport and 390px mobile viewport.
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE15.1 | Root landing | Browser + static review | `/` redirects to `/client-demos/cross-border/employee`, making the Employee personal center the first dashboard screen for this demo build. |
+| CE15.2 | Employee shell | Browser | Top shell shows Sentura logo, `跨境电商客户系统`, two work tabs (`获客与背调`, `记忆整理`), user menu, connection status, and personal API cost mini widget. |
+| CE15.3 | Chinese metadata | Static review | Dashboard `metadata` and `html lang` are localized for the cross-border Employee system. |
+| CE15.4 | Personal center | Browser | Personal center renders greeting, role/tenant badges, range selector, four KPI cards, pending work, recent tasks, funnel, messages, and API cost card. |
+| CE15.5 | Customer list | Browser | `获客与背调` renders one customer list with company, country, type, products, website, found time, score, and actions. |
+| CE15.6 | Customer filters | Browser interaction | Filter drawer supports country, type, product, found-time, status, and score-tier filters; applying `高分` shows the removable `评分：高分` chip and narrows results to one customer. |
+| CE15.7 | Customer actions | Browser/static review | Page exposes `寻找客户`, `批量背调`, `手动背调`, row detail, and start-screening actions with Gateway/employee-missing notices when unavailable. |
+| CE15.8 | Customer detail drawer | Browser/static review | Customer drawer includes overview, source evidence, screening report summary, and task-history audit reference without a free-form Agent input. |
+| CE15.9 | Memory list | Browser | `记忆整理` renders one record list with name, source, import time, conversation count, status, and actions. |
+| CE15.10 | Memory filters | Browser interaction | Filter drawer supports source, import time, and analysis status; applying `已分析` shows the removable `状态：已分析` chip and narrows results to one record. |
+| CE15.11 | Memory actions | Browser/static review | Page exposes `添加新记录`, import-only, import-and-analyze, row detail, start-analysis, and send-to-screening actions with Gateway/employee-missing notices when unavailable. |
+| CE15.12 | API cost panel | Type/build + browser | Cost UI uses `sentura.cost.events` through the Gateway client when connected and falls back to clearly marked demo estimates when no events are available. |
+| CE15.13 | No visible Agent chat | Browser | Employee home, customers, and memory pages do not render direct chat composer strings such as `Type a message to start` or `Continue the conversation`. |
+| CE15.14 | Mobile layout | Browser at 390px | All three Employee routes have no horizontal page overflow and retain the two-tab mobile work nav. |
+| CE15.15 | Verification caveat | Commands | `pnpm exec tsc --noEmit` and `pnpm build` pass. `pnpm lint` still fails on pre-existing repository-wide React Compiler rules outside this implementation scope; new code-specific unused import and image warnings were cleaned. |
+
+## CE16 — Cross-Border Employee Hidden Task Runner + Progress Persistence
+
+Status: PASS (2026-06-16)
+
+Scope:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/stores/use-cbe-employee-store.ts`
+- `sentura/dashboard/src/components/cross-border/employee-task-status.tsx`
+- `sentura/dashboard/src/components/cross-border/employee-cost.tsx`
+- `sentura/dashboard/src/lib/gateway/client.ts`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/extensions/sentura-cost/src/types.ts`
+- `sentura/extensions/sentura-cost/src/session-log-backfill.ts`
+- `scripts/test-cross-border-agents.ts`
+- `scripts/test-week4-cost.ts`
+- `outputs/task_handoff.md`
+
+Validation command:
+
+```bash
+pnpm exec tsx scripts/test-cross-border-agents.ts   # 335/335
+pnpm exec tsx scripts/test-week4-cost.ts            # 37/37
+cd sentura/dashboard && pnpm exec tsc --noEmit
+cd sentura/dashboard && pnpm exec eslint src/components/cross-border/employee-cost.tsx src/lib/gateway/types.ts
+cd sentura/dashboard && pnpm build
+```
+
+Browser validation:
+
+- Existing dev server on `http://127.0.0.1:3000`.
+- Checked `/client-demos/cross-border/employee`, `/client-demos/cross-border/employee/customers`, and `/client-demos/cross-border/employee/memory`.
+- On the customer page, clicked `本月 API 成本` and verified the per-call cost detail dialog opens from real `sentura.cost.events` records.
+- Current external-cost backfill probe over `~/.openclaw` collected 220 total cost events: 83 model/session events and 137 external tool-log events. External rows include public/free DNS/RDAP/SEC/official-web fetches, included/zero-cost ImportYeti responses when the provider returns `requestCost=0`, Tavily estimates when web-search tool calls expose enough metadata, and unpriced Abstract/Hunter rows when provider plan/credit-to-dollar conversion is not safely inferable.
+- In `筛选客户`, selected `USB-C 充电器`; the table narrowed to the single matching Nordic customer row and the filter chip displayed `产品：USB-C 充电器`.
+- Header DOM renders a real `消息中心` button wired to a local task-notification popover; static checks cover the completed/failed task source, red unread badge, and `全部已读` action.
+- Header DOM renders only `sentura-logo-side.svg`; the standalone `sentura-logo-icon.svg` is no longer used in the Employee shell.
+- Customer page gates `寻找客户` and `背调` independently, so one active Lead task and one active Screening task can run at the same time while same-kind duplicates remain blocked.
+- Global task status bar can render two active task cards and labels the simultaneous background work.
+- 2026-06-16 live-session evidence: a failed-looking `cbe-buyer-screening` session had a completed backend JSONL output of 10,570 assistant characters with both `SCREENING_REPORTS_JSON_START/END`; the previous frontend read path could miss the end marker when default `chat.history` projection truncated long assistant messages.
+- 2026-06-16 repeated-failure evidence: a later `cbe-buyer-screening` session failed on the backend with `LLM idle timeout (120s): no response from model` after tool calls. One SEC lookup result in the transcript was about 64 KB before the fix, so the MCP adapter now returns only compact recent-filing summaries instead of full SEC submissions JSON.
+- New 2026-06-16 UI controls, runner behavior, and external-provider cost visibility are covered by source/static/type/build/cost-backfill checks. Live submit was not rerun in this pass to avoid extra external search/LLM/API spend while diagnosing already completed sessions.
+- Opened the `寻找客户` drawer without clicking final submit buttons that would trigger live employee work.
+- Checked default desktop viewport and 390px mobile viewport.
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE16.1 | Non-visual runner helper | Static review | `employee-task-runner.ts` centralizes hidden employee execution through `GatewayClient.createSession(...)`, polls `chat.history`, and returns parsed records without rendering `AgentChat`. |
+| CE16.2 | Lead task path | Static review | Customer `寻找客户` submits a structured prompt to `cbe-lead-discovery`, requires `LEAD_CANDIDATES_JSON_START/END`, converts parsed leads into local customer rows, and reports marker-missing/parse/timeout errors. |
+| CE16.3 | Screening task path | Static review | Customer `批量背调` and `手动背调` submit normalized targets to `cbe-buyer-screening`, require `SCREENING_REPORTS_JSON_START/END`, and upsert scored/insufficient-evidence rows. |
+| CE16.4 | Accio memory path | Static review | Memory `导入并分析` and row-level `开始分析` submit Accio/manual-normalized payloads to `cbe-accio-memory`, require `ACCIO_SUMMARIES_JSON_START/END`, and upsert memory preview rows. |
+| CE16.5 | Upload JSON actually read | Static/browser review | `添加新记录` reads and parses the selected JSON file; `仅导入` is disabled until a valid payload exists and adds a local `未分析` row. |
+| CE16.6 | Gateway unavailable UX | Browser interaction | `寻找客户` drawer remains openable even when Gateway/agent lookup is unavailable, but final submit remains disabled and shows the Gateway/agent-missing notice. |
+| CE16.7 | No free-form chat | Browser | Employee home, customer, and memory routes expose no visible chat/message composer fields while still using OpenClaw hidden sessions for task execution. |
+| CE16.8 | Desktop Browser smoke | Browser | Home, customers, lead drawer, memory page, and add-record drawer render expected labels and produce zero console errors. |
+| CE16.9 | Mobile Browser smoke | Browser at 390px | Home, customers, and memory pages render expected labels, produce zero console errors, and have no horizontal page overflow. |
+| CE16.10 | Build/type/lint status | Commands | `pnpm exec tsc --noEmit`, focused ESLint for the changed Employee files, and `pnpm build` pass. |
+| CE16.11 | Dynamic ETA and timeout | Static review | `employee-task-runner.ts` estimates Lead/Screening duration from task scope, extends hidden task timeout from that estimate, and emits progress fields including remaining time and percent. |
+| CE16.12 | Visible countdown | Static/browser review | The global Employee task status bar shows `预计`, `已用`, `倒计时`, percent progress, result count, and session key where available instead of only `正在读取后台任务进度...`. |
+| CE16.13 | Cross-route task state | Static review | Customer `寻找客户`, `批量背调`, and `手动背调` create global task records via `useCbeEmployeeStore` and no longer use page-local `setTaskRunning`. |
+| CE16.14 | Row persistence | Static review | Customer rows live in the CBE Employee store and are persisted with task records under `sentura-cbe-employee-state-v1`, so completed hidden-task rows survive route navigation. |
+| CE16.15 | Terminal failure visibility | Static review | Failures call `failTask`, retain `sessionKey` when available, and remain visible until dismissed instead of disappearing after an 8-second toast timeout. |
+| CE16.16 | Global shell placement | Static review | `AppShell` renders `EmployeeTaskStatusBar` above page content so active Lead/Screening progress remains visible after switching to `记忆整理`. |
+| CE16.17 | Stale local recovery | Static review | The CBE store marks active tasks stale only after their hard deadline plus grace period, making route reload/long-wait failures explicit instead of silently vanishing. |
+| CE16.18 | Current verification | Commands + Browser | `scripts/test-cross-border-agents.ts` passes 335/335, `scripts/test-week4-cost.ts` passes 37/37; `@sentura/mcp-cross-border-intel` test/build pass; dashboard `tsc --noEmit`, focused lint, and `next build` pass; prior Browser customer page checks remain recorded, and the current pass avoided new live submit calls. |
+| CE16.19 | Single task-progress surface | Static/browser review | Ongoing task progress is shown by the global `EmployeeTaskStatusBar`; customer-page local notices no longer duplicate `正在读取后台任务进度` or task success messages under the page header. |
+| CE16.20 | Cost detail interaction | Static/browser review | `EmployeeCostMini` has hover scaling, opens `本月 API 成本明细`, and lists each recorded cost event with time, employee, service/interface, usage, pricing status, duration, and cost. |
+| CE16.21 | Customer filters use stable values | Static/browser review | `筛选客户` renders Chinese labels for buyer type/product filters while filtering by canonical internal values, preserving product terms such as `USB-C`, `OLED`, and `MagSafe`. |
+| CE16.22 | Date filter freshness | Static review | Customer `找到时间` filtering uses the current browser date instead of a hard-coded fixture date, so `今日` / `近 7 天` / `近 30 天` do not drift stale after 2026-06-14. |
+| CE16.23 | Bell notification center | Static review + DOM smoke | The header `消息中心` is wired to a real notification popover backed by terminal CBE task records, shows a red unread number badge after completed/failed tasks, and supports marking notifications read. |
+| CE16.24 | Single clean header logo | Static review + DOM smoke | The Employee shell keeps only `sentura-logo-side.svg` in the top-left brand area and does not render the standalone `sentura-logo-icon.svg`, avoiding the double-logo layout. |
+| CE16.25 | Parallel Lead and Screening task gates | Static review | Customer page derives `leadRunning` and `screeningRunning` independently, allowing one active `寻找客户` and one active `背调` task to run together while blocking same-kind duplicate starts. |
+| CE16.26 | Multi-task status bar | Static review | `EmployeeTaskStatusBar` renders up to two active task cards and shows `正在同时运行 N 个后台任务` when Lead and Screening are both active. |
+| CE16.27 | No running status filter | Static/browser review | Customer quick filters and filter sheet remove `背调中` as a filter option while row status can still display `背调中` for active customers. |
+| CE16.28 | Score sorting | Static/browser review | Customer list supports `评分高到低` and `评分低到高` sort controls with clearable chips/reset behavior. |
+| CE16.29 | No scoring-calculation evidence layer | Static review | Screening report evidence no longer renders the `评分计算` layer; scoring remains in score blocks and final score fields instead of a fake evidence source. |
+| CE16.30 | Long Screening output read | Static review + live-session evidence | Hidden employee polling passes a high `maxChars` value to `chat.history` so long `SCREENING_REPORTS_JSON` messages can include both start and end markers instead of timing out after frontend-side truncation. |
+| CE16.31 | Lead target count hard target | Static review | The Lead prompt treats `target_count` as the requested count, removes the old 1-5 high-quality cap, and requires `shortage_reason` only when compliant public sources remain insufficient. |
+| CE16.32 | Manual numeric Lead target input | Static review | The `寻找客户` sheet uses a numeric input with `min=1` and normalization instead of fixed 20/50/100/150 preset buttons. |
+| CE16.33 | Lead over-return cap | Static review | Parsed Lead rows are capped to the normalized requested `targetCount`, so an employee over-return does not insert more rows than requested. |
+| CE16.34 | External API cost event schema | Static review | `sentura-cost` supports `model`, `external_api`, and `local_tool` cost events, plus pricing status, service/interface labels, HTTP status, tool name, and external usage units such as request, credit, page, or local call. |
+| CE16.35 | External tool-log cost backfill | Static/cost test | OpenClaw session `toolResult` logs for CBE tools are backfilled into cost rows for Companies House, RDAP, DNS, Abstract Email Reputation, Hunter, SEC EDGAR, ImportYeti, Tavily/web_search, public web fetches, and local scoring; free/included/unpriced rows are visible without fabricating USD spend. |
+| CE16.36 | Backend model failure surfacing | Static review + live-session evidence | Hidden task polling inspects transcript `errorMessage` / `stopReason` fields and raises `backend_error` with a specific Chinese message for `LLM idle timeout`, instead of waiting until the generic marker timeout path. |
+| CE16.37 | Compact SEC lookup payload | MCP unit test + static review | `cross-border-intel` `cbe_intel_sec_lookup` returns `submissions_summary` with bounded recent filings instead of full SEC submissions JSON, keeping the tool payload under the regression threshold while preserving official filing evidence. |

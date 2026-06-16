@@ -62,6 +62,36 @@ function section(title: string) {
   console.log(`\n\x1b[1m━━━ ${title} ━━━\x1b[0m`);
 }
 
+const SENTURA_EXTENSION_IDS = [
+  "sentura-agents",
+  "sentura-rbac",
+  "sentura-audit",
+  "sentura-approval",
+  "sentura-provisioner",
+  "sentura-experience-extraction",
+  "sentura-mcp-health",
+  "sentura-memory-lancedb",
+  "sentura-cost",
+  "sentura-monitoring",
+] as const;
+
+const GATEWAY_STARTUP_SENTURA_EXTENSION_IDS = [
+  "sentura-agents",
+  "sentura-rbac",
+  "sentura-audit",
+  "sentura-approval",
+  "sentura-provisioner",
+  "sentura-experience-extraction",
+  "sentura-mcp-health",
+  "sentura-cost",
+  "sentura-monitoring",
+] as const;
+
+const HOOK_CONVERSATION_ACCESS_SENTURA_EXTENSION_IDS = [
+  "sentura-audit",
+  "sentura-experience-extraction",
+] as const;
+
 // ─── Part 2: Workspace Creation ───
 
 async function testWorkspace() {
@@ -505,10 +535,15 @@ async function testSenturaAgentsExtension() {
   const manifestRaw = await fs.readFile(path.join(extDir, "openclaw.plugin.json"), "utf8");
   const manifest = JSON.parse(manifestRaw) as {
     id?: string;
+    activation?: { onStartup?: boolean };
     contracts?: { tools?: string[] };
     enabledByDefault?: boolean;
   };
   check("sentura-agents manifest id === 'sentura-agents'", manifest.id === "sentura-agents");
+  check(
+    "sentura-agents manifest declares Gateway startup activation",
+    manifest.activation?.onStartup === true,
+  );
   check(
     "sentura-agents manifest declares 'sentura_agents_manage' tool",
     Array.isArray(manifest.contracts?.tools) && manifest.contracts!.tools!.includes("sentura_agents_manage"),
@@ -584,6 +619,8 @@ async function testSenturaAgentsExtension() {
 
   const setupPath = path.join(projectRoot, "scripts", "sentura-setup.sh");
   const setup = await fs.readFile(setupPath, "utf8");
+  const setupPsPath = path.join(projectRoot, "scripts", "sentura-setup.ps1");
+  const setupPs = await fs.readFile(setupPsPath, "utf8");
   check(
     "sentura-setup.sh references plugins.load.paths",
     setup.includes("plugins.load.paths") || setup.includes("config.plugins.load"),
@@ -596,6 +633,33 @@ async function testSenturaAgentsExtension() {
     "sentura-setup.sh wires at least sentura-agents, sentura-rbac, sentura-audit",
     setup.includes("sentura-agents") && setup.includes("sentura-rbac") && setup.includes("sentura-audit"),
   );
+  for (const extId of SENTURA_EXTENSION_IDS) {
+    check(`sentura-setup.sh wires ${extId}`, setup.includes(`"${extId}"`));
+    check(`sentura-setup.ps1 wires ${extId}`, setupPs.includes(`"${extId}"`));
+  }
+  for (const extId of HOOK_CONVERSATION_ACCESS_SENTURA_EXTENSION_IDS) {
+    check(
+      `sentura-setup.sh grants hook conversation access for ${extId}`,
+      setup.includes(`'${extId}'`) && setup.includes("allowConversationAccess"),
+    );
+    check(
+      `sentura-setup.ps1 grants hook conversation access for ${extId}`,
+      setupPs.includes(`'${extId}'`) && setupPs.includes("allowConversationAccess"),
+    );
+  }
+  for (const extId of GATEWAY_STARTUP_SENTURA_EXTENSION_IDS) {
+    const raw = await fs.readFile(
+      path.join(projectRoot, "sentura", "extensions", extId, "openclaw.plugin.json"),
+      "utf8",
+    );
+    const extManifest = JSON.parse(raw) as {
+      activation?: { onStartup?: boolean };
+    };
+    check(
+      `${extId} manifest declares activation.onStartup for Gateway RPC/hooks`,
+      extManifest.activation?.onStartup === true,
+    );
+  }
 }
 
 // ─── Run All ───

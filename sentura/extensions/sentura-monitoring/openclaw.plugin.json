@@ -1,5 +1,8 @@
 {
   "id": "sentura-monitoring",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Monitoring",
   "description": "Aggregated health endpoints for the Sentura platform: gateway uptime, per-employee status, provider availability, and a one-shot summary view. Subscribes to the model.usage diagnostic event to track recent provider activity and reads the agent-tenancy + cost stores for employee-level signals.",
   "enabledByDefault": true,

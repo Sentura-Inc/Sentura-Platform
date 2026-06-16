@@ -43,6 +43,39 @@ const ACCIO_SAMPLE_ROUTE = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/accio-memory/sample/route.ts",
 );
+const EMPLOYEE_TASK_RUNNER = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts",
+);
+const EMPLOYEE_DATA = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts",
+);
+const EMPLOYEE_CUSTOMERS_PAGE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx",
+);
+const CBE_EMPLOYEE_STORE = path.join(
+  ROOT,
+  "sentura/dashboard/src/stores/use-cbe-employee-store.ts",
+);
+const EMPLOYEE_TASK_STATUS = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/employee-task-status.tsx",
+);
+const EMPLOYEE_COST = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/employee-cost.tsx",
+);
+const GATEWAY_CLIENT = path.join(ROOT, "sentura/dashboard/src/lib/gateway/client.ts");
+const GATEWAY_TYPES = path.join(ROOT, "sentura/dashboard/src/lib/gateway/types.ts");
+const CROSS_BORDER_INTEL_TOOLS = path.join(
+  ROOT,
+  "sentura/mcp-servers/cross-border-intel/src/tools.ts",
+);
+const SENTURA_COST_TYPES = path.join(ROOT, "sentura/extensions/sentura-cost/src/types.ts");
+const SENTURA_COST_BACKFILL = path.join(ROOT, "sentura/extensions/sentura-cost/src/session-log-backfill.ts");
+const APP_SHELL = path.join(ROOT, "sentura/dashboard/src/components/app-shell.tsx");
 const SIDEBAR = path.join(ROOT, "sentura/dashboard/src/components/sidebar.tsx");
 const SETUP_SH = path.join(ROOT, "scripts/sentura-setup.sh");
 const SETUP_PS1 = path.join(ROOT, "scripts/sentura-setup.ps1");
@@ -131,6 +164,18 @@ const screeningPage = read(SCREENING_PAGE);
 const screeningApiRoute = read(SCREENING_API_ROUTE);
 const accioPage = read(ACCIO_PAGE);
 const accioSampleRoute = read(ACCIO_SAMPLE_ROUTE);
+const employeeTaskRunner = read(EMPLOYEE_TASK_RUNNER);
+const employeeData = read(EMPLOYEE_DATA);
+const employeeCustomersPage = read(EMPLOYEE_CUSTOMERS_PAGE);
+const cbeEmployeeStore = read(CBE_EMPLOYEE_STORE);
+const employeeTaskStatus = read(EMPLOYEE_TASK_STATUS);
+const employeeCost = read(EMPLOYEE_COST);
+const gatewayClient = read(GATEWAY_CLIENT);
+const gatewayTypes = read(GATEWAY_TYPES);
+const crossBorderIntelTools = read(CROSS_BORDER_INTEL_TOOLS);
+const senturaCostTypes = read(SENTURA_COST_TYPES);
+const senturaCostBackfill = read(SENTURA_COST_BACKFILL);
+const appShell = read(APP_SHELL);
 const sidebar = read(SIDEBAR);
 const setupSh = read(SETUP_SH);
 const setupPs1 = read(SETUP_PS1);
@@ -163,9 +208,9 @@ check("config uses embedded OpenClaw runtime", config.includes('runtime: { type:
 check("config pins non-main sandbox", config.includes('sandbox: { mode: "non-main" }'));
 check("config includes OpenClaw agentRuntime pin", config.includes('agentRuntime: { id: "openclaw" }'));
 for (const tool of ['"web_search"', '"web_fetch"', '"cron"', '"group:plugins"']) {
-  check(`agent allowlist includes ${tool}`, config.includes(tool));
+  check(`agent alsoAllow includes ${tool}`, config.includes("alsoAllow") && config.includes(tool));
 }
-check("sandbox allowlist includes cross-border MCP glob", config.includes('"cross-border-intel__*"'));
+check("sandbox alsoAllow includes cross-border MCP glob", config.includes("sandbox") && config.includes("alsoAllow") && config.includes('"cross-border-intel__*"'));
 for (const denied of ['"exec"', '"gateway"', '"write"', '"edit"', '"apply_patch"', '"sessions_spawn"', '"subagents"', '"sessions_yield"', '"message"']) {
   check(`dangerous tool denied: ${denied}`, config.includes(denied));
 }
@@ -208,6 +253,7 @@ for (const setup of [
   check(`${setup[0]} setup copies cbe lead workspace`, setup[1].includes("cbe-lead-discovery"));
   check(`${setup[0]} setup registers webchat binding`, setup[1].includes("Added webchat binding for cbe-lead-discovery"));
   check(`${setup[0]} setup applies MCP sandbox glob`, setup[1].includes("cross-border-intel__*"));
+  check(`${setup[0]} setup uses cbe lead alsoAllow`, setup[1].includes("alsoAllow: cbeLeadToolAllow") && setup[1].includes("alsoAllow: cbeLeadSandboxAllow"));
   check(`${setup[0]} setup keeps cron for scheduled runs`, setup[1].includes("'web_search','web_fetch','cron','group:plugins'"));
 }
 
@@ -287,9 +333,9 @@ check("screening config uses embedded OpenClaw runtime", screeningConfig.include
 check("screening config pins non-main sandbox", screeningConfig.includes('sandbox: { mode: "non-main" }'));
 check("screening config includes OpenClaw agentRuntime pin", screeningConfig.includes('agentRuntime: { id: "openclaw" }'));
 for (const tool of ['"web_search"', '"web_fetch"', '"memory_search"', '"memory_get"', '"group:plugins"']) {
-  check(`screening allowlist includes ${tool}`, screeningConfig.includes(tool));
+  check(`screening alsoAllow includes ${tool}`, screeningConfig.includes("alsoAllow") && screeningConfig.includes(tool));
 }
-check("screening sandbox allowlist includes cross-border MCP glob", screeningConfig.includes('"cross-border-intel__*"'));
+check("screening sandbox alsoAllow includes cross-border MCP glob", screeningConfig.includes("sandbox") && screeningConfig.includes("alsoAllow") && screeningConfig.includes('"cross-border-intel__*"'));
 for (const denied of ['"exec"', '"gateway"', '"write"', '"edit"', '"apply_patch"', '"sessions_spawn"', '"subagents"', '"sessions_yield"', '"message"', '"cron"']) {
   check(`screening dangerous tool denied: ${denied}`, screeningConfig.includes(denied));
 }
@@ -324,6 +370,7 @@ for (const setup of [
   check(`${setup[0]} setup copies cbe screening workspace`, setup[1].includes("cbe-buyer-screening"));
   check(`${setup[0]} setup registers screening webchat binding`, setup[1].includes("Added webchat binding for cbe-buyer-screening"));
   check(`${setup[0]} setup applies screening MCP sandbox glob`, setup[1].includes("cbeScreeningSandboxAllow") && setup[1].includes("cross-border-intel__*"));
+  check(`${setup[0]} setup uses screening alsoAllow`, setup[1].includes("alsoAllow: cbeScreeningToolAllow") && setup[1].includes("alsoAllow: cbeScreeningSandboxAllow"));
   check(`${setup[0]} setup allows screening memory tools`, setup[1].includes("'web_search','web_fetch','memory_search','memory_get','group:plugins'"));
 }
 
@@ -394,9 +441,9 @@ check("accio config uses embedded OpenClaw runtime", accioConfig.includes('runti
 check("accio config pins non-main sandbox", accioConfig.includes('sandbox: { mode: "non-main" }'));
 check("accio config includes OpenClaw agentRuntime pin", accioConfig.includes('agentRuntime: { id: "openclaw" }'));
 for (const tool of ['"memory_search"', '"memory_get"', '"group:plugins"']) {
-  check(`accio allowlist includes ${tool}`, accioConfig.includes(tool));
+  check(`accio alsoAllow includes ${tool}`, accioConfig.includes("alsoAllow") && accioConfig.includes(tool));
 }
-check("accio sandbox allowlist includes cross-border MCP glob", accioConfig.includes('"cross-border-intel__*"'));
+check("accio sandbox alsoAllow includes cross-border MCP glob", accioConfig.includes("sandbox") && accioConfig.includes("alsoAllow") && accioConfig.includes('"cross-border-intel__*"'));
 for (const denied of ['"exec"', '"gateway"', '"write"', '"edit"', '"apply_patch"', '"sessions_spawn"', '"subagents"', '"sessions_yield"', '"message"', '"read"']) {
   check(`accio dangerous tool denied: ${denied}`, accioConfig.includes(denied));
 }
@@ -427,6 +474,7 @@ for (const setup of [
   check(`${setup[0]} setup copies cbe accio workspace`, setup[1].includes("cbe-accio-memory"));
   check(`${setup[0]} setup registers accio webchat binding`, setup[1].includes("Added webchat binding for cbe-accio-memory"));
   check(`${setup[0]} setup applies accio MCP sandbox glob`, setup[1].includes("cbeAccioSandboxAllow") && setup[1].includes("cross-border-intel__*"));
+  check(`${setup[0]} setup uses accio alsoAllow`, setup[1].includes("alsoAllow: cbeAccioToolAllow") && setup[1].includes("alsoAllow: cbeAccioSandboxAllow"));
   check(`${setup[0]} setup allows accio memory tools`, setup[1].includes("'memory_search','memory_get','group:plugins'"));
 }
 
@@ -462,6 +510,46 @@ check("accio UI parses employee summaries from markers", accioPage.includes("ext
 check("accio UI preserves local T2/T3 and preview-only memory behavior", accioPage.includes("memory_write_preview 已复制，仍未写入长期记忆") && accioPage.includes("preview_only") && !accioPage.includes("自动联系客户"));
 check("accio UI persists last upload/report/session state", accioPage.includes("ACCIO_STORAGE_KEY") && accioPage.includes("sentura:cbe:accio-memory:v2") && accioPage.includes("localStorage.setItem") && accioPage.includes("localStorage.getItem") && accioPage.includes("accioSessionKey"));
 check("sidebar links to CBE Accio demo", sidebar.includes('href: "/client-demos/cross-border/accio-memory"') && sidebar.includes("CBE Accio"));
+
+section("CE8 Employee hidden runner");
+check("employee hidden runner exists", exists(EMPLOYEE_TASK_RUNNER));
+check("employee runner creates session before long task send", employeeTaskRunner.includes("client.createSession(agentId, undefined, {"));
+check("employee runner creates user-attributed session keys", employeeTaskRunner.includes("key: createEmployeeSessionKey(agentId)"));
+check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs })"));
+check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
+check("employee runner surfaces backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "LLM idle timeout", "backend_error", "后台模型在工具调用后超时"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
+check("employee lead prompt follows requested target count instead of 1-5 cap", employeeTaskRunner.includes("target_count 是本次任务的硬目标") && employeeTaskRunner.includes("不要因为“高质量优先”而主动限制在 5 个") && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选"));
+check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
+check("employee runner emits ETA progress and dynamic task timeouts", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "预计剩余", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)));
+check("CBE employee persistent store exists", exists(CBE_EMPLOYEE_STORE));
+check("CBE employee store persists rows and task records", cbeEmployeeStore.includes("persist(") && cbeEmployeeStore.includes("sentura-cbe-employee-state-v1") && cbeEmployeeStore.includes("rows: state.rows") && cbeEmployeeStore.includes("tasks: trimTasks(state.tasks)"));
+check("CBE employee store tracks terminal failures with session keys", cbeEmployeeStore.includes("failTask") && cbeEmployeeStore.includes("sessionKey: sessionKey ?? task.sessionKey") && cbeEmployeeStore.includes("recoverStaleTasks"));
+check("employee task status bar exists", exists(EMPLOYEE_TASK_STATUS));
+check("employee task status bar shows ETA, countdown, and progress", ["预计", "倒计时", "progressPercent", "关闭任务状态"].every((needle) => employeeTaskStatus.includes(needle)));
+check("employee task status bar can show concurrent lead and screening tasks", ["visibleTasks", "active.slice(0, 2)", "正在同时运行", "visibleTasks.map"].every((needle) => employeeTaskStatus.includes(needle)));
+check("AppShell renders global employee task status", appShell.includes("EmployeeTaskStatusBar") && appShell.includes("<EmployeeTaskStatusBar />"));
+check("AppShell bell surfaces real task notifications with unread badge", ["NOTIFICATION_READ_STORAGE_KEY", "taskNotifications", "markAllNotificationsRead", "消息中心，", "bg-rose-600"].every((needle) => appShell.includes(needle)));
+check("AppShell keeps only the side logo in the header", appShell.includes("sentura-logo-side.svg") && !appShell.includes("sentura-logo-icon.svg"));
+check("AppShell exposes personal center as the first employee nav item", appShell.indexOf('label: "个人中心"') > 0 && appShell.indexOf('label: "个人中心"') < appShell.indexOf('label: "获客与背调"'));
+check("AppShell logo is not the employee-home navigation entry", appShell.includes('aria-label="Sentura 跨境电商客户系统"') && !appShell.includes('aria-label="回到个人中心"'));
+check("employee customers page uses persistent store for rows and tasks", employeeCustomersPage.includes("useCbeEmployeeStore") && employeeCustomersPage.includes("startTask") && employeeCustomersPage.includes("completeTask") && employeeCustomersPage.includes("failTask") && employeeCustomersPage.includes("upsertRows(result.records)"));
+check("employee lead target count is manual numeric input", ["normalizeLeadTargetCount", "目标数量手动输入", "type=\"number\"", "min={1}", "targetCount: normalizeLeadTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
+check("CBE employee store supports persisted customer deletion", cbeEmployeeStore.includes("deleteRows") && cbeEmployeeStore.includes("state.rows.filter((row) => !deleteIds.has(row.customerId))"));
+check("employee customers page gates lead and screening tasks independently", ["leadRunning", "screeningRunning", "task.kind === \"lead\"", "task.kind === \"screening\"", "leadRunning ? <Loader2", "screeningRunning ? <Loader2"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("taskRunning !== null"));
+check("employee customers page no longer uses page-local taskRunning state", !employeeCustomersPage.includes("setTaskRunning") && !employeeCustomersPage.includes("useState<\"lead\" | \"screening\" | null>"));
+check("employee customers page keeps task progress in global bar only", !employeeCustomersPage.includes("showNotice(progress.message, progress.status") && !employeeCustomersPage.includes("showNotice(message);"));
+check("employee customer filters use canonical values with Chinese labels", ["canonicalBuyerType", "canonicalProduct", "buyerTypeLabel", "productLabel", "USB-C 充电器", "OLED 屏幕", "filters.products.includes(product.value)", "filters.buyerTypes.includes(buyerType.value)"].every((needle) => employeeCustomersPage.includes(needle)));
+check("employee customer date filters use current date, not stale fixture date", employeeCustomersPage.includes("const end = new Date();") && !employeeCustomersPage.includes('new Date("2026-06-14T23:59:59")'));
+check("employee customer filters remove running status option", employeeCustomersPage.includes('const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const') && employeeCustomersPage.includes('const sheetStatusFilters = ["all", "not_started", "screened", "insufficient_evidence", "failed"] as const'));
+check("employee customer list supports score sorting", ["scoreSortLabels", "评分高到低", "评分低到高", "comparableScore", "setScoreSort"].every((needle) => employeeCustomersPage.includes(needle)));
+check("employee report evidence hides scoring calculation layer", !employeeCustomersPage.includes("评分计算") && !employeeCustomersPage.includes('scoring: "评分计算"') && !employeeData.includes('| "scoring"') && !employeeTaskRunner.includes('raw === "scoring"'));
+check("employee report detail sheet resets scroll to top", ["contentRef", "scrollTo({ top: 0, left: 0 })", "activeCustomer?.customerId"].every((needle) => employeeCustomersPage.includes(needle)));
+check("employee customer deletion requires confirmation", ["requestDeleteCustomers", "确认删除客户", "确认删除", "deleteTargets", "onDeleteConfirm"].every((needle) => employeeCustomersPage.includes(needle)));
+check("sentura-cost schema supports external API cost rows", ["external_api", "local_tool", "CostPricingStatus", "externalUsage", "external_tool_log"].every((needle) => senturaCostTypes.includes(needle)));
+check("sentura-cost backfills external CBE tool costs from session logs", ["eventFromToolResultRow", "ImportYeti", "Abstract Email Reputation", "Hunter Email Verifier", "Tavily / web_search", "Companies House", "SEC EDGAR"].every((needle) => senturaCostBackfill.includes(needle)));
+check("employee cost mini opens model and external API cost details", ["aria-label=\"查看本月 API 成本明细\"", "hover:scale-[1.03]", "本月 API 成本明细", "模型与外部资料服务调用", "costPricingLabels", "外部回填"].every((needle) => employeeCost.includes(needle)));
+check("cross-border SEC lookup returns compact submission summaries", ["secRecentFilingsSummary", "recent_filings: recentFilings", "submissions_summary", "forms.slice(0, 8)"].every((needle) => crossBorderIntelTools.includes(needle)) && !crossBorderIntelTools.includes("submissions: body"));
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 if (failed > 0) {

@@ -17,7 +17,16 @@ You are an expert AI/ML engineer building the Sentura platform: an **enterprise 
 
 ## Project Context
 
-**Mandatory reads at the start of every new chat** (these are loaded into context by default — keep them lean):
+**Mandatory reads at the start of every new chat** (keep them lean):
+
+Continuation fast path:
+
+- If the user is continuing an unfinished task and `outputs/resume_card.md` exists, read `outputs/resume_card.md` first.
+- Then read only the relevant `Current State` and `Next Steps` sections of `outputs/task_handoff.md`.
+- Use `docs/MEMORY.md` as an index only when the resume card or handoff points to a specific prior session. Do not open `docs/memory/**` detail files until a specific row is needed.
+- Continue all user-facing conversation in Chinese unless the user asks otherwise. Write `outputs/resume_card.md` and `outputs/task_handoff.md` primarily in concise English for token efficiency; keep exact Chinese product/customer/UI names unchanged.
+
+For brand-new independent tasks, or when no continuation card exists, read:
 
 1. `README.md` — slim architectural overview, 17 capabilities table, tech stack, project structure, quick links.
 2. `docs/MEMORY.md` — development memory **matrix / table of contents** (policy preamble + Current Ground Truth + one row per session linking to a detail file under `docs/memory/`). This stays small on purpose; the session prose lives in per-person / per-week files below.
@@ -167,9 +176,11 @@ Do NOT substitute these without explicit approval:
 
 ## Behavioral Rules for Every Chat
 
-1. **Read the memory matrix first, write to it last.** The memory subsystem is split in two on purpose: the matrix is cheap to skim (mandatory); the detail files hold the prose (on-demand).
+1. **Use the continuation fast path first; otherwise read the memory matrix first, write to it last.** The memory subsystem is split in two on purpose: the matrix is cheap to skim; the detail files hold the prose (on-demand).
 
-   - **Start of chat — read.** Read `docs/MEMORY.md` (the matrix). Find rows whose `Session` description overlaps your task. Open the linked detail file under `docs/memory/person-{a,b,c,d}/week-{N}.md`, `docs/memory/shared/*.md`, `docs/memory/sitlink/*.md`, or `docs/memory/cross-border-ecommerce/*.md` **only** when you actually need the prose, diffs, or verification steps for that session. Do not pre-load the whole `docs/memory/` tree.
+   - **Start of continuation chat — read.** If `outputs/resume_card.md` exists and the user is resuming unfinished work, read it first, then read only the needed sections of `outputs/task_handoff.md`. Treat `docs/MEMORY.md` as an index for targeted lookup, not as a full-history preload.
+   - **Start of new independent chat — read.** Read `docs/MEMORY.md` (the matrix). Find rows whose `Session` description overlaps your task. Open the linked detail file under `docs/memory/person-{a,b,c,d}/week-{N}.md`, `docs/memory/shared/*.md`, `docs/memory/sitlink/*.md`, or `docs/memory/cross-border-ecommerce/*.md` **only** when you actually need the prose, diffs, or verification steps for that session. Do not pre-load the whole `docs/memory/` tree.
+   - **Long-context handoff — write early.** For substantial unfinished work, maintain both `outputs/resume_card.md` (short first-read card, target 800-1500 tokens) and `outputs/task_handoff.md` (complete current task handoff, target 3000-6000 tokens when practical). Update both when visible context use is near 85%, or before long scans, risky multi-file edits, long-running commands, extended debugging loops, and major phase transitions when exact context percentage is unavailable.
    - **End of chat — write (both places, never just one).**
      - (a) Add a new row to the Session Matrix in `docs/MEMORY.md` with `Date | Owner | Session | Detail file`. Owner is `A`, `B`, `C`, `D`, `shared`, `sitlink`, or `cross-border-ecommerce`. For A/B/C/D/shared work, pick the Week header (Week 1 / Week 2 / …) that matches `docs/TeamPlan.md`; create a new Week header if you're the first to log work in that sprint week. For Sitlink work, use the dedicated Sitlink section and do not map it to TeamPlan weeks. For Cross-border e-commerce work, use the dedicated Cross-border e-commerce section and do not map it to TeamPlan weeks.
      - (b) Append a dated section (`## {YYYY-MM-DD} — {Session title}`) to the matching detail file: `docs/memory/person-{you}/week-{N}.md` for single-owner work, a file under `docs/memory/shared/` for cross-cutting work (architecture pivots, workspace convention changes, multi-round bug hunts spanning multiple owners), a file under `docs/memory/sitlink/` for Sitlink work, or a file under `docs/memory/cross-border-ecommerce/` for Cross-border e-commerce work. If the detail file doesn't exist yet (e.g. starting a new sprint week, a new shared topic, a new Sitlink topic, or a new Cross-border e-commerce topic), create it with the standard header: the on-demand banner, a title (`# Person {X} — {area} — Week {N}`, `# {Shared topic}`, `# Sitlink — {topic}`, or `# Cross-border e-commerce — {topic}`), a one-paragraph description, and a "Sessions in this file" TOC table. Also update the TOC table in-place as new sessions land.

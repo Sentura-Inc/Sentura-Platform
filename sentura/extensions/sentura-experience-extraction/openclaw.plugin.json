@@ -1,5 +1,8 @@
 {
   "id": "sentura-experience-extraction",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Experience Extraction",
   "description": "Capability #13 Tier 3 — observes completed agent tasks via after_tool_call + agent_end hooks, scores recurring tool-sequence patterns, and promotes high-confidence patterns into the target agent's ekg/workflows/experience-links/ pillar.",
   "enabledByDefault": true,

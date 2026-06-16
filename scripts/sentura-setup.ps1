@@ -505,9 +505,9 @@ const overrides = {
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
   'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
-  'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', allow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { allow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 public-search lead discovery with typed Screening handoff preview' } },
-  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', allow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { allow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 low-cost live buyer background investigation with contextual scoring' } },
-  'cbe-accio-memory': { name: '跨境记忆处理员工', model: preferredModel, models: cbeAccioModels, tools: { profile: 'minimal', allow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { allow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', demoScope: 'Phase 1 simulated Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
+  'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', alsoAllow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { alsoAllow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Public-search lead discovery with typed Screening handoff preview' } },
+  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', alsoAllow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { alsoAllow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Low-cost live buyer background investigation with contextual scoring' } },
+  'cbe-accio-memory': { name: '跨境记忆处理员工', model: preferredModel, models: cbeAccioModels, tools: { profile: 'minimal', alsoAllow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { alsoAllow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Uploaded Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -756,6 +756,8 @@ $SenturaExtIds = @(
     "sentura-audit",
     "sentura-approval",
     "sentura-provisioner",
+    "sentura-experience-extraction",
+    "sentura-mcp-health",
     "sentura-memory-lancedb",
     "sentura-cost",
     "sentura-monitoring"
@@ -781,6 +783,10 @@ const fs = require('fs');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
 const tuples = (process.env.SENTURA_EXT_TUPLES || '').split('\n').filter(Boolean);
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const HOOK_CONVERSATION_ACCESS_PLUGIN_IDS = new Set([
+  'sentura-audit',
+  'sentura-experience-extraction',
+]);
 
 if (!config.plugins) config.plugins = {};
 if (!config.plugins.load) config.plugins.load = {};
@@ -791,6 +797,7 @@ if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
 
 let pathsChanged = 0;
 let entriesChanged = 0;
+let hookAccessChanged = 0;
 for (const tuple of tuples) {
   const [id, dir] = tuple.split('|');
   if (!id || !dir) continue;
@@ -799,10 +806,25 @@ for (const tuple of tuples) {
     pathsChanged++;
   }
   const current = config.plugins.entries[id] || {};
-  if (current.enabled !== true) {
-    config.plugins.entries[id] = { ...current, enabled: true };
+  let next = current;
+  if (next.enabled !== true) {
+    next = { ...next, enabled: true };
     entriesChanged++;
   }
+  if (HOOK_CONVERSATION_ACCESS_PLUGIN_IDS.has(id)) {
+    const currentHooks =
+      next.hooks && typeof next.hooks === 'object' && !Array.isArray(next.hooks)
+        ? next.hooks
+        : {};
+    if (currentHooks.allowConversationAccess !== true) {
+      next = {
+        ...next,
+        hooks: { ...currentHooks, allowConversationAccess: true },
+      };
+      hookAccessChanged++;
+    }
+  }
+  config.plugins.entries[id] = next;
 }
 
 let memoryLancedbDisabled = false;
@@ -848,6 +870,7 @@ if (senturaMem && senturaMem.enabled === true) {
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('  plugins.load.paths additions: ' + pathsChanged);
 console.log('  plugins.entries enable ops:   ' + entriesChanged);
+console.log('  hook conversation access ops: ' + hookAccessChanged);
 console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
 if (memoryLancedbDisabled) {
   console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');

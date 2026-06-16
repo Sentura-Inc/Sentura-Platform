@@ -1,5 +1,8 @@
 {
   "id": "sentura-audit",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Audit",
   "description": "Enterprise audit logging — captures tool calls, approvals, config changes, session events, and message activity for compliance and observability.",
   "enabledByDefault": true,

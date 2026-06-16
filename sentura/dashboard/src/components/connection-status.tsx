@@ -4,10 +4,10 @@ import { useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 
 const stateLabels = {
-  disconnected: "Disconnected",
-  connecting: "Connecting...",
-  connected: "Connected",
-  reconnecting: "Reconnecting...",
+  disconnected: "未连接",
+  connecting: "连接中",
+  connected: "已连接",
+  reconnecting: "重连中",
 } as const;
 
 const stateColors = {
@@ -25,7 +25,9 @@ export function ConnectionStatus() {
       <span
         className={cn("h-2 w-2 rounded-full", stateColors[state])}
       />
-      <span>Gateway: {stateLabels[state]}</span>
+      <span title="后台连接状态：已连接时才能让 AI 员工执行任务。">
+        后台：{stateLabels[state]}
+      </span>
     </div>
   );
 }

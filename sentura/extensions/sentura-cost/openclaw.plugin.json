@@ -1,5 +1,8 @@
 {
   "id": "sentura-cost",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Cost Tracking",
   "description": "Per-agent and per-department LLM cost attribution. Subscribes to OpenClaw's `model.usage` diagnostic event and persists every LLM call's token counts, model, latency, and pre-computed costUsd to a rolling JSONL store. Exposes `sentura.cost.events`, `sentura.cost.summary`, and `sentura.cost.byUser` gateway RPCs for the dashboard's Cost Center page.",
   "enabledByDefault": true,

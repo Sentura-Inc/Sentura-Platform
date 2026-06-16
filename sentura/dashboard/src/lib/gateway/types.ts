@@ -53,6 +53,9 @@ export interface TranscriptMessage {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: unknown;
+  stopReason?: string;
+  errorMessage?: string;
+  [key: string]: unknown;
 }
 
 export interface ApprovalRequest {
@@ -166,6 +169,70 @@ export interface GatewayHealth {
 export interface CostQuerySummaryParams {
   startTime?: string;
   endTime?: string;
+}
+
+export interface CostQueryEventsParams {
+  agentId?: string;
+  tenantId?: string;
+  departmentId?: string;
+  userToken?: string;
+  model?: string;
+  provider?: string;
+  startTime?: string;
+  endTime?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CostEventKind = "model" | "external_api" | "local_tool";
+
+export type CostPricingStatus =
+  | "priced"
+  | "estimated"
+  | "free"
+  | "included"
+  | "unpriced";
+
+export interface ExternalUsageUnit {
+  unit: "request" | "credit" | "page" | "local_call";
+  quantity: number;
+  label?: string;
+}
+
+export interface CostEvent {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  sessionKey: string;
+  userToken: string;
+  tenantId: string;
+  departmentId: string | null;
+  provider: string;
+  model: string;
+  kind?: CostEventKind;
+  service?: string;
+  operation?: string;
+  pricingStatus?: CostPricingStatus;
+  pricingNote?: string;
+  externalUsage?: ExternalUsageUnit;
+  httpStatus?: number;
+  toolName?: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens: number;
+  };
+  costUsd: number | null;
+  durationMs: number;
+  source?: "diagnostic" | "session_log" | "external_tool_log";
+  messageId?: string;
+}
+
+export interface CostEventsResponse {
+  events: CostEvent[];
+  count: number;
 }
 
 export interface CostAggregateBucket {

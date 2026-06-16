@@ -24,6 +24,11 @@ import {
   aggregateByUser,
   summarize,
 } from "./src/aggregator.js";
+import {
+  collectSessionLogCostEvents,
+  resolveCostUserToken,
+  resolveDefaultDashboardUserToken,
+} from "./src/session-log-backfill.js";
 import { CostStore } from "./src/store.js";
 import { TenancyResolver } from "./src/tenancy-resolver.js";
 import type { CostConfig, CostEvent, CostQueryParams } from "./src/types.js";
@@ -31,12 +36,6 @@ import type { CostConfig, CostEvent, CostQueryParams } from "./src/types.js";
 let eventCounter = 0;
 function newEventId(): string {
   return `cost_${Date.now()}_${++eventCounter}`;
-}
-
-function extractUserToken(sessionKey: string | undefined): string {
-  if (!sessionKey) return "";
-  const match = /^agent:[^:]+:user:([^:]+):/.exec(sessionKey);
-  return match?.[1] ?? "";
 }
 
 function extractAgentId(sessionKey: string | undefined): string | null {
@@ -62,12 +61,75 @@ export default definePluginEntry({
     "Per-agent / per-department LLM cost attribution backed by the model.usage diagnostic event.",
   register(api: OpenClawPluginApi) {
     const config = resolveConfig(api.pluginConfig ?? {});
+    const openClawDir = resolveOpenClawDir();
     const store = new CostStore({ logDir: config.logDir, retention: config.retention });
-    const tenancy = new TenancyResolver(path.join(resolveOpenClawDir(), "sentura-rbac"));
+    const tenancy = new TenancyResolver(path.join(openClawDir, "sentura-rbac"));
+    let defaultDashboardUserToken: string | undefined;
+    let knownEventIds: Set<string> | null = null;
+    let lastBackfillAt = 0;
+    let backfillPromise: Promise<void> | null = null;
 
-    store.initialize().catch((err) => {
-      api.logger.error("[sentura-cost] Failed to initialize cost store:", err);
-    });
+    async function ensureKnownEventIds(): Promise<Set<string>> {
+      if (!knownEventIds) {
+        const existing = await store.readRange();
+        knownEventIds = new Set(existing.map((event) => event.id));
+      }
+      return knownEventIds;
+    }
+
+    async function appendUnique(row: CostEvent): Promise<boolean> {
+      const ids = await ensureKnownEventIds();
+      if (ids.has(row.id)) return false;
+      await store.append(row);
+      ids.add(row.id);
+      return true;
+    }
+
+    async function syncSessionLogBackfill(force = false): Promise<void> {
+      const now = Date.now();
+      if (!force && now - lastBackfillAt < 10_000) return;
+      if (backfillPromise) return backfillPromise;
+
+      backfillPromise = (async () => {
+        lastBackfillAt = now;
+        defaultDashboardUserToken ??= await resolveDefaultDashboardUserToken(openClawDir);
+        const candidates = await collectSessionLogCostEvents({
+          openClawDir,
+          defaultDashboardUserToken,
+        });
+        let appended = 0;
+        for (const candidate of candidates) {
+          const { tenantId, departmentId } = tenancy.resolve(candidate.agentId);
+          const row: CostEvent = {
+            ...candidate,
+            tenantId,
+            departmentId,
+          };
+          if (await appendUnique(row)) appended++;
+        }
+        if (appended > 0) {
+          api.logger.info(`[sentura-cost] Backfilled ${appended} cost events from OpenClaw session logs.`);
+        }
+      })()
+        .catch((err) => {
+          api.logger.warn(`[sentura-cost] Session-log backfill failed: ${String(err)}`);
+        })
+        .finally(() => {
+          backfillPromise = null;
+        });
+
+      return backfillPromise;
+    }
+
+    const ready = store
+      .initialize()
+      .then(async () => {
+        defaultDashboardUserToken = await resolveDefaultDashboardUserToken(openClawDir);
+        await syncSessionLogBackfill(true);
+      })
+      .catch((err) => {
+        api.logger.error("[sentura-cost] Failed to initialize cost store:", err);
+      });
 
     // ========================================================================
     // Capture: subscribe to model.usage diagnostic events.
@@ -83,7 +145,11 @@ export default definePluginEntry({
 
       const sessionKey = event.sessionKey ?? "";
       const agentId = extractAgentId(sessionKey) ?? "(unknown)";
-      const userToken = extractUserToken(sessionKey);
+      const userToken = resolveCostUserToken({
+        agentId,
+        sessionKey,
+        defaultDashboardUserToken,
+      });
       const { tenantId, departmentId } = tenancy.resolve(agentId);
 
       const usage = event.usage ?? {};
@@ -108,6 +174,13 @@ export default definePluginEntry({
         departmentId,
         provider: event.provider ?? "(unknown)",
         model: event.model ?? "(unknown)",
+        kind: "model",
+        service: event.provider ?? "(unknown)",
+        pricingStatus: typeof event.costUsd === "number" ? "priced" : "unpriced",
+        pricingNote:
+          typeof event.costUsd === "number"
+            ? "OpenClaw model.usage 事件返回的真实模型成本。"
+            : "模型提供商未在 usage 事件中返回美元成本。",
         usage: {
           inputTokens,
           outputTokens,
@@ -117,9 +190,10 @@ export default definePluginEntry({
         },
         costUsd: typeof event.costUsd === "number" ? event.costUsd : null,
         durationMs: event.durationMs ?? 0,
+        source: "diagnostic",
       };
 
-      store.append(row).catch((err) => {
+      ready.then(() => appendUnique(row)).catch((err) => {
         api.logger.warn(`[sentura-cost] Failed to persist cost event: ${String(err)}`);
       });
     });
@@ -130,6 +204,8 @@ export default definePluginEntry({
 
     api.registerGatewayMethod("sentura.cost.events", async ({ params, respond }) => {
       try {
+        await ready;
+        await syncSessionLogBackfill();
         const events = await store.query((params ?? {}) as CostQueryParams);
         respond(true, { events, count: events.length });
       } catch (err) {
@@ -139,6 +215,8 @@ export default definePluginEntry({
 
     api.registerGatewayMethod("sentura.cost.summary", async ({ params, respond }) => {
       try {
+        await ready;
+        await syncSessionLogBackfill();
         const start = (params?.startTime as string | undefined) ?? "";
         const end = (params?.endTime as string | undefined) ?? new Date().toISOString();
         const events = await store.readRange(start || undefined, end);
@@ -154,6 +232,8 @@ export default definePluginEntry({
 
     api.registerGatewayMethod("sentura.cost.byUser", async ({ params, respond }) => {
       try {
+        await ready;
+        await syncSessionLogBackfill();
         const start = params?.startTime as string | undefined;
         const end = params?.endTime as string | undefined;
         const events = await store.readRange(start, end);

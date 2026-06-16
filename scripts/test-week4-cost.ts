@@ -24,6 +24,7 @@ import {
   aggregateByUser,
   summarize,
 } from "../sentura/extensions/sentura-cost/src/aggregator.js";
+import { collectSessionLogCostEvents } from "../sentura/extensions/sentura-cost/src/session-log-backfill.js";
 import { CostStore } from "../sentura/extensions/sentura-cost/src/store.js";
 import type { CostEvent } from "../sentura/extensions/sentura-cost/src/types.js";
 
@@ -195,6 +196,188 @@ async function testStoreRoundTrip(): Promise<void> {
   }
 }
 
+async function testSessionLogBackfill(): Promise<void> {
+  console.log("\n[8] session-log backfill — real OpenClaw usage rows become cost events");
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sentura-cost-backfill-test-"));
+  try {
+    const sessionsDir = path.join(tmp, "agents/cbe-lead-discovery/sessions");
+    const sessionFile = path.join(sessionsDir, "session-1.jsonl");
+    const sessionKey = "agent:cbe-lead-discovery:dashboard:test-session";
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionsDir, "sessions.json"),
+      JSON.stringify({
+        [sessionKey]: {
+          sessionId: "session-1",
+          sessionFile,
+          modelProvider: "openai",
+          model: "gpt-5.5",
+          runtimeMs: 1234,
+        },
+      }),
+    );
+    await fs.writeFile(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "session",
+          id: "session-1",
+          timestamp: "2026-06-15T13:00:00.000Z",
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-usage-1",
+          timestamp: "2026-06-15T13:00:05.000Z",
+          message: { role: "assistant", content: "done" },
+          provider: "openai",
+          model: "gpt-5.5",
+          usage: {
+            input: 1000,
+            output: 200,
+            cacheRead: 500,
+            cacheWrite: 0,
+            totalTokens: 1700,
+            cost: { input: 0.005, output: 0.006, cacheRead: 0.00025, total: 0.01125 },
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const events = await collectSessionLogCostEvents({
+      openClawDir: tmp,
+      defaultDashboardUserToken: "employee-token",
+    });
+    check("one usage event collected", events.length === 1);
+    check("dashboard CBE session attributed to employee token", events[0]?.userToken === "employee-token");
+    check("costUsd from usage.cost.total", near(events[0]?.costUsd ?? 0, 0.01125));
+    check("token totals preserved", events[0]?.usage.totalTokens === 1700);
+    check("source marked session_log", events[0]?.source === "session_log");
+    check("stable id prefix", events[0]?.id.startsWith("sessionlog_") === true);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}
+
+async function testExternalToolLogBackfill(): Promise<void> {
+  console.log("\n[9] external tool-log backfill — public/free/unpriced API calls become cost rows");
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sentura-cost-external-test-"));
+  try {
+    const sessionsDir = path.join(tmp, "agents/cbe-buyer-screening/sessions");
+    const sessionFile = path.join(sessionsDir, "session-2.jsonl");
+    const sessionKey = "agent:cbe-buyer-screening:user:employee-token:s2";
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionsDir, "sessions.json"),
+      JSON.stringify({
+        [sessionKey]: {
+          sessionId: "session-2",
+          sessionFile,
+          modelProvider: "openai",
+          model: "gpt-5.5",
+          runtimeMs: 2345,
+        },
+      }),
+    );
+    await fs.writeFile(
+      sessionFile,
+      [
+        JSON.stringify({ type: "session", id: "session-2", timestamp: "2026-06-16T00:00:00.000Z" }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-tool-calls",
+          timestamp: "2026-06-16T00:00:01.000Z",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "call-trade",
+                name: "cross-border-intel__cbe_intel_trade_record_search",
+                arguments: { company_name: "MOBO", source: "auto", max_paid_spend_usd: 9 },
+              },
+              {
+                type: "toolCall",
+                id: "call-email",
+                name: "cross-border-intel__cbe_intel_email_domain_check",
+                arguments: { email: "buyer@example.com", enable_paid_validation: true },
+              },
+            ],
+          },
+          provider: "openai",
+          model: "gpt-5.5",
+          usage: {
+            input: 10,
+            output: 20,
+            totalTokens: 30,
+            cost: { total: 0.0003 },
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "tool-trade",
+          timestamp: "2026-06-16T00:00:02.000Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-trade",
+            toolName: "cross-border-intel__cbe_intel_trade_record_search",
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "found",
+                  provider: "importyeti",
+                  endpoint: "GET /v1.0/company/search",
+                  http_status: 200,
+                  records: { requestCost: 0, creditsRemaining: 100, data: [] },
+                }),
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "tool-email",
+          timestamp: "2026-06-16T00:00:03.000Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call-email",
+            toolName: "cross-border-intel__cbe_intel_email_domain_check",
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  status: "checked",
+                  paid_validation: {
+                    providers: [
+                      { provider: "abstract", http_status: 200, result: {} },
+                      { provider: "hunter", http_status: 200, result: {} },
+                    ],
+                  },
+                }),
+              },
+            ],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const events = await collectSessionLogCostEvents({ openClawDir: tmp });
+    const external = events.filter((event) => event.source === "external_tool_log");
+    const importYeti = external.find((event) => event.service === "ImportYeti");
+    const abstract = external.find((event) => event.service === "Abstract Email Reputation");
+    const hunter = external.find((event) => event.service === "Hunter Email Verifier");
+    const dns = external.find((event) => event.service === "DNS MX/SPF/DMARC");
+
+    check("external tool rows collected", external.length === 4);
+    check("ImportYeti requestCost=0 is recorded as included zero spend", importYeti?.pricingStatus === "included" && importYeti.costUsd === 0);
+    check("Abstract request is visible but not falsely converted to USD", abstract?.pricingStatus === "unpriced" && abstract.costUsd === null);
+    check("Hunter verifier credit usage is visible", hunter?.externalUsage?.unit === "credit" && hunter.externalUsage.quantity === 0.5);
+    check("DNS check is recorded as free public infrastructure", dns?.pricingStatus === "free" && dns.costUsd === 0);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   console.log("Week 4 Task 3 — sentura-cost extension tests");
 
@@ -205,6 +388,8 @@ async function main(): Promise<void> {
   testUnpricedEvents();
   testSummary();
   await testStoreRoundTrip();
+  await testSessionLogBackfill();
+  await testExternalToolLogBackfill();
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

@@ -584,6 +584,32 @@ function secCompanyCandidates(body: unknown) {
   });
 }
 
+function secRecentFilingsSummary(record: Record<string, unknown>) {
+  const filings = asRecord(record.filings);
+  const recent = asRecord(filings.recent);
+  const forms = Array.isArray(recent.form) ? recent.form : [];
+  const filingDates = Array.isArray(recent.filingDate) ? recent.filingDate : [];
+  const reportDates = Array.isArray(recent.reportDate) ? recent.reportDate : [];
+  const accessionNumbers = Array.isArray(recent.accessionNumber) ? recent.accessionNumber : [];
+  const primaryDocuments = Array.isArray(recent.primaryDocument) ? recent.primaryDocument : [];
+  const primaryDocDescriptions = Array.isArray(recent.primaryDocDescription)
+    ? recent.primaryDocDescription
+    : [];
+  const recentFilings = forms.slice(0, 8).map((form, index) => ({
+    form,
+    filing_date: filingDates[index],
+    report_date: reportDates[index],
+    accession_number: accessionNumbers[index],
+    primary_document: primaryDocuments[index],
+    description: primaryDocDescriptions[index],
+  }));
+  return {
+    recent_filing_count: forms.length,
+    recent_forms: Array.from(new Set(forms.map(String))).slice(0, 12),
+    recent_filings: recentFilings,
+  };
+}
+
 async function resolveSecCikByCompanyName(ctx: ToolContext, companyName: string) {
   const url = "https://www.sec.gov/files/company_tickers.json";
   const { response, body } = await fetchJson(ctx, url, {
@@ -641,6 +667,7 @@ async function secLookup(ctx: ToolContext, rawArgs: unknown) {
     },
   });
   const record = asRecord(body);
+  const filingsSummary = secRecentFilingsSummary(record);
   return source(
     ctx,
     {
@@ -656,7 +683,10 @@ async function secLookup(ctx: ToolContext, rawArgs: unknown) {
       entity_name: firstString(record.name),
       sic: firstString(record.sic),
       tickers: Array.isArray(record.tickers) ? record.tickers : [],
-      submissions: body,
+      exchanges: Array.isArray(record.exchanges) ? record.exchanges : [],
+      fiscal_year_end: firstString(record.fiscalYearEnd),
+      state_of_incorporation: firstString(record.stateOfIncorporation),
+      submissions_summary: filingsSummary,
     },
     { sourceUrl: url, sourceType: "official_api", confidence: response.ok ? 0.86 : 0.22 },
   );

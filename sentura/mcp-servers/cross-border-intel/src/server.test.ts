@@ -145,13 +145,32 @@ describe("registry and public-company routes", () => {
   });
 
   it("pads SEC CIK to ten digits and sends a configured User-Agent", async () => {
+    const manyFilings = Array.from({ length: 40 }, (_, index) => index);
     const fetchFn: FetchLike = vi.fn(async (url, init) => {
       const u = new URL(String(url));
       expect(u.pathname).toBe("/submissions/CIK0000320193.json");
       const headers = new Headers(init?.headers);
       expect(headers.get("user-agent")).toBe("SenturaCrossBorderIntel/0.1 test-contact@example.com");
       return new Response(
-        JSON.stringify({ cik: "320193", name: "APPLE INC", tickers: ["AAPL"], sic: "3571" }),
+        JSON.stringify({
+          cik: "320193",
+          name: "APPLE INC",
+          tickers: ["AAPL"],
+          exchanges: ["Nasdaq"],
+          sic: "3571",
+          fiscalYearEnd: "0928",
+          stateOfIncorporation: "CA",
+          filings: {
+            recent: {
+              form: manyFilings.map((index) => (index % 2 === 0 ? "10-K" : "10-Q")),
+              filingDate: manyFilings.map((index) => `2026-01-${String((index % 28) + 1).padStart(2, "0")}`),
+              reportDate: manyFilings.map((index) => `2025-12-${String((index % 28) + 1).padStart(2, "0")}`),
+              accessionNumber: manyFilings.map((index) => `0000320193-26-${String(index).padStart(6, "0")}`),
+              primaryDocument: manyFilings.map((index) => `aapl-${index}.htm`),
+              primaryDocDescription: manyFilings.map((index) => `Apple filing ${index}`),
+            },
+          },
+        }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
@@ -167,8 +186,14 @@ describe("registry and public-company routes", () => {
       cik: "0000320193",
       endpoint: "GET /submissions/CIK##########.json",
       entity_name: "APPLE INC",
+      submissions_summary: {
+        recent_filing_count: 40,
+      },
       source_type: "official_api",
     });
+    expect(result).not.toHaveProperty("submissions");
+    expect((result.submissions_summary as { recent_filings: unknown[] }).recent_filings).toHaveLength(8);
+    expect(JSON.stringify(result).length).toBeLessThan(4000);
   });
 
   it("resolves SEC CIK by company name before submissions lookup", async () => {
