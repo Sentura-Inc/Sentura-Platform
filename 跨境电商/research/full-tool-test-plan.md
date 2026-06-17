@@ -172,9 +172,14 @@ success rate(ok/total)· 错误明细分类 · 重试次数 · 空答案数。**
 ---
 
 ## §5 待办(下次接着干)
-- [ ] 写 `scripts/cbe-functional-test.mjs`(**按 §4 全埋点**:三时间戳 + 每工具延迟 + LLM 耗时 + 成本 + 输出三件套)+ 跑 Phase 1(Tesco + Apple),贴出工具开火 + 真数据 + 计时。
-- [ ] 写 `scripts/cbe-fulltool-stress.mjs`(含配额预检 + 预算熔断 + **§4 全埋点 + 扩展 `cbe-loadmon.sh` 2s 采样**)+ 跑 Phase 2 双轨。
-- [ ] 复用/扩展服务器 `/root/parse-traj.mjs`(解析 trajectory 取工具/LLM 时间戳)+ `cbe-loadmon.sh`(加 429 计数 + 时间戳对齐)。
-- [ ] 把结果写进 `loadtest-report.md` 新章 + CE13 测试行。
-- [ ] 订正 `server-location-llm-decision-report.md` 第 0 章表(Hunter/ImportYeti 已配齐可用)。
-- [ ] commit 这批(dashboard/docs 已在 `46ce96bb`;本计划 + 后续脚本待提交)。
+- [x] 写 `scripts/cbe-functional-test.mjs`(**按 §4 全埋点**:三时间戳 + 每工具延迟 + LLM 耗时 + 成本 + 输出三件套)+ 跑 Phase 1(Tesco + Apple)。**2026-06-17 PASS:并集 8/8 工具全真实开火**(Tesco 7/8 含 Hunter/Abstract/ImportYeti,Apple 5/8 含 SEC/ImportYeti,均 `trusted_candidate`)。成本 $0.18(2×ImportYeti)+1 Hunter+1 Abstract;gwRSS 384→707MB,0×429;国别路由正确(UK→CH 不 SEC、US→SEC 不 CH)。证据:`research/results/`,报告:`loadtest-report.md` 第八章。
+- [ ] 写 `scripts/cbe-fulltool-stress.mjs`(含配额预检 + 预算熔断 + **§4 全埋点 + 扩展 `cbe-loadmon.sh` 2s 采样**)+ 跑 Phase 2 双轨。**(下一步)**
+- [x] 复用/扩展服务器 `cbe-loadmon.sh` → `scripts/cbe-loadmon2.sh`(ISO 时间戳 + 429 计数);轨迹解析直接在驱动内做(经 `sessions.json` 的 `sessionKey(小写)→sessionId` 映射定位文件,parse `message` 事件)。
+- [x] 把功能验证结果写进 `loadtest-report.md` 第八章 + CE13.9/13.10 测试行。
+- [x] 订正 `server-location-llm-decision-report.md` 第 0 章表(CH/SEC/RDAP/Hunter/Abstract/ImportYeti 已配齐实测可用)。
+- [ ] commit Phase 2 结果(本次功能验证已 commit;Phase 2 待跑)。
+
+### 工程坑(本次新增,已记坑库)
+1. **sessionKey 必须 `agent:<agentId>:` 前缀**:否则 gateway 解析出 agent="main",`agent` RPC 报 `does not match session key agent "main"` 秒拒(不烧额度)。
+2. **gateway 把 sessionKey 全小写化存盘**,且**原始会话 JSONL 不含 sessionKey 字段**——回查轨迹必须经 `sessions.json` 的 `key(lowercased)→sessionId` 映射,不能 grep sessionKey。
+3. 付费源开火靠**员工传参**(非服务器配置):Hunter/Abstract 需 `email_domain_check(enable_paid_validation=true, email=...)`(默认 false);ImportYeti 需 `trade_record_search(max_paid_spend_usd>0)`(默认 0,budget=min(配置1,传参0)=0 则不开火)。提示词必须以"operator 已授权付费 + 给定预算/邮箱"触发技能里的付费分支。

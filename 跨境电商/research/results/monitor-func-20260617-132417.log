@@ -1,0 +1,59 @@
+# ts gwRSS_MB avail_MB load containers http429_total :: per-container
+2026-06-17T13:24:17.955Z gwRSS=384MB avail=14170MB load=0.00 containers=2 http429=0
+0 :: cbe-lead-discovery-6e4b50e0|0.00%|432KiB / 2GiB cbe-buyer-screening-0dfee10f|0.00%|3.004MiB / 2GiB 
+2026-06-17T13:24:22.018Z gwRSS=704MB avail=13796MB load=0.08 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:25.075Z gwRSS=707MB avail=13789MB load=0.08 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:28.128Z gwRSS=707MB avail=13775MB load=0.07 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:31.181Z gwRSS=707MB avail=13759MB load=0.07 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:34.232Z gwRSS=430MB avail=14026MB load=0.07 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:37.281Z gwRSS=470MB avail=14007MB load=0.06 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:40.330Z gwRSS=472MB avail=14008MB load=0.06 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:43.380Z gwRSS=480MB avail=14001MB load=0.06 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:46.431Z gwRSS=492MB avail=13994MB load=0.06 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:49.482Z gwRSS=492MB avail=13984MB load=0.05 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:52.532Z gwRSS=496MB avail=13982MB load=0.05 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:55.583Z gwRSS=505MB avail=13978MB load=0.05 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:24:58.643Z gwRSS=506MB avail=13981MB load=0.04 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:01.693Z gwRSS=506MB avail=13971MB load=0.04 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:04.744Z gwRSS=529MB avail=13952MB load=0.04 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:07.795Z gwRSS=583MB avail=13882MB load=0.04 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:10.848Z gwRSS=580MB avail=13842MB load=0.04 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:13.898Z gwRSS=580MB avail=13844MB load=0.03 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:16.949Z gwRSS=580MB avail=13840MB load=0.03 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:20.000Z gwRSS=580MB avail=13840MB load=0.03 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:23.052Z gwRSS=581MB avail=13856MB load=0.03 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:26.105Z gwRSS=581MB avail=13845MB load=0.03 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:29.156Z gwRSS=581MB avail=13843MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:32.207Z gwRSS=581MB avail=13849MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:35.260Z gwRSS=582MB avail=13851MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:38.311Z gwRSS=582MB avail=13844MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:41.362Z gwRSS=582MB avail=13848MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 
+2026-06-17T13:25:44.414Z gwRSS=582MB avail=13854MB load=0.02 containers=1 http429=0
+0 :: cbe-buyer-screening-0dfee10f|0.00%|444KiB / 2GiB 

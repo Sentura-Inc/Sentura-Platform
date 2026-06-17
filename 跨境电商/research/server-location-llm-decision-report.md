@@ -40,9 +40,9 @@ cbe 平台的跨境暴露面必须拆成**两条独立网络路径**分别评估
 |---|---|---|---|
 | **大模型(西方)** | OpenAI、Anthropic Claude、Google Gemini | ❌ **不可达** | 服务商侧地理封锁(非 GFW),大陆 + 香港 **API** 均封(香港 2026-03 仅开放消费级 Gemini,开发者 API 仍不可直连,详见第 1 章矩阵脚注①);OpenAI 自 2024-07-09 起 |
 | **大模型(国产)** | DeepSeek(`api.deepseek.com`)、阿里 DashScope/Qwen、Moonshot/Kimi | ✅ 可达,RTT 个位~30ms | 大陆直连零网络惩罚,且均已 CAC 备案 |
-| **公司注册局** | UK Companies House、SEC EDGAR、OpenCorporates、RDAP | ✅ 可达 | 走正常公网国际出入口,非翻墙 |
-| **贸易/海关数据** | Volza(印度)、ImportYeti(美国) | ✅ 可达(SEC/RDAP 已验证) | 数据主体多为境外公司 |
-| **邮箱验证** | Hunter(法国/EU) | ✅ 可达 | 第三方供应商 ToS 另需审 |
+| **公司注册局** | UK Companies House、SEC EDGAR、OpenCorporates、RDAP | ✅ 可达;CH/SEC/RDAP 已配 key 实测可用(2026-06-17,200) | 走正常公网国际出入口,非翻墙 |
+| **贸易/海关数据** | Volza(印度)、ImportYeti(美国) | ✅ **ImportYeti 已配 key 实测可用**(200,真海关票,$9/100 档);Volza 未配 key | 数据主体多为境外公司 |
+| **邮箱验证** | Hunter(法国/EU)、Abstract(美国) | ✅ **Hunter + Abstract 已配 key 实测可用**(200,真邮箱判定) | 第三方供应商 ToS 另需审 |
 | **网页搜索/抓取** | Brave、Tavily、买家官网抓取 | ✅ Tavily 已验证可达 | GDPR 抓取合规另算 |
 | **代码/工具** | GitHub | ✅ 可达 | — |
 

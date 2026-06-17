@@ -207,13 +207,50 @@ Sweep 1 的 75/min 是被 maxConcurrent=8 闸门**人为锁住**的。Sweep 2 �
 
 ---
 
-## 八、待办 / 后续
+## 八、Phase 1:全工具(8/8)功能验证(2026-06-17)
 
-**其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
+> Sweep 1/2/3 测的是**吞吐**(只用免费源 RDAP/DNS/SEC)。配齐全部 8 个真实数据 key 后,本阶段换个问题:**员工自己经 gateway 能不能把 8 个工具全串起来、返回真数据?**——不是压并发,是验全链路。驱动 [`scripts/cbe-functional-test.mjs`](../../scripts/cbe-functional-test.mjs),全 §4 埋点;原始证据见 [`research/results/`](results/)。
+
+### 怎么测的
+两单顺序背调(并发=1),operator 显式授权付费源:
+- **英国 Tesco PLC**(tesco.com,待验邮箱 customer.services@tesco.com)→ 期望 7/8(CH + RDAP + DNS + Hunter + Abstract + ImportYeti + Tavily,不含美股 SEC)
+- **美国 Apple Inc.**(apple.com)→ 期望 5/8(SEC + RDAP + DNS + ImportYeti + Tavily,不含英国 CH;本单不开付费邮箱校验以省 Hunter/Abstract 月配额)
+
+走生产路径 `agent` + `agent.wait`(非 /run 诊断路由);跑后按 `sessions.json` 的 sessionKey→sessionId 映射定位磁盘轨迹 JSONL,解析每工具开火/延迟/结果/成本。
+
+### 结果:8/8 全开火,全真数据 ✅
+| 任务 | 开火工具 | 期望命中 | t_e2e | t_llm | 回合 |
+|---|---|---|---|---|---|
+| Tesco-UK | CH·RDAP·DNS·**Hunter**·**Abstract**·**ImportYeti**·Tavily(7/8) | 7/7 ✅ 无缺失、SEC 正确跳过 | 47.8s | 34.7s | 6 |
+| Apple-US | SEC·RDAP·DNS·**ImportYeti**·Tavily(5/8) | 5/5 ✅ 无缺失、CH 正确跳过 | 38.5s | 29.7s | 6 |
+
+**两单并集 = 8/8 工具全部真实开火。** 关键证据(非 `unavailable_api`/`disabled_by_budget`):
+- **Companies House** `200/found`,Tesco PLC 真注册档(2.7s);
+- **Hunter** `200`,邮箱判定 `accept_all` score=74(真验证,4.2s);**Abstract** `200`(同一次 `email_domain_check` 内并发);
+- **ImportYeti** `200/found`,Tesco 2 票 / Apple 10 票海关记录,响应自带 `executionTime` 21ms/35ms;
+- **SEC** 真出 AAPL/CIK;**RDAP** `302`→权威服务器;**DNS** MX/SPF/DMARC(Apple 6 条 MX);**Tavily** 5/3 条网页证据。
+- 两份背调都综合多源证据给出结论(Tesco `trusted_candidate` 97/100、Apple `trusted_candidate` 100/100),无渲染崩溃、无 `agent_timeout`。
+
+### 成本 / 资源
+- **真实成本**:ImportYeti×2 ≈ **$0.18**($9/100 档,exec 21/35ms)+ Hunter×1 + Abstract×1;均在月配额内(🔴 限量源各只烧 1~2 次)。
+- **资源**:gwRSS 384→峰值 **707MB**,host load ≤0.07,容器内存 444KiB,**0 次 429**,无超时。功能验证负载极轻,瓶颈不在这一阶段。
+
+### 结论
+配齐 8 key 后,`cbe-buyer-screening` 员工能按"国别 + operator 授权"正确路由工具(英国走 CH 不走 SEC、美国反之),付费源在 operator 授权 + 预算闸内按需开火,全部返回真数据并综合成可信度结论。**全工具链路打通,可进入 Phase 2 配额感知压测。**
+
+> 工程坑(已修,记入坑库):驱动按 sessionKey 回查轨迹时,(1) sessionKey 必须以 `agent:<agentId>:` 开头否则 gateway 判 agent="main" 拒绝;(2) gateway 把 sessionKey **全小写化**存盘,且原始 JSONL 不存 sessionKey——必须经 `sessions.json` 的 `key(lowercased)→sessionId` 映射定位文件。
 
 ---
 
-## 九、如何复现
+## 九、待办 / 后续
+
+- **Phase 2 终极压测(配额感知双轨)**:Track A 免费源高并发测吞吐天花板 / Track B 全 8 工具小批量(N=10~20,低并发,预算熔断 ImportYeti≤30)测全链路真成本。驱动 `scripts/cbe-fulltool-stress.mjs`(待写,复用功能验证驱动 + 配额预检 + 调用计数器)。
+- 订正 `server-location-llm-decision-report.md` 第 0 章表:Hunter/ImportYeti 已从"付费/缺口"变"配齐可用"。
+- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
+
+---
+
+## 十、如何复现
 
 ```bash
 # 服务器上(loopback,gateway 在跑):
@@ -224,6 +261,10 @@ cd /root/sentura/openclaw
 OPENCLAW_DIR=/root/sentura/openclaw node /root/sentura/scripts/cbe-loadtest.mjs 8 80 r2
 # 2b) Sweep 3 真实工具任务(背调员工真调 RDAP/DNS/SEC,需先在 .env 配 SEC_USER_AGENT)
 OPENCLAW_DIR=/root/sentura/openclaw node /root/sentura/scripts/cbe-loadtest-tools.mjs 8 24 r8tool
+# 2c) Phase 1 全工具功能验证(8 key 配齐后,顺序跑 Tesco+Apple,付费源开;§4.4 采样器另起)
+MON_LOG=/root/cbe-func-out/monitor-$RUN.log GW_LOG=/root/gateway.log setsid bash /root/cbe-loadmon2.sh >/dev/null 2>&1 &
+OPENCLAW_DIR=/root/sentura/openclaw OUTDIR=/root/cbe-func-out node /root/cbe-functional-test.mjs
+#    只重解析磁盘轨迹(不烧额度):REPARSE_RUN=<run> ... node /root/cbe-functional-test.mjs
 # 3) 看监控
 tail -f /root/loadmon.log
 ```
