@@ -18,6 +18,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-17 | Phase 2 memory/test document split | Created this Phase 2 memory file and `docs/tests/tests-cross-border-phase2.md`; updated AGENTS/README/matrices so future CBE Phase 2 memory and tests use the new docs. |
 | 2026-06-17 | Phase 2 P2.1 re-verification | Re-ran CE18 static/live PostgreSQL checks, migration seed, focused TS/lint, full dashboard typecheck, legacy CBE suite, DB role/view probes, secret hygiene, and repo hygiene before proceeding to P2.2. |
 | 2026-06-17 | Phase 2 P2.2 typed Dashboard store/API routes | Implemented typed Dashboard CBE store modules, Employee/Admin App Router routes, validated Lead/Screening/Accio completion writes, marker parse-failure run/audit handling, and CE19 static/live PostgreSQL checks. |
+| 2026-06-17 | Phase 2 P2.3 Employee DB-backed UI migration | Moved Employee home/customers/memory reads to P2.2 APIs, reduced localStorage to draft cache, wired hidden task create-complete-fail DB lifecycle, and passed CE20 verification. |
+| 2026-06-17 | Phase 2 DB inspection query fix | Added a schema-correct live DB inspection script after manual psql queries exposed stale UI-projection column assumptions; updated CE20.15 and Phase 2 docs. |
 
 ## Current Phase 2 Ground Truth
 
@@ -27,7 +29,10 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
 - `admin` is a customer-side monitoring/supervisor role for live tasks, aggregate lists, per-user lists, Agent usage, costs, failures, and statistics. It is not a Sentura platform administrator and must not expose employee creation, prompt/tool/model/provider settings, OpenClaw config, Gateway config, MCP config, or sandbox/tool-policy changes.
 - P2.1 is complete and was re-verified on 2026-06-17. The PostgreSQL foundation lives under `sentura/lib/cross-border-store/` and uses `CBE_DATABASE_URL`; credentials must remain in env/secret injection, not committed files.
-- P2.2 typed Dashboard store/API routes are complete. P2.3 DB-backed Employee UI migration is next; `localStorage` remains the Employee UI source of truth until that migration lands.
+- P2.2 typed Dashboard store/API routes are complete.
+- P2.3 DB-backed Employee UI migration is complete. `个人中心`, `获客与背调`, `记忆整理`, task notifications, and hidden Lead/Screening/Accio create-complete-fail flows now read/write through the P2.2 APIs; `localStorage` is limited to draft/cache state and explicit demo seed fallback.
+- Manual DB inspection for P2.3 should use `scripts/inspect-cross-border-live-db.sql`. The physical tables intentionally do not duplicate every UI projection field as same-named columns.
+- P2.4 Lead Discovery coordinator concurrency is next.
 
 ## 2026-06-16 — Next-phase planning readout
 
@@ -328,3 +333,83 @@ P2.2 is server-side store/API work. It does not migrate the existing React Emplo
 ### Next
 
 Proceed to P2.3: migrate the Employee UI pages and `use-cbe-employee-store` to read/write through these DB-backed APIs, keeping localStorage only for drafts/cache or explicit fallback.
+
+## 2026-06-17 — Phase 2 P2.3 Employee DB-backed UI migration
+
+### Context
+
+The user asked to start from P2.3 in `跨境电商/PHASE-2.md`, strictly follow the plan, complete the next-stage work, and check the implementation. P2.2 had already created the durable Dashboard store/API boundary, but the Employee React pages still used `localStorage` as the working source of truth.
+
+### Files updated
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/src/components/cross-border/employee-task-status.tsx`
+- `sentura/dashboard/src/stores/use-cbe-employee-store.ts`
+- `sentura/dashboard/src/lib/cross-border-store/{accio.ts,customers.ts,schemas.ts,tasks.ts}`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/tasks/[id]/fail/route.ts`
+- `scripts/test-cross-border-agents.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+- `跨境电商/PHASE-2.md`
+- `docs/TESTS.md`
+- `docs/tests/tests-cross-border-phase2.md`
+- `docs/MEMORY.md`
+- `docs/memory/cross-border-ecommerce/phase-2.md`
+- `outputs/resume_card.md`
+- `outputs/task_handoff.md`
+
+### Behavior implemented
+
+- Added a typed Employee client API adapter for customer/task/memory reads, notification read writes, Lead/Screening/Accio create-complete calls, and task failure writes.
+- Moved `use-cbe-employee-store` away from source-of-truth persistence: it now persists only `draftCache`; rows, memory rows, and tasks are hydrated from DB-backed API reads.
+- Kept demo seed state only behind `NEXT_PUBLIC_CBE_USE_DEMO_SEED=1` or `CBE_USE_DEMO_SEED=1`.
+- Updated `个人中心`, `获客与背调`, and `记忆整理` to load from Employee APIs and refresh DB-backed lists after successful writes.
+- Wired hidden Lead, Screening, and Accio runs to create a DB run/import before OpenClaw session start, reuse a planned session key, complete through validated endpoints after marker parsing, and mark DB tasks failed on Gateway/model/marker failures.
+- Updated notification reads to poll terminal task projections and mark read state through the API instead of browser-only localStorage.
+- Expanded customer and Accio read projections with report/source/memory fields needed by the existing UI.
+- Normalized Lead/Screening/Accio marker payloads client-side before completion so source URLs, evidence timestamps, redacted Accio messages, and memory-preview metadata satisfy the P2.2 server schemas. Lead/Screening normalization now fails missing traceable source URLs instead of writing placeholder evidence.
+
+### Verification
+
+- `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 123/123 static checks.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 337/337 legacy CBE checks.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 143/143 static + live PostgreSQL checks.
+- Focused Dashboard ESLint for Employee pages/components/store/API/store modules: PASS.
+- `cd sentura/dashboard && pnpm build`: PASS; route manifest includes `employee/tasks/[id]/fail`.
+- Browser validation against `http://localhost:3000/client-demos/cross-border/employee`, `/employee/customers`, and `/employee/memory`: PASS, no runtime or console errors. The local DB had no business rows, so DB-backed empty states were expected.
+- Employee GET API probes for customers, memory, and tasks returned HTTP 200 envelopes from the local Dashboard server.
+- `git diff --check`: PASS before documentation updates; rerun after doc updates is expected in final verification.
+
+### Boundary and next
+
+P2.3 creates durable DB-backed Employee UI reads and task lifecycle writes, but it does not yet dedupe cross-user Lead Discovery scopes. Proceed to P2.4: implement the Lead Discovery coordinator so exact same-scope requests join one active OpenClaw run, near duplicates offer choices, and top-up mode passes an existing-identity denylist.
+
+## 2026-06-17 — Phase 2 DB inspection query fix
+
+### Context
+
+After P2.3, the user tested manual PostgreSQL queries against `sentura_cbe_dev` and found missing-column errors for fields such as `lead_candidates.website`, `lead_sources.finding`, `screening_targets.website`, `screening_reports.company_name`, and `lead_candidates.agent_run_id`. The runtime schema and store code were correct; the problem was the manual inspection SQL using UI/API projection field names as if they were physical table columns.
+
+### Fix
+
+- Added `scripts/inspect-cross-border-live-db.sql` as the supported live DB inspection runbook for Lead, Screening, task, evidence, and activity records.
+- The script derives `website` from `lead_run_results.source_snapshot_json->>'website'`, `lead_candidates.normalized_domain`, or `screening_targets.supplied_fields_json->>'website'` depending on record family.
+- It uses `lead_sources.excerpt` for Lead source text, while `screening_evidence.finding` remains valid only for Screening evidence.
+- It joins `screening_reports -> screening_targets` for company metadata and `lead_candidates -> lead_runs -> agent_runs` for run metadata.
+- Updated `跨境电商/PHASE-2.md`, `docs/tests/tests-cross-border-phase2.md`, and `docs/TESTS.md` so future DB checks use the script or Employee API projections instead of guessed raw table columns.
+- Added CE20.15 static checks that assert the inspection SQL uses the real FK paths and does not reintroduce stale projection-only columns.
+
+### Verification
+
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 127/127 static checks.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 147/147 static + live PostgreSQL checks.
+- Executed `scripts/inspect-cross-border-live-db.sql` against local `sentura_cbe_dev` through `node-postgres` after stripping psql-only `\echo` lines: PASS, no missing-column errors.
+
+### Boundary and next
+
+The physical schema was not changed. The fix is a correct inspection/runbook layer plus test coverage. P2.4 Lead Discovery coordinator concurrency remains the next implementation task.

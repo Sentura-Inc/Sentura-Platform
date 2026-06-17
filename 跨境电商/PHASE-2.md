@@ -847,6 +847,40 @@ User-facing behavior should not regress:
 - Completed/failed task notifications still show unread count.
 - Cost detail still shows model and external tool/API rows truthfully.
 
+### 6.3 Implementation Status (2026-06-17)
+
+P2.3 is implemented for the ordinary Employee UI:
+
+- Added `employee-api.ts` as the typed client-side adapter for the P2.2 Employee routes, including customer/task/memory reads, notification read writes, Lead/Screening/Accio create/complete calls, failure writes, and marker payload normalization.
+- Changed `use-cbe-employee-store` so `localStorage` persists only `draftCache`; customer rows, memory rows, and task records are hydrated from server APIs. Demo seed rows are available only behind `NEXT_PUBLIC_CBE_USE_DEMO_SEED=1` or `CBE_USE_DEMO_SEED=1`.
+- Updated `个人中心`, `获客与背调`, and `记忆整理` to fetch DB-backed projections on load and refresh customer/task/memory lists after successful writes.
+- Wired hidden Lead/Screening/Accio runs to create DB `agent_runs` before session start, reuse the planned `session_key` for the OpenClaw session, call validated completion endpoints after marker parsing, and call the task failure endpoint on Gateway/model/marker failures.
+- Lead/Screening marker normalization preserves source traceability: it derives evidence URLs only from returned source fields or target websites; missing traceable URLs fail the task instead of writing placeholder evidence.
+- Updated the notification center to poll DB-backed task projections and mark terminal task notifications read through the API.
+- Extended customer and Accio read projections with report/source/memory detail fields needed by the existing UI.
+- Added CE20 coverage in `scripts/test-cross-border-phase2-store.ts`, updated the legacy CBE static suite, and verified with typecheck, focused ESLint, production build, Browser checks, and live PostgreSQL checks.
+
+Boundary: P2.4 is still required for cross-user Lead Discovery run-scope coordination. P2.3 creates one DB run per Employee submission; it does not yet join exact duplicate Lead scopes into one shared OpenClaw run.
+
+### 6.4 Manual DB Inspection
+
+Use the checked-in inspection script instead of guessing raw table columns:
+
+```bash
+psql "postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev" \
+  -f scripts/inspect-cross-border-live-db.sql
+```
+
+The same SQL file is covered by CE20 static checks and was executed against local `sentura_cbe_dev` with `node-postgres` to verify the query columns and joins. Use the `psql` command above when you want human-readable result tables in your own terminal.
+
+Important physical-schema notes:
+
+- `lead_candidates` stores `normalized_domain`, not a `website` column. Website is derived from `lead_run_results.source_snapshot_json->>'website'` or `normalized_domain`.
+- `lead_sources` stores source text in `excerpt`; it does not have a `finding` column.
+- `screening_targets` stores original website in `supplied_fields_json->>'website'`; it also stores normalized `domain`.
+- `screening_reports` does not duplicate `company_name`; join through `screening_targets` on `screening_target_id`.
+- `lead_candidates` does not have `agent_run_id`; join `lead_candidates -> lead_runs -> agent_runs`.
+
 ## 7. P2.4 — Lead Discovery Coordinator
 
 ### 7.1 Problem
@@ -1111,7 +1145,7 @@ Phase 2 implementation tests:
 |---|---|---|
 | CE18 — DB migrations/store | `scripts/test-cross-border-phase2-store.ts` | Migrations run idempotently; seed tenant/users created; store writes/reads all major record families; no secrets in output. |
 | CE19 — P2.2 typed Dashboard store/API routes | `scripts/test-cross-border-phase2-store.ts` + type/lint/build | Store modules and Employee/Admin route handlers exist; Zod marker validation gates writes; Lead/Screening/Accio live PostgreSQL round-trip succeeds; parse failures mark failed `agent_runs`. |
-| CE20 — P2.3 Employee DB-backed UI migration | Type/build + Browser | Employee home/customers/memory render from DB; localStorage fallback is not source of truth; notifications/report drawers still work. |
+| CE20 — P2.3 Employee DB-backed UI migration | `scripts/test-cross-border-phase2-store.ts` + `scripts/inspect-cross-border-live-db.sql` + type/lint/build + Browser | Employee home/customers/memory render from DB; `localStorage` persists drafts/cache only; hidden Lead/Screening/Accio runs create/complete/fail DB task projections; notifications read terminal `agent_runs`; manual DB inspection queries match the physical schema. |
 | CE21 — P2.4 Lead coordinator concurrency | `scripts/test-cross-border-phase2-concurrency.ts` | Two exact same-scope requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed pool reuse and top-up denylist work. |
 | CE22 — P2.5 Screening/Accio durable workflow | Store tests + Browser | Screening report/evidence detail UX, retry/recovery, Accio approval-to-memory promotion, and durable Screening handoff consumption work. |
 | CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead runs, 5 Screening batches, 3 Accio imports; limits/backpressure/cost/audit recorded. |
@@ -1167,10 +1201,10 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1 and P2.2 are complete. Next start P2.3:
+P2.1, P2.2, and P2.3 are complete. Next start P2.4:
 
-1. Replace Employee page initialization and refresh flows with the P2.2 API read endpoints.
-2. Move `use-cbe-employee-store` from source-of-truth persistence to draft/cache state only.
-3. Wire hidden Lead/Screening/Accio task completion to call P2.2 completion endpoints after marker parsing.
-4. Refresh customer/task/memory/notification lists from DB after successful writes.
-5. Extend CE20 Browser/type/build coverage before starting P2.4 Lead coordinator concurrency.
+1. Add the Lead Discovery run-scope coordinator before a new `cbe-lead-discovery` OpenClaw session starts.
+2. Enforce exact-scope reuse with one active run and multiple memberships.
+3. Add near-duplicate detection and user choice handling.
+4. Implement completed-pool reuse and top-up denylist behavior.
+5. Extend CE21 concurrency coverage before starting P2.5 durable Screening/Accio workflow polish.

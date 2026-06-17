@@ -30,6 +30,10 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { employeeProfile } from "@/app/client-demos/cross-border/employee/_data/employee-data";
 import {
+  fetchEmployeeTasks,
+  markEmployeeNotificationsRead,
+} from "@/app/client-demos/cross-border/employee/_data/employee-api";
+import {
   formatCbeTaskDuration,
   isCbeEmployeeTaskActive,
   type CbeEmployeeTaskRecord,
@@ -54,22 +58,12 @@ const employeeNav = [
   },
 ];
 
-const NOTIFICATION_READ_STORAGE_KEY = "sentura-cbe-notification-read-task-ids-v1";
-
-function readNotificationIdsFromStorage() {
-  if (typeof localStorage === "undefined") return [];
-  try {
-    const rawIds = localStorage.getItem(NOTIFICATION_READ_STORAGE_KEY);
-    const parsedIds = rawIds ? JSON.parse(rawIds) : [];
-    return Array.isArray(parsedIds) ? parsedIds.filter((id) => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
 function getTaskNotificationHref(task: CbeEmployeeTaskRecord) {
   if (task.kind === "lead" || task.kind === "screening") {
     return "/client-demos/cross-border/employee/customers";
+  }
+  if (task.kind === "accio_memory") {
+    return "/client-demos/cross-border/employee/memory";
   }
   return "/client-demos/cross-border/employee";
 }
@@ -101,8 +95,27 @@ function getTaskNotificationDuration(task: CbeEmployeeTaskRecord) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const tasks = useCbeEmployeeStore((state) => state.tasks);
-  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(readNotificationIdsFromStorage);
+  const setTasks = useCbeEmployeeStore((state) => state.setTasks);
+  const markTaskNotificationsRead = useCbeEmployeeStore((state) => state.markTaskNotificationsRead);
   const [notificationOpen, setNotificationOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshTasks() {
+      try {
+        const latestTasks = await fetchEmployeeTasks();
+        if (!cancelled) setTasks(latestTasks);
+      } catch {
+        // The task bar is non-blocking; page-level surfaces show API errors.
+      }
+    }
+    void refreshTasks();
+    const timer = window.setInterval(refreshTasks, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [setTasks]);
 
   const taskNotifications = useMemo(
     () =>
@@ -118,18 +131,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [taskNotifications],
   );
 
-  useEffect(() => {
-    localStorage.setItem(NOTIFICATION_READ_STORAGE_KEY, JSON.stringify(readNotificationIds));
-  }, [readNotificationIds]);
-
-  const unreadCount = taskNotifications.filter((task) => !readNotificationIds.includes(task.id)).length;
+  const unreadCount = taskNotifications.filter((task) => !task.notificationRead).length;
 
   const markTaskNotificationRead = (taskId: string) => {
-    setReadNotificationIds((current) => (current.includes(taskId) ? current : [...current, taskId]));
+    markTaskNotificationsRead([taskId]);
+    void markEmployeeNotificationsRead([taskId]).catch(() => undefined);
   };
 
   const markAllNotificationsRead = () => {
-    setReadNotificationIds((current) => Array.from(new Set([...current, ...notificationTaskIds])));
+    markTaskNotificationsRead(notificationTaskIds);
+    void markEmployeeNotificationsRead(notificationTaskIds).catch(() => undefined);
   };
 
   return (
@@ -221,7 +232,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {taskNotifications.length > 0 ? (
                   <div className="max-h-96 overflow-auto p-1">
                     {taskNotifications.map((task) => {
-                      const unread = !readNotificationIds.includes(task.id);
+                      const unread = !task.notificationRead;
                       const success = task.status === "completed";
                       return (
                         <Link

@@ -83,9 +83,11 @@ export interface AccioMemoryTaskInput {
   chatExport: unknown;
 }
 
-const LEAD_AGENT_ID = "cbe-lead-discovery";
-const SCREENING_AGENT_ID = "cbe-buyer-screening";
-const ACCIO_AGENT_ID = "cbe-accio-memory";
+export type CbeEmployeeAgentId = "cbe-lead-discovery" | "cbe-buyer-screening" | "cbe-accio-memory";
+
+export const LEAD_AGENT_ID: CbeEmployeeAgentId = "cbe-lead-discovery";
+export const SCREENING_AGENT_ID: CbeEmployeeAgentId = "cbe-buyer-screening";
+export const ACCIO_AGENT_ID: CbeEmployeeAgentId = "cbe-accio-memory";
 
 const LEADS_JSON_START = "LEAD_CANDIDATES_JSON_START";
 const LEADS_JSON_END = "LEAD_CANDIDATES_JSON_END";
@@ -176,6 +178,10 @@ function createEmployeeSessionKey(agentId: string) {
   const cryptoId = globalThis.crypto?.randomUUID?.();
   const nonce = cryptoId ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   return token ? `agent:${agentId}:user:${token}:${nonce}` : `agent:${agentId}:dashboard:${nonce}`;
+}
+
+export function createPlannedEmployeeSessionKey(agentId: CbeEmployeeAgentId) {
+  return createEmployeeSessionKey(agentId);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -315,6 +321,7 @@ async function runHiddenEmployeeTask(options: {
   prompt: string;
   startMarker: string;
   endMarker: string;
+  sessionKey?: string;
   estimatedMs?: number;
   timeoutMs?: number;
   pollMs?: number;
@@ -327,6 +334,7 @@ async function runHiddenEmployeeTask(options: {
     prompt,
     startMarker,
     endMarker,
+    sessionKey: plannedSessionKey,
     estimatedMs: rawEstimatedMs,
     timeoutMs = 180_000,
     pollMs = 1_500,
@@ -358,7 +366,7 @@ async function runHiddenEmployeeTask(options: {
   try {
     const created = await client.createSession(agentId, undefined, {
       label,
-      key: createEmployeeSessionKey(agentId),
+      key: plannedSessionKey ?? createEmployeeSessionKey(agentId),
     });
     sessionKey = created.key;
     if (!sessionKey) {
@@ -878,7 +886,7 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 JSON 字段要求：
 - 顶层：run_id、leads；可选 shortage_reason。
 - leads 每项：company_name、website、country、buyer_type、matched_products、source_urls、discovery_evidence、duplicate_status、dedupe_explanation、recommended_action。
-- discovery_evidence 使用数组，每项包含 source_url 和 finding 或 excerpt。
+- discovery_evidence 使用数组，每项包含 source_url、fetched_at 和 finding 或 excerpt；fetched_at 使用 ISO 8601 时间。
 
 最终格式：
 ${LEADS_JSON_START}
@@ -910,7 +918,7 @@ JSON 字段要求：
 - 顶层：reports。
 - reports 每项：report_id、lead_id、company_name、target、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、coverage_gaps、recommended_action、open_questions。
 - score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
-- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score；如能判断请加 layer、fetched_at、confidence、cost_posture。
+- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
 - layer 用 legal_registry、domain_rdap、email_dns、official_contact、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
 - coverage_gaps 写清楚没查到、没启用、没提供还是 API 不可用。
 
@@ -949,8 +957,9 @@ function buildAccioPrompt(input: AccioMemoryTaskInput) {
 
 JSON 字段要求：
 - 顶层：summaries。
-- summaries 每项：conversation_id、customer_profile、negotiation_summary、next_actions、screening_handoff_target、memory_preview。
+- summaries 每项：conversation_id、customer_profile、negotiation_summary、next_actions、screening_handoff_target、memory_preview、source_references。
 - memory_preview.status 必须是 "preview_only"。
+- source_references 每项包含 source_type、source_file、conversation_id。
 
 最终格式：
 ${SUMMARY_JSON_START}
@@ -1024,6 +1033,7 @@ export async function runLeadDiscoveryTask(
   client: GatewayClient,
   input: EmployeeLeadTaskInput,
   onProgress?: (progress: EmployeeTaskProgress) => void,
+  options: { sessionKey?: string } = {},
 ): Promise<EmployeeTaskResult<CustomerListItem[]>> {
   const estimatedMs = estimateLeadTaskDurationMs(input);
   const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
@@ -1034,6 +1044,7 @@ export async function runLeadDiscoveryTask(
     prompt: buildLeadPrompt(input),
     startMarker: LEADS_JSON_START,
     endMarker: LEADS_JSON_END,
+    sessionKey: options.sessionKey,
     estimatedMs,
     timeoutMs,
     onProgress,
@@ -1053,6 +1064,7 @@ export async function runScreeningTask(
   targets: ScreeningTarget[],
   options?: EmployeeScreeningTaskOptions,
   onProgress?: (progress: EmployeeTaskProgress) => void,
+  runOptions: { sessionKey?: string } = {},
 ): Promise<EmployeeTaskResult<CustomerListItem[]>> {
   const estimatedMs = estimateScreeningTaskDurationMs(targets, options);
   const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
@@ -1063,6 +1075,7 @@ export async function runScreeningTask(
     prompt: buildScreeningPrompt(targets, options),
     startMarker: REPORT_JSON_START,
     endMarker: REPORT_JSON_END,
+    sessionKey: runOptions.sessionKey,
     estimatedMs,
     timeoutMs,
     onProgress,
@@ -1081,6 +1094,7 @@ export async function runAccioMemoryTask(
   client: GatewayClient,
   input: AccioMemoryTaskInput,
   onProgress?: (progress: EmployeeTaskProgress) => void,
+  options: { sessionKey?: string } = {},
 ): Promise<EmployeeTaskResult<MemoryRecordItem[]>> {
   const result = await runHiddenEmployeeTask({
     client,
@@ -1089,6 +1103,7 @@ export async function runAccioMemoryTask(
     prompt: buildAccioPrompt(input),
     startMarker: SUMMARY_JSON_START,
     endMarker: SUMMARY_JSON_END,
+    sessionKey: options.sessionKey,
     onProgress,
   });
   const records = memoryRowsFromPayload(result.payload, result.sessionKey);

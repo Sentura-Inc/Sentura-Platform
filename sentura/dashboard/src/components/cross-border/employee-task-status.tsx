@@ -39,6 +39,9 @@ function completedTaskSummary(task: CbeEmployeeTaskRecord) {
   if (task.kind === "screening") {
     return `背调员工已返回 ${count} 份报告，客户评分已更新。`;
   }
+  if (task.kind === "accio_memory") {
+    return `记忆员工已返回 ${count} 份摘要，记忆列表已更新。`;
+  }
   return `获客员工已返回 ${count} 个客户，客户列表已更新。`;
 }
 

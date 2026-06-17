@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -32,17 +32,31 @@ import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import {
+  isCbeEmployeeTaskActive,
+  useCbeEmployeeStore,
+} from "@/stores/use-cbe-employee-store";
+import {
   type MemoryRecordItem,
   estimateMemoryTaskCost,
-  memoryRows,
 } from "../_data/employee-data";
 import {
+  ACCIO_AGENT_ID,
+  EmployeeTaskError,
+  createPlannedEmployeeSessionKey,
   employeeTaskErrorMessage,
+  estimateEmployeeTaskTimeoutMs,
   runAccioMemoryTask,
-  upsertMemoryRows,
   type AccioMemoryTaskInput,
   type EmployeeTaskProgress,
 } from "../_data/employee-task-runner";
+import {
+  CbeEmployeeApiError,
+  completeEmployeeAccioImport,
+  createEmployeeAccioImport,
+  failEmployeeTaskInDb,
+  fetchEmployeeMemoryRecords,
+  fetchEmployeeTasks,
+} from "../_data/employee-api";
 
 type SheetMode = "add" | "detail" | "filters" | null;
 type ImportRange = "all" | "today" | "7d" | "30d";
@@ -99,7 +113,8 @@ function importedAtInRange(importedAt: string, range: ImportRange) {
   if (range === "all") return true;
   const importedDate = new Date(importedAt.replace(" ", "T"));
   if (Number.isNaN(importedDate.getTime())) return true;
-  const end = new Date("2026-06-14T23:59:59");
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
   const start = new Date(end);
   if (range === "today") start.setHours(0, 0, 0, 0);
   if (range === "7d") start.setDate(end.getDate() - 6);
@@ -116,7 +131,14 @@ function toggleValue<T extends string>(values: T[], value: T) {
 export default function CrossBorderMemoryPage() {
   const { client, state } = useGateway();
   const { data: accioAgent, loading: agentLoading } = useAgent("cbe-accio-memory");
-  const [rows, setRows] = useState<MemoryRecordItem[]>(memoryRows);
+  const rows = useCbeEmployeeStore((store) => store.memoryRows);
+  const setRows = useCbeEmployeeStore((store) => store.setMemoryRows);
+  const tasks = useCbeEmployeeStore((store) => store.tasks);
+  const setTasks = useCbeEmployeeStore((store) => store.setTasks);
+  const startTask = useCbeEmployeeStore((store) => store.startTask);
+  const updateTaskProgress = useCbeEmployeeStore((store) => store.updateTaskProgress);
+  const completeTask = useCbeEmployeeStore((store) => store.completeTask);
+  const failTask = useCbeEmployeeStore((store) => store.failTask);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MemoryRecordItem["analysisStatus"] | "all">("all");
   const [filters, setFilters] = useState<MemoryFilters>(emptyFilters);
@@ -125,7 +147,33 @@ export default function CrossBorderMemoryPage() {
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [uploadPayload, setUploadPayload] = useState<unknown | null>(null);
-  const [taskRunning, setTaskRunning] = useState(false);
+  const taskRunning = tasks.some((task) => task.kind === "accio_memory" && isCbeEmployeeTaskActive(task));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const [memory, latestTasks] = await Promise.all([
+          fetchEmployeeMemoryRecords(),
+          fetchEmployeeTasks(),
+        ]);
+        if (cancelled) return;
+        setRows(memory);
+        setTasks(latestTasks);
+      } catch (error) {
+        if (!cancelled) {
+          setNotice({
+            tone: "error",
+            text: error instanceof Error ? error.message : "记忆记录读取失败。",
+          });
+        }
+      }
+    }
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [setRows, setTasks]);
 
   const filterOptions = useMemo(
     () => ({
@@ -187,24 +235,35 @@ export default function CrossBorderMemoryPage() {
     }
   };
 
-  const onTaskProgress = (progress: EmployeeTaskProgress) => {
-    showNotice(progress.message, "info", 0);
+  const refreshDbBackedMemory = async () => {
+    const [memory, latestTasks] = await Promise.all([
+      fetchEmployeeMemoryRecords(),
+      fetchEmployeeTasks(),
+    ]);
+    setRows(memory);
+    setTasks(latestTasks);
+  };
+
+  const shouldWriteFailure = (error: unknown) =>
+    !(error instanceof CbeEmployeeApiError && error.code === "validation_failed");
+
+  const createProgressHandler = (taskId: string) => (progress: EmployeeTaskProgress) => {
+    if (progress.status === "failed") {
+      failTask(taskId, progress.message, progress.sessionKey);
+      showNotice(progress.message, "error", 0);
+    } else {
+      updateTaskProgress(taskId, {
+        status: progress.status,
+        message: progress.message,
+        sessionKey: progress.sessionKey,
+      });
+      showNotice(progress.message, "info", 0);
+    }
   };
 
   const openDetail = (item: MemoryRecordItem) => {
     setActiveRecord(item);
     setSheetMode("detail");
-  };
-
-  const timestampLabel = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
-
-  const conversationCount = (payload: unknown) => {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return 1;
-    const conversations = (payload as { conversations?: unknown }).conversations;
-    return Array.isArray(conversations) ? conversations.length : 1;
   };
 
   const handleUploadFile = async (file: File | undefined) => {
@@ -220,29 +279,23 @@ export default function CrossBorderMemoryPage() {
     }
   };
 
-  const importOnly = (recordName: string, sourceLabel: string) => {
+  const importOnly = async (recordName: string, sourceLabel: string) => {
     if (!uploadPayload) {
       showNotice("请先上传系统可读取的聊天记录文件。", "error");
       return;
     }
-    const name = recordName.trim() || uploadName.replace(/\.json$/i, "") || "未命名记录";
-    const row: MemoryRecordItem = {
-      recordId: `mem-upload-${Date.now()}`,
-      name,
-      source: sourceLabel.toLowerCase().includes("accio")
-        ? "accio"
-        : sourceLabel.includes("阿里")
-          ? "alibaba_international"
-          : "manual_import",
-      importedAt: timestampLabel(),
-      analysisStatus: "not_started",
-      conversationCount: conversationCount(uploadPayload),
-      memoryPreviewStatus: "preview_only",
-      summary: "已导入，等待记忆员工分析后生成写入预览。",
-    };
-    setRows((current) => [row, ...current]);
-    showNotice("记录已导入，状态为未分析。");
     setSheetMode(null);
+    try {
+      await createEmployeeAccioImport({
+        recordName: recordName.trim() || uploadName.replace(/\.json$/i, "") || "未命名记录",
+        sourceLabel,
+        chatExport: uploadPayload,
+      });
+      await refreshDbBackedMemory();
+      showNotice("记录已导入，状态为未分析。");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "记忆记录导入失败。", "error", 8000);
+    }
   };
 
   const submitMemoryTask = async (input: AccioMemoryTaskInput, failedRecordId?: string) => {
@@ -255,12 +308,48 @@ export default function CrossBorderMemoryPage() {
       );
       return;
     }
-    setTaskRunning(true);
+    const plannedSessionKey = createPlannedEmployeeSessionKey(ACCIO_AGENT_ID);
+    const estimatedMs = 180_000;
+    let taskId: string | undefined;
+    let createdImport: Awaited<ReturnType<typeof createEmployeeAccioImport>> | null = null;
     setSheetMode(null);
     try {
-      const result = await runAccioMemoryTask(client, input, onTaskProgress);
-      setRows((current) => upsertMemoryRows(current, result.records));
-      showNotice(`记忆员工已返回 ${result.records.length} 份结构化摘要，已更新当前列表。`);
+      createdImport = await createEmployeeAccioImport(input, plannedSessionKey);
+      const localTaskId = startTask({
+        id: createdImport.agentRun.id,
+        kind: "accio_memory",
+        title: "记忆整理",
+        message: "记忆整理任务已启动，后台员工正在分析聊天记录。",
+        estimatedMs,
+        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+        sessionKey: plannedSessionKey,
+        targetLabel: input.recordName,
+      });
+      taskId = localTaskId;
+      if (failedRecordId) {
+        setRows((current) =>
+          current.map((item) =>
+            item.recordId === failedRecordId ? { ...item, analysisStatus: "running" } : item,
+          ),
+        );
+      }
+      const result = await runAccioMemoryTask(
+        client,
+        input,
+        createProgressHandler(localTaskId),
+        { sessionKey: plannedSessionKey },
+      );
+      await completeEmployeeAccioImport({
+        importId: createdImport.accioImport.id,
+        agentRunId: createdImport.agentRun.id,
+        sessionKey: result.sessionKey,
+        sourceFileName: input.recordName,
+        payload: result.payload,
+      });
+      const message = `记忆员工已返回 ${result.records.length} 份结构化摘要，已更新当前列表。`;
+      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      await refreshDbBackedMemory();
+      showNotice(message);
     } catch (error) {
       if (failedRecordId) {
         setRows((current) =>
@@ -269,9 +358,19 @@ export default function CrossBorderMemoryPage() {
           ),
         );
       }
-      showNotice(employeeTaskErrorMessage(error), "error", 8000);
-    } finally {
-      setTaskRunning(false);
+      const message = employeeTaskErrorMessage(error);
+      const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (createdImport && shouldWriteFailure(error)) {
+        await failEmployeeTaskInDb({
+          agentRunId: createdImport.agentRun.id,
+          sessionKey: sessionKey ?? plannedSessionKey,
+          error,
+          message,
+        }).catch(() => undefined);
+      }
+      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      await refreshDbBackedMemory().catch(() => undefined);
+      showNotice(message, "error", 8000);
     }
   };
 

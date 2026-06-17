@@ -59,6 +59,9 @@ import {
 } from "../_data/employee-data";
 import {
   EmployeeTaskError,
+  LEAD_AGENT_ID,
+  SCREENING_AGENT_ID,
+  createPlannedEmployeeSessionKey,
   customersToScreeningTargets,
   employeeTaskErrorMessage,
   estimateEmployeeTaskTimeoutMs,
@@ -72,6 +75,16 @@ import {
   type EmployeeTaskProgress,
   type ManualScreeningInput,
 } from "../_data/employee-task-runner";
+import {
+  CbeEmployeeApiError,
+  completeEmployeeLeadRun,
+  completeEmployeeScreeningRun,
+  createEmployeeLeadRun,
+  createEmployeeScreeningRun,
+  failEmployeeTaskInDb,
+  fetchEmployeeCustomers,
+  fetchEmployeeTasks,
+} from "../_data/employee-api";
 
 type SheetMode = "lead" | "bulk" | "manual" | "detail" | "filters" | "delete" | null;
 
@@ -527,9 +540,9 @@ export default function CrossBorderCustomersPage() {
   const { data: screeningAgent, loading: screeningLoading } = useAgent("cbe-buyer-screening");
   const rows = useCbeEmployeeStore((store) => store.rows);
   const setRows = useCbeEmployeeStore((store) => store.setRows);
-  const upsertRows = useCbeEmployeeStore((store) => store.upsertRows);
   const deleteRows = useCbeEmployeeStore((store) => store.deleteRows);
   const tasks = useCbeEmployeeStore((store) => store.tasks);
+  const setTasks = useCbeEmployeeStore((store) => store.setTasks);
   const startTask = useCbeEmployeeStore((store) => store.startTask);
   const updateTaskProgress = useCbeEmployeeStore((store) => store.updateTaskProgress);
   const completeTask = useCbeEmployeeStore((store) => store.completeTask);
@@ -538,13 +551,40 @@ export default function CrossBorderCustomersPage() {
   const [statusFilter, setStatusFilter] = useState<CustomerListItem["screeningStatus"] | "all">("all");
   const [scoreSort, setScoreSort] = useState<ScoreSort>("none");
   const [filters, setFilters] = useState<CustomerFilters>(emptyFilters);
-  const [selectedIds, setSelectedIds] = useState<string[]>(["cust-accio-br"]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
   const [activeCustomer, setActiveCustomer] = useState<CustomerListItem | null>(null);
   const [deleteIntent, setDeleteIntent] = useState<DeleteIntent | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const leadRunning = tasks.some((task) => task.kind === "lead" && isCbeEmployeeTaskActive(task));
   const screeningRunning = tasks.some((task) => task.kind === "screening" && isCbeEmployeeTaskActive(task));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const [customers, latestTasks] = await Promise.all([
+          fetchEmployeeCustomers(),
+          fetchEmployeeTasks(),
+        ]);
+        if (cancelled) return;
+        setRows(customers);
+        setTasks(latestTasks);
+        setSelectedIds((current) => current.filter((customerId) => customers.some((item) => item.customerId === customerId)));
+      } catch (error) {
+        if (!cancelled) {
+          setNotice({
+            tone: "error",
+            text: error instanceof Error ? error.message : "客户列表读取失败。",
+          });
+        }
+      }
+    }
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [setRows, setTasks]);
 
   const filterOptions = useMemo(() => {
     const countryMap = new Map<string, string>();
@@ -687,6 +727,19 @@ export default function CrossBorderCustomersPage() {
     }
   };
 
+  const refreshDbBackedLists = async () => {
+    const [customers, latestTasks] = await Promise.all([
+      fetchEmployeeCustomers(),
+      fetchEmployeeTasks(),
+    ]);
+    setRows(customers);
+    setTasks(latestTasks);
+    setSelectedIds((current) => current.filter((customerId) => customers.some((item) => item.customerId === customerId)));
+  };
+
+  const shouldWriteFailure = (error: unknown) =>
+    !(error instanceof CbeEmployeeApiError && error.code === "validation_failed");
+
   const createProgressHandler = (taskId: string) => (progress: EmployeeTaskProgress) => {
     if (progress.status === "failed") {
       failTask(taskId, progress.message, progress.sessionKey);
@@ -761,32 +814,62 @@ export default function CrossBorderCustomersPage() {
       );
       return;
     }
+    const plannedSessionKey = createPlannedEmployeeSessionKey(LEAD_AGENT_ID);
     const estimatedMs = estimateLeadTaskDurationMs(input);
-    const taskId = startTask({
-      kind: "lead",
-      title: "寻找客户",
-      message: "获客任务已启动，后台员工正在准备搜索。",
-      estimatedMs,
-      timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-      targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
-    });
+    let taskId: string | undefined;
+    let createdRun: Awaited<ReturnType<typeof createEmployeeLeadRun>> | null = null;
     setSheetMode(null);
     try {
+      createdRun = await createEmployeeLeadRun(
+        {
+          ...input,
+          targetCount: normalizeLeadTargetCount(input.targetCount),
+        },
+        plannedSessionKey,
+      );
+      const localTaskId = startTask({
+        id: createdRun.agentRun.id,
+        kind: "lead",
+        title: "寻找客户",
+        message: "获客任务已启动，后台员工正在准备搜索。",
+        estimatedMs,
+        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+        sessionKey: plannedSessionKey,
+        targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
+      });
+      taskId = localTaskId;
       const result = await runLeadDiscoveryTask(
         client,
         {
           ...input,
           targetCount: normalizeLeadTargetCount(input.targetCount),
         },
-        createProgressHandler(taskId),
+        createProgressHandler(localTaskId),
+        { sessionKey: plannedSessionKey },
       );
-      upsertRows(result.records);
+      await completeEmployeeLeadRun({
+        leadRunId: createdRun.leadRun.id,
+        agentRunId: createdRun.agentRun.id,
+        sessionKey: result.sessionKey,
+        payload: result.payload,
+      });
       const message = `获客员工已返回 ${result.records.length} 个客户，已写入当前列表。`;
-      completeTask(taskId, result.records.length, message, result.sessionKey);
+      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      await refreshDbBackedLists();
+      showNotice(message);
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
-      failTask(taskId, message, sessionKey);
+      if (createdRun && shouldWriteFailure(error)) {
+        await failEmployeeTaskInDb({
+          agentRunId: createdRun.agentRun.id,
+          sessionKey: sessionKey ?? plannedSessionKey,
+          error,
+          message,
+        }).catch(() => undefined);
+      }
+      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
     }
   };
@@ -814,26 +897,45 @@ export default function CrossBorderCustomersPage() {
       return;
     }
     const ids = new Set(targets.map((item) => item.customerId));
-    setRows((current) =>
-      current.map((item) =>
-        ids.has(item.customerId) ? { ...item, screeningStatus: "running" } : item,
-      ),
-    );
+    const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs(screeningTargets, options);
-    const taskId = startTask({
-      kind: "screening",
-      title: targets.length > 1 ? "批量背调" : "单个背调",
-      message: "背调任务已启动，后台员工正在核验证据来源。",
-      estimatedMs,
-      timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-      targetLabel: `${targets.length} 个客户`,
-    });
+    let taskId: string | undefined;
+    let createdRun: Awaited<ReturnType<typeof createEmployeeScreeningRun>> | null = null;
     setSheetMode(null);
     try {
-      const result = await runScreeningTask(client, screeningTargets, options, createProgressHandler(taskId));
-      upsertRows(result.records);
+      createdRun = await createEmployeeScreeningRun(screeningTargets, plannedSessionKey, options);
+      const localTaskId = startTask({
+        id: createdRun.agentRun.id,
+        kind: "screening",
+        title: targets.length > 1 ? "批量背调" : "单个背调",
+        message: "背调任务已启动，后台员工正在核验证据来源。",
+        estimatedMs,
+        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+        sessionKey: plannedSessionKey,
+        targetLabel: `${targets.length} 个客户`,
+      });
+      taskId = localTaskId;
+      setRows((current) =>
+        current.map((item) =>
+          ids.has(item.customerId) ? { ...item, screeningStatus: "running" } : item,
+        ),
+      );
+      const result = await runScreeningTask(
+        client,
+        screeningTargets,
+        options,
+        createProgressHandler(localTaskId),
+        { sessionKey: plannedSessionKey },
+      );
+      await completeEmployeeScreeningRun({
+        agentRunId: createdRun.agentRun.id,
+        sessionKey: result.sessionKey,
+        payload: result.payload,
+      });
       const message = `背调员工已返回 ${result.records.length} 份报告，客户评分已更新。`;
-      completeTask(taskId, result.records.length, message, result.sessionKey);
+      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      await refreshDbBackedLists();
+      showNotice(message);
     } catch (error) {
       setRows((current) =>
         current.map((item) =>
@@ -842,7 +944,16 @@ export default function CrossBorderCustomersPage() {
       );
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
-      failTask(taskId, message, sessionKey);
+      if (createdRun && shouldWriteFailure(error)) {
+        await failEmployeeTaskInDb({
+          agentRunId: createdRun.agentRun.id,
+          sessionKey: sessionKey ?? plannedSessionKey,
+          error,
+          message,
+        }).catch(() => undefined);
+      }
+      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
     }
   };
@@ -869,30 +980,53 @@ export default function CrossBorderCustomersPage() {
       return;
     }
     const target = manualInputToScreeningTarget(input);
+    const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs([target], options);
-    const taskId = startTask({
-      kind: "screening",
-      title: "手动背调",
-      message: "手动背调任务已启动，后台员工正在核验证据来源。",
-      estimatedMs,
-      timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-      targetLabel: input.companyName.trim(),
-    });
+    let taskId: string | undefined;
+    let createdRun: Awaited<ReturnType<typeof createEmployeeScreeningRun>> | null = null;
     setSheetMode(null);
     try {
+      createdRun = await createEmployeeScreeningRun([target], plannedSessionKey, options);
+      const localTaskId = startTask({
+        id: createdRun.agentRun.id,
+        kind: "screening",
+        title: "手动背调",
+        message: "手动背调任务已启动，后台员工正在核验证据来源。",
+        estimatedMs,
+        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+        sessionKey: plannedSessionKey,
+        targetLabel: input.companyName.trim(),
+      });
+      taskId = localTaskId;
       const result = await runScreeningTask(
         client,
         [target],
         options,
-        createProgressHandler(taskId),
+        createProgressHandler(localTaskId),
+        { sessionKey: plannedSessionKey },
       );
-      upsertRows(result.records);
+      await completeEmployeeScreeningRun({
+        agentRunId: createdRun.agentRun.id,
+        sessionKey: result.sessionKey,
+        payload: result.payload,
+      });
       const message = `手动背调已完成，已新增/更新 ${result.records.length} 个客户。`;
-      completeTask(taskId, result.records.length, message, result.sessionKey);
+      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      await refreshDbBackedLists();
+      showNotice(message);
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
-      failTask(taskId, message, sessionKey);
+      if (createdRun && shouldWriteFailure(error)) {
+        await failEmployeeTaskInDb({
+          agentRunId: createdRun.agentRun.id,
+          sessionKey: sessionKey ?? plannedSessionKey,
+          error,
+          message,
+        }).catch(() => undefined);
+      }
+      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
     }
   };

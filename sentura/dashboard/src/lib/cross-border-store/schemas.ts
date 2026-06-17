@@ -349,3 +349,19 @@ export const NotificationReadRequestSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
 });
 export type NotificationReadRequest = z.infer<typeof NotificationReadRequestSchema>;
+
+export const FailEmployeeTaskRequestSchema = z.object({
+  session_key: z.string().min(1).optional(),
+  error_code: z.enum([
+    "gateway",
+    "backend_error",
+    "marker_missing",
+    "parse_error",
+    "timeout",
+    "marker_parse_failed",
+    "unknown",
+  ]),
+  error_message: z.string().min(1),
+  details: JsonRecordSchema.optional(),
+});
+export type FailEmployeeTaskRequest = z.infer<typeof FailEmployeeTaskRequestSchema>;

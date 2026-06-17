@@ -2,10 +2,16 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { CustomerListItem } from "@/app/client-demos/cross-border/employee/_data/employee-data";
-import { customerRows } from "@/app/client-demos/cross-border/employee/_data/employee-data";
+import type {
+  CustomerListItem,
+  MemoryRecordItem,
+} from "@/app/client-demos/cross-border/employee/_data/employee-data";
+import {
+  customerRows as seedCustomerRows,
+  memoryRows as seedMemoryRows,
+} from "@/app/client-demos/cross-border/employee/_data/employee-data";
 
-export type CbeEmployeeTaskKind = "lead" | "screening";
+export type CbeEmployeeTaskKind = "lead" | "screening" | "accio_memory";
 export type CbeEmployeeTaskStatus = "queued" | "running" | "polling" | "completed" | "failed";
 
 export interface CbeEmployeeTaskRecord {
@@ -25,16 +31,21 @@ export interface CbeEmployeeTaskRecord {
   resultCount?: number;
   error?: string;
   dismissed?: boolean;
+  notificationRead?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 type RowUpdater = CustomerListItem[] | ((current: CustomerListItem[]) => CustomerListItem[]);
+type MemoryRowUpdater = MemoryRecordItem[] | ((current: MemoryRecordItem[]) => MemoryRecordItem[]);
 
 interface StartTaskInput {
+  id?: string;
   kind: CbeEmployeeTaskKind;
   title: string;
   message: string;
   estimatedMs: number;
   timeoutMs: number;
+  sessionKey?: string;
   targetLabel?: string;
 }
 
@@ -44,12 +55,25 @@ interface TaskProgressInput {
   sessionKey?: string;
 }
 
+interface CbeEmployeeDraftCache {
+  customerQuery?: string;
+  memoryQuery?: string;
+  updatedAt?: number;
+}
+
 interface CbeEmployeeState {
   rows: CustomerListItem[];
+  memoryRows: MemoryRecordItem[];
   tasks: CbeEmployeeTaskRecord[];
+  draftCache: CbeEmployeeDraftCache;
   setRows: (updater: RowUpdater) => void;
   upsertRows: (updates: CustomerListItem[]) => void;
   deleteRows: (customerIds: string[]) => void;
+  setMemoryRows: (updater: MemoryRowUpdater) => void;
+  upsertMemoryRows: (updates: MemoryRecordItem[]) => void;
+  setTasks: (tasks: CbeEmployeeTaskRecord[]) => void;
+  markTaskNotificationsRead: (taskIds: string[]) => void;
+  setDraftCache: (draftCache: Partial<CbeEmployeeDraftCache>) => void;
   startTask: (input: StartTaskInput) => string;
   updateTaskProgress: (id: string, progress: TaskProgressInput) => void;
   completeTask: (id: string, resultCount: number, message: string, sessionKey?: string) => void;
@@ -61,6 +85,8 @@ interface CbeEmployeeState {
 const ACTIVE_TASK_STATUSES = new Set<CbeEmployeeTaskStatus>(["queued", "running", "polling"]);
 const MAX_RETAINED_TASKS = 12;
 const STALE_GRACE_MS = 30_000;
+const DEMO_SEED_ENABLED =
+  process.env.NEXT_PUBLIC_CBE_USE_DEMO_SEED === "1" || process.env.CBE_USE_DEMO_SEED === "1";
 
 function createId(prefix: string) {
   const cryptoId = globalThis.crypto?.randomUUID?.();
@@ -93,20 +119,24 @@ function upsertCustomerRows(current: CustomerListItem[], updates: CustomerListIt
   return Array.from(byId.values());
 }
 
-function hydrateCustomerRows(rows: CustomerListItem[]) {
-  const seedById = new Map(customerRows.map((item) => [item.customerId, item]));
-  return rows.map((row) => {
-    const seed = seedById.get(row.customerId);
-    if (!seed) return row;
-    return {
-      ...seed,
-      ...row,
-      sourceUrls: row.sourceUrls.length > 0 ? row.sourceUrls : seed.sourceUrls,
-      evidenceSummary: row.evidenceSummary || seed.evidenceSummary,
-      recommendedAction: row.recommendedAction ?? seed.recommendedAction,
-      screeningReport: row.screeningReport ?? seed.screeningReport,
-    };
-  });
+function upsertMemoryRecordRows(current: MemoryRecordItem[], updates: MemoryRecordItem[]) {
+  const byId = new Map(current.map((item) => [item.recordId, item]));
+  for (const update of updates) {
+    byId.set(update.recordId, { ...byId.get(update.recordId), ...update });
+  }
+  return Array.from(byId.values());
+}
+
+function applyMemoryRowUpdater(current: MemoryRecordItem[], updater: MemoryRowUpdater) {
+  return typeof updater === "function" ? updater(current) : updater;
+}
+
+function initialCustomerRows() {
+  return DEMO_SEED_ENABLED ? seedCustomerRows : [];
+}
+
+function initialMemoryRows() {
+  return DEMO_SEED_ENABLED ? seedMemoryRows : [];
 }
 
 export function isCbeEmployeeTaskActive(task: CbeEmployeeTaskRecord) {
@@ -139,8 +169,10 @@ export function getCbeTaskTiming(task: CbeEmployeeTaskRecord, now = Date.now()) 
 export const useCbeEmployeeStore = create<CbeEmployeeState>()(
   persist(
     (set) => ({
-      rows: customerRows,
+      rows: initialCustomerRows(),
+      memoryRows: initialMemoryRows(),
       tasks: [],
+      draftCache: {},
       setRows: (updater) =>
         set((state) => ({
           rows: applyRowUpdater(state.rows, updater),
@@ -157,9 +189,38 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
             rows: state.rows.filter((row) => !deleteIds.has(row.customerId)),
           };
         }),
+      setMemoryRows: (updater) =>
+        set((state) => ({
+          memoryRows: applyMemoryRowUpdater(state.memoryRows, updater),
+        })),
+      upsertMemoryRows: (updates) =>
+        set((state) => ({
+          memoryRows: upsertMemoryRecordRows(state.memoryRows, updates),
+        })),
+      setTasks: (tasks) =>
+        set(() => ({
+          tasks: trimTasks(tasks),
+        })),
+      markTaskNotificationsRead: (taskIds) =>
+        set((state) => {
+          const readIds = new Set(taskIds);
+          return {
+            tasks: state.tasks.map((task) =>
+              readIds.has(task.id) ? { ...task, notificationRead: true } : task,
+            ),
+          };
+        }),
+      setDraftCache: (draftCache) =>
+        set((state) => ({
+          draftCache: {
+            ...state.draftCache,
+            ...draftCache,
+            updatedAt: Date.now(),
+          },
+        })),
       startTask: (input) => {
         const now = Date.now();
-        const id = createId(`cbe-${input.kind}`);
+        const id = input.id ?? createId(`cbe-${input.kind}`);
         const task: CbeEmployeeTaskRecord = {
           id,
           kind: input.kind,
@@ -171,6 +232,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           estimatedMs: input.estimatedMs,
           timeoutMs: input.timeoutMs,
           deadlineAt: now + input.timeoutMs,
+          sessionKey: input.sessionKey,
           targetLabel: input.targetLabel,
         };
         set((state) => ({ tasks: trimTasks([task, ...state.tasks]) }));
@@ -253,20 +315,23 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
         })),
     }),
     {
-      name: "sentura-cbe-employee-state-v1",
-      version: 1,
+      name: "sentura-cbe-employee-draft-cache-v1",
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        rows: state.rows,
-        tasks: trimTasks(state.tasks),
+        draftCache: state.draftCache,
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<CbeEmployeeState> | undefined;
         return {
           ...currentState,
-          ...persisted,
-          rows: Array.isArray(persisted?.rows) ? hydrateCustomerRows(persisted.rows) : currentState.rows,
-          tasks: Array.isArray(persisted?.tasks) ? trimTasks(persisted.tasks) : currentState.tasks,
+          rows: currentState.rows,
+          memoryRows: currentState.memoryRows,
+          tasks: currentState.tasks,
+          draftCache:
+            persisted?.draftCache && typeof persisted.draftCache === "object"
+              ? persisted.draftCache
+              : currentState.draftCache,
         };
       },
     },

@@ -17,6 +17,7 @@ import { CreateAccioImportRequestSchema } from "./schemas";
 export interface AccioImportRecord {
   id: string;
   agentRunId: string | null;
+  agentRunStatus: string | null;
   sourceFileName: string | null;
   validationStatus: string;
   classification: string;
@@ -32,15 +33,23 @@ export interface AccioSummaryRecord {
 export interface EmployeeMemoryRecord {
   importId: string;
   summaryId: string | null;
+  agentRunId: string | null;
+  sourceFileName: string | null;
   companyName: string | null;
   country: string | null;
+  conversationCount: number;
+  nextActions: string[];
+  summaryText: string | null;
   memoryFactStatus: string | null;
+  validationStatus: string;
+  classification: string;
   uploadedAt: string;
 }
 
 interface AccioImportRow {
   id: string;
   agent_run_id: string | null;
+  agent_run_status: string | null;
   source_file_name: string | null;
   validation_status: string;
   classification: string;
@@ -55,9 +64,16 @@ interface AccioSummaryRow {
 interface MemoryRow {
   import_id: string;
   summary_id: string | null;
+  agent_run_id: string | null;
+  source_file_name: string | null;
   company_name: string | null;
   country: string | null;
+  conversation_count: string;
+  next_actions_json: unknown;
+  behavior_signals_json: Record<string, unknown> | null;
   memory_fact_status: string | null;
+  validation_status: string;
+  classification: string;
   uploaded_at: Date;
 }
 
@@ -65,6 +81,7 @@ function toAccioImportRecord(row: AccioImportRow): AccioImportRecord {
   return {
     id: row.id,
     agentRunId: row.agent_run_id,
+    agentRunStatus: row.agent_run_status,
     sourceFileName: row.source_file_name,
     validationStatus: row.validation_status,
     classification: row.classification,
@@ -81,12 +98,27 @@ function toSummaryRecord(row: AccioSummaryRow): AccioSummaryRecord {
 }
 
 function toMemoryRecord(row: MemoryRow): EmployeeMemoryRecord {
+  const behaviorSummary =
+    row.behavior_signals_json &&
+    typeof row.behavior_signals_json === "object" &&
+    typeof row.behavior_signals_json.summary === "string"
+      ? row.behavior_signals_json.summary
+      : null;
   return {
     importId: row.import_id,
     summaryId: row.summary_id,
+    agentRunId: row.agent_run_id,
+    sourceFileName: row.source_file_name,
     companyName: row.company_name,
     country: row.country,
+    conversationCount: Number(row.conversation_count),
+    nextActions: Array.isArray(row.next_actions_json)
+      ? row.next_actions_json.map((item) => String(item)).filter(Boolean)
+      : [],
+    summaryText: behaviorSummary,
     memoryFactStatus: row.memory_fact_status,
+    validationStatus: row.validation_status,
+    classification: row.classification,
     uploadedAt: row.uploaded_at.toISOString(),
   };
 }
@@ -452,14 +484,25 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
       select
         ai.id as import_id,
         asum.id as summary_id,
-        ac.company_name,
-        ac.country,
+        ai.agent_run_id,
+        ar.status as agent_run_status,
+        ai.source_file_name,
+        coalesce(ac.company_name, asum.customer_profile_json->>'company_name') as company_name,
+        coalesce(ac.country, asum.customer_profile_json->>'country') as country,
+        count(ac.id) over (partition by ai.id)::text as conversation_count,
+        asum.next_actions_json,
+        asum.behavior_signals_json,
         mf.status as memory_fact_status,
+        ai.validation_status,
+        ai.classification,
         ai.uploaded_at
       from accio_imports ai
       left join accio_conversations ac
         on ac.tenant_id = ai.tenant_id
        and ac.accio_import_id = ai.id
+      left join agent_runs ar
+        on ar.tenant_id = ai.tenant_id
+       and ar.id = ai.agent_run_id
       left join accio_summaries asum
         on asum.tenant_id = ai.tenant_id
        and asum.accio_conversation_id = ac.id

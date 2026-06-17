@@ -47,6 +47,10 @@ const EMPLOYEE_TASK_RUNNER = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts",
 );
+const EMPLOYEE_API = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts",
+);
 const EMPLOYEE_DATA = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts",
@@ -165,6 +169,7 @@ const screeningApiRoute = read(SCREENING_API_ROUTE);
 const accioPage = read(ACCIO_PAGE);
 const accioSampleRoute = read(ACCIO_SAMPLE_ROUTE);
 const employeeTaskRunner = read(EMPLOYEE_TASK_RUNNER);
+const employeeApi = read(EMPLOYEE_API);
 const employeeData = read(EMPLOYEE_DATA);
 const employeeCustomersPage = read(EMPLOYEE_CUSTOMERS_PAGE);
 const cbeEmployeeStore = read(CBE_EMPLOYEE_STORE);
@@ -514,7 +519,7 @@ check("sidebar links to CBE Accio demo", sidebar.includes('href: "/client-demos/
 section("CE8 Employee hidden runner");
 check("employee hidden runner exists", exists(EMPLOYEE_TASK_RUNNER));
 check("employee runner creates session before long task send", employeeTaskRunner.includes("client.createSession(agentId, undefined, {"));
-check("employee runner creates user-attributed session keys", employeeTaskRunner.includes("key: createEmployeeSessionKey(agentId)"));
+check("employee runner creates user-attributed/planned session keys", employeeTaskRunner.includes("createPlannedEmployeeSessionKey") && employeeTaskRunner.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
 check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs })"));
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
@@ -523,22 +528,24 @@ check("employee lead prompt follows requested target count instead of 1-5 cap", 
 check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
 check("employee runner emits ETA progress and dynamic task timeouts", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "预计剩余", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)));
 check("CBE employee persistent store exists", exists(CBE_EMPLOYEE_STORE));
-check("CBE employee store persists rows and task records", cbeEmployeeStore.includes("persist(") && cbeEmployeeStore.includes("sentura-cbe-employee-state-v1") && cbeEmployeeStore.includes("rows: state.rows") && cbeEmployeeStore.includes("tasks: trimTasks(state.tasks)"));
+check("CBE employee store persists only draft/cache state", cbeEmployeeStore.includes("persist(") && cbeEmployeeStore.includes("sentura-cbe-employee-draft-cache-v1") && cbeEmployeeStore.includes("draftCache: state.draftCache") && !cbeEmployeeStore.includes("rows: state.rows,") && !cbeEmployeeStore.includes("tasks: trimTasks(state.tasks),"));
+check("CBE employee store keeps seed rows behind explicit demo flag", cbeEmployeeStore.includes("CBE_USE_DEMO_SEED") && cbeEmployeeStore.includes("initialCustomerRows") && cbeEmployeeStore.includes("initialMemoryRows"));
 check("CBE employee store tracks terminal failures with session keys", cbeEmployeeStore.includes("failTask") && cbeEmployeeStore.includes("sessionKey: sessionKey ?? task.sessionKey") && cbeEmployeeStore.includes("recoverStaleTasks"));
 check("employee task status bar exists", exists(EMPLOYEE_TASK_STATUS));
 check("employee task status bar shows ETA, countdown, and progress", ["预计", "倒计时", "progressPercent", "关闭任务状态"].every((needle) => employeeTaskStatus.includes(needle)));
 check("employee task status bar can show concurrent lead and screening tasks", ["visibleTasks", "active.slice(0, 2)", "正在同时运行", "visibleTasks.map"].every((needle) => employeeTaskStatus.includes(needle)));
 check("AppShell renders global employee task status", appShell.includes("EmployeeTaskStatusBar") && appShell.includes("<EmployeeTaskStatusBar />"));
-check("AppShell bell surfaces real task notifications with unread badge", ["NOTIFICATION_READ_STORAGE_KEY", "taskNotifications", "markAllNotificationsRead", "消息中心，", "bg-rose-600"].every((needle) => appShell.includes(needle)));
+check("AppShell bell surfaces DB-backed task notifications with unread badge", ["fetchEmployeeTasks", "markEmployeeNotificationsRead", "taskNotifications", "markAllNotificationsRead", "消息中心，", "bg-rose-600"].every((needle) => appShell.includes(needle)) && !appShell.includes("NOTIFICATION_READ_STORAGE_KEY"));
 check("AppShell keeps only the side logo in the header", appShell.includes("sentura-logo-side.svg") && !appShell.includes("sentura-logo-icon.svg"));
 check("AppShell exposes personal center as the first employee nav item", appShell.indexOf('label: "个人中心"') > 0 && appShell.indexOf('label: "个人中心"') < appShell.indexOf('label: "获客与背调"'));
 check("AppShell logo is not the employee-home navigation entry", appShell.includes('aria-label="Sentura 跨境电商客户系统"') && !appShell.includes('aria-label="回到个人中心"'));
-check("employee customers page uses persistent store for rows and tasks", employeeCustomersPage.includes("useCbeEmployeeStore") && employeeCustomersPage.includes("startTask") && employeeCustomersPage.includes("completeTask") && employeeCustomersPage.includes("failTask") && employeeCustomersPage.includes("upsertRows(result.records)"));
+check("employee customers page uses DB API for rows and task lifecycle", ["fetchEmployeeCustomers", "fetchEmployeeTasks", "createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("upsertRows(result.records)"));
+check("employee API normalizes marker payloads before completion writes", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references"].every((needle) => employeeApi.includes(needle)));
 check("employee lead target count is manual numeric input", ["normalizeLeadTargetCount", "目标数量手动输入", "type=\"number\"", "min={1}", "targetCount: normalizeLeadTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
-check("CBE employee store supports persisted customer deletion", cbeEmployeeStore.includes("deleteRows") && cbeEmployeeStore.includes("state.rows.filter((row) => !deleteIds.has(row.customerId))"));
+check("CBE employee store supports page-cache customer deletion", cbeEmployeeStore.includes("deleteRows") && cbeEmployeeStore.includes("state.rows.filter((row) => !deleteIds.has(row.customerId))"));
 check("employee customers page gates lead and screening tasks independently", ["leadRunning", "screeningRunning", "task.kind === \"lead\"", "task.kind === \"screening\"", "leadRunning ? <Loader2", "screeningRunning ? <Loader2"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("taskRunning !== null"));
 check("employee customers page no longer uses page-local taskRunning state", !employeeCustomersPage.includes("setTaskRunning") && !employeeCustomersPage.includes("useState<\"lead\" | \"screening\" | null>"));
-check("employee customers page keeps task progress in global bar only", !employeeCustomersPage.includes("showNotice(progress.message, progress.status") && !employeeCustomersPage.includes("showNotice(message);"));
+check("employee customers page refreshes DB-backed lists after task writes", employeeCustomersPage.includes("refreshDbBackedLists") && employeeCustomersPage.includes("await refreshDbBackedLists()"));
 check("employee customer filters use canonical values with Chinese labels", ["canonicalBuyerType", "canonicalProduct", "buyerTypeLabel", "productLabel", "USB-C 充电器", "OLED 屏幕", "filters.products.includes(product.value)", "filters.buyerTypes.includes(buyerType.value)"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer date filters use current date, not stale fixture date", employeeCustomersPage.includes("const end = new Date();") && !employeeCustomersPage.includes('new Date("2026-06-14T23:59:59")'));
 check("employee customer filters remove running status option", employeeCustomersPage.includes('const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const') && employeeCustomersPage.includes('const sheetStatusFilters = ["all", "not_started", "screened", "insufficient_evidence", "failed"] as const'));

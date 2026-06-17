@@ -20,10 +20,14 @@ const STORE_DIR = path.join(ROOT, "sentura/lib/cross-border-store");
 const DASHBOARD_STORE = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-store/index.ts");
 const DASHBOARD_STORE_DIR = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-store");
 const DASHBOARD_API_DIR = path.join(ROOT, "sentura/dashboard/src/app/api/client-demos/cross-border");
+const DASHBOARD_EMPLOYEE_DIR = path.join(ROOT, "sentura/dashboard/src/app/client-demos/cross-border/employee");
+const DASHBOARD_COMPONENTS_DIR = path.join(ROOT, "sentura/dashboard/src/components");
+const DASHBOARD_STORES_DIR = path.join(ROOT, "sentura/dashboard/src/stores");
 const DASHBOARD_PACKAGE_JSON = path.join(ROOT, "sentura/dashboard/package.json");
 const PACKAGE_JSON = path.join(ROOT, "package.json");
 const SENTURA_LIB_PACKAGE = path.join(ROOT, "sentura/lib/package.json");
 const SENTURA_LIB_TSCONFIG = path.join(ROOT, "sentura/lib/tsconfig.json");
+const CBE_DB_INSPECTION_SQL = path.join(ROOT, "scripts/inspect-cross-border-live-db.sql");
 
 const requireDb = process.argv.includes("--require-db");
 
@@ -619,6 +623,10 @@ const p22AdminRoutes = [
   "admin/agent-usage/route.ts",
 ];
 
+const p23EmployeeRoutes = [
+  "employee/tasks/[id]/fail/route.ts",
+];
+
 section("CE18 migration file structure");
 const migrationFiles = fs.readdirSync(MIGRATIONS_DIR).filter((file) => file.endsWith(".sql")).sort();
 check("migration directory exists", exists(MIGRATIONS_DIR));
@@ -702,6 +710,38 @@ check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreTe
 check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)") && !adminRouteText.includes("POST("));
 check("P2.2 route handlers use Next App Router node runtime", [...p22EmployeeRoutes, ...p22AdminRoutes].every((route) => read(path.join(DASHBOARD_API_DIR, route)).includes('runtime = "nodejs"')));
 check("P2.2 route handlers do not expose raw SQL to employees", !/\b(select|insert into|update|delete from)\b/i.test(completionRouteText));
+
+section("CE20/P2.3 Employee DB-backed UI migration");
+for (const route of p23EmployeeRoutes) {
+  check(`P2.3 route exists: ${route}`, exists(path.join(DASHBOARD_API_DIR, route)));
+}
+const employeeApiTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-api.ts"));
+const employeeRunnerTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-task-runner.ts"));
+const employeeStoreTs = read(path.join(DASHBOARD_STORES_DIR, "use-cbe-employee-store.ts"));
+const employeeHomePageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "page.tsx"));
+const employeeCustomersPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx"));
+const employeeMemoryPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "memory/page.tsx"));
+const appShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
+const p23RouteText = p23EmployeeRoutes.map((route) => read(path.join(DASHBOARD_API_DIR, route))).join("\n");
+const dbInspectionSql = read(CBE_DB_INSPECTION_SQL);
+
+check("P2.3 client API reads Employee projections", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeApiTs.includes(needle)));
+check("P2.3 client API writes task lifecycle endpoints", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb"].every((needle) => employeeApiTs.includes(needle)));
+check("P2.3 client API normalizes strict marker contracts", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references", "sha256Hex"].every((needle) => employeeApiTs.includes(needle)));
+check("P2.3 hidden runner supports pre-created DB session keys", employeeRunnerTs.includes("createPlannedEmployeeSessionKey") && employeeRunnerTs.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
+check("P2.3 store persists draft/cache only", employeeStoreTs.includes("sentura-cbe-employee-draft-cache-v1") && employeeStoreTs.includes("draftCache: state.draftCache") && !employeeStoreTs.includes("rows: state.rows,") && !employeeStoreTs.includes("tasks: trimTasks(state.tasks),"));
+check("P2.3 demo seed fallback is explicit", employeeStoreTs.includes("CBE_USE_DEMO_SEED") && employeeStoreTs.includes("initialCustomerRows") && employeeStoreTs.includes("initialMemoryRows"));
+check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeHomePageTs.includes(needle)));
+check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb", "refreshDbBackedLists"].every((needle) => employeeCustomersPageTs.includes(needle)));
+check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
+check("P2.3 notification center uses DB read markers", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && !appShellTs.includes("NOTIFICATION_READ_STORAGE_KEY"));
+check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));
+check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
+check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));
+check("P2.3 live DB inspection SQL exists", exists(CBE_DB_INSPECTION_SQL));
+check("P2.3 live DB inspection SQL derives website from physical schema", dbInspectionSql.includes("lrr.source_snapshot_json->>'website'") && dbInspectionSql.includes("supplied_fields_json->>'website'"));
+check("P2.3 live DB inspection SQL joins through real FK path", dbInspectionSql.includes("left join lead_runs lr") && dbInspectionSql.includes("lc.lead_run_id = lr.id") && dbInspectionSql.includes("join screening_targets st"));
+check("P2.3 live DB inspection SQL avoids stale projection-only columns", !dbInspectionSql.includes("lc.agent_run_id") && !dbInspectionSql.includes("ls.finding") && !dbInspectionSql.includes("sr.company_name"));
 
 if (process.env.CBE_DATABASE_URL) {
   await runLiveDatabaseChecks();

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -15,12 +15,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmployeeCostCard } from "@/components/cross-border/employee-cost";
-import { useCbeEmployeeStore } from "@/stores/use-cbe-employee-store";
 import {
-  employeeMessages,
+  isCbeEmployeeTaskActive,
+  useCbeEmployeeStore,
+} from "@/stores/use-cbe-employee-store";
+import {
   employeeProfile,
-  memoryRows,
 } from "./_data/employee-data";
+import {
+  fetchEmployeeCustomers,
+  fetchEmployeeMemoryRecords,
+  fetchEmployeeTasks,
+} from "./_data/employee-api";
 import { cn } from "@/lib/utils";
 
 type HomeRange = "today" | "week" | "month" | "all";
@@ -62,7 +68,39 @@ function isInHomeRange(foundAt: string, range: HomeRange, now = new Date()) {
 
 export default function CrossBorderEmployeeHomePage() {
   const customerRows = useCbeEmployeeStore((store) => store.rows);
+  const memoryRows = useCbeEmployeeStore((store) => store.memoryRows);
+  const tasks = useCbeEmployeeStore((store) => store.tasks);
+  const setRows = useCbeEmployeeStore((store) => store.setRows);
+  const setMemoryRows = useCbeEmployeeStore((store) => store.setMemoryRows);
+  const setTasks = useCbeEmployeeStore((store) => store.setTasks);
   const [selectedRange, setSelectedRange] = useState<HomeRange>("month");
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const [customers, memory, latestTasks] = await Promise.all([
+          fetchEmployeeCustomers(),
+          fetchEmployeeMemoryRecords(),
+          fetchEmployeeTasks(),
+        ]);
+        if (cancelled) return;
+        setRows(customers);
+        setMemoryRows(memory);
+        setTasks(latestTasks);
+        setLoadError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error ? error.message : "数据库状态读取失败。");
+      }
+    }
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [setMemoryRows, setRows, setTasks]);
+
   const visibleCustomers = useMemo(
     () => customerRows.filter((item) => isInHomeRange(item.foundAt, selectedRange)),
     [customerRows, selectedRange],
@@ -72,6 +110,14 @@ export default function CrossBorderEmployeeHomePage() {
   const highScoreCustomers = visibleCustomers.filter((item) => item.scoreTier === "high");
   const pendingCustomers = visibleCustomers.filter(
     (item) => item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence",
+  );
+  const taskMessages = useMemo(
+    () =>
+      tasks
+        .filter((task) => !isCbeEmployeeTaskActive(task))
+        .sort((left, right) => (right.completedAt ?? right.updatedAt) - (left.completedAt ?? left.updatedAt))
+        .slice(0, 8),
+    [tasks],
   );
 
   const stats = [
@@ -141,6 +187,12 @@ export default function CrossBorderEmployeeHomePage() {
           ))}
         </div>
       </section>
+
+      {loadError ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {loadError}
+        </div>
+      ) : null}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((item) => (
@@ -248,24 +300,37 @@ export default function CrossBorderEmployeeHomePage() {
           <Card id="employee-messages" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
               <CardTitle className="text-base">消息提醒</CardTitle>
-              <Badge variant="secondary">{employeeMessages.length}</Badge>
+              <Badge variant="secondary">{taskMessages.length}</Badge>
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
-              {employeeMessages.map((item, index) => (
-                <div key={item.id} className="rounded-md border px-3 py-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    {index === 1 ? (
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    ) : (
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="leading-5">{item.title}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{item.time} · {item.target}</div>
+              {taskMessages.length > 0 ? (
+                taskMessages.map((item) => (
+                  <div key={item.id} className="rounded-md border px-3 py-2 text-sm">
+                    <div className="flex items-start gap-2">
+                      {item.status === "failed" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      ) : (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="leading-5">{item.title}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {new Intl.DateTimeFormat("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.targetLabel ?? item.message}
+                        </div>
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+                  暂无任务通知。
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
         </div>

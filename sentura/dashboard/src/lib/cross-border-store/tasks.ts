@@ -1,7 +1,15 @@
 import type { CbeDb } from "./db";
-import { queryCbe } from "./db";
+import { queryCbe, withCbeTransaction } from "./db";
 import { CbeStoreError } from "./errors";
-import type { CbeAgentId, CbeAgentRunStatus, CbeTaskKind, ListQuery, TenantContext } from "./schemas";
+import { createAgentRunActivityEvent, failAgentRun } from "./agent-runs";
+import type {
+  CbeAgentId,
+  CbeAgentRunStatus,
+  CbeTaskKind,
+  FailEmployeeTaskRequest,
+  ListQuery,
+  TenantContext,
+} from "./schemas";
 
 export interface EmployeeTaskRecord {
   id: string;
@@ -121,4 +129,68 @@ export async function dismissEmployeeTask(
     throw new CbeStoreError(404, "task_missing", "CBE task was not found or is outside the user's scope.");
   }
   return toTaskRecord(row);
+}
+
+export async function failEmployeeTask(
+  context: TenantContext,
+  taskId: string,
+  input: FailEmployeeTaskRequest,
+) {
+  return withCbeTransaction(async (client) => {
+    const existing = await client.query<TaskRow>(
+      `
+        select
+          id,
+          agent_id,
+          task_kind,
+          status,
+          target_summary,
+          current_stage,
+          session_key,
+          started_at,
+          finished_at,
+          error_code,
+          error_message,
+          metadata_json
+        from agent_runs
+        where tenant_id = $1
+          and id = $2
+          and (owner_user_id = $3 or user_id = $3 or $4::boolean)
+        limit 1
+      `,
+      [context.tenantId, taskId, context.userId, context.cbeRole === "admin"],
+    );
+    const row = existing.rows[0];
+    if (!row) {
+      throw new CbeStoreError(404, "task_missing", "CBE task was not found or is outside the user's scope.");
+    }
+
+    const agentRun = await failAgentRun(client, context, {
+      agentRunId: taskId,
+      sessionKey: input.session_key,
+      errorCode: input.error_code,
+      errorMessage: input.error_message,
+      metadataJson: {
+        failure_details: input.details ?? {},
+      },
+    });
+    if (!agentRun) {
+      throw new CbeStoreError(404, "task_missing", "CBE task could not be failed.");
+    }
+
+    await createAgentRunActivityEvent(client, context, {
+      agentRunId: taskId,
+      agentId: row.agent_id,
+      taskKind: row.task_kind,
+      targetSummary: row.target_summary ?? undefined,
+      stage: "failed",
+      eventType: "employee_task_failed",
+      status: "failed",
+      metadataJson: {
+        error_code: input.error_code,
+        error_message: input.error_message,
+      },
+    });
+    return agentRun;
+  });
 }
