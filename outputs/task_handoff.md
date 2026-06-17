@@ -10,112 +10,104 @@ Conversation language: answer the user in Chinese. Keep handoff updates concise 
 
 Current active product area: Sentura cross-border e-commerce Phase 2 persistence.
 
-## Completed Current Turn — 2026-06-17 P2.1 Recheck
+## Completed Current Turn — 2026-06-17 P2.2 Typed Dashboard Store/API Routes
 
-User asked to recheck the Phase 2 P2.1 implementation and decide whether we can proceed to the next step.
+User asked: start from P2.2 in `跨境电商/PHASE-2.md`, strictly follow the plan, complete the next-phase task, and check the implementation.
 
 Completed:
 
-- Read `outputs/resume_card.md` and targeted P2.1/CE18 references from `outputs/task_handoff.md`, `docs/tests/tests-cross-border-phase2.md`, and `跨境电商/PHASE-2.md`.
-- Confirmed tool versions: Node `v24.16.0`, pnpm `11.5.1`.
-- `pg_isready`, `psql`, and `createdb` are not on PATH in this shell, so local DB setup/checks used project `pg`.
-- Reused local database `sentura_cbe_dev` through `postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev`.
-- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 64/64 static checks.
-- `CBE_DATABASE_URL=... pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 74/74 static + live checks.
-- `CBE_DATABASE_URL=... pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS; migrations skipped as already applied and seed summary was `seededUsers=3`, `adminProfiles=1`, `operatorProfiles=2`.
-- Focused strict NodeNext compile for P2.1 files: PASS.
-- `cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store/index.ts`: PASS.
+- Read continuation card/handoff, `跨境电商/PHASE-2.md`, `跨境电商/DESIGN.md`, `docs/memory/cross-border-ecommerce/phase-2.md`, and `docs/tests/tests-cross-border-phase2.md`.
+- Verified current Next.js Route Handler and Zod docs:
+  - Next Route Handlers use Web `Request`/`Response` APIs inside `app`.
+  - Next 16 dynamic route `params` is a Promise.
+  - Zod `safeParse` is the right non-throwing API-boundary validator.
+- Added `pg`, `zod`, and `@types/pg` to `sentura/dashboard/package.json`.
+- Implemented typed Dashboard CBE store modules under `sentura/dashboard/src/lib/cross-border-store/`:
+  - `db.ts`, `schemas.ts`, `tenant-context.ts`, `errors.ts`, `ids.ts`;
+  - `agent-runs.ts`, `audit.ts`, `api-ledger.ts`;
+  - `customers.ts`, `tasks.ts`, `notifications.ts`;
+  - `lead-runs.ts`, `screening.ts`, `accio.ts`, `handoffs.ts`;
+  - `admin.ts`, `route-utils.ts`;
+  - updated `index.ts` barrel exports.
+- Added Employee API routes:
+  - `employee/customers/route.ts`
+  - `employee/lead-runs/route.ts`
+  - `employee/lead-runs/[id]/complete/route.ts`
+  - `employee/screening-runs/route.ts`
+  - `employee/screening-runs/[id]/complete/route.ts`
+  - `employee/tasks/route.ts`
+  - `employee/tasks/[id]/dismiss/route.ts`
+  - `employee/notifications/route.ts`
+  - `employee/notifications/read/route.ts`
+  - `employee/memory/route.ts`
+  - `employee/memory/imports/route.ts`
+  - `employee/memory/imports/[id]/complete/route.ts`
+  - `employee/handoffs/route.ts`
+- Added Admin read-only monitoring API routes:
+  - `admin/overview/route.ts`
+  - `admin/live-tasks/route.ts`
+  - `admin/customers/route.ts`
+  - `admin/operators/route.ts`
+  - `admin/operators/[id]/route.ts`
+  - `admin/agent-usage/route.ts`
+- Extended `scripts/test-cross-border-phase2-store.ts`:
+  - P2.2 static checks for store modules/routes/schema boundaries;
+  - live PostgreSQL round-trip through Dashboard store functions;
+  - live probe creates and cleans Lead, Screening, Accio, pending memory fact, handoff, task, and marker-failure records.
+
+Behavior implemented:
+
+- `resolveCbeTenantContext(request)` resolves seeded `cbe_user_profiles` from `x-cbe-user-id` / `x-sentura-user-id`, defaulting to the seeded operator for local demo.
+- Operator reads are server-side scoped to own/shared records; Admin routes call `requireCbeAdmin`.
+- Completion routes use Zod validation before writes.
+- Evidence-bearing Lead/Screening payloads require source URLs and fetched timestamps.
+- Lead completion writes:
+  - `lead_runs`, `lead_candidates`, `lead_sources`, `lead_identities`, `lead_run_results`, `agent_run_activity_events`, `audit_events`.
+- Screening completion writes:
+  - `screening_targets`, `screening_reports`, `screening_evidence`, `screening_score_blocks`, `agent_run_activity_events`, `audit_events`.
+- Accio import/summary writes:
+  - `accio_imports`, `accio_conversations`, hash/redacted-only `accio_messages`, `accio_summaries`, pending-review `memory_facts`, `handoff_events`, activity/audit rows.
+- Parse/validation failures can set `agent_runs.status = failed`, `error_code = marker_parse_failed`, and audit metadata when an `agent_run_id` is present.
+
+Important fixes discovered during verification:
+
+- Store functions originally relied on route-level Zod defaults. Live store tests caught null `visibility_scope` on direct store calls. Fixed by parsing create inputs at the store boundary too.
+- Task/notification reads originally reused a scope helper that referenced `team_name`, but `agent_runs` has no `team_name`. Fixed task/notification filters to use owner/user/tenant-shared scope; team scope remains for business projections that actually include `team_name`.
+
+Verification completed:
+
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 109/109.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 129/129.
 - `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store src/app/api/client-demos/cross-border/employee src/app/api/client-demos/cross-border/admin`: PASS.
+- `cd sentura/dashboard && pnpm build`: PASS; route manifest lists all new Employee/Admin API routes.
 - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
-- DB probes confirmed migrations `001/002`, roles `admin=1` and `operator=2`, views `cbe_agent_usage_daily`, `cbe_customer_work_items`, `cbe_operator_workload_daily`, and rejection of invalid `platform_admin` CBE role.
-- Secret hygiene over migration/seed/source ID files: PASS.
-- `git diff --check`: PASS.
-- RULES/CONTEXT absence check: PASS.
-- Updated Phase 2 memory/test docs with the 2026-06-17 recheck result:
-  - `docs/memory/cross-border-ecommerce/phase-2.md`
-  - `docs/MEMORY.md`
-  - `docs/tests/tests-cross-border-phase2.md`
-  - `docs/TESTS.md`
 
-Decision:
+Docs updated:
 
-- P2.1 is complete and clear to proceed to P2.2.
-- Next implementation step: typed Dashboard store API modules and Next.js route handlers for validated Employee customer/task/memory reads plus Lead/Screening/Accio completion writes.
+- `跨境电商/PHASE-2.md`: P2.2 implemented; next task changed to P2.3; CE roadmap shifted to CE19=P2.2, CE20=P2.3, CE21=P2.4, CE22=P2.5, CE23=P2.6.
+- `docs/tests/tests-cross-border-phase2.md`: CE19 PASS details added; CE20-CE23 PEND placeholders adjusted.
+- `docs/TESTS.md`: CE19 summary row added; CBE summary updated to 19/19 implemented sections PASS.
+- `docs/MEMORY.md`: Current Ground Truth and Session Matrix updated.
+- `docs/memory/cross-border-ecommerce/phase-2.md`: P2.2 session detail appended.
 
-## Previous Completed Turn — 2026-06-17 Phase 2 Memory/Test Split
+## Current Boundary
 
-User asked: from now on all CBE memory and tests should be Phase 2 related; create new Phase 2 memory/test docs, reorganize related content into them, and update `AGENTS.md`.
+P2.2 is complete for server/store/API. It does not migrate the actual Employee React pages or `use-cbe-employee-store` off localStorage. That is P2.3.
 
-Completed:
-
-- Created `docs/memory/cross-border-ecommerce/phase-2.md`.
-- Created `docs/tests/tests-cross-border-phase2.md`.
-- Moved/reorganized Phase 2 content into the new files:
-  - Next-phase planning readout.
-  - Phase 2 execution plan.
-  - Phase 2 user stratification.
-  - Phase 2 customer Admin monitoring redesign.
-  - Phase 2 P2.1 business database foundation.
-  - 2026-06-17 memory/test split session.
-  - CE17 and CE18 test details.
-  - CE19-CE22 PEND placeholders.
-- Updated `docs/MEMORY.md`:
-  - Current Ground Truth says current/future CBE Phase 2 memory/tests use `phase-2.md` and `tests-cross-border-phase2.md`.
-  - Phase 2 rows now link to `memory/cross-border-ecommerce/phase-2.md`.
-  - Added the 2026-06-17 matrix row for this doc split.
-- Updated `docs/TESTS.md`:
-  - Last updated text.
-  - Phase 2 detailed-case note.
-  - CE17/CE18 detail links now point to `tests-cross-border-phase2.md`.
-  - Contributor policy includes `tests-cross-border-phase2.md`.
-  - DOC2 on-demand count updated to `>= 50`.
-- Updated `docs/memory/cross-border-ecommerce/phase-1.md`:
-  - Added a Phase 2 split note saying it is now historical Phase 1/MVP memory.
-- Updated `docs/tests/tests-cross-border-ecommerce.md`:
-  - Added a Phase 2 split note saying it remains CE1-CE16/MVP regression detail and CE17+ active details live in `tests-cross-border-phase2.md`.
-- Updated `AGENTS.md`:
-  - Mandatory CBE Phase 2 reads now include `phase-2.md` and `tests-cross-border-phase2.md`.
-  - Reference docs and test-file conventions now include the Phase 2 test file.
-  - Rule 4 now directs CBE Phase 2 test details to `tests-cross-border-phase2.md`.
-- Updated `README.md` Key Documentation:
-  - Added explicit rows for active CBE Phase 2 memory and test docs.
-  - Marked Phase 1 memory/test docs as historical/regression context.
-
-Preserved:
-
-- `docs/memory/cross-border-ecommerce/phase-1.md` remains intact as historical/audit memory.
-- `docs/tests/tests-cross-border-ecommerce.md` remains intact as Phase 1/MVP and CE1-CE16 regression detail. Historical CE17/CE18 sections may remain there, but the new Phase 2 file is the active detail source.
-
-## Verification Completed
-
-- `test -s docs/memory/cross-border-ecommerce/phase-2.md`
-- `test -s docs/tests/tests-cross-border-phase2.md`
-- `rg -n "On-demand reference — not read by default|Phase 2 memory/test document split|CE17|CE18" docs/memory/cross-border-ecommerce/phase-2.md docs/tests/tests-cross-border-phase2.md`
-- `rg -l 'On-demand reference — not read by default' docs/ ekg/ Documents/ 跨境电商/ | wc -l` -> 50.
-- `git diff --check` -> pass.
-- `find ... RULES.md/CONTEXT.md` -> none found outside pruned dirs.
-
-## Previous P2.1 State
-
-P2.1 business database foundation is already complete:
-
-- PostgreSQL migrations under `sentura/lib/cross-border-store/migrations/`.
-- Migration runner/seed under `sentura/lib/cross-border-store/`.
-- Dashboard CBE role constants under `sentura/dashboard/src/lib/cross-border-store/`.
-- CE18 script `scripts/test-cross-border-phase2-store.ts`.
-- Local dev database `sentura_cbe_dev` was created and verified last turn.
+Do not start P2.4 Lead coordinator until P2.3 UI reads/writes through the P2.2 endpoints, unless the user explicitly changes priority.
 
 ## Next Steps
 
-1. Start P2.2 typed Dashboard store API:
-   - modules under `sentura/dashboard/src/lib/cross-border-store/`;
-   - reuse CBE Zod schemas where possible;
-   - add DB projection/write schemas where needed.
-2. Add first route handlers:
-   - Employee customer/task/memory read endpoints;
-   - Lead/Screening/Accio completion write endpoints that accept only validated marker JSON plus `agent_run_id` / `session_key`.
-3. Store parse/write failures as failed `agent_runs` plus `audit_events`.
-4. Keep Employee UI state migration (P2.3) behind route/store tests.
-5. Do not start P2.4 duplicate-run coordinator until P2.2 store writes are real.
-
-Important: all new CBE Phase 2 session memory goes to `docs/memory/cross-border-ecommerce/phase-2.md`; all new CBE Phase 2 detailed tests go to `docs/tests/tests-cross-border-phase2.md`.
+1. Start P2.3 Employee UI migration:
+   - replace customer/task/memory/notification reads with P2.2 API calls;
+   - keep localStorage only for drafts/cache or explicit fallback;
+   - refresh lists from DB after writes.
+2. Wire hidden task runner completion:
+   - after marker parsing succeeds, call Lead/Screening/Accio completion endpoints;
+   - on marker/model/Gateway failure, call failure path where possible.
+3. Add CE20 Browser/type/build coverage for:
+   - `个人中心`;
+   - `获客与背调`;
+   - `记忆整理`;
+   - task notifications/report drawers surviving refresh and route navigation.

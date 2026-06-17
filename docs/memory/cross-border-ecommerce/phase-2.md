@@ -17,6 +17,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-16 | Phase 2 P2.1 business database foundation | Implemented PostgreSQL migrations, migration runner, seed tenant/users/profiles, dashboard CBE role/module constants, and CE18 static/live DB verification. |
 | 2026-06-17 | Phase 2 memory/test document split | Created this Phase 2 memory file and `docs/tests/tests-cross-border-phase2.md`; updated AGENTS/README/matrices so future CBE Phase 2 memory and tests use the new docs. |
 | 2026-06-17 | Phase 2 P2.1 re-verification | Re-ran CE18 static/live PostgreSQL checks, migration seed, focused TS/lint, full dashboard typecheck, legacy CBE suite, DB role/view probes, secret hygiene, and repo hygiene before proceeding to P2.2. |
+| 2026-06-17 | Phase 2 P2.2 typed Dashboard store/API routes | Implemented typed Dashboard CBE store modules, Employee/Admin App Router routes, validated Lead/Screening/Accio completion writes, marker parse-failure run/audit handling, and CE19 static/live PostgreSQL checks. |
 
 ## Current Phase 2 Ground Truth
 
@@ -26,7 +27,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
 - `admin` is a customer-side monitoring/supervisor role for live tasks, aggregate lists, per-user lists, Agent usage, costs, failures, and statistics. It is not a Sentura platform administrator and must not expose employee creation, prompt/tool/model/provider settings, OpenClaw config, Gateway config, MCP config, or sandbox/tool-policy changes.
 - P2.1 is complete and was re-verified on 2026-06-17. The PostgreSQL foundation lives under `sentura/lib/cross-border-store/` and uses `CBE_DATABASE_URL`; credentials must remain in env/secret injection, not committed files.
-- P2.2 is next: typed Dashboard store API and route handlers that validate employee marker JSON before DB writes.
+- P2.2 typed Dashboard store/API routes are complete. P2.3 DB-backed Employee UI migration is next; `localStorage` remains the Employee UI source of truth until that migration lands.
 
 ## 2026-06-16 — Next-phase planning readout
 
@@ -218,3 +219,112 @@ The user asked to recheck the P2.1 implementation and decide whether Phase 2 can
 ### Decision
 
 P2.1 remains complete. It is safe to proceed to P2.2: typed Dashboard store API modules and Next.js route handlers for validated Employee customer/task/memory reads plus Lead/Screening/Accio completion writes.
+
+## 2026-06-17 — Phase 2 P2.2 typed Dashboard store/API routes
+
+### User request
+
+The user asked to start from P2.2 in `跨境电商/PHASE-2.md`, strictly follow the plan, complete the next-phase work, and check the implementation.
+
+### Scope completed
+
+- Added typed Dashboard CBE store modules under `sentura/dashboard/src/lib/cross-border-store/`:
+  - DB pool/config boundary using `CBE_DATABASE_URL`;
+  - Zod request/marker schemas;
+  - tenant context and `operator`/`admin` role enforcement;
+  - `agent_runs`, audit, activity event, customer, task, notification, Lead, Screening, Accio, handoff, API ledger, and Admin read modules.
+- Added Employee App Router API routes under `sentura/dashboard/src/app/api/client-demos/cross-border/employee/`:
+  - customer/task/notification/memory reads;
+  - Lead run create and complete;
+  - Screening run create and complete;
+  - Accio import create and complete;
+  - task dismiss, notification read, and handoff create.
+- Added Admin read-only monitoring API routes under `sentura/dashboard/src/app/api/client-demos/cross-border/admin/`:
+  - overview;
+  - live tasks;
+  - customers;
+  - operators;
+  - operator detail;
+  - Agent usage.
+- Completion endpoints validate marker payloads before writes.
+- Evidence-bearing Lead/Screening markers require source URLs and fetched timestamps.
+- Validation failure routes mark the referenced `agent_runs` row failed with `error_code = marker_parse_failed` and write audit metadata when an `agent_run_id` is available.
+- Lead completion writes candidates, source evidence, identities/results, activity events, and audits.
+- Screening completion writes targets, reports, evidence, score blocks, activity events, and audits.
+- Accio imports store hash/redacted message records only; Accio summaries create pending-review memory facts and Screening handoffs.
+- Dashboard package now declares `pg`, `zod`, and `@types/pg`.
+- Extended `scripts/test-cross-border-phase2-store.ts` with CE19 static checks and live PostgreSQL round-trip checks.
+
+### Important boundary
+
+P2.2 is server-side store/API work. It does not migrate the existing React Employee pages or `use-cbe-employee-store` off `localStorage`; that is P2.3. The P2.2 routes are now ready for that migration.
+
+### Files added
+
+- `sentura/dashboard/src/lib/cross-border-store/db.ts`
+- `sentura/dashboard/src/lib/cross-border-store/schemas.ts`
+- `sentura/dashboard/src/lib/cross-border-store/tenant-context.ts`
+- `sentura/dashboard/src/lib/cross-border-store/errors.ts`
+- `sentura/dashboard/src/lib/cross-border-store/ids.ts`
+- `sentura/dashboard/src/lib/cross-border-store/agent-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/audit.ts`
+- `sentura/dashboard/src/lib/cross-border-store/api-ledger.ts`
+- `sentura/dashboard/src/lib/cross-border-store/customers.ts`
+- `sentura/dashboard/src/lib/cross-border-store/tasks.ts`
+- `sentura/dashboard/src/lib/cross-border-store/notifications.ts`
+- `sentura/dashboard/src/lib/cross-border-store/lead-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/screening.ts`
+- `sentura/dashboard/src/lib/cross-border-store/accio.ts`
+- `sentura/dashboard/src/lib/cross-border-store/handoffs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/admin.ts`
+- `sentura/dashboard/src/lib/cross-border-store/route-utils.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/customers/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/lead-runs/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/lead-runs/[id]/complete/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/screening-runs/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/screening-runs/[id]/complete/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/tasks/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/tasks/[id]/dismiss/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/notifications/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/notifications/read/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/memory/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/memory/imports/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/memory/imports/[id]/complete/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/handoffs/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/overview/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/live-tasks/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/customers/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/[id]/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/agent-usage/route.ts`
+
+### Files updated
+
+- `sentura/dashboard/src/lib/cross-border-store/index.ts`
+- `sentura/dashboard/package.json`
+- `pnpm-lock.yaml`
+- `scripts/test-cross-border-phase2-store.ts`
+- `跨境电商/PHASE-2.md`
+- `docs/TESTS.md`
+- `docs/tests/tests-cross-border-phase2.md`
+- `docs/MEMORY.md`
+- `docs/memory/cross-border-ecommerce/phase-2.md`
+
+### Verification
+
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 109/109 static checks.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 129/129 static + live PostgreSQL checks.
+- Live CE19 probe created and cleaned up Lead, Screening, Accio import/summary, pending memory fact, handoff, completed task, and failed marker-parse records.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store src/app/api/client-demos/cross-border/employee src/app/api/client-demos/cross-border/admin`: PASS.
+- `cd sentura/dashboard && pnpm build`: PASS; Next route manifest includes all new Employee/Admin API routes.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
+
+### Fixes found during verification
+
+- Store functions originally relied on route-level Zod defaults for `visibility_scope`; live direct-store tests caught null `visibility_scope` inserts. Fixed by parsing create inputs at the store boundary as well.
+- Task/notification reads originally reused a scope helper that referenced `team_name`, but `agent_runs` has no `team_name` column. Fixed task/notification filters to use owner/user/tenant-shared scope for `agent_runs`, while keeping team scope for business record projections that actually have `team_name`.
+
+### Next
+
+Proceed to P2.3: migrate the Employee UI pages and `use-cbe-employee-store` to read/write through these DB-backed APIs, keeping localStorage only for drafts/cache or explicit fallback.

@@ -121,18 +121,99 @@ git diff --check
 | CE18.19 | Legacy CBE suite preserved | `pnpm exec tsx scripts/test-cross-border-agents.ts` | Existing CE4-CE7/CE16 checks remain green at 335/335 after adding P2.1 files. |
 | CE18.20 | Secret hygiene | Static check | Migration and seed files do not embed connection strings, passwords, API keys, app secrets, bearer tokens, email addresses, or raw user tokens. |
 
-## CE19 — Employee DB-Backed UI
+## CE19 — Phase 2 P2.2 Typed Dashboard Store And Route Boundaries
+
+Status: PASS (2026-06-17)
+
+Scope:
+
+- Employee customer/task/memory read route handlers.
+- Lead/Screening/Accio start and completion route handlers.
+- Validated Lead marker writes to `lead_runs`, `lead_candidates`, `lead_sources`, and `lead_identities`.
+- Validated Screening marker writes to `screening_targets`, `screening_reports`, `screening_evidence`, and `screening_score_blocks`.
+- Validated Accio import/summary writes to `accio_imports`, `accio_conversations`, redacted/hash-only `accio_messages`, `accio_summaries`, `memory_facts(status=pending_review)`, and `handoff_events`.
+- Parse/validation failure path that marks `agent_runs.status = failed` with `error_code = marker_parse_failed` and writes audit metadata.
+- Admin read-only monitoring endpoints for overview, live tasks, customers, operators, operator detail, and Agent usage.
+
+Scope boundary:
+
+- This is P2.2 server-side persistence and route-boundary work only.
+- P2.3 still needs to migrate the actual Employee React pages/store off `localStorage`; until then, UI state can still be client-persisted.
+
+Primary files:
+
+- `sentura/dashboard/src/lib/cross-border-store/db.ts`
+- `sentura/dashboard/src/lib/cross-border-store/schemas.ts`
+- `sentura/dashboard/src/lib/cross-border-store/tenant-context.ts`
+- `sentura/dashboard/src/lib/cross-border-store/agent-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/customers.ts`
+- `sentura/dashboard/src/lib/cross-border-store/lead-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/screening.ts`
+- `sentura/dashboard/src/lib/cross-border-store/accio.ts`
+- `sentura/dashboard/src/lib/cross-border-store/tasks.ts`
+- `sentura/dashboard/src/lib/cross-border-store/notifications.ts`
+- `sentura/dashboard/src/lib/cross-border-store/admin.ts`
+- `sentura/dashboard/src/lib/cross-border-store/audit.ts`
+- `sentura/dashboard/src/lib/cross-border-store/api-ledger.ts`
+- `sentura/dashboard/src/lib/cross-border-store/handoffs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/route-utils.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/**/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/**/route.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+- `sentura/dashboard/package.json`
+- `pnpm-lock.yaml`
+
+Validation commands:
+
+```bash
+env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+CBE_DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/sentura_cbe_dev" pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db
+cd sentura/dashboard && pnpm exec tsc --noEmit
+cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store src/app/api/client-demos/cross-border/employee src/app/api/client-demos/cross-border/admin
+cd sentura/dashboard && pnpm build
+pnpm exec tsx scripts/test-cross-border-agents.ts
+git diff --check
+```
+
+Latest verification, 2026-06-17:
+
+- Static Phase 2 store script: 109/109 PASS without `CBE_DATABASE_URL`.
+- Live PostgreSQL Phase 2 store script: 129/129 PASS against local `sentura_cbe_dev`; live probe created and cleaned up Lead, Screening, Accio, memory fact, handoff, task, and marker-failure records.
+- Dashboard `pnpm exec tsc --noEmit`: PASS.
+- Focused Dashboard ESLint over new store/routes: PASS.
+- Dashboard `pnpm build`: PASS; Next route manifest includes all new Employee/Admin API routes.
+- Legacy CBE regression: `pnpm exec tsx scripts/test-cross-border-agents.ts` PASS, 335/335.
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE19.1 | Store module layout | Static script | Dashboard has typed modules for DB, schemas, tenant context, customers, Lead, Screening, Accio, tasks, notifications, admin, audit, API ledger, handoffs, and route utilities. |
+| CE19.2 | Route surface | Static script + Next build | Employee and Admin App Router `route.ts` files exist under the planned P2.2 paths and build as dynamic Node.js routes. |
+| CE19.3 | Tenant context | Static/live store check | Requests resolve seeded `cbe_user_profiles`; operators get own/shared scope and admin routes require `cbeRole = admin`. |
+| CE19.4 | Validation boundary | Static/live store check | Completion routes use Zod `safeParse`; evidence-bearing Lead/Screening marker payloads require source URLs and fetched timestamps. |
+| CE19.5 | No raw SQL for employees | Static script | Employee route handlers call typed store functions and do not embed SQL in completion route files. |
+| CE19.6 | Lead completion write | Live store check | A validated Lead marker payload writes a Lead run, candidate, source evidence, identity/result linkage, task activity, and audit rows. |
+| CE19.7 | Customer read projection | Live store check | The Employee customer read projection returns the newly saved Lead candidate through server-side row filtering. |
+| CE19.8 | Screening completion write | Live store check | A validated Screening marker payload writes target, report, evidence, score block, task activity, and audit rows. |
+| CE19.9 | Accio import write | Live store check | An Accio import stores hash/redacted-message records only, not raw chat text. |
+| CE19.10 | Accio summary write | Live store check | A validated Accio summary creates summaries, pending-review memory facts, Screening handoff events, task activity, and audit rows. |
+| CE19.11 | Task/notification projection | Live store check | Employee task reads return completed probe runs; marker failure path returns a failed run with `marker_parse_failed`. |
+| CE19.12 | Admin monitoring reads | Static/build check | Overview, live-task, customer, operator, operator-detail, and agent-usage routes are read-only and require admin context. |
+| CE19.13 | Dashboard dependencies | Static/build check | Dashboard package explicitly declares `pg`, `zod`, and `@types/pg` for server-side store compilation. |
+| CE19.14 | Legacy regression | `scripts/test-cross-border-agents.ts` | Existing Phase 1/Employee hidden runner checks remain green at 335/335. |
+| CE19.15 | Production build | `cd sentura/dashboard && pnpm build` | Next build compiles and lists the new Employee/Admin API route handlers. |
+
+## CE20 — Employee DB-Backed UI Migration
 
 Status: PEND
 
 Planned scope:
 
-- Employee customer/task/memory read route handlers.
-- Store-backed projections for `个人中心`, `获客与背调`, and `记忆整理`.
-- localStorage reduced to drafts/cache only.
+- Replace `use-cbe-employee-store` customer/task/memory source-of-truth reads with P2.2 API endpoints.
+- Keep `localStorage` only for drafts/cache or explicit fallback.
+- Refresh `个人中心`, `获客与背调`, and `记忆整理` from DB-backed projections.
 - Notifications and report drawers backed by DB records.
 
-## CE20 — Lead Coordinator Concurrency
+## CE21 — Lead Coordinator Concurrency
 
 Status: PEND
 
@@ -142,7 +223,7 @@ Planned scope:
 - Near duplicates offer choices.
 - Completed pool reuse and top-up denylist work.
 
-## CE21 — Screening/Accio Durable Workflow
+## CE22 — Screening/Accio Durable Workflow
 
 Status: PEND
 
@@ -151,8 +232,9 @@ Planned scope:
 - Screening writes targets/reports/evidence/score blocks.
 - Accio writes import/conversations/redacted messages/summaries.
 - Memory facts require approval before promotion.
+- Extend beyond P2.2 completion writes into the full P2.5 workflow: report/evidence detail UI, approval-to-memory promotion, retry/recovery, and durable Screening handoff consumption.
 
-## CE22 — Load Smoke
+## CE23 — Load Smoke
 
 Status: PEND
 

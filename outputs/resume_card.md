@@ -6,44 +6,47 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Latest completed task, 2026-06-17:
 
-- Rechecked Phase 2 P2.1 / CE18 implementation.
-- Reused local PostgreSQL database `sentura_cbe_dev` through Node `pg` because `psql`/`createdb` are not on PATH.
-- Static CE18: 64/64 PASS.
-- Live CE18 against `postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev`: 74/74 PASS.
-- Migration `--seed`: PASS, skipped already-applied migrations and returned `seededUsers=3`, `adminProfiles=1`, `operatorProfiles=2`.
-- Focused TS compile, dashboard lint, dashboard full typecheck, legacy CBE 335/335 regression, DB role/view probes, secret hygiene, `git diff --check`, and RULES/CONTEXT absence check all passed.
-
-Decision:
-
-- P2.1 is complete and clear to proceed.
-- Next implementation step remains P2.2 typed Dashboard store API and route handlers.
-
-Previous completed task, 2026-06-17:
-
-- Created dedicated Phase 2 CBE memory and test detail docs.
-- Updated AGENTS.md and README doc hub so future CBE Phase 2 work uses the new files by default.
-- Preserved Phase 1/MVP docs as historical/regression sources.
-
-New active Phase 2 docs:
-
-- Memory: `docs/memory/cross-border-ecommerce/phase-2.md`
-- Tests: `docs/tests/tests-cross-border-phase2.md`
-
-Changed routing:
-
-- `docs/MEMORY.md` Phase 2 rows now point to `phase-2.md`.
-- `docs/TESTS.md` CE17/CE18 detail links now point to `tests-cross-border-phase2.md`.
-- `docs/memory/cross-border-ecommerce/phase-1.md` now states it is historical Phase 1/MVP memory.
-- `docs/tests/tests-cross-border-ecommerce.md` now states CE17+ active details live in the Phase 2 test file.
+- Completed Phase 2 P2.2 typed Dashboard store/API routes from `跨境电商/PHASE-2.md`.
+- Added typed Dashboard store modules under `sentura/dashboard/src/lib/cross-border-store/`.
+- Added Employee API routes under `sentura/dashboard/src/app/api/client-demos/cross-border/employee/`:
+  - customers, tasks, notifications, memory reads;
+  - Lead/Screening/Accio create and complete routes;
+  - task dismiss, notification read, handoff create.
+- Added Admin read-only monitoring API routes under `sentura/dashboard/src/app/api/client-demos/cross-border/admin/`:
+  - overview, live-tasks, customers, operators, operators/[id], agent-usage.
+- Completion routes validate marker payloads with Zod before DB writes.
+- Lead/Screening evidence-bearing markers require source URLs and fetched timestamps.
+- Marker validation failures can mark referenced `agent_runs` as `failed` with `marker_parse_failed` and audit metadata.
+- Lead writes now persist run/candidate/source/identity/result/activity/audit rows.
+- Screening writes now persist target/report/evidence/score-block/activity/audit rows.
+- Accio writes now persist import/conversation/hash-redacted messages/summary/pending memory fact/handoff/activity/audit rows.
 
 Verification:
 
-- New files have on-demand banners.
-- On-demand banner count is 50; DOC2 updated to `>= 50`.
-- `git diff --check`: pass.
-- No `RULES.md` / `CONTEXT.md` files found.
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 109/109.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 129/129.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- Focused Dashboard ESLint for new store/routes: PASS.
+- `cd sentura/dashboard && pnpm build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
+
+Docs updated:
+
+- `跨境电商/PHASE-2.md`
+- `docs/TESTS.md`
+- `docs/tests/tests-cross-border-phase2.md`
+- `docs/MEMORY.md`
+- `docs/memory/cross-border-ecommerce/phase-2.md`
+
+Important boundary:
+
+- P2.2 is server/store/API only.
+- The Employee React pages still use `use-cbe-employee-store` / localStorage as the UI source of truth until P2.3.
 
 Next:
 
-- Continue P2.2 typed Dashboard store API and route handlers.
-- For all new CBE Phase 2 memory/tests, write to `phase-2.md` and `tests-cross-border-phase2.md`.
+- Start P2.3 Employee UI migration:
+  - read customer/task/memory/notification state from P2.2 endpoints;
+  - keep localStorage only for drafts/cache or explicit fallback;
+  - call completion endpoints after hidden task marker parsing;
+  - refresh DB-backed lists after successful writes.

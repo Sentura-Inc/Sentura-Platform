@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-16
+> Last updated: 2026-06-17
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -796,6 +796,21 @@ Implementation notes:
 - Admin endpoints require `cbeRole = admin` and are read-mostly monitoring endpoints for this customer UI.
 - Read endpoints must apply server-side row filters from `resolveCbeTenantContext`; client-side filtering is only presentation.
 
+### 5.4 Implementation Status (2026-06-17)
+
+P2.2 is implemented for the Dashboard server/store boundary:
+
+- Added typed Dashboard store modules under `sentura/dashboard/src/lib/cross-border-store/`.
+- Added Employee API routes for customer/task/notification/memory reads, Lead/Screening/Accio run creation, validated completion writes, notification read, task dismiss, and handoff creation.
+- Added Admin monitoring read routes for overview, live tasks, customers, operators, operator detail, and Agent usage.
+- Completion endpoints validate marker payloads with Zod before writes and mark parse failures as failed `agent_runs` with audit metadata.
+- Lead completion writes candidates, sources, identities/results, activity, and audit rows.
+- Screening completion writes targets, reports, evidence, score blocks, activity, and audit rows.
+- Accio import/summary writes hash/redacted message records, summaries, pending-review memory facts, Screening handoffs, activity, and audit rows.
+- `scripts/test-cross-border-phase2-store.ts` now covers P2.2 static route/store checks and live PostgreSQL round-trip checks.
+
+Boundary: P2.3 is still required to migrate the actual Employee React pages and `use-cbe-employee-store` off `localStorage`; P2.2 only creates the durable server API/store contract.
+
 ## 6. P2.3 — Move Employee UI Off `localStorage`
 
 ### 6.1 Current State
@@ -1095,10 +1110,11 @@ Phase 2 implementation tests:
 | Test | Method | Expected |
 |---|---|---|
 | CE18 — DB migrations/store | `scripts/test-cross-border-phase2-store.ts` | Migrations run idempotently; seed tenant/users created; store writes/reads all major record families; no secrets in output. |
-| CE19 — Employee DB-backed UI | Type/build + Browser | Employee home/customers/memory render from DB; localStorage fallback is not source of truth; notifications/report drawers still work. |
-| CE20 — Lead coordinator concurrency | `scripts/test-cross-border-phase2-concurrency.ts` | Two exact same-scope requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed pool reuse and top-up denylist work. |
-| CE21 — Screening/Accio durable workflow | Store tests + Browser | Screening writes target/report/evidence/score blocks; Accio writes import/conversations/redacted messages/summaries; memory facts require approval. |
-| CE22 — Load smoke | Live/staged run | 50 sessions, 10 Lead runs, 5 Screening batches, 3 Accio imports; limits/backpressure/cost/audit recorded. |
+| CE19 — P2.2 typed Dashboard store/API routes | `scripts/test-cross-border-phase2-store.ts` + type/lint/build | Store modules and Employee/Admin route handlers exist; Zod marker validation gates writes; Lead/Screening/Accio live PostgreSQL round-trip succeeds; parse failures mark failed `agent_runs`. |
+| CE20 — P2.3 Employee DB-backed UI migration | Type/build + Browser | Employee home/customers/memory render from DB; localStorage fallback is not source of truth; notifications/report drawers still work. |
+| CE21 — P2.4 Lead coordinator concurrency | `scripts/test-cross-border-phase2-concurrency.ts` | Two exact same-scope requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed pool reuse and top-up denylist work. |
+| CE22 — P2.5 Screening/Accio durable workflow | Store tests + Browser | Screening report/evidence detail UX, retry/recovery, Accio approval-to-memory promotion, and durable Screening handoff consumption work. |
+| CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead runs, 5 Screening batches, 3 Accio imports; limits/backpressure/cost/audit recorded. |
 
 Minimum verification after each implementation slice:
 
@@ -1151,10 +1167,10 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1 is complete. Next start P2.2:
+P2.1 and P2.2 are complete. Next start P2.3:
 
-1. Add the typed CBE store API modules under `sentura/dashboard/src/lib/cross-border-store/`.
-2. Add initial Next.js route handlers for Employee customer/task/memory reads and validated Lead/Screening/Accio completion writes.
-3. Reuse the existing CBE Zod schemas where possible and add DB projection schemas where needed.
-4. Store parse/write failures as failed `agent_runs` plus `audit_events`.
-5. Extend `scripts/test-cross-border-phase2-store.ts` or add a focused CE19/CE21 store test for typed writes before migrating the Employee UI off localStorage.
+1. Replace Employee page initialization and refresh flows with the P2.2 API read endpoints.
+2. Move `use-cbe-employee-store` from source-of-truth persistence to draft/cache state only.
+3. Wire hidden Lead/Screening/Accio task completion to call P2.2 completion endpoints after marker parsing.
+4. Refresh customer/task/memory/notification lists from DB after successful writes.
+5. Extend CE20 Browser/type/build coverage before starting P2.4 Lead coordinator concurrency.
