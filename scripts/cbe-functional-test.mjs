@@ -198,7 +198,12 @@ function extractProviders(parsed) {
     if (c.provider === "rdap") {
       mark("rdap", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: /ok|found|redirect|checked|success|200|302/i.test(String(r.status || r.http_status || "")) });
     } else if (c.provider === "sec") {
-      mark("sec", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: r.status === "found" || r.http_status === 200, records: r.facts ? 1 : (r.recent_filings ? r.recent_filings.length : undefined) });
+      // SEC "found" result embeds the full ~32KB submissions blob; stored trajectory truncates
+      // it so JSON.parse can fail (r empty). Regex the leading status/http from raw text.
+      const t = c.resultText || "";
+      const st = r.status || (t.match(/"status":\s*"(\w+)"/) || [])[1];
+      const http = r.http_status ?? Number((t.match(/"http_status":\s*(\d+)/) || [])[1]);
+      mark("sec", { tool: c.short, http: Number.isFinite(http) ? http : undefined, status: st, latency_ms: lat, ok: st === "found" || http === 200, records: r.facts ? 1 : (r.recent_filings ? r.recent_filings.length : undefined) });
     } else if (c.provider === "companies_house") {
       mark("companies_house", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: r.status === "found" || r.http_status === 200, records: (r.items && r.items.length) || (r.company_number ? 1 : undefined) });
     } else if (c.provider === "official_site") {

@@ -158,7 +158,7 @@ function parseTrajectory(file) {
       const call = calls.get(mm.toolCallId);
       const txt = Array.isArray(mm.content) ? mm.content.map((c) => (c && c.text) || "").join("") : "";
       let resJson = null; try { resJson = JSON.parse(txt); } catch { /* keep */ }
-      if (call) { call.t_res = ts; call.latency_ms = call.t_call && ts ? ts - call.t_call : null; call.result = resJson; }
+      if (call) { call.t_res = ts; call.latency_ms = call.t_call && ts ? ts - call.t_call : null; call.result = resJson; call.resultText = txt; }
     }
     if (ts) prevTs = ts;
   }
@@ -175,7 +175,14 @@ function extractProviders(parsed) {
   for (const c of parsed.calls) {
     const r = c.result || {}; const lat = c.latency_ms;
     if (c.provider === "rdap") mark("rdap", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: /ok|found|redirect|checked|200|302/i.test(String(r.status || r.http_status || "")) });
-    else if (c.provider === "sec") mark("sec", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: r.status === "found" || r.http_status === 200 });
+    else if (c.provider === "sec") {
+      // SEC "found" result embeds the full ~32KB submissions blob; the stored trajectory
+      // truncates it so JSON.parse fails (r empty). Regex the leading status/http from raw text.
+      const t = c.resultText || "";
+      const st = r.status || (t.match(/"status":\s*"(\w+)"/) || [])[1];
+      const http = r.http_status ?? Number((t.match(/"http_status":\s*(\d+)/) || [])[1]);
+      mark("sec", { tool: c.short, http: Number.isFinite(http) ? http : undefined, status: st, latency_ms: lat, ok: st === "found" || http === 200 });
+    }
     else if (c.provider === "companies_house") mark("companies_house", { tool: c.short, http: r.http_status, status: r.status, latency_ms: lat, ok: r.status === "found" || r.http_status === 200, records: (r.items && r.items.length) || (r.company_number ? 1 : undefined) });
     else if (c.provider === "official_site") mark("official_site", { tool: c.short, status: r.status, latency_ms: lat, ok: r.status === "found", records: (r.emails && r.emails.length) || 0 });
     else if (c.provider === "dns") {

@@ -1,7 +1,22 @@
 #!/usr/bin/env node
+import { setDefaultAutoSelectFamily } from "node:net";
+import { setDefaultResultOrder } from "node:dns";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfigFromEnv, type CrossBorderIntelConfig } from "./config.js";
+
+// IPv4 pin (runs at process start, before any fetch). WHY: on an IPv4-only host (e.g. the
+// mainland ECS) Node's global fetch (undici) uses Happy-Eyeballs `autoSelectFamily`, which
+// races an IPv6 attempt to dual-stack hosts. For SEC's Akamai edge (`www.sec.gov`) the IPv6
+// leg dies at the ~250ms attempt-timeout and surfaces as a fast ETIMEDOUT ("fetch failed")
+// instead of falling back to IPv4 — making `cbe_intel_sec_lookup` fail 100% (the CIK-resolution
+// step fetches `https://www.sec.gov/files/company_tickers.json`). Disabling Happy-Eyeballs +
+// preferring IPv4 makes the connect IPv4-first sequential, which fixes SEC and is harmless on
+// dual-stack hosts (IPv4-preferred is the internet norm). Opt out with CBE_INTEL_FORCE_IPV4=false.
+if (process.env.CBE_INTEL_FORCE_IPV4 !== "false") {
+  setDefaultAutoSelectFamily(false);
+  setDefaultResultOrder("ipv4first");
+}
 import {
   defaultDnsResolver,
   listTools,
