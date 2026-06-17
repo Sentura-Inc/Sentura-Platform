@@ -18,13 +18,18 @@ This file is now the shared platform and cross-agent design for the mobile-acces
 | Screening and Background | [`SCREENING.md`](SCREENING.md) | `cbe-buyer-screening`, evidence ladder, registry/domain/email/trade checks, contextual scoring, Alibaba International Station API enhancement. |
 | Accio Memory Processing | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) | `cbe-accio-memory`, Accio JSON fixture/upload, chat summarization, memory-write preview, Screening handoff. |
 
-Role-level UI design lives in [`UI.md`](UI.md). It defines the target Employee/Admin role split, the Employee navigation, personal center, unified customer list for Lead Discovery + Screening, memory-record list, status colors, and the hidden Agent task connection contract.
+Role-level UI design lives in [`UI.md`](UI.md). It defines the target ordinary-user/Admin monitoring split, the ordinary-user navigation, personal center, unified customer list for Lead Discovery + Screening, memory-record list, status colors, Admin monitoring console, and the hidden Agent task connection contract.
+
+Phase 2 execution planning lives in [`PHASE-2.md`](PHASE-2.md). It translates the current database, concurrency, and agent-hardening design into an implementation sequence for production persistence, typed store boundaries, multi-user sessions, Lead run coordination, durable Screening/Accio workflows, and load-smoke validation.
+
+Phase 2 also owns the cross-border customer user layer. For this client, the product UI has only two customer-facing levels: `operator` for ordinary business users and `admin` for customer-side supervisors who monitor task activity, aggregate lead/screening output, per-user lists, and statistics. This Admin role is not a Sentura platform administrator and does not expose employee creation, prompt tuning, provider settings, OpenClaw config, or tool-policy management. The full permission/database plan lives in [`PHASE-2.md §2.1`](PHASE-2.md#21-customer-user-levels-and-permission-boundary).
 
 Independent client memory and tests:
 
 - Memory detail: [`docs/memory/cross-border-ecommerce/phase-1.md`](../docs/memory/cross-border-ecommerce/phase-1.md)
 - Test detail: [`docs/tests/tests-cross-border-ecommerce.md`](../docs/tests/tests-cross-border-ecommerce.md)
 - Role UI design: [`UI.md`](UI.md)
+- Phase 2 execution plan: [`PHASE-2.md`](PHASE-2.md)
 - API/setup runbook: [`API_KEYS_OPENCLAW_SETUP.md`](API_KEYS_OPENCLAW_SETUP.md)
 
 ## 1. Inputs And Customer Baseline
@@ -365,7 +370,9 @@ Core schema:
 -- Shared dimensions
 tenants(id, slug, display_name, data_region, created_at)
 sentura_users(id, tenant_id, display_name, role, department_id, user_token_hash, created_at)
-agent_runs(id, tenant_id, user_id, agent_id, session_key, status, started_at, finished_at, model_ref, cost_usd_estimate)
+cbe_user_profiles(id, tenant_id, user_id, cbe_role, display_name, team_name, status, created_at, updated_at)
+agent_runs(id, tenant_id, user_id, agent_id, session_key, status, target_record_type, target_record_id, target_summary, current_stage, started_at, last_activity_at, finished_at, model_ref, cost_usd_estimate)
+agent_run_activity_events(id, tenant_id, agent_run_id, user_id, agent_id, event_type, stage, target_summary, tool_name, source_type, source_url, message, status, created_at)
 
 -- Marketing Acquisition
 lead_runs(id, tenant_id, user_id, agent_run_id, query_config_json, status, target_count, created_at)
@@ -391,6 +398,14 @@ api_call_ledger(id, tenant_id, agent_run_id, provider, endpoint, source_type, re
 audit_events(id, tenant_id, user_id, agent_id, event_type, data_tier, metadata_json, created_at)
 ```
 
+Customer role-aware row ownership:
+
+- CBE product roles are `operator` and `admin` only. Sentura authentication can still protect the session under the hood, but the CBE product must not surface the full Sentura platform role model.
+- Business tables that create user-visible records must carry `created_by_user_id`, `owner_user_id`, `team_name`, and `visibility_scope` where applicable.
+- Ordinary operators use the existing `个人中心`, `获客与背调`, and `记忆整理` pages. They can start Lead/Screening/Accio work, see their own records, see approved shared/team rows, and retry their own recoverable failures.
+- Admins are customer-side supervisors with read-mostly monitoring access: live task activity, aggregate lead/screening lists, per-user lists, per-agent usage, statistics, costs, and failure summaries.
+- Admins cannot create AI employees, tune prompts, change model/provider keys, change OpenClaw config, edit tool policy, bypass Lead duplicate-run coordination, or impersonate users to start silent tasks.
+
 Minimum indexes:
 
 - `lead_candidates(tenant_id, normalized_domain)` unique per tenant when non-null.
@@ -399,6 +414,9 @@ Minimum indexes:
 - `accio_conversations(tenant_id, company_name, email)`.
 - `api_call_ledger(tenant_id, created_at, provider)`.
 - `audit_events(tenant_id, created_at, event_type, data_tier)`.
+- `cbe_user_profiles(tenant_id, cbe_role, status)`.
+- `agent_run_activity_events(tenant_id, status, agent_id, created_at desc)`.
+- Owner/team/visibility indexes on Lead, Screening, and Accio record families for route-level row filtering and Admin monitoring views.
 
 Controlled write path:
 
@@ -408,7 +426,7 @@ Controlled write path:
   - `cbe_store_screening_report`
   - `cbe_store_accio_summary`
   - `cbe_store_handoff`
-- Typed tools validate Zod schemas, apply tenant/user IDs from RBAC context, redact PII for logs, and write the DB.
+- Typed tools validate Zod schemas, apply tenant/user IDs from the authenticated CBE tenant context, redact PII for logs, and write the DB.
 
 Per-employee database details:
 
@@ -430,7 +448,7 @@ Recommended topology for one customer company:
 Why not one Gateway per employee:
 
 - OpenClaw supports multiple agents and channels in one Gateway.
-- These three employees share one tenant, RBAC model, audit/cost ledger, and pipeline data.
+- These three employees share one tenant, customer auth/scope model, audit/cost ledger, and pipeline data.
 - Multiple Gateways would complicate handoff, memory, cost attribution, and deployment without improving trust isolation for one cooperative customer team.
 
 When to split Gateways:
@@ -462,7 +480,7 @@ Session isolation:
 
 - Every run includes `tenant_id`, `user_id`, `agent_id`, and `session_key`.
 - Sentura user tokens drive per-user memory injection and tag business DB writes.
-- Users inside one company may share buyer records according to RBAC. This is cooperative multi-user operation, not hostile multi-tenant isolation.
+- Users inside one company may share buyer records according to CBE owner/team/visibility scope. This is cooperative multi-user operation, not hostile multi-tenant isolation.
 
 ## 10. Cloud Deployment And Model Routing
 
@@ -538,7 +556,7 @@ Data tiers:
 | Data | Tier | Handling |
 |---|---|---|
 | Public company websites, public registry URLs, search snippets | T0/T1 | Store as evidence with source URL and timestamp. |
-| Buyer contact names, work emails, phone numbers, lead lists | T2 | Mask in demo/export where possible; RBAC-gated internal view. |
+| Buyer contact names, work emails, phone numbers, lead lists | T2 | Mask in demo/export where possible; CBE-authenticated internal view with owner/team/visibility scope. |
 | Raw Accio chats, negotiated prices, payment terms, customer notes | T3 | Store encrypted; never send to external channels; summarize before memory write. |
 | API keys, model keys, provider credentials | T4 | Secret store / `.env`; never in DB, workspace prose, logs, or chat. |
 
@@ -569,7 +587,7 @@ Cost defaults:
 Security controls before production:
 
 - Gateway behind HTTPS reverse proxy and auth.
-- Dashboard uses Sentura RBAC and per-user tokens.
+- Dashboard uses Sentura authentication/per-user tokens, then applies the CBE `operator`/`admin` product role and owner/team/visibility scope in customer routes.
 - `openclaw security audit --deep` passes or findings have explicit exception.
 - Dangerous tools denied for all three employees.
 - Paid API usage has budget caps and human approval for cap increases.

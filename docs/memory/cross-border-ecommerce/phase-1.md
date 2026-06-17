@@ -6,6 +6,8 @@
 
 Independent memory for the mobile-accessory cross-border e-commerce client pilot. This lane is outside the core A/B/C/D sprint plan and outside Sitlink; use Owner `cross-border-ecommerce` in `docs/MEMORY.md`.
 
+Phase 2 split: this file is now historical Phase 1/MVP memory. Current and future Phase 2 production/database/customer-admin/concurrency/store/UI-persistence memory belongs in [`phase-2.md`](phase-2.md). Historical Phase 2 entries may remain below for audit continuity, but new Phase 2 sessions should not be appended here.
+
 ## Sessions in this file
 
 | Date | Session | Summary |
@@ -48,6 +50,11 @@ Independent memory for the mobile-accessory cross-border e-commerce client pilot
 | 2026-06-15 | Employee Lead/Screening parallel task gating | Split active-task gating into `leadRunning` and `screeningRunning`, allowing one active Lead and one active Screening task together while keeping same-kind duplicates blocked; task status can show both active cards; raised CE16 checks to 322/322. |
 | 2026-06-16 | Employee Screening long-report timeout and Lead target-count fix | Diagnosed failed-looking Screening as frontend history truncation of a long JSON marker message; hidden runner now reads large `chat.history` payloads, Lead target count is manual numeric input, and Lead prompt/import logic treats `target_count` as the requested count; raised CE16 checks to 331/331. |
 | 2026-06-16 | Employee repeated Screening timeout fix | Diagnosed a later `单个背调` failure as a real backend `LLM idle timeout (120s)` after tool calls, compacted SEC lookup output from full submissions JSON to bounded recent-filing summaries, surfaced backend transcript errors in the hidden runner, rebuilt/restarted the local demo, and raised CE16 checks to 335/335. |
+| 2026-06-16 | Next-phase planning readout | Recommended starting the next phase with the tenant-scoped CBE business database and typed store layer, then replacing localStorage task/customer state, implementing Lead run-scope dedupe/shared-result coordination, and tuning the three employees against durable contracts. |
+| 2026-06-16 | Phase 2 execution plan | Filled `跨境电商/PHASE-2.md` with the detailed production-hardening plan for DB schema/migrations, typed store/routes, Employee state migration, Lead coordinator, durable Screening/Accio workflows, backpressure/load smoke, implementation files, tests, and acceptance criteria; linked it from README/AGENTS/DESIGN and added CE17 coverage. |
+| 2026-06-16 | Phase 2 user stratification | Added Admin/ordinary Employee/Auditor/Viewer role mapping on top of Sentura RBAC, admin-vs-ordinary permission boundaries, CBE profile/admin settings tables, row-level owner/department/visibility fields, UI/DESIGN/README/AGENTS sync, and CE17 coverage expansion. |
+| 2026-06-16 | Phase 2 customer Admin monitoring redesign | Superseded the broad Sentura-RBAC-style CBE role plan with two customer-facing levels (`operator`, `admin`), made the existing Employee UI the ordinary-user surface, and constrained Admin to monitoring/live-task/aggregate/per-user/statistics views. |
+| 2026-06-16 | Phase 2 P2.1 business database foundation | Implemented PostgreSQL migrations, migration runner, seed tenant/users/profiles, dashboard CBE role/module constants, and CE18 static/live DB verification against local `sentura_cbe_dev`. |
 
 ## 2026-06-07 — Phase-1 MVP design and API/tool plan
 
@@ -1929,3 +1936,196 @@ The user attached a notification-center screenshot showing `单个背调` failed
 ### Remaining boundary
 
 This pass did not rerun a new paid/live Screening submit, to avoid spending additional LLM/provider calls while the failing session already contained the backend evidence. The old failed notification remains a historical failed task record in the client-persisted task list; new failures should show the real backend model error, and new SEC lookups should avoid the oversized submissions payload.
+
+## 2026-06-16 — Next-phase planning readout
+
+### Context read
+
+- Read `docs/MEMORY.md`, `outputs/resume_card.md`, `outputs/task_handoff.md`, this file's latest CBE sections, and the relevant database/concurrency sections in `跨境电商/DESIGN.md`, `MARKET_ACQUISITION.md`, `SCREENING.md`, `MEMORY_PROCESSING.md`, and `UI.md`.
+- Latest state: Employee UI and hidden OpenClaw task runner are mostly complete; CE4/CE5/CE6/CE7/CE16 offline coverage is green; recent fixes handled long Screening marker output, Lead target-count behavior, cost visibility, task progress, notifications, filters, and backend failure surfacing.
+
+### Recommendation
+
+The next phase should start with the shared CBE business database and typed persistence/store layer, not more page polish or isolated prompt tuning. The current blocker for production work is that customers, task records, notifications, reports, and memory previews are still effectively client-persisted/local-state artifacts. Database-backed `agent_runs`, Lead/Screening/Accio records, evidence rows, `api_call_ledger`, and handoff records are prerequisites for multi-user behavior, dedupe, audit, retry, and load testing.
+
+Suggested order:
+
+1. Implement tenant-scoped CBE database schema/migrations plus a typed store boundary for validated Dashboard writes after employee JSON marker parsing.
+2. Replace Employee localStorage as source of truth for customer rows, task records, reports, notifications, and memory records; keep localStorage only for drafts/cache if useful.
+3. Add Lead Discovery run-scope coordinator with `scope_hash`, leases, memberships, shared result pools, identity dedupe, and top-up-only reruns.
+4. Tune the three employees against durable contracts: Lead incremental/top-up batches, Screening bounded evidence/partial failure handling, and Accio upload/redaction/approval-to-memory.
+5. Add automated duplicate-run and 50-user/load-smoke coverage once the store and coordinator exist.
+
+### Boundaries
+
+- Keep one Gateway with three persistent CBE employees for this single customer trust boundary.
+- Do not give employees raw database access; use Dashboard route handlers first or a typed `cross-border-store` MCP/Sentura plugin boundary.
+- True live E2E still depends on a supported sandbox runtime on the target environment, or an explicit unsafe local-only sandbox-off override for short debugging.
+
+## 2026-06-16 — Phase 2 execution plan
+
+### User request
+
+The user asked to put the next work into `跨境电商/PHASE-2.md`, including a detailed schedule and implementation method, and to base it on the existing documentation.
+
+### Inputs read
+
+- `跨境电商/PHASE-2.md` was present but empty.
+- Read the relevant Phase-2 source sections in `跨境电商/DESIGN.md`, `UI.md`, `MARKET_ACQUISITION.md`, `SCREENING.md`, and `MEMORY_PROCESSING.md`.
+- Checked the existing CBE test matrix/detail and the latest memory/handoff entries.
+- Verified current official implementation references for Next.js App Router route handlers, PostgreSQL row locks / `SKIP LOCKED`, and OpenClaw Gateway/MCP/sandbox tool policy.
+
+### Changes made
+
+- Filled `跨境电商/PHASE-2.md` with:
+  - source alignment table tying the plan to the existing CBE docs;
+  - Phase 2 goals and non-goals;
+  - P2.1-P2.6 execution order;
+  - PostgreSQL-compatible tenant-scoped schema and minimum indexes;
+  - typed store and Next.js route-handler boundary;
+  - plan to move Employee state off `localStorage`;
+  - Lead Discovery coordinator algorithm with `scope_hash`, leases, memberships, shared pools, near-duplicate choices, and top-up-only denylist;
+  - durable Screening and Accio persistence/approval workflows;
+  - backpressure/load-smoke plan;
+  - expected implementation file map, test roadmap, acceptance criteria, risks, and immediate next task.
+- Updated `README.md`, `AGENTS.md`, and `跨境电商/DESIGN.md` to expose `PHASE-2.md` as the production/database/concurrency entrypoint.
+- Added CE17 to `docs/TESTS.md` and `docs/tests/tests-cross-border-ecommerce.md`.
+
+### Verification
+
+- Documentation link/static verification and `git diff --check` were run after the edits.
+
+### Boundary
+
+No production database code or route implementation was added in this session. The next implementation task is P2.1: schema/migrations, DB config loading, seed tenant/users, and `scripts/test-cross-border-phase2-store.ts`.
+
+## 2026-06-16 — Phase 2 user stratification
+
+### User request
+
+The user asked to add a section for user stratification, covering admin and ordinary-user permissions, permission boundaries, and database-design distinctions.
+
+### Changes made
+
+- Updated `跨境电商/PHASE-2.md`:
+  - added `## 2.1 User Stratification And Permission Boundary`;
+  - mapped Sentura RBAC roles into CBE product roles: `admin`, `employee`, `auditor`, `viewer`;
+  - documented admin-only capabilities versus ordinary employee capabilities;
+  - added auditor/viewer boundaries;
+  - added `cbe_user_profiles`, admin capability flags, row-level `owner_user_id` / `created_by_user_id` / `department_id` / `visibility_scope` fields, and admin-only `cbe_budget_policies` / `cbe_data_source_settings`;
+  - updated typed tenant context, admin route handler plan, file map, indexes, and seed expectations.
+- Updated `跨境电商/DESIGN.md` with the Phase 2 user-stratification pointer and DB/RBAC summary.
+- Updated `跨境电商/UI.md` with visible role/navigation differences, Admin modules, ordinary-user restrictions, and UI data model scope fields.
+- Updated `README.md` and `AGENTS.md` so Phase 2 is described as production/database/RBAC/concurrency work.
+- Updated CE17 in `docs/TESTS.md` and `docs/tests/tests-cross-border-ecommerce.md` from 14 to 19 review checks.
+
+### Verification
+
+- Static review and `git diff --check` were run after the edits.
+
+### Boundary
+
+This is a design/documentation update only. No RBAC runtime code, database migration, admin page, or route handler implementation was added yet.
+
+## 2026-06-16 — Phase 2 customer Admin monitoring redesign
+
+### User request
+
+The user clarified that the customer does not need the original Sentura-platform-style user hierarchy. This cross-border customer is not buying an employee-creation console. The current UI is what ordinary users should use and see. Admin should mainly monitor and inspect: which employee is calling which Agent to investigate what, aggregate acquisition/screening lists, per-employee lists, and statistics.
+
+### Decision
+
+The previous broad CBE role plan (`admin`, `employee`, `auditor`, `viewer` mapped from Sentura RBAC) is now superseded for this customer lane. Current Phase 2 design uses only two customer-facing levels:
+
+- `operator` / 普通用户 / 业务员工: uses existing `个人中心`, `获客与背调`, and `记忆整理` pages; starts Lead/Screening/Accio tasks; sees own/shared work.
+- `admin` / 管理员 / 业务主管: read-mostly customer supervisor; monitors live/recent Agent task activity, aggregate lead/screening results, per-user lists, per-agent usage, cost, failures, and business statistics.
+
+Admin is not a Sentura platform administrator. The CBE customer UI must not expose AI employee creation, prompt tuning, provider/model/key settings, OpenClaw config, Gateway config, MCP server config, sandbox/tool-policy changes, or duplicate-run bypass.
+
+### Changes made
+
+- Updated `跨境电商/PHASE-2.md`:
+  - renamed the section to `## 2.1 Customer User Levels And Permission Boundary`;
+  - defined `operator` and `admin` only;
+  - described ordinary-user permissions around the existing UI;
+  - described Admin monitoring modules: `总览`, `实时任务`, `获客与背调汇总`, `员工视图`, and `Agent 使用统计`;
+  - added monitoring fields on `agent_runs` and a new `agent_run_activity_events` table;
+  - changed route planning to read-mostly Admin monitoring endpoints: `overview`, `live-tasks`, `customers`, `operators`, `operators/[id]`, and `agent-usage`;
+  - updated `resolveCbeTenantContext` to return CBE role and data scope without old capability flags.
+- Updated `跨境电商/UI.md` so the Admin page is a customer supervisor console, while ordinary users keep the already-built Employee UI.
+- Updated `跨境电商/DESIGN.md` to remove current-facing `auditor`/`viewer` and Admin-management language from the CBE role/database summary.
+- Updated `README.md` and `AGENTS.md` so Phase 2 is described as production/database/customer-admin-monitoring/concurrency work, not RBAC platform work.
+- Updated CE17 in `docs/TESTS.md` and `docs/tests/tests-cross-border-ecommerce.md` to validate the two-level customer model, Admin monitoring boundary, activity-event database design, and Admin monitoring route plan.
+- Updated `docs/MEMORY.md` with a new matrix row for this superseding design decision.
+
+### Verification
+
+- Static review of current design docs for old CBE role-model remnants.
+- `git diff --check` was run after the edits.
+
+### Boundary
+
+This is still a design/documentation update only. No database migration, store module, Admin page, route handler, or runtime permission enforcement code was implemented in this pass.
+
+## 2026-06-16 — Phase 2 P2.1 business database foundation
+
+### User request
+
+The user asked to start the next phase from `跨境电商/PHASE-2.md` 2.1/P2.1, using the local PostgreSQL installation (`postgres` user on port 5432), strictly follow the plan, and check the implementation.
+
+### Scope
+
+Implemented the P2.1 foundation only:
+
+- Database schema/migration files.
+- `CBE_DATABASE_URL`-driven DB config loading.
+- Migration runner and deterministic seed data.
+- One customer tenant, one `admin`, and two `operator` profiles.
+- Dashboard-side CBE role/module boundary constants for later P2.2 route work.
+- CE18 verification script with static and live PostgreSQL checks.
+
+Did not start P2.2 route handlers, P2.3 UI localStorage migration, P2.4 Lead coordinator transactions, or Admin pages.
+
+### Files changed
+
+- Added `sentura/lib/cross-border-store/migrations/001_initial_schema.sql`:
+  - `tenants`, `sentura_users`, `cbe_user_profiles`;
+  - `agent_runs`, `agent_run_activity_events`;
+  - Lead, Screening, Accio, handoff, memory fact, API ledger, and audit tables;
+  - owner/team/visibility fields;
+  - required indexes;
+  - projection views `cbe_customer_work_items`, `cbe_operator_workload_daily`, and `cbe_agent_usage_daily`.
+- Added `sentura/lib/cross-border-store/migrations/002_lead_scope_coordinator.sql`:
+  - `lead_discovery_scopes`, `lead_run_memberships`, `lead_identities`, `lead_run_results`, and `lead_allocations`;
+  - active-scope, membership, identity, and allocation indexes.
+- Added `sentura/lib/cross-border-store/db.ts`, `ids.ts`, `schemas.ts`, `seed.ts`, `migrate.ts`, and `index.ts`.
+- Added `sentura/dashboard/src/lib/cross-border-store/index.ts` with CBE customer role and module constants.
+- Updated `sentura/lib/index.ts`, `sentura/lib/package.json`, and `sentura/lib/tsconfig.json` so the cross-border store can be exported/typechecked.
+- Added root dependencies `pg` and `@types/pg`.
+- Added `scripts/test-cross-border-phase2-store.ts`.
+- Updated `跨境电商/PHASE-2.md` so P2.1 is marked complete and the immediate next task is P2.2.
+- Updated `docs/TESTS.md` and `docs/tests/tests-cross-border-ecommerce.md` with CE18.
+
+### Local database work
+
+- `psql` was not on the current shell PATH, but node-postgres could connect to local PostgreSQL on port 5432.
+- Created local development database `sentura_cbe_dev`.
+- Ran migrations and seed through `CBE_DATABASE_URL` pointing at `sentura_cbe_dev`.
+- Re-ran migrations to confirm no-op behavior.
+
+### Verification
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 64/64 static checks.
+- `CBE_DATABASE_URL=... pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 74/74 static + live DB checks.
+- `CBE_DATABASE_URL=... pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS; skipped both already-applied migrations and returned seed counts `seededUsers=3`, `adminProfiles=1`, `operatorProfiles=2`.
+- Focused TypeScript compile for new store/test files: PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store/index.ts`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
+- `git diff --check`: PASS.
+
+### Known boundary
+
+Full `sentura/lib` typecheck is still blocked by pre-existing `.ts` import-extension errors in `config-versioning.ts`, `per-agent-mcp.ts`, and `secrets.ts`. The new cross-border store files were typechecked directly under strict NodeNext settings.
+
+Next implementation step is P2.2: typed store API and Next.js route handlers that validate employee marker JSON before DB writes.

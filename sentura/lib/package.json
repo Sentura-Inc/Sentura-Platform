@@ -17,16 +17,19 @@
     "./secrets": "./secrets.ts",
     "./per-agent-mcp": "./per-agent-mcp.ts",
     "./chat-sessions": "./chat-sessions.ts",
-    "./cross-border-ecommerce": "./cross-border-ecommerce.ts"
+    "./cross-border-ecommerce": "./cross-border-ecommerce.ts",
+    "./cross-border-store": "./cross-border-store/index.ts"
   },
   "scripts": {
     "build": "tsdown src/index.ts --format esm --dts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "pg": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "typescript": "^5.7.0"
   }
 }

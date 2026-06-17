@@ -285,16 +285,19 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`docs/memory/person-*/week-*.md`](docs/memory/) | Per-owner, per-week session detail (prose, diffs, verification steps) | On demand — open from the matrix row |
 | [`docs/memory/shared/*.md`](docs/memory/shared/) | Cross-cutting sessions (architecture pivots, workspace collapses, multi-round bug hunts) | On demand — open from the matrix row |
 | [`docs/memory/sitlink/*.md`](docs/memory/sitlink/) | Sitlink / 座联互动 independent client-pilot memory | On demand — for Sitlink tasks only |
-| [`docs/memory/cross-border-ecommerce/*.md`](docs/memory/cross-border-ecommerce/) | Cross-border e-commerce / 跨境电商 independent client-pilot memory | On demand — for mobile-accessory cross-border tasks only |
+| [`docs/memory/cross-border-ecommerce/phase-2.md`](docs/memory/cross-border-ecommerce/phase-2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 memory for production persistence, customer Admin monitoring, typed store, concurrency, and durable workflows | On demand — for current 跨境电商 Phase 2 tasks |
+| [`docs/memory/cross-border-ecommerce/phase-1.md`](docs/memory/cross-border-ecommerce/phase-1.md) | Historical Cross-border e-commerce / 跨境电商 Phase 1/MVP memory | On demand — for Phase 1 regression/provenance lookup only |
 | [`座联互动/DESIGN.md`](座联互动/DESIGN.md) | Sitlink client-pilot design | On demand — for Sitlink tasks only |
 | [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce shared platform, database, deployment, MCP, and cross-agent design | On demand — for 跨境电商 tasks only |
-| [`跨境电商/UI.md`](跨境电商/UI.md) | Cross-border Employee/Admin role UI design, Employee page layouts, status colors, and hidden Agent task connection contract | On demand — for 跨境电商 UI/UX tasks only |
+| [`跨境电商/PHASE-2.md`](跨境电商/PHASE-2.md) | Cross-border Phase 2 execution plan for production persistence, customer `admin`/`operator` levels, Admin monitoring, typed store, multi-user sessions, Lead coordinator, durable Screening/Accio workflows, and load-smoke testing | On demand — for 跨境电商 production/database/concurrency/customer-permission tasks only |
+| [`跨境电商/UI.md`](跨境电商/UI.md) | Cross-border ordinary-user/Admin monitoring UI design, Employee page layouts, status colors, and hidden Agent task connection contract | On demand — for 跨境电商 UI/UX tasks only |
 | [`跨境电商/MARKET_ACQUISITION.md`](跨境电商/MARKET_ACQUISITION.md) | Cross-border Marketing Acquisition / Lead Discovery employee design, implementation status, and plan | On demand — for 跨境电商获客 tasks only |
 | [`跨境电商/SCREENING.md`](跨境电商/SCREENING.md) | Cross-border Screening and Background employee design, evidence model, Alibaba API plan, implementation status, and plan | On demand — for 跨境电商背调 tasks only |
 | [`跨境电商/MEMORY_PROCESSING.md`](跨境电商/MEMORY_PROCESSING.md) | Cross-border Accio Memory Processing employee design, fixture/upload workflow, memory policy, implementation status, and plan | On demand — for 跨境电商记忆处理 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
-| [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases | When running or updating tests |
+| [`docs/tests/tests-cross-border-phase2.md`](docs/tests/tests-cross-border-phase2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 detailed test cases (CE17+) | When running or updating CBE Phase 2 tests |
+| [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases; `tests-cross-border-ecommerce.md` remains CBE Phase 1/MVP regression history | When running or updating tests |
 | [`Documents/Demo.md`](Documents/Demo.md) | Demo scenarios and workflows | When designing demo flows |
 | [`ekg/*`](ekg/) | GradSale reference enterprise docs | When building MCP servers or integration skills |
 

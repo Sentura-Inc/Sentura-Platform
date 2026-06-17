@@ -4,18 +4,18 @@
 >
 > Back-link: [`DESIGN.md`](DESIGN.md)
 >
-> Status: Employee role target UI design. Admin role is reserved and intentionally not specified beyond role separation.
+> Status: Employee role target UI design plus Phase-2 customer Admin monitoring boundary. Detailed Admin monitoring page implementation remains planned.
 >
-> Last updated: 2026-06-13
+> Last updated: 2026-06-16
 
-This document defines the customer-facing role UI for the mobile-accessory cross-border e-commerce client lane. Shared platform/runtime design lives in [`DESIGN.md`](DESIGN.md). Agent-specific behavior remains in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md), [`SCREENING.md`](SCREENING.md), and [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
+This document defines the customer-facing role UI for the mobile-accessory cross-border e-commerce client lane. Shared platform/runtime design lives in [`DESIGN.md`](DESIGN.md). Phase-2 production/user-permission planning lives in [`PHASE-2.md`](PHASE-2.md). Agent-specific behavior remains in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md), [`SCREENING.md`](SCREENING.md), and [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
 The UI has two roles:
 
 | Role | Scope in this document | Status |
 |---|---|---|
 | `employee` | Sales/operator user who finds customers, starts background investigation, imports Accio chat records, reviews reports, and receives task messages. | Designed below. |
-| `admin` | Tenant/admin user who manages users, permissions, data sources, API budgets, agent health, and settings. | Deferred; only reserve role boundary and navigation entry. |
+| `admin` | Customer supervisor/manager who monitors user activity, Agent tasks, aggregate lead/screening output, per-user lists, and statistics. | Monitoring boundary designed; full Admin pages planned in Phase 2. |
 
 Employee pages must not expose a direct free-form Agent chat session for Phase 1. Users operate through business buttons, forms, filters, and lists. The backend may still create hidden OpenClaw sessions to run the real employees, but the visible product surface is a controlled task UI.
 
@@ -28,6 +28,28 @@ Employee pages must not expose a direct free-form Agent chat session for Phase 1
 - Every customer row and memory row must show status clearly before the user opens a detail view.
 - Every Agent-produced result must remain auditable through `agent_run_id`, source URLs, timestamps, and report IDs.
 - No Phase-1 UI sends outreach automatically.
+- Admin and ordinary Employee users must see different navigation and data scopes; this customer UI does not expose AI employee creation, prompt tuning, provider-key setup, or OpenClaw config management.
+
+## 1.1 User Levels And Permissions
+
+The CBE UI uses customer-specific product roles, not the full Sentura platform role model:
+
+| Product role | Chinese label | Visible navigation | Data scope | Main actions |
+|---|---|---|---|---|
+| `operator` | 普通用户 / 业务员工 | `个人中心`, `获客与背调`, `记忆整理` | Own rows, shared customer pool rows, joined shared Lead runs, assigned handoffs. | Start Lead/Screening/Accio tasks, view own reports and task progress, retry own recoverable failures. |
+| `admin` | 管理员 / 业务主管 | Existing Employee pages plus `管理员` | Tenant-wide or team-wide monitoring scope. | Monitor who is running which task, which Agent is being called, target under investigation, aggregate lead/screening lists, per-user lists, and statistics. |
+
+Admin monitoring surfaces must not appear for ordinary users:
+
+- `总览`
+- `实时任务`
+- `获客与背调汇总`
+- `员工视图`
+- `Agent 使用统计`
+
+Ordinary users can still see task status, cost for their own usage, and report evidence for rows they are allowed to access. They cannot see other users' private task inputs, tenant-wide statistics, or admin monitoring tables.
+
+Admin monitoring pages are read-mostly. Admins cannot create AI employees, change Agent prompts/tools, change model/API/provider keys, edit sandbox settings, or bypass the duplicate Lead coordinator from this customer UI.
 
 ## 2. Information Architecture
 
@@ -38,7 +60,7 @@ Target routes:
 | `/client-demos/cross-border/employee` | 个人中心 | `employee` | Login landing page and personal productivity summary. |
 | `/client-demos/cross-border/employee/customers` | 获客与背调 | `employee` | One customer list for Lead Discovery output and Screening actions. |
 | `/client-demos/cross-border/employee/memory` | 记忆整理 | `employee` | One chat-record list for Accio import, analysis, report review, and Screening handoff. |
-| `/client-demos/cross-border/admin` | 管理员 | `admin` | Reserved for later admin design. |
+| `/client-demos/cross-border/admin` | 管理员 | `admin` | Phase-2 monitoring shell for aggregate KPIs, realtime tasks, all-customer lead/screening list, per-user lists, and Agent usage statistics. |
 
 Current demo routes can be folded into these targets:
 
@@ -57,7 +79,7 @@ Desktop top bar:
 | Area | Content | Behavior |
 |---|---|---|
 | Left | Sentura logo + `跨境电商客户系统` | Logo links to Employee personal center after login. |
-| Center | Segmented navigation: `获客与背调`, `记忆整理` | Switches between the two main Employee work pages. Active tab has strong underline or filled segment. |
+| Center | Segmented navigation: `获客与背调`, `记忆整理`; admins also see `管理员`. | Switches between work pages. Active tab has strong underline or filled segment. |
 | Right | User center trigger | Opens menu with `个人中心`, `消息中心`, `设置`, `退出登录`. Shows unread message dot when tasks complete or fail. |
 
 Personal center is not a center nav item because the user specifically reaches it after login and from the user menu. This keeps the daily workspace focused on the two operational modes.
@@ -77,8 +99,20 @@ Menu items:
 |---|---|
 | `个人中心` | Return to personal summary and latest activity. |
 | `消息中心` | Task-completion messages, failed Agent runs, approval requests, imported-record warnings. |
-| `设置` | User preferences: default countries, default products, table density, notification settings. |
+| `设置` | User preferences only. Platform/API/Agent configuration is not part of this customer UI. |
 | `退出登录` | End current Dashboard session. |
+
+### 3.3 Admin Page Boundary
+
+The Admin page is planned for Phase 2. It should be a quiet monitoring console, not a platform configuration area and not a marketing dashboard.
+
+| Admin module | Purpose | Ordinary user behavior |
+|---|---|---|
+| `总览` | KPI cards and trends for lead count, Screening count, high-score buyers, failed tasks, active tasks, and cost. | Hidden. |
+| `实时任务` | Shows each running/queued/recent task: business user, Agent, task type, investigated target, current stage, last tool/source, elapsed time, and status. | Hidden except own task cards. |
+| `获客与背调汇总` | Tenant/team-wide customer list with filters by owner, country, product, score tier, status, source, and date. | Ordinary users see only their scoped `获客与背调` list. |
+| `员工视图` | Per-user lists and statistics: leads found, screenings completed, Accio records processed, failed tasks, high-score buyers, and cost. | Hidden. |
+| `Agent 使用统计` | Per-Agent usage for `cbe-lead-discovery`, `cbe-buyer-screening`, and `cbe-accio-memory`: runs, errors, average duration, tool/source usage, cost, and evidence coverage. | Hidden. |
 
 ## 4. Employee Page 1 — 个人中心
 
@@ -372,6 +406,9 @@ type CustomerListItem = {
   customerId: string;
   tenantId: string;
   ownerUserId: string;
+  createdByUserId: string;
+  departmentId?: string;
+  visibilityScope: "private" | "department" | "tenant_shared";
   source: "lead_discovery" | "manual_screening" | "accio_handoff";
   companyName: string;
   country?: string;
@@ -395,6 +432,9 @@ type MemoryRecordItem = {
   recordId: string;
   tenantId: string;
   ownerUserId: string;
+  createdByUserId: string;
+  departmentId?: string;
+  visibilityScope: "private" | "department" | "tenant_shared";
   name: string;
   source: "accio" | "alibaba_international" | "manual_import" | "demo_data" | "other";
   importedAt: string;
@@ -414,6 +454,9 @@ type EmployeeTaskRun = {
   agentId: "cbe-lead-discovery" | "cbe-buyer-screening" | "cbe-accio-memory";
   hiddenSessionKey?: string;
   userId: string;
+  ownerUserId: string;
+  departmentId?: string;
+  visibilityScope: "private" | "department" | "tenant_shared";
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   taskType: "lead_discovery" | "screening" | "accio_memory_analysis";
   inputHash: string;
@@ -429,6 +472,8 @@ Phase 1 can keep local UI state only for demo continuity, but production must pe
 
 - Customer page writes: `lead_runs`, `lead_candidates`, `lead_sources`, `screening_targets`, `screening_reports`, `screening_evidence`, `screening_score_blocks`, `agent_runs`.
 - Memory page writes: `accio_imports`, `accio_conversations`, `accio_messages`, `accio_summaries`, `memory_facts` as preview only, `handoff_events`, `agent_runs`.
+- Admin monitoring pages read `agent_runs`, `agent_run_activity_events`, Lead/Screening/Accio projections, and cost/audit rows; they do not write platform or Agent configuration.
+- Every list endpoint must enforce `ownerUserId`, `departmentId`, and `visibilityScope` on the server. Browser-side filters are only presentation.
 - Hidden session keys are audit references, not user-facing navigation.
 - Raw Accio chats are T2/T3 and must not be written to vector memory or external channels.
 

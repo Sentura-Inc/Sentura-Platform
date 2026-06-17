@@ -1,37 +1,35 @@
 # Sentura CBE Resume Card
 
-Workspace: `/Users/purest./Documents/Sentura/Sentura-Platform`
+Workspace: `/Users/henry/Desktop/Sentura-Platform`
 
 Conversation language: Chinese for user-facing replies. Keep handoff notes concise English with exact Chinese UI labels.
 
-Completed task, 2026-06-16:
+Completed task, 2026-06-17:
 
-- User tried same-page parallel `寻找客户` + `背调`.
-- Observed: Lead succeeded, Screening showed `等待后台 AI 员工返回结构化结果超时。`
-- User also reports Lead target count set to `20` but only 5 leads are returned.
+- Created dedicated Phase 2 CBE memory and test detail docs.
+- Updated AGENTS.md and README doc hub so future CBE Phase 2 work uses the new files by default.
+- Preserved Phase 1/MVP docs as historical/regression sources.
 
-Findings:
+New active Phase 2 docs:
 
-- Screenshot Screening session key maps to session id `a118d03c-331d-4a57-91f7-c36820081c1d`.
-- OpenClaw session status was `done`, runtime about 168s, and the final assistant message was 10,570 characters with both `SCREENING_REPORTS_JSON_START/END`.
-- Frontend still failed because `chat.history` defaults to about 8000 chars per assistant message; the long Screening JSON was truncated before `SCREENING_REPORTS_JSON_END`, so the hidden runner never parsed it.
-- Lead only returning 5 is caused by `buildLeadPrompt()` saying `优先返回 1-5 个高质量候选`, even when `target_count` is 20.
+- Memory: `docs/memory/cross-border-ecommerce/phase-2.md`
+- Tests: `docs/tests/tests-cross-border-phase2.md`
 
-Completed fix:
+Changed routing:
 
-- Dashboard `GatewayClient.getTranscript()` now passes optional `maxChars` into `chat.history`.
-- Hidden employee runner requests `300_000` chars for structured marker parsing.
-- Lead prompt treats `target_count` as the requested count and removes the 1-5 cap.
-- Employee Lead `目标数量` is now a manual numeric input (`min=1`, normalized integer), not preset buttons.
-- Parsed Lead rows are capped to the requested target count to prevent over-return inserts.
-- Updated CBE static checks/docs/handoff.
-- Verification completed so far:
-  - `cd sentura/dashboard && pnpm exec tsc --noEmit`: pass
-  - `cd sentura/dashboard && pnpm exec eslint src/lib/gateway/client.ts src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts src/app/client-demos/cross-border/employee/customers/page.tsx`: pass
-  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: `331 passed, 0 failed`
-  - `cd sentura/dashboard && pnpm build`: pass; existing Next workspace-root warning only
-  - `git diff --check`: pass
+- `docs/MEMORY.md` Phase 2 rows now point to `phase-2.md`.
+- `docs/TESTS.md` CE17/CE18 detail links now point to `tests-cross-border-phase2.md`.
+- `docs/memory/cross-border-ecommerce/phase-1.md` now states it is historical Phase 1/MVP memory.
+- `docs/tests/tests-cross-border-ecommerce.md` now states CE17+ active details live in the Phase 2 test file.
 
-Boundary:
+Verification:
 
-- The system will not invent companies to hit an arbitrary number. If compliant public sources are insufficient, the employee should return fewer rows with `shortage_reason`.
+- New files have on-demand banners.
+- On-demand banner count is 50; DOC2 updated to `>= 50`.
+- `git diff --check`: pass.
+- No `RULES.md` / `CONTEXT.md` files found.
+
+Next:
+
+- Continue P2.2 typed Dashboard store API and route handlers.
+- For all new CBE Phase 2 memory/tests, write to `phase-2.md` and `tests-cross-border-phase2.md`.

@@ -34,14 +34,15 @@ For brand-new independent tasks, or when no continuation card exists, read:
 4. `docs/TESTS.md` — test matrix (one row per deliverable). Single source of truth for what to test.
 5. Independent client-pilot tasks only:
    - Sitlink / 座联互动: `docs/memory/sitlink/*.md` and `座联互动/DESIGN.md`. Read these instead of TeamPlan when the task is about Sitlink / 座联互动.
-   - Cross-border e-commerce / 跨境电商: `docs/memory/cross-border-ecommerce/*.md`, `跨境电商/DESIGN.md`, `跨境电商/UI.md` for UI/UX tasks, and the relevant agent detail file (`跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, or `跨境电商/MEMORY_PROCESSING.md`). Read these instead of TeamPlan when the task is about the mobile-accessory cross-border e-commerce customer.
+   - Cross-border e-commerce / 跨境电商: for current Phase 2 production/database/customer-admin/concurrency/store/UI-persistence work, read `docs/memory/cross-border-ecommerce/phase-2.md`, `docs/tests/tests-cross-border-phase2.md`, `跨境电商/DESIGN.md`, and `跨境电商/PHASE-2.md`; read `跨境电商/UI.md` for UI/UX tasks and only the relevant agent detail file (`跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, or `跨境电商/MEMORY_PROCESSING.md`) when that employee is directly involved. Read these instead of TeamPlan when the task is about the mobile-accessory cross-border e-commerce customer. Use `docs/memory/cross-border-ecommerce/phase-1.md` and `docs/tests/tests-cross-border-ecommerce.md` only for Phase 1/MVP historical lookup or regression context.
 
-Cross-border e-commerce / 跨境电商 Phase-1 requirements:
+Cross-border e-commerce / 跨境电商 phase split and current tracking:
 - Build on OpenClaw/Sentura, not a custom runtime. Use normal employee workspaces, skills, and MCP/config wiring.
 - Marketing Acquisition employee: fully implement web-search/API-based lead discovery for mobile-accessory buyer keywords.
 - Screening and Background employee: implement the lowest-cost viable investigation route first, using public web, registry, domain/email, trade, and financial evidence only where accessible and documented.
 - Accio Memory Processing employee: start with simulated Alibaba Accio chat records in JSON, then parse and summarize company info, requested goods, negotiated prices, and follow-up context.
-- Track this client lane in `docs/memory/cross-border-ecommerce/` and `docs/tests/tests-cross-border-ecommerce.md`; do not add it to `docs/TeamPlan.md`.
+- Track Phase 1/MVP history in `docs/memory/cross-border-ecommerce/phase-1.md` and `docs/tests/tests-cross-border-ecommerce.md`; track current and future Phase 2 work in `docs/memory/cross-border-ecommerce/phase-2.md` and `docs/tests/tests-cross-border-phase2.md`. Do not add this client lane to `docs/TeamPlan.md`.
+- Phase 2 production hardening is planned and partially implemented in `跨境电商/PHASE-2.md`: shared tenant-scoped business database, customer-specific `admin`/`operator` levels, Admin monitoring views, row-level scope design, typed store boundary, Employee state migration off localStorage, Lead run-scope coordinator, durable Screening/Accio records, and multi-user/load-smoke tests. P2.1 database foundation exists under `sentura/lib/cross-border-store/`; P2.2 typed store/routes are next.
 
 **Reference docs — read on demand only** (these are condensed, linked, or too long to auto-ingest):
 
@@ -50,9 +51,10 @@ Cross-border e-commerce / 跨境电商 Phase-1 requirements:
 - `docs/memory/person-{a,b,c,d}/week-{N}.md` — per-owner, per-week session detail (full prose, diffs, verification steps). Read only the specific row you need from the `docs/MEMORY.md` matrix.
 - `docs/memory/shared/*.md` — cross-cutting sessions (architecture pivots, workspace convention changes, multi-round bug hunts like `creator-deployment-rounds-1-14.md`). Same rule — open from the matrix, not pre-emptively.
 - `docs/memory/sitlink/*.md` — independent Sitlink / 座联互动 project memory. Use this lane for Sitlink work, not `docs/memory/shared/` and not TeamPlan week files.
-- `docs/memory/cross-border-ecommerce/*.md` — independent Cross-border e-commerce / 跨境电商 project memory for the mobile-accessory customer. Use this lane for Cross-border e-commerce work, not `docs/memory/shared/` and not TeamPlan week files.
-- `跨境电商/DESIGN.md`, `跨境电商/UI.md`, `跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, `跨境电商/MEMORY_PROCESSING.md` — cross-border e-commerce shared platform design, role UI design, plus the three agent-specific design/implementation-plan documents. Read the shared design first, then `UI.md` for UI/UX work, and only the agent file relevant to the task.
-- `docs/tests/tests-person-{a,b,c,d}.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, `docs/tests/tests-cross-border-ecommerce.md` — detailed test cases (methods, assertions). Read when implementing or debugging a specific test row.
+- `docs/memory/cross-border-ecommerce/phase-2.md` — active independent Cross-border e-commerce / 跨境电商 Phase 2 memory for the mobile-accessory customer. Use this for current production/database/customer-admin/concurrency/store/UI-persistence work, not `docs/memory/shared/` and not TeamPlan week files.
+- `docs/memory/cross-border-ecommerce/phase-1.md` — historical Phase 1/MVP memory for the mobile-accessory customer. Read only for regression or provenance lookup.
+- `跨境电商/DESIGN.md`, `跨境电商/PHASE-2.md`, `跨境电商/UI.md`, `跨境电商/MARKET_ACQUISITION.md`, `跨境电商/SCREENING.md`, `跨境电商/MEMORY_PROCESSING.md` — cross-border e-commerce shared platform design, Phase 2 production/database/customer-admin-monitoring/concurrency execution plan, role UI design, plus the three agent-specific design/implementation-plan documents. Read the shared design first, then `PHASE-2.md` for production hardening/database/customer-permission/concurrency work, `UI.md` for UI/UX work, and only the agent file relevant to the task.
+- `docs/tests/tests-person-{a,b,c,d}.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, `docs/tests/tests-cross-border-ecommerce.md`, `docs/tests/tests-cross-border-phase2.md` — detailed test cases (methods, assertions). Read when implementing or debugging a specific test row. For CBE Phase 2, use `tests-cross-border-phase2.md`; keep `tests-cross-border-ecommerce.md` for Phase 1/MVP and CE1-CE16 regression history.
 - `ekg/database.md`, `ekg/backend.md`, `ekg/web.md`, `ekg/admin-panel.md`, `ekg/api-admin.md`, `ekg/api-web.md` — GradSale reference enterprise docs. Read when building MCP servers or enterprise integration scenarios.
 - `Documents/Demo.md` — original pitch deck and demo scenarios. Read when building features that relate to Mode A/Mode B demo flows, employee creation UI, or enterprise integration scenes.
 - `openclaw/` source — scan only when writing or debugging a specific extension or integration; never read linearly.
@@ -205,7 +207,7 @@ Do NOT substitute these without explicit approval:
  - Update `docs/OPENCLAW.md` if you discover new OpenClaw capabilities or APIs relevant to Sentura.
  - Update `Documents/Demo.md` if demo scenarios, workflows, or UI flows change.
  - Update files in `ekg/` if the reference enterprise documentation needs corrections or additions (e.g., new API endpoints discovered during MCP server development).
- - Update `docs/TESTS.md` (the matrix) **and** the matching `docs/tests/tests-person-*.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, or `docs/tests/tests-cross-border-ecommerce.md` detail file with test cases for any new or modified deliverables (see rule 3).
+ - Update `docs/TESTS.md` (the matrix) **and** the matching `docs/tests/tests-person-*.md`, `docs/tests/tests-cross-team.md`, `docs/tests/tests-sitlink.md`, `docs/tests/tests-cross-border-ecommerce.md`, or `docs/tests/tests-cross-border-phase2.md` detail file with test cases for any new or modified deliverables (see rule 3). Use `tests-cross-border-phase2.md` for CBE Phase 2 work.
  - Update `docs/MEMORY.md` (the matrix) **and** the matching `docs/memory/person-*/week-*.md`, `docs/memory/shared/*.md`, `docs/memory/sitlink/*.md`, or `docs/memory/cross-border-ecommerce/*.md` detail file with a dated session entry (see rule 1). These two steps are paired — never update only the matrix or only the detail file.
  - Update `AGENTS.md` (this file) if you establish new conventions, discover new pitfalls, or change the project structure. When you change the doc-hub layout (add a new mandatory doc, move/rename a reference doc, change where session prose lives), update both the "Mandatory reads" and "Reference docs — read on demand only" lists at the top of this file, and reflect the change in the `README.md` "Key Documentation" table.
 
@@ -249,7 +251,7 @@ Do NOT substitute these without explicit approval:
 - Config files: `kebab-case.json5` or `kebab-case.yaml`.
 - OpenClaw extensions: one folder per extension under `sentura/extensions/<name>/` with `openclaw.plugin.json` manifest.
 - Memory detail files: `docs/memory/person-{a,b,c,d}/week-{N}.md` (one file per owner per sprint week), `docs/memory/shared/{kebab-case-topic}.md` (one file per cross-cutting topic, optionally dated — e.g. `workspace-collapse-2026-04-17.md`, `creator-deployment-rounds-1-14.md`), `docs/memory/sitlink/{topic}.md` (independent Sitlink project memory), and `docs/memory/cross-border-ecommerce/{topic}.md` (independent Cross-border e-commerce project memory). Every memory detail file starts with an `> **On-demand reference — not read by default.**` banner and a back-link to `docs/MEMORY.md`.
-- Test detail files: `docs/tests/tests-person-{a,b,c,d}.md` + `docs/tests/tests-cross-team.md` + `docs/tests/tests-sitlink.md` + `docs/tests/tests-cross-border-ecommerce.md` (same on-demand banner convention; linked from `docs/TESTS.md` matrix rows).
+- Test detail files: `docs/tests/tests-person-{a,b,c,d}.md` + `docs/tests/tests-cross-team.md` + `docs/tests/tests-sitlink.md` + `docs/tests/tests-cross-border-ecommerce.md` + `docs/tests/tests-cross-border-phase2.md` (same on-demand banner convention; linked from `docs/TESTS.md` matrix rows). `tests-cross-border-phase2.md` is the active CBE Phase 2 detail file.
 
 ## Common Pitfalls to Avoid
 
