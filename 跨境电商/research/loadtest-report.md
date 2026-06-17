@@ -2,7 +2,7 @@
 >
 > Back-link: [`docs/MEMORY.md`](../../docs/MEMORY.md) · 配套:[部署档案](mainland-cloud-deployment.md) · [压测前审计](pre-loadtest-audit-2026-06-13.md)
 
-# 跨境电商 cbe 员工 — 大陆云压力测试报告(Sweep 1 + Sweep 2 + Sweep 3)
+# 跨境电商 cbe 员工 — 大陆云压力测试报告(Sweep 1 + Sweep 2 + Sweep 3 + Phase 2 全工具双轨)
 
 **日期**:2026-06-13(深夜)　**环境**:阿里云 ECS `ecs.g9i.xlarge`(4 vCPU / 16 GiB,Ubuntu 24.04,华东1 杭州),IP `47.96.40.237`
 **被测对象**:三个 cbe AI 员工(`cbe-lead-discovery` 营销获客 / `cbe-buyer-screening` 筛选背调 / `cbe-accio-memory` 记忆处理),DeepSeek `deepseek-chat` 驱动,Docker non-main sandbox 隔离
@@ -228,7 +228,47 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 
 ---
 
-## 九、待办 / 后续
+## 九、Phase 2:配额感知全工具压测(双轨,2026-06-17)
+
+> 功能验证(第八章)证"对不对";本章压测证"扛不扛得住 + 真成本 + 哪些工具在压力下掉链子"。驱动 [`scripts/cbe-fulltool-stress.mjs`](../../scripts/cbe-fulltool-stress.mjs)(复用功能验证驱动 + worker 池并发 + 预算熔断,全 §4 埋点),证据 [`research/results/`](results/)。**全程分阶段 + 每阶段 checkpoint,遇到失败即停修复**:pre-flight(网关预热/maxConcurrent=8/配额快照)→ Track A 烟测(2 单)→ Track A 爬坡 → Track B 烟测(1 单)→ Track B 批量。
+
+### 执行总览:**114/114 任务全成功,0 崩溃 / 0 挂起 / 0 超时**
+
+| 轨 | 配置 | 完成 | 吞吐 | p50 | p95 | max | gwRSS 峰 |
+|---|---|---|---|---|---|---|---|
+| A·C=4 | 免费源,N=24 | 24/24 | 8.5/min | 23.8s | 37.1s | 40.1s | — |
+| **A·C=8** | 免费源,N=40 | 40/40 | **18.8/min** ⬅峰 | 22.2s | 31.8s | 32.4s | **1530MB** |
+| A·C=12 | 免费源,N=40 | 40/40 | 17.8/min | 33.6s | 57.3s | **83s** | — |
+| B·C=3 | 全 8 工具,N=10 | 10/10 | 3.7/min | 41.9s | 47.5s | 47.5s | 1355MB |
+
+### Track A — 免费源吞吐(测天花板)
+- **C=8 是甜点**:吞吐峰值 18.8/min;C=12 吞吐不升反降(17.8)且尾延翻倍(p95 32→57s、max 83s)——**第三次坐实 maxConcurrent=8 最优**(Sweep 1/2 同结论)。
+- 比 Sweep 3 的 10-15/min 高,因 Track A 任务更轻(只 3 个免费工具)。**gwRSS 峰 1530MB** 再次坐实内存是单台瓶颈(Sweep 1 是 1610MB)。
+- 免费源成功率:RDAP 40/40、DNS 40/40、Tavily 34/35 全稳。
+
+### Track B — 全 8 工具 + 真成本(严控预算)
+- 10/10 成功,**并集 8 工具全开火**(UK 目标走 CH、US 目标走 SEC,+ 共用 RDAP/DNS/Hunter/Abstract/ImportYeti/Tavily);9/10 做了付费邮箱校验(Best Buy 1 单员工自行跳过=agent 非确定性,非失败)。
+- **预算熔断生效验证**:计数器累计 ImportYeti 11 / Hunter 9 / Abstract 9,均在上限 20 内,未触顶;熔断逻辑经烟测确认可用。
+- **真成本 ≈ $0**:ImportYeti `creditsRemaining` 跑完 11 次调用后**仍 = 100(未减)**——坐实 `/company/search` 不扣 $9/100 额度;Hunter `/account` 实测仅消耗 5 次(计数器记 9,差额因 Hunter 对重复邮箱**缓存去重**不计费)→ 真实月配额烧得比调用数更少。
+
+### ⚠️ 压力下暴露的 3 个工具级发现(均未导致任务失败,但要记)
+1. **SEC 从大陆服务器 0% 可用(0/45)**:`sec_lookup` 在 Track A 40/40 + Track B 5/5 **全部 `fetch failed`**——其多步流程要下载 ~10MB `company_tickers.json`,跨境链路在 30s 超时内拉不完。员工每次都**自愈**走 web_search/EDGAR,所以 114 单全 ok,但**SEC 工具本身在这台机上实际不可用**。配额图标的"🟢 SEC 无限"在大陆**名不副实**——理论可达(curl 单文件 2.96s)≠ MCP 多步流程可用。**建议**:调大 SEC 的 `requestTimeoutMs` / 缓存 `company_tickers.json` / 走代理,否则继续依赖 web_search 兜底。
+2. **Abstract 免费档在并发下限流(C=3 时 2/9 报 429)**:不是月配额(才用 ~11/100),是**每秒/并发速率限**。坐实"🔴 限量源不能并发"——付费邮箱校验应串行(C=1)或加节流。
+3. **Companies House 命中依赖公司号(2/5 ok)**:Tesco(号 00445790 知名)成功;Currys/Sainsbury/Argos 员工没解析出注册号 → 退到**未配 key 的 OpenCorporates** → 优雅 `unavailable_api`(非崩溃)。**建议**:配 OpenCorporates key,或强化技能"先 registry_search 拿号再 profile"。
+
+### 容量结论(真实全工具)
+- **免费链路**:单台 4C16G + maxConcurrent=8 稳定 ~18/min(轻任务)~10-15/min(Sweep3 重任务);瓶颈是 gateway 内存(峰 1.5GB)+ 槽位 + 境外 API 延迟。
+- **全工具链路**:~3.7/min(每单 ~40s、6 回合、8 工具串行+并发混合);🔴 付费邮箱源必须低并发(C≤2)防 429。
+- **付费成本**:配齐后真实增量 ≈ $0(ImportYeti 搜索不扣额、Hunter/Abstract 月配额内且去重)——成本不是规模化的约束,**SEC 大陆不可用 + 🔴 源并发限流**才是。
+
+---
+
+## 十、待办 / 后续
+
+- **修 SEC 大陆不可用**(Phase 2 发现①):调大 `cross-border-intel` 的 SEC `requestTimeoutMs` 或缓存 `company_tickers.json`,让 `sec_lookup` 不再 0/45 fetch-failed(目前靠 web_search 兜底)。
+- **付费邮箱校验串行化**(发现②):Abstract/Hunter 在 C≥3 会 429,压测/生产里把付费邮箱校验限到 C≤1~2 或加节流。
+- 可选:配 OpenCorporates key 补 CH 命中率(发现③)。
+- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
 
 - **Phase 2 终极压测(配额感知双轨)**:Track A 免费源高并发测吞吐天花板 / Track B 全 8 工具小批量(N=10~20,低并发,预算熔断 ImportYeti≤30)测全链路真成本。驱动 `scripts/cbe-fulltool-stress.mjs`(待写,复用功能验证驱动 + 配额预检 + 调用计数器)。
 - 订正 `server-location-llm-decision-report.md` 第 0 章表:Hunter/ImportYeti 已从"付费/缺口"变"配齐可用"。
@@ -236,7 +276,7 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 
 ---
 
-## 十、如何复现
+## 十一、如何复现
 
 ```bash
 # 服务器上(loopback,gateway 在跑):
@@ -251,6 +291,11 @@ OPENCLAW_DIR=/root/sentura/openclaw node /root/sentura/scripts/cbe-loadtest-tool
 MON_LOG=/root/cbe-func-out/monitor-$RUN.log GW_LOG=/root/gateway.log setsid bash /root/cbe-loadmon2.sh >/dev/null 2>&1 &
 OPENCLAW_DIR=/root/sentura/openclaw OUTDIR=/root/cbe-func-out node /root/cbe-functional-test.mjs
 #    只重解析磁盘轨迹(不烧额度):REPARSE_RUN=<run> ... node /root/cbe-functional-test.mjs
+# 2d) Phase 2 双轨压测(配额感知)
+#    Track A 免费源高并发(测吞吐):
+TRACK=A OPENCLAW_DIR=/root/sentura/openclaw OUTDIR=/root/cbe-stress-out node /root/cbe-fulltool-stress.mjs 8 40 r8
+#    Track B 全 8 工具低并发 + 预算熔断(测全链路真成本;🔴 源 C≤2 防 429):
+TRACK=B IY_CAP=20 HUNTER_CAP=20 ABS_CAP=20 OPENCLAW_DIR=/root/sentura/openclaw OUTDIR=/root/cbe-stress-out node /root/cbe-fulltool-stress.mjs 3 10 b1
 # 3) 看监控
 tail -f /root/loadmon.log
 ```

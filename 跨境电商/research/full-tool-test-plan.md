@@ -173,7 +173,7 @@ success rate(ok/total)· 错误明细分类 · 重试次数 · 空答案数。**
 
 ## §5 待办(下次接着干)
 - [x] 写 `scripts/cbe-functional-test.mjs`(**按 §4 全埋点**:三时间戳 + 每工具延迟 + LLM 耗时 + 成本 + 输出三件套)+ 跑 Phase 1(Tesco + Apple)。**2026-06-17 PASS:并集 8/8 工具全真实开火**(Tesco 7/8 含 Hunter/Abstract/ImportYeti,Apple 5/8 含 SEC/ImportYeti,均 `trusted_candidate`)。真实增量花费 **≈ $0**(ImportYeti `creditsRemaining` 未减 / Hunter·Abstract 免费配额内);gwRSS 384→707MB,0×429;国别路由正确。SEC 工具开火但 API 临时 fetch error→员工自愈 web_search/EDGAR 拿真数据。**详细报告:[`functional-verification-report.md`](functional-verification-report.md)**;证据:`research/results/`;压测报告摘要见 `loadtest-report.md` 第八章。
-- [ ] 写 `scripts/cbe-fulltool-stress.mjs`(含配额预检 + 预算熔断 + **§4 全埋点 + 扩展 `cbe-loadmon.sh` 2s 采样**)+ 跑 Phase 2 双轨。**(下一步)**
+- [x] 写 `scripts/cbe-fulltool-stress.mjs`(配额预检 + 预算熔断 + §4 全埋点 + worker 池并发 + `cbe-loadmon2.sh` 2s 采样)+ 跑 Phase 2 双轨。**2026-06-17 PASS:114/114 任务 0 崩溃**。Track A 免费源爬坡峰 18.8/min@C=8(maxConcurrent=8 最优,gwRSS 1530MB);Track B 全 8 工具 N=10 全 ok、真成本 ≈$0、预算熔断生效。**3 工具级发现**:SEC 大陆 0/45 全 fetch-failed(多步拉 10MB tickers 超时)、Abstract C=3 时 429 速率限、CH 命中依赖公司号(2/5)。报告 `loadtest-report.md` 第九章。
 - [x] 复用/扩展服务器 `cbe-loadmon.sh` → `scripts/cbe-loadmon2.sh`(ISO 时间戳 + 429 计数);轨迹解析直接在驱动内做(经 `sessions.json` 的 `sessionKey(小写)→sessionId` 映射定位文件,parse `message` 事件)。
 - [x] 把功能验证结果写进 `loadtest-report.md` 第八章 + CE13.9/13.10 测试行。
 - [x] 订正 `server-location-llm-decision-report.md` 第 0 章表(CH/SEC/RDAP/Hunter/Abstract/ImportYeti 已配齐实测可用)。
