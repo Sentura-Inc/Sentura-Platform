@@ -253,7 +253,7 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 
 ### ⚠️ 压力下暴露的 3 个工具级发现(均未导致任务失败,但要记)
 1. **SEC 从大陆服务器 0/45 全 `fetch failed`(已根因 + 已修复 ✅)**:`sec_lookup` 在 Track A 40/40 + Track B 5/5 全部 `fetch failed`。**系统化排查推翻了初判**(初判"10MB 文件/30s 超时"是错的——实测失败发生在 **~250ms**,且文件只有 796KB)。**真根因**:服务器是 **IPv4-only**(无 IPv6 路由),但 Node 24 全局 `fetch`(undici)默认开 Happy-Eyeballs `autoSelectFamily`,会对双栈主机(SEC 的 Akamai 边缘 `www.sec.gov`,CIK 解析第一步要拉 `company_tickers.json`)**并发尝试 IPv6**,IPv6 腿在 ~250ms `autoSelectFamilyAttemptTimeout` 超时后被 undici 报成快速 `ETIMEDOUT`("fetch failed")**而非干净回退 IPv4**(`data.sec.gov` 恰好回退成功所以单独可用)。**对照实证**:同主机同 UA 下 `curl` 成功(回退 IPv4)、Node `fetch` 失败 → 不是封锁、不是超时。**修复**(`sentura/mcp-servers/cross-border-intel/src/index.ts` 进程启动处):`net.setDefaultAutoSelectFamily(false)` + `dns.setDefaultResultOrder("ipv4first")`(纯 Node 核心模块、无新依赖;`CBE_INTEL_FORCE_IPV4=false` 可在 IPv6-only 部署关掉)。**验证**:重启网关后真实背调 **SEC 9/9 `found`**(Apple/MSFT/Tesla/Nike/Starbucks/Ford + Apple,`resolver_http_status=200`+`submissions_http=200`),从 0/45 → 全绿。SEC 现为这台机上**真正可用**的免费源。
-2. **Abstract 免费档在并发下限流(C=3 时 2/9 报 429)**:不是月配额(才用 ~11/100),是**每秒/并发速率限**。坐实"🔴 限量源不能并发"——付费邮箱校验应串行(C=1)或加节流。
+2. **Abstract 免费档在并发下限流(C=3 时 2/9 报 429)— 已修复 ✅**:实证 4 并发 → `429,429,200,200`,**不是月配额**(才用 ~11/100)而是**~1-2 并发的速率限**,且 Abstract **不回 `Retry-After` 头**;Hunter 同并发 4/4 不限流(它没这问题)。**修复**(`tools.ts` 的通用 `fetchJson`):**429/503 自动重试 + 指数退避 + 抖动**(3 次,base 600ms ×2,+0-400ms 抖动;有 `Retry-After` 则优先用它)。429 不耗月配额所以重试免费;抖动把并发重试错开填进 Abstract 的空闲档。通用化后 SEC/Hunter/ImportYeti/CH 全受益。**验证**:重跑 C=3 N=6 全工具 → **Abstract 6/6 成功**(原 2/9),0 个 429 冒到任务层。**代价**:命中限流时退避加时延(p50 42→60s)——对 🔴 源是"宁慢勿丢"的正确取舍。
 3. **Companies House 命中依赖公司号(2/5 ok)**:Tesco(号 00445790 知名)成功;Currys/Sainsbury/Argos 员工没解析出注册号 → 退到**未配 key 的 OpenCorporates** → 优雅 `unavailable_api`(非崩溃)。**建议**:配 OpenCorporates key,或强化技能"先 registry_search 拿号再 profile"。
 
 ### 容量结论(真实全工具)
@@ -267,7 +267,7 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 
 - [x] **修 SEC 大陆不可用(发现①)— 已完成 2026-06-17**:根因 = IPv4-only 主机 + undici Happy-Eyeballs 抢 IPv6;修复 = MCP 进程启动 `setDefaultAutoSelectFamily(false)`+`setDefaultResultOrder("ipv4first")`。验证 SEC 0/45 → 9/9 `found`。
 - 次要优化(可选):`sec_lookup` 返回的 `submissions` 整块 ~32KB,轨迹存储会截断(不影响员工用前部 status/cik/sic,但压测 parser 需正则兜底取 status——已修 `cbe-fulltool-stress.mjs`/`cbe-functional-test.mjs`)。后续可让工具只回最近 N 条 filings 瘦身。
-- **付费邮箱校验串行化**(发现②):Abstract/Hunter 在 C≥3 会 429,压测/生产里把付费邮箱校验限到 C≤1~2 或加节流。
+- [x] **修 Abstract 并发限流(发现②)— 已完成 2026-06-17**:`tools.ts` 通用 `fetchJson` 加 429/503 重试 + 指数退避 + 抖动;验证 Abstract C=3 时 2/9 → 6/6。
 - 可选:配 OpenCorporates key 补 CH 命中率(发现③)。
 - **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
 

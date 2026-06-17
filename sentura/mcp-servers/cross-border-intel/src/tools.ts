@@ -85,16 +85,41 @@ async function readResponseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function fetchJson(ctx: ToolContext, url: string, init: RequestInit = {}) {
+const RETRY_STATUSES = new Set([429, 503]);
+const FETCH_MAX_RETRIES = 3;
+const FETCH_RETRY_BASE_MS = 600;
+const FETCH_RETRY_JITTER_MS = 400;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function fetchOnce(ctx: ToolContext, url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ctx.config.requestTimeoutMs);
   try {
-    const response = await ctx.fetchFn(url, { ...init, signal: controller.signal });
-    const body = await readResponseBody(response);
-    return { response, body };
+    return await ctx.fetchFn(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchJson(ctx: ToolContext, url: string, init: RequestInit = {}) {
+  // Retry on provider rate-limit / transient overload (429/503) with exponential backoff + jitter.
+  // WHY: paid email providers (Abstract free tier allows only ~1-2 concurrent) return 429 when the
+  // single MCP process fires validation calls concurrently across tasks (e.g. stress C>=3). Abstract
+  // sends no Retry-After header, so jitter spreads concurrent retries into its free slots. 429/503
+  // responses don't consume monthly quota, so retrying is free.
+  let response: Response;
+  for (let attempt = 0; ; attempt++) {
+    response = await fetchOnce(ctx, url, init);
+    if (!RETRY_STATUSES.has(response.status) || attempt >= FETCH_MAX_RETRIES) break;
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const backoffMs =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.round(FETCH_RETRY_BASE_MS * 2 ** attempt + Math.random() * FETCH_RETRY_JITTER_MS);
+    await sleep(backoffMs);
+  }
+  const body = await readResponseBody(response);
+  return { response, body };
 }
 
 function normalizeCountry(country: string | undefined): string | undefined {
