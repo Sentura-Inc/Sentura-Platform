@@ -10,7 +10,39 @@ Conversation language: answer the user in Chinese. Keep handoff updates concise 
 
 Current active product area: Sentura cross-border e-commerce Phase 2 persistence.
 
-## Completed Current Turn — 2026-06-17 Phase 2 Memory/Test Split
+## Completed Current Turn — 2026-06-17 P2.1 Recheck
+
+User asked to recheck the Phase 2 P2.1 implementation and decide whether we can proceed to the next step.
+
+Completed:
+
+- Read `outputs/resume_card.md` and targeted P2.1/CE18 references from `outputs/task_handoff.md`, `docs/tests/tests-cross-border-phase2.md`, and `跨境电商/PHASE-2.md`.
+- Confirmed tool versions: Node `v24.16.0`, pnpm `11.5.1`.
+- `pg_isready`, `psql`, and `createdb` are not on PATH in this shell, so local DB setup/checks used project `pg`.
+- Reused local database `sentura_cbe_dev` through `postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev`.
+- `env -u CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 64/64 static checks.
+- `CBE_DATABASE_URL=... pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 74/74 static + live checks.
+- `CBE_DATABASE_URL=... pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS; migrations skipped as already applied and seed summary was `seededUsers=3`, `adminProfiles=1`, `operatorProfiles=2`.
+- Focused strict NodeNext compile for P2.1 files: PASS.
+- `cd sentura/dashboard && pnpm exec eslint src/lib/cross-border-store/index.ts`: PASS.
+- `cd sentura/dashboard && pnpm exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
+- DB probes confirmed migrations `001/002`, roles `admin=1` and `operator=2`, views `cbe_agent_usage_daily`, `cbe_customer_work_items`, `cbe_operator_workload_daily`, and rejection of invalid `platform_admin` CBE role.
+- Secret hygiene over migration/seed/source ID files: PASS.
+- `git diff --check`: PASS.
+- RULES/CONTEXT absence check: PASS.
+- Updated Phase 2 memory/test docs with the 2026-06-17 recheck result:
+  - `docs/memory/cross-border-ecommerce/phase-2.md`
+  - `docs/MEMORY.md`
+  - `docs/tests/tests-cross-border-phase2.md`
+  - `docs/TESTS.md`
+
+Decision:
+
+- P2.1 is complete and clear to proceed to P2.2.
+- Next implementation step: typed Dashboard store API modules and Next.js route handlers for validated Employee customer/task/memory reads plus Lead/Screening/Accio completion writes.
+
+## Previous Completed Turn — 2026-06-17 Phase 2 Memory/Test Split
 
 User asked: from now on all CBE memory and tests should be Phase 2 related; create new Phase 2 memory/test docs, reorganize related content into them, and update `AGENTS.md`.
 

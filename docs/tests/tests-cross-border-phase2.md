@@ -8,7 +8,7 @@ Detailed test cases for Phase 2 of the mobile-accessory Cross-border e-commerce 
 
 ## CE17 — Cross-Border Phase 2 Execution Plan
 
-Status: PASS (2026-06-16)
+Status: PASS (2026-06-16; rechecked 2026-06-17)
 
 Scope:
 
@@ -28,6 +28,19 @@ test -s 跨境电商/PHASE-2.md
 rg -n 'PHASE-2.md|CE17|Phase 2|phase-2.md|tests-cross-border-phase2' README.md AGENTS.md 跨境电商/DESIGN.md docs/TESTS.md docs/tests/tests-cross-border-phase2.md docs/MEMORY.md docs/memory/cross-border-ecommerce/phase-2.md
 git diff --check
 ```
+
+Latest recheck, 2026-06-17:
+
+- Static CE18 script: 64/64 PASS without `CBE_DATABASE_URL`.
+- Live PostgreSQL CE18 script: 74/74 PASS against `postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev`.
+- Migration runner `--seed`: PASS; migrations `001_initial_schema.sql` and `002_lead_scope_coordinator.sql` skipped as already applied; seed summary `seededUsers=3`, `adminProfiles=1`, `operatorProfiles=2`.
+- Focused strict NodeNext compile for P2.1 files: PASS.
+- Dashboard focused lint for `src/lib/cross-border-store/index.ts`: PASS.
+- Dashboard full `pnpm exec tsc --noEmit`: PASS.
+- Legacy CBE regression `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 335/335.
+- DB probes: migrations `001/002`, roles `admin=1` and `operator=2`, three projection views, and invalid `platform_admin` CBE role rejected by constraint.
+- Secret hygiene over migration/seed/source ID files: PASS.
+- Repo hygiene: `git diff --check` PASS and no `RULES.md` / `CONTEXT.md` files found outside pruned dependency/git directories.
 
 | # | Check | Method | Expected |
 |---|---|---|---|
