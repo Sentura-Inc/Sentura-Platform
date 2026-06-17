@@ -240,7 +240,11 @@ async function companyProfile(ctx: ToolContext, rawArgs: unknown) {
     );
   }
 
-  if (args.registry === "companies_house" && country === "GB" && args.company_number && ctx.config.companiesHouseApiKey) {
+  // Companies House is UK-only, so a company_number + registry=companies_house already implies GB.
+  // Don't also require args.country === "GB": the agent routinely omits country after a successful
+  // CH registry_search (it already has the number), which previously dropped a valid lookup to
+  // unavailable_api (non-deterministic CH success). The number + registry is sufficient. See CE13.15.
+  if (args.registry === "companies_house" && args.company_number && ctx.config.companiesHouseApiKey) {
     const path = `/company/${encodeURIComponent(args.company_number)}`;
     const url = joinUrl(ctx.config.companiesHouseBaseUrl, path);
     const { response, body } = await fetchJson(ctx, url, {
