@@ -428,3 +428,18 @@ Verify (headless browser, model render) — load the dashboard with Playwright (
 | CE12.8 | Browser gateway URL = tunnel port | Code review / build | `.env.local` `NEXT_PUBLIC_GATEWAY_URL=ws://localhost:28789` (set by `dash-dev2.sh`); compiled `.next` chunk `sentura_dashboard_src_*.js` contains `localhost:28789`. Browser-evaluated `NEXT_PUBLIC_*` must point at the Mac-side tunnel port, not the server-side `:18789`. |
 | CE12.9 | `next.config.ts` pins turbopack root | Code review / log | `next.config.ts` sets `turbopack.root` to the monorepo root (`resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")`); after a clean restart `dashboard.log` shows `✓ Ready` with **no** "Detected additional lockfiles / inferred workspace root" warning. |
 | CE12.10 | Broken dida MCP removed (server runtime) | Server config | `/root/.openclaw/openclaw.json` `mcp.servers` no longer contains `dida-travel-demo` (only `cross-border-intel`); fresh gateway startup has 0 `[bundle-mcp] failed to start ... dida-travel-demo` errors. Source `sentura/mcp-servers/dida-travel-demo/` retained. NOTE: this is a server-runtime cleanup of an unbuilt server-side config, not a source change; rebuilding + re-adding restores the 座联 demo tools. |
+
+## CE13 — All-Tools (8/8) Key Configuration + Verification (2026-06-17)
+
+The 4 paid-source keys were registered and configured on the server, each curl-verified at the API level and wired into the `cross-border-intel` MCP via `${ENV_VAR}` references. Full plan: [`跨境电商/research/full-tool-test-plan.md`](../../跨境电商/research/full-tool-test-plan.md).
+
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE13.1 | Companies House Live key | curl (key not printed) | `GET api.company-information.service.gov.uk/company/00445790` with Basic auth (`-u "$KEY:"`) → **200** TESCO PLC. A Test/Sandbox key returns 401 on live (sandbox 200 / live 401 distinguishes env). |
+| CE13.2 | Abstract Email Reputation key | curl | `emailreputation.abstractapi.com/v1/?api_key=$KEY&email=...` → **200** with `email_deliverability`/`email_quality`. Must be the **Email Reputation** product key (not Email Validation — separate keys per product). |
+| CE13.3 | Hunter key (free plan has API) | curl | `api.hunter.io/v2/account?api_key=$KEY` → 200 `plan=Free`, 100 verifications + 50 searches/month; `/v2/email-verifier?email=...` → 200 result/status/score. |
+| CE13.4 | ImportYeti key ($9/100 tier) | curl | `data.importyeti.com/v1.0/company/search?name=Apple` with header `IYApiKey: $KEY` → **200** `requestCost`/`creditsRemaining`/`data` (real shipment records). |
+| CE13.5 | Keys wired into MCP (not just .env) | Config | `openclaw.json` → `mcp.servers.cross-border-intel.env` contains `${COMPANIES_HOUSE_API_KEY}`, `${ABSTRACT_API_KEY}`, `${HUNTER_API_KEY}`, `${IMPORTYETI_API_KEY}` references (real values stay in `/root/.openclaw/.env`; OpenClaw resolves `${}` at runtime per CE8.11). |
+| CE13.6 | Paid-trade gate enabled | Config | MCP env `CBE_ENABLE_PAID_TRADE_DATA=true` + `CBE_MAX_PAID_SPEND_USD=1` (was false/0); `tools.ts:701-705` only calls ImportYeti when `enablePaidTradeData && key && budget>0`. |
+| CE13.7 | Quota map documented | Plan | 🟢 unlimited RDAP/DNS/SEC; 🟡 CH 600/5min, Tavily ~1000/mo; 🔴 limited Abstract 100/mo, Hunter 100/mo, ImportYeti ~99. Stress test must keep the 🔴 sources out of high concurrency. |
+| CE13.8 | Functional + stress test plan | Plan (pending exec) | Phase 1 functional (`scripts/cbe-functional-test.mjs` TBD — Tesco UK + Apple US screenings confirm employee invokes all 8 tools end-to-end) + Phase 2 stress (Track A free-source high-concurrency throughput; Track B all-tools small-batch N=10~20 low-concurrency with budget cutoff ≤30 calls/source). Execution pending. |
