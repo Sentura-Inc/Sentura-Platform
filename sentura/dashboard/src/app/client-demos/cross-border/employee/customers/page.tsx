@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowDownWideNarrow,
-  ArrowUpNarrowWide,
   CheckCircle2,
   Eye,
   Filter,
@@ -39,11 +39,13 @@ import {
 import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
+import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
 } from "@/stores/use-cbe-employee-store";
 import {
+  MAX_LEAD_TARGET_COUNT,
   type CustomerListItem,
   type CustomerEvidenceItem,
   type CustomerScoreBlock,
@@ -67,6 +69,7 @@ import {
   estimateEmployeeTaskTimeoutMs,
   estimateLeadTaskDurationMs,
   estimateScreeningTaskDurationMs,
+  isEmployeeTaskCancellation,
   manualInputToScreeningTarget,
   runLeadDiscoveryTask,
   runScreeningTask,
@@ -81,15 +84,23 @@ import {
   completeEmployeeScreeningRun,
   createEmployeeLeadRun,
   createEmployeeScreeningRun,
+  deleteEmployeeCustomers,
   failEmployeeTaskInDb,
   fetchEmployeeCustomers,
   fetchEmployeeTasks,
 } from "../_data/employee-api";
+import {
+  clearCbeEmployeeTaskAbortSignal,
+  createCbeEmployeeTaskAbortSignal,
+} from "../_data/employee-task-cancellation";
+import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
 type SheetMode = "lead" | "bulk" | "manual" | "detail" | "filters" | "delete" | null;
 
 type FoundRange = "all" | "today" | "7d" | "30d";
 type ScoreSort = "none" | "score_desc" | "score_asc";
+type CustomerHighlightScope = "lead-results" | "screening-results" | "trusted" | "pending";
+type CustomerHighlightRange = "today" | "week" | "month" | "all";
 
 interface CustomerFilters {
   countries: string[];
@@ -136,7 +147,7 @@ const defaultLeadSelection: LeadSelectionState = {
   productIds: ["phone-case", "tempered-glass", "usb-c-charger"],
   buyerTypeIds: ["repair-chain", "electronics-retailer", "accessory-retailer"],
   countryCodes: ["GB", "US"],
-  targetCount: 50,
+  targetCount: MAX_LEAD_TARGET_COUNT,
   maxResultsPerQuery: 10,
   excludeDomainIds: ["marketplaces", "social", "directories", "supplier-directories"],
 };
@@ -149,7 +160,7 @@ const defaultScreeningOptions: ScreeningOptionState = {
 
 function normalizeLeadTargetCount(value: number) {
   if (!Number.isFinite(value)) return 1;
-  return Math.max(1, Math.floor(value));
+  return Math.min(MAX_LEAD_TARGET_COUNT, Math.max(1, Math.floor(value)));
 }
 
 const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
@@ -161,7 +172,7 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 };
 
 const sourceLabels: Record<CustomerListItem["source"], string> = {
-  lead_discovery: "获客员工",
+  lead_discovery: "",
   manual_screening: "手动录入",
   accio_handoff: "聊天记录移交",
 };
@@ -225,6 +236,53 @@ const scoreSortLabels: Record<ScoreSort, string> = {
 
 const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const;
 const sheetStatusFilters = ["all", "not_started", "screened", "insufficient_evidence", "failed"] as const;
+const customerStatusFilterValues: Array<CustomerListItem["screeningStatus"] | "all"> = [
+  "all",
+  "not_started",
+  "running",
+  "screened",
+  "insufficient_evidence",
+  "failed",
+];
+const scoreSortValues: ScoreSort[] = ["none", "score_desc", "score_asc"];
+const foundRangeValues: FoundRange[] = ["all", "today", "7d", "30d"];
+const scoreTierValues: ScoreTier[] = ["high", "medium", "low"];
+const CUSTOMER_STATUS_FILTER_STORAGE_KEY = "sentura:cbe:employee:customers:status-filter:v1";
+const CUSTOMER_SCORE_SORT_STORAGE_KEY = "sentura:cbe:employee:customers:score-sort:v1";
+const CUSTOMER_FILTERS_STORAGE_KEY = "sentura:cbe:employee:customers:filters:v1";
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isCustomerStatusFilter(value: unknown): value is CustomerListItem["screeningStatus"] | "all" {
+  return typeof value === "string" && customerStatusFilterValues.includes(value as CustomerListItem["screeningStatus"] | "all");
+}
+
+function isScoreSort(value: unknown): value is ScoreSort {
+  return typeof value === "string" && scoreSortValues.includes(value as ScoreSort);
+}
+
+function isFoundRange(value: unknown): value is FoundRange {
+  return typeof value === "string" && foundRangeValues.includes(value as FoundRange);
+}
+
+function isScoreTier(value: unknown): value is ScoreTier {
+  return typeof value === "string" && scoreTierValues.includes(value as ScoreTier);
+}
+
+function isCustomerFilters(value: unknown): value is CustomerFilters {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const filters = value as Partial<Record<keyof CustomerFilters, unknown>>;
+  return (
+    isStringArray(filters.countries) &&
+    isStringArray(filters.buyerTypes) &&
+    isStringArray(filters.products) &&
+    isFoundRange(filters.foundRange) &&
+    Array.isArray(filters.scoreTiers) &&
+    filters.scoreTiers.every(isScoreTier)
+  );
+}
 
 const buyerTypeDisplayLabels: Record<string, string> = {
   "repair-chain": "维修连锁",
@@ -294,29 +352,217 @@ function productLabel(value: string) {
   return productDisplayLabels[canonical] ?? value;
 }
 
-function rowClass(item: CustomerListItem) {
-  if (item.screeningStatus === "running") return "bg-sky-50/70";
-  if (item.screeningStatus === "insufficient_evidence") return "bg-zinc-50";
-  if (item.scoreTier === "high") return "bg-emerald-50/70";
-  if (item.scoreTier === "medium") return "bg-amber-50/70";
-  if (item.scoreTier === "low" || item.screeningStatus === "failed") return "bg-rose-50/70";
+function customerCountryLabel(item: CustomerListItem) {
+  const label = item.countryName?.trim();
+  if (!label || label === "未确认" || label === "ZZ") return null;
+  return label;
+}
+
+function customerSubtitle(
+  item: CustomerListItem,
+  options: { includeCountry?: boolean; includeBuyerType?: boolean } = {},
+) {
+  return [
+    options.includeCountry ? customerCountryLabel(item) : null,
+    options.includeBuyerType ? buyerTypeLabel(item.buyerType) : null,
+    sourceLabels[item.source],
+  ].filter((part): part is string => Boolean(part)).join(" · ");
+}
+
+function parseCustomerDate(value: string) {
+  const source = value.trim();
+  if (!source) return null;
+  const hasExplicitZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(source);
+  const normalized = source.includes("T") ? source : source.replace(" ", "T");
+  const date = new Date(hasExplicitZone ? normalized : `${normalized}+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBeijingDateTime(value: string) {
+  const date = parseCustomerDate(value);
+  if (!date) return value;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
+function highlightFrameClass(active: boolean) {
+  return active
+    ? "animate-pulse outline outline-2 -outline-offset-2 outline-sky-300 shadow-[0_0_0_3px_rgba(125,211,252,0.22)]"
+    : "";
+}
+
+function rowClass(item: CustomerListItem, isHighlighted = false) {
+  if (isHighlighted) return cn("bg-sky-50/60", highlightFrameClass(true));
+  if (item.screeningStatus === "running") return "bg-sky-50/35";
+  if (item.screeningStatus === "not_started") return "bg-sky-50/10";
+  if (item.screeningStatus === "failed") return "bg-rose-50/35";
+  if (item.scoreTier === "high") return "bg-emerald-50/35";
+  if (item.scoreTier === "medium") return "bg-amber-50/35";
+  if (item.scoreTier === "low") return "bg-rose-50/35";
+  if (item.screeningStatus === "insufficient_evidence") return "bg-zinc-50/60";
+  if (item.screeningStatus === "screened") return "bg-emerald-50/20";
   return "bg-background";
+}
+
+function workflowBadge(item: CustomerListItem) {
+  if (item.screeningStatus === "not_started") {
+    return null;
+  }
+  if (item.screeningStatus === "screened") {
+    return { label: "", className: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: "check" as const };
+  }
+  if (item.screeningStatus === "running") {
+    return { label: "背调中", className: "border-sky-200 bg-sky-50 text-sky-800" };
+  }
+  if (item.screeningStatus === "insufficient_evidence") {
+    return null;
+  }
+  if (item.screeningStatus === "failed") {
+    return { label: "失败", className: "border-rose-200 bg-rose-50 text-rose-800" };
+  }
+  return null;
 }
 
 function statusBadgeClass(item: CustomerListItem) {
   if (item.screeningStatus === "running") return "border-sky-200 bg-sky-50 text-sky-800";
-  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
+  if (item.screeningStatus === "failed") return "border-rose-200 bg-rose-50 text-rose-800";
   if (item.scoreTier === "high") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (item.scoreTier === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
-  if (item.scoreTier === "low" || item.screeningStatus === "failed") return "border-rose-200 bg-rose-50 text-rose-800";
+  if (item.scoreTier === "low") return "border-rose-200 bg-rose-50 text-rose-800";
+  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
   return "border-slate-200 bg-white text-slate-700";
 }
 
 function scoreLabel(item: CustomerListItem) {
   if (item.screeningStatus === "running") return "背调中";
+  if (typeof item.normalizedScore === "number") {
+    if (item.scoreTier === "high") return `${item.normalizedScore}/100 · 高分 · 优先跟进`;
+    if (item.scoreTier === "medium") return `${item.normalizedScore}/100 · 中等 · 谨慎跟进`;
+    if (item.scoreTier === "low") return `${item.normalizedScore}/100 · 低分 · 暂缓/高风险`;
+    return `${item.normalizedScore}/100`;
+  }
   if (item.screeningStatus === "insufficient_evidence") return "证据不足";
-  if (typeof item.normalizedScore === "number") return `${item.normalizedScore}/100`;
   return "未评分";
+}
+
+function CustomerProductBadges({
+  products,
+  expanded,
+  onToggle,
+}: {
+  products: string[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const visibleProducts = expanded ? products : products.slice(0, 2);
+  const hiddenCount = Math.max(0, products.length - visibleProducts.length);
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visibleProducts.map((product) => (
+        <Badge key={product} variant="secondary">
+          {productLabel(product)}
+        </Badge>
+      ))}
+      {products.length > 2 ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className="inline-flex h-6 items-center rounded-full border bg-background px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          {expanded ? "收起" : `+${hiddenCount}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function taskAffectedCustomerIds(taskId: string, rows: CustomerListItem[], tasks: Array<{ id: string; affectedCustomerIds?: string[] }>) {
+  const task = tasks.find((item) => item.id === taskId);
+  const metadataIds = new Set(task?.affectedCustomerIds ?? []);
+  const rowIds = rows
+    .filter((item) =>
+      metadataIds.has(item.customerId) ||
+      item.latestAgentRunId === taskId ||
+      item.leadAgentRunId === taskId ||
+      item.screeningAgentRunId === taskId,
+    )
+    .map((item) => item.customerId);
+  return Array.from(new Set(rowIds));
+}
+
+function customerRowSelector(customerId: string) {
+  const escaped = typeof CSS !== "undefined" && CSS.escape
+    ? CSS.escape(customerId)
+    : customerId.replace(/["\\]/g, "\\$&");
+  return `[data-customer-id="${escaped}"]`;
+}
+
+function normalizeCustomerHighlightScope(value: string | null): CustomerHighlightScope | null {
+  if (
+    value === "lead-results" ||
+    value === "screening-results" ||
+    value === "trusted" ||
+    value === "pending"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeCustomerHighlightRange(value: string | null): CustomerHighlightRange {
+  if (value === "today" || value === "week" || value === "month" || value === "all") return value;
+  return "all";
+}
+
+function customerMatchesHighlightRange(item: CustomerListItem, range: CustomerHighlightRange) {
+  if (range === "all") return true;
+  const foundDate = parseCustomerDate(item.foundAt);
+  if (!foundDate) return true;
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (range === "week") {
+    const day = start.getDay();
+    const offset = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - offset);
+  }
+  if (range === "month") {
+    start.setDate(1);
+  }
+  return foundDate >= start;
+}
+
+function highlightedCustomerIdsForScope(
+  rows: CustomerListItem[],
+  scope: CustomerHighlightScope,
+  range: CustomerHighlightRange,
+) {
+  const rangedRows = rows.filter((item) => customerMatchesHighlightRange(item, range));
+  const scopedRows = rangedRows.filter((item) => {
+    if (scope === "lead-results") return item.source === "lead_discovery";
+    if (scope === "screening-results") return item.screeningStatus === "screened";
+    if (scope === "trusted") return item.scoreTier === "high";
+    return item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence";
+  });
+  if (scope === "lead-results" && scopedRows.length === 0) return rangedRows.map((item) => item.customerId);
+  return scopedRows.map((item) => item.customerId);
 }
 
 function comparableScore(item: CustomerListItem) {
@@ -331,12 +577,19 @@ function percentLabel(value: number | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
+function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
+  if (typeof score !== "number") return "insufficient_evidence";
+  if (score >= 80) return "trusted_candidate";
+  if (score >= 60) return "cautious";
+  return "high_risk";
+}
+
 function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | null {
   if (item.screeningReport) return item.screeningReport;
   if (item.screeningStatus !== "screened" && item.screeningStatus !== "insufficient_evidence") return null;
   return {
     reportId: item.reportId ?? item.customerId,
-    riskTier: item.screeningStatus === "insufficient_evidence" ? "insufficient_evidence" : item.scoreTier === "low" ? "high_risk" : item.scoreTier === "high" ? "trusted_candidate" : "cautious",
+    riskTier: riskTierForScore(item.normalizedScore),
     normalizedScore: item.normalizedScore ?? null,
     evidenceCoverage: undefined,
     recommendedAction: item.recommendedAction ?? "复核背调结果后再决定是否跟进。",
@@ -353,6 +606,13 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
   };
 }
 
+function needsChatRecordSupplement(item: CustomerListItem) {
+  return (
+    (item.source === "accio_handoff" || item.source === "manual_screening") &&
+    item.screeningStatus === "insufficient_evidence"
+  );
+}
+
 function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
   const grouped = new Map<ScreeningEvidenceLayer, CustomerEvidenceItem[]>();
   for (const item of evidence) {
@@ -363,8 +623,8 @@ function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
 
 function foundAtInRange(foundAt: string, range: FoundRange) {
   if (range === "all") return true;
-  const foundDate = new Date(foundAt.replace(" ", "T"));
-  if (Number.isNaN(foundDate.getTime())) return true;
+  const foundDate = parseCustomerDate(foundAt);
+  if (!foundDate) return true;
   const end = new Date();
   end.setHours(23, 59, 59, 999);
   const start = new Date(end);
@@ -535,6 +795,17 @@ function ScreeningOptionControls({
 }
 
 export default function CrossBorderCustomersPage() {
+  return (
+    <Suspense fallback={null}>
+      <CrossBorderCustomersPageContent />
+    </Suspense>
+  );
+}
+
+function CrossBorderCustomersPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [mounted, setMounted] = useState(false);
   const { client, state } = useGateway();
   const { data: leadAgent, loading: leadLoading } = useAgent("cbe-lead-discovery");
   const { data: screeningAgent, loading: screeningLoading } = useAgent("cbe-buyer-screening");
@@ -547,17 +818,65 @@ export default function CrossBorderCustomersPage() {
   const updateTaskProgress = useCbeEmployeeStore((store) => store.updateTaskProgress);
   const completeTask = useCbeEmployeeStore((store) => store.completeTask);
   const failTask = useCbeEmployeeStore((store) => store.failTask);
+  const cancelTask = useCbeEmployeeStore((store) => store.cancelTask);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<CustomerListItem["screeningStatus"] | "all">("all");
-  const [scoreSort, setScoreSort] = useState<ScoreSort>("none");
-  const [filters, setFilters] = useState<CustomerFilters>(emptyFilters);
+  const [statusFilter, setStatusFilter] = usePersistentUiState<CustomerListItem["screeningStatus"] | "all">(
+    CUSTOMER_STATUS_FILTER_STORAGE_KEY,
+    "all",
+    isCustomerStatusFilter,
+  );
+  const [scoreSort, setScoreSort] = usePersistentUiState<ScoreSort>(
+    CUSTOMER_SCORE_SORT_STORAGE_KEY,
+    "none",
+    isScoreSort,
+  );
+  const [filters, setFilters] = usePersistentUiState<CustomerFilters>(
+    CUSTOMER_FILTERS_STORAGE_KEY,
+    emptyFilters,
+    isCustomerFilters,
+  );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
   const [activeCustomer, setActiveCustomer] = useState<CustomerListItem | null>(null);
   const [deleteIntent, setDeleteIntent] = useState<DeleteIntent | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+  const [newlyAddedCustomerIds, setNewlyAddedCustomerIds] = useState<Set<string>>(() => new Set());
+  const [expandedProductRows, setExpandedProductRows] = useState<Set<string>>(() => new Set());
+  const handledHighlightRequestRef = useRef<string | null>(null);
+  const highlightTaskId = searchParams.get("highlightTask");
+  const highlightCustomerId = searchParams.get("highlightCustomer");
+  const customerHighlightScope = normalizeCustomerHighlightScope(searchParams.get("highlight"));
+  const customerHighlightRange = normalizeCustomerHighlightRange(searchParams.get("highlightRange"));
   const leadRunning = tasks.some((task) => task.kind === "lead" && isCbeEmployeeTaskActive(task));
   const screeningRunning = tasks.some((task) => task.kind === "screening" && isCbeEmployeeTaskActive(task));
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const toggleProductsExpanded = (customerId: string) => {
+    setExpandedProductRows((current) => {
+      const next = new Set(current);
+      if (next.has(customerId)) next.delete(customerId);
+      else next.add(customerId);
+      return next;
+    });
+  };
+
+  const flashNewCustomers = (customerIds: string[]) => {
+    const ids = Array.from(new Set(customerIds.filter(Boolean)));
+    if (ids.length === 0) return;
+    setNewlyAddedCustomerIds(new Set(ids));
+  };
+
+  const clearCustomerHighlight = (customerId: string) => {
+    setNewlyAddedCustomerIds((current) => {
+      if (!current.has(customerId)) return current;
+      const next = new Set(current);
+      next.delete(customerId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -585,6 +904,40 @@ export default function CrossBorderCustomersPage() {
       cancelled = true;
     };
   }, [setRows, setTasks]);
+
+  useEffect(() => {
+    const highlightRequestKey = [
+      highlightTaskId ?? "",
+      highlightCustomerId ?? "",
+      customerHighlightScope ?? "",
+      customerHighlightRange,
+    ].join("|");
+    const hasHighlightRequest = Boolean(highlightTaskId || highlightCustomerId || customerHighlightScope);
+    if (!hasHighlightRequest || handledHighlightRequestRef.current === highlightRequestKey || rows.length === 0) return;
+    let ids: string[] = [];
+    if (highlightCustomerId) {
+      ids = rows.some((item) => item.customerId === highlightCustomerId) ? [highlightCustomerId] : [];
+    } else if (highlightTaskId) {
+      ids = taskAffectedCustomerIds(highlightTaskId, rows, tasks);
+    } else if (customerHighlightScope) {
+      ids = highlightedCustomerIdsForScope(rows, customerHighlightScope, customerHighlightRange);
+    }
+    if (ids.length === 0) return;
+    handledHighlightRequestRef.current = highlightRequestKey;
+    setQuery("");
+    setFilters(customerHighlightScope === "trusted" ? { ...emptyFilters, scoreTiers: ["high"] } : emptyFilters);
+    setStatusFilter(customerHighlightScope === "screening-results" ? "screened" : "all");
+    flashNewCustomers(ids);
+    window.requestAnimationFrame(() => {
+      const rowCandidates = Array.from(document.querySelectorAll<HTMLElement>(customerRowSelector(ids[0])));
+      const visibleRow = rowCandidates.find((element) => element.getClientRects().length > 0) ?? rowCandidates[0];
+      visibleRow?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    showNotice(`已定位 ${ids.length} 个相关客户。`, "info");
+  }, [customerHighlightRange, customerHighlightScope, highlightCustomerId, highlightTaskId, rows, tasks]);
 
   const filterOptions = useMemo(() => {
     const countryMap = new Map<string, string>();
@@ -710,6 +1063,7 @@ export default function CrossBorderCustomersPage() {
   }, [filterOptions.buyerTypes, filterOptions.countries, filterOptions.products, filters, scoreSort, statusFilter]);
 
   const selectedCustomers = rows.filter((item) => selectedIds.includes(item.customerId));
+  const selectedScreeningCustomers = selectedCustomers.filter((item) => !needsChatRecordSupplement(item));
   const deleteTargets = deleteIntent
     ? rows.filter((item) => deleteIntent.customerIds.includes(item.customerId))
     : [];
@@ -717,6 +1071,14 @@ export default function CrossBorderCustomersPage() {
   const canRunScreening = state === "connected" && !!screeningAgent;
   const checkingLeadAgent = state === "connected" && leadLoading;
   const activeFilterCount = activeFilterChips.length;
+  const latestLeadFailure = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.kind === "lead" && task.status === "failed")
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0],
+    [tasks],
+  );
+  const isCurrentDatabaseEmpty = rows.length === 0;
 
   const showNotice = (text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
     setNotice({ tone, text });
@@ -758,6 +1120,31 @@ export default function CrossBorderCustomersPage() {
     setSheetMode("detail");
   };
 
+  const openMemoryRefresh = (item: CustomerListItem) => {
+    setSheetMode(null);
+    const params = new URLSearchParams({
+      supplementCustomer: item.customerId,
+      supplementCompany: item.companyName,
+      supplementSource: item.source,
+    });
+    if (item.source === "accio_handoff") {
+      params.set("highlightRecord", item.customerId);
+    }
+    router.push(`/client-demos/cross-border/employee/memory?${params.toString()}`);
+  };
+
+  const openBulkScreening = () => {
+    const skippedCount = selectedCustomers.length - selectedScreeningCustomers.length;
+    if (selectedScreeningCustomers.length === 0) {
+      showNotice("证据不足的聊天记录移交/手动录入客户需要先补充聊天记录，重新分析后再送到背调。", "info", 6000);
+      return;
+    }
+    if (skippedCount > 0) {
+      showNotice(`已跳过 ${skippedCount} 个需补充聊天记录的客户；其余客户可继续背调。`, "info", 6000);
+    }
+    setSheetMode("bulk");
+  };
+
   const requestDeleteCustomers = (customerIds: string[], source: DeleteIntent["source"]) => {
     const existingIds = Array.from(new Set(customerIds)).filter((customerId) =>
       rows.some((item) => item.customerId === customerId),
@@ -770,18 +1157,24 @@ export default function CrossBorderCustomersPage() {
     setSheetMode("delete");
   };
 
-  const confirmDeleteCustomers = () => {
+  const confirmDeleteCustomers = async () => {
     if (!deleteIntent) return;
     const ids = deleteIntent.customerIds;
     const count = ids.length;
-    deleteRows(ids);
-    setSelectedIds((current) => current.filter((customerId) => !ids.includes(customerId)));
-    if (activeCustomer && ids.includes(activeCustomer.customerId)) {
-      setActiveCustomer(null);
+    try {
+      await deleteEmployeeCustomers(ids);
+      deleteRows(ids);
+      setSelectedIds((current) => current.filter((customerId) => !ids.includes(customerId)));
+      if (activeCustomer && ids.includes(activeCustomer.customerId)) {
+        setActiveCustomer(null);
+      }
+      setDeleteIntent(null);
+      setSheetMode(null);
+      await refreshDbBackedLists();
+      showNotice(`已删除 ${count} 个客户。`, "success");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "客户删除失败。", "error", 8000);
     }
-    setDeleteIntent(null);
-    setSheetMode(null);
-    showNotice(`已删除 ${count} 个客户。`, "success");
   };
 
   const toggleSelected = (customerId: string) => {
@@ -797,12 +1190,16 @@ export default function CrossBorderCustomersPage() {
       showNotice("已有获客任务正在运行，完成后可再次启动获客。", "info");
       return;
     }
+    const normalizedInput = {
+      ...input,
+      targetCount: normalizeLeadTargetCount(input.targetCount),
+    };
     if (!input.productKeywords || !input.countries || !input.buyerTypes) {
       showNotice("请至少选择一个产品、一个买家类型和一个国家。", "error");
       return;
     }
-    if (!Number.isFinite(input.targetCount) || input.targetCount < 1) {
-      showNotice("目标数量必须大于 0。", "error");
+    if (!Number.isFinite(normalizedInput.targetCount) || normalizedInput.targetCount < 1) {
+      showNotice("目标数量必须大于 0，最多 20 个。", "error");
       return;
     }
     if (!canRunLead) {
@@ -815,15 +1212,15 @@ export default function CrossBorderCustomersPage() {
       return;
     }
     const plannedSessionKey = createPlannedEmployeeSessionKey(LEAD_AGENT_ID);
-    const estimatedMs = estimateLeadTaskDurationMs(input);
+    const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
     let taskId: string | undefined;
     let createdRun: Awaited<ReturnType<typeof createEmployeeLeadRun>> | null = null;
+    let abortSignal: AbortSignal | undefined;
     setSheetMode(null);
     try {
       createdRun = await createEmployeeLeadRun(
         {
-          ...input,
-          targetCount: normalizeLeadTargetCount(input.targetCount),
+          ...normalizedInput,
         },
         plannedSessionKey,
       );
@@ -838,14 +1235,14 @@ export default function CrossBorderCustomersPage() {
         targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
       });
       taskId = localTaskId;
+      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
       const result = await runLeadDiscoveryTask(
         client,
         {
-          ...input,
-          targetCount: normalizeLeadTargetCount(input.targetCount),
+          ...normalizedInput,
         },
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey },
+        { sessionKey: plannedSessionKey, signal: abortSignal },
       );
       await completeEmployeeLeadRun({
         leadRunId: createdRun.leadRun.id,
@@ -856,10 +1253,17 @@ export default function CrossBorderCustomersPage() {
       const message = `获客员工已返回 ${result.records.length} 个客户，已写入当前列表。`;
       completeTask(localTaskId, result.records.length, message, result.sessionKey);
       await refreshDbBackedLists();
+      flashNewCustomers(result.records.map((record) => record.customerId));
       showNotice(message);
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (isEmployeeTaskCancellation(error)) {
+        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        await refreshDbBackedLists().catch(() => undefined);
+        showNotice(message, "info", 6000);
+        return;
+      }
       if (createdRun && shouldWriteFailure(error)) {
         await failEmployeeTaskInDb({
           agentRunId: createdRun.agentRun.id,
@@ -871,6 +1275,8 @@ export default function CrossBorderCustomersPage() {
       if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
       await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
+    } finally {
+      if (taskId) clearCbeEmployeeTaskAbortSignal(taskId);
     }
   };
 
@@ -878,6 +1284,11 @@ export default function CrossBorderCustomersPage() {
     targets: CustomerListItem[],
     options?: EmployeeScreeningTaskOptions,
   ) => {
+    const runnableTargets = targets.filter((item) => !needsChatRecordSupplement(item));
+    if (runnableTargets.length !== targets.length) {
+      showNotice("证据不足的聊天记录移交/手动录入客户需要先补充聊天记录，重新分析后再送到背调。", "info", 6000);
+    }
+    if (runnableTargets.length === 0) return;
     if (screeningRunning) {
       showNotice("已有背调任务正在运行，完成后可再次启动背调。", "info");
       return;
@@ -891,30 +1302,32 @@ export default function CrossBorderCustomersPage() {
       );
       return;
     }
-    const screeningTargets = customersToScreeningTargets(targets);
+    const screeningTargets = customersToScreeningTargets(runnableTargets);
     if (screeningTargets.length === 0) {
       showNotice("请先选择至少一个客户。", "error");
       return;
     }
-    const ids = new Set(targets.map((item) => item.customerId));
+    const ids = new Set(runnableTargets.map((item) => item.customerId));
     const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs(screeningTargets, options);
     let taskId: string | undefined;
     let createdRun: Awaited<ReturnType<typeof createEmployeeScreeningRun>> | null = null;
+    let abortSignal: AbortSignal | undefined;
     setSheetMode(null);
     try {
       createdRun = await createEmployeeScreeningRun(screeningTargets, plannedSessionKey, options);
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
-        title: targets.length > 1 ? "批量背调" : "单个背调",
+        title: runnableTargets.length > 1 ? "批量背调" : "单个背调",
         message: "背调任务已启动，后台员工正在核验证据来源。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: plannedSessionKey,
-        targetLabel: `${targets.length} 个客户`,
+        targetLabel: `${runnableTargets.length} 个客户`,
       });
       taskId = localTaskId;
+      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
       setRows((current) =>
         current.map((item) =>
           ids.has(item.customerId) ? { ...item, screeningStatus: "running" } : item,
@@ -925,7 +1338,7 @@ export default function CrossBorderCustomersPage() {
         screeningTargets,
         options,
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey },
+        { sessionKey: plannedSessionKey, signal: abortSignal },
       );
       await completeEmployeeScreeningRun({
         agentRunId: createdRun.agentRun.id,
@@ -937,13 +1350,19 @@ export default function CrossBorderCustomersPage() {
       await refreshDbBackedLists();
       showNotice(message);
     } catch (error) {
+      const message = employeeTaskErrorMessage(error);
+      const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (isEmployeeTaskCancellation(error)) {
+        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        await refreshDbBackedLists().catch(() => undefined);
+        showNotice(message, "info", 6000);
+        return;
+      }
       setRows((current) =>
         current.map((item) =>
           ids.has(item.customerId) ? { ...item, screeningStatus: "failed" } : item,
         ),
       );
-      const message = employeeTaskErrorMessage(error);
-      const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
       if (createdRun && shouldWriteFailure(error)) {
         await failEmployeeTaskInDb({
           agentRunId: createdRun.agentRun.id,
@@ -955,6 +1374,8 @@ export default function CrossBorderCustomersPage() {
       if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
       await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
+    } finally {
+      if (taskId) clearCbeEmployeeTaskAbortSignal(taskId);
     }
   };
 
@@ -984,6 +1405,7 @@ export default function CrossBorderCustomersPage() {
     const estimatedMs = estimateScreeningTaskDurationMs([target], options);
     let taskId: string | undefined;
     let createdRun: Awaited<ReturnType<typeof createEmployeeScreeningRun>> | null = null;
+    let abortSignal: AbortSignal | undefined;
     setSheetMode(null);
     try {
       createdRun = await createEmployeeScreeningRun([target], plannedSessionKey, options);
@@ -998,12 +1420,13 @@ export default function CrossBorderCustomersPage() {
         targetLabel: input.companyName.trim(),
       });
       taskId = localTaskId;
+      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
       const result = await runScreeningTask(
         client,
         [target],
         options,
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey },
+        { sessionKey: plannedSessionKey, signal: abortSignal },
       );
       await completeEmployeeScreeningRun({
         agentRunId: createdRun.agentRun.id,
@@ -1017,6 +1440,12 @@ export default function CrossBorderCustomersPage() {
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (isEmployeeTaskCancellation(error)) {
+        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        await refreshDbBackedLists().catch(() => undefined);
+        showNotice(message, "info", 6000);
+        return;
+      }
       if (createdRun && shouldWriteFailure(error)) {
         await failEmployeeTaskInDb({
           agentRunId: createdRun.agentRun.id,
@@ -1028,8 +1457,14 @@ export default function CrossBorderCustomersPage() {
       if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
       await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
+    } finally {
+      if (taskId) clearCbeEmployeeTaskAbortSignal(taskId);
     }
   };
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <div className="space-y-4">
@@ -1046,7 +1481,7 @@ export default function CrossBorderCustomersPage() {
             {checkingLeadAgent || leadRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             寻找客户
           </Button>
-          <Button variant="outline" onClick={() => setSheetMode("bulk")} disabled={selectedCustomers.length === 0 || screeningRunning}>
+          <Button variant="outline" onClick={openBulkScreening} disabled={selectedCustomers.length === 0 || screeningRunning}>
             {screeningRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             批量背调
           </Button>
@@ -1112,22 +1547,21 @@ export default function CrossBorderCustomersPage() {
                   {status === "all" ? "全部" : statusLabels[status]}
                 </Button>
               ))}
-              <Button
-                variant={scoreSort === "score_desc" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setScoreSort((current) => (current === "score_desc" ? "none" : "score_desc"))}
-              >
+              <label className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2 text-sm text-muted-foreground">
                 <ArrowDownWideNarrow className="h-3.5 w-3.5" />
-                评分高到低
-              </Button>
-              <Button
-                variant={scoreSort === "score_asc" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setScoreSort((current) => (current === "score_asc" ? "none" : "score_asc"))}
-              >
-                <ArrowUpNarrowWide className="h-3.5 w-3.5" />
-                评分低到高
-              </Button>
+                <select
+                  aria-label="评分排序"
+                  value={scoreSort}
+                  onChange={(event) => setScoreSort(event.target.value as ScoreSort)}
+                  className="h-full bg-transparent text-sm font-medium text-foreground outline-none"
+                >
+                  {(["none", "score_desc", "score_asc"] as const).map((sort) => (
+                    <option key={sort} value={sort}>
+                      {scoreSortLabels[sort]}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
@@ -1159,10 +1593,21 @@ export default function CrossBorderCustomersPage() {
 
           {filtered.length === 0 ? (
             <div className="rounded-md border border-dashed bg-muted/20 px-4 py-10 text-center">
-              <div className="text-sm font-medium">没有符合条件的客户</div>
+              <div className="text-sm font-medium">
+                {isCurrentDatabaseEmpty ? "当前数据库还没有客户" : "没有符合条件的客户"}
+              </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                调整筛选条件，或点击“寻找客户”启动新的获客任务。
+                {isCurrentDatabaseEmpty && latestLeadFailure
+                  ? `最近一次获客任务失败，未写入客户：${latestLeadFailure.message}`
+                  : isCurrentDatabaseEmpty
+                    ? "还没有成功完成并写入数据库的获客任务。点击“寻找客户”启动新的获客任务。"
+                    : "调整筛选条件，或点击“寻找客户”启动新的获客任务。"}
               </p>
+              {isCurrentDatabaseEmpty && latestLeadFailure?.sessionKey ? (
+                <p className="mt-2 font-mono text-xs text-muted-foreground">
+                  失败任务 {latestLeadFailure.sessionKey}
+                </p>
+              ) : null}
               <Button className="mt-4" size="sm" onClick={() => setSheetMode("lead")}>
                 <Search className="h-4 w-4" />
                 寻找客户
@@ -1171,20 +1616,28 @@ export default function CrossBorderCustomersPage() {
           ) : (
             <>
               <div className="grid gap-3 lg:hidden">
-                {filtered.map((item) => (
-                  <CustomerMobileCard
-                    key={item.customerId}
-                    item={item}
-                    selected={selectedIds.includes(item.customerId)}
-	                    toggleSelected={toggleSelected}
-	                    openDetail={openDetail}
-	                    requestDelete={(customerId) => requestDeleteCustomers([customerId], "single")}
-	                    startScreening={() => {
-                      setSelectedIds([item.customerId]);
-                      setSheetMode("bulk");
-                    }}
-                  />
-                ))}
+                {filtered.map((item) => {
+                  const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
+                  const requiresMemoryRefresh = needsChatRecordSupplement(item);
+                  return (
+                    <CustomerMobileCard
+                      key={item.customerId}
+	                      item={item}
+	                      selected={selectedIds.includes(item.customerId)}
+	                      isNewlyAdded={isNewlyAdded}
+	                      toggleSelected={toggleSelected}
+	                      openDetail={openDetail}
+	                      clearHighlight={clearCustomerHighlight}
+                        openMemoryRefresh={requiresMemoryRefresh ? () => openMemoryRefresh(item) : undefined}
+	                      startScreening={() => {
+                        setSelectedIds([item.customerId]);
+                        setSheetMode("bulk");
+                      }}
+                      productsExpanded={expandedProductRows.has(item.customerId)}
+                      toggleProductsExpanded={() => toggleProductsExpanded(item.customerId)}
+                    />
+                  );
+                })}
               </div>
 
               <div className="hidden overflow-x-auto rounded-md border lg:block">
@@ -1203,8 +1656,17 @@ export default function CrossBorderCustomersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((item) => (
-                      <tr key={item.customerId} className={cn("border-t align-top", rowClass(item))}>
+                    {filtered.map((item) => {
+                      const itemWorkflowBadge = workflowBadge(item);
+                      const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
+                      const requiresMemoryRefresh = needsChatRecordSupplement(item);
+                      return (
+	                      <tr
+	                        key={item.customerId}
+	                        data-customer-id={item.customerId}
+	                        onMouseDown={() => clearCustomerHighlight(item.customerId)}
+	                        className={cn("border-t align-top transition-colors", rowClass(item, isNewlyAdded))}
+	                      >
                         <td className="px-3 py-3">
                           <input
                             type="checkbox"
@@ -1215,8 +1677,18 @@ export default function CrossBorderCustomersPage() {
                         </td>
                         <td className="px-3 py-3">
                           <button type="button" className="text-left" onClick={() => openDetail(item)}>
-                            <div className="font-medium">{item.companyName}</div>
-                            <div className="text-xs text-muted-foreground">{item.city ?? "城市未确认"} · {sourceLabels[item.source]}</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{item.companyName}</span>
+                              {itemWorkflowBadge ? (
+                                <Badge variant="outline" className={cn("gap-1 text-[11px]", itemWorkflowBadge.className)}>
+                                  {itemWorkflowBadge.icon === "check" ? (
+                                    <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                  ) : null}
+                                  {itemWorkflowBadge.label ? <span>{itemWorkflowBadge.label}</span> : null}
+                                </Badge>
+                              ) : null}
+                            </div>
+	                            <div className="text-xs text-muted-foreground">{customerSubtitle(item)}</div>
                           </button>
                         </td>
                         <td className="px-3 py-3">
@@ -1225,12 +1697,11 @@ export default function CrossBorderCustomersPage() {
                         </td>
                         <td className="px-3 py-3">{buyerTypeLabel(item.buyerType)}</td>
                         <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-1">
-                            {item.products.slice(0, 2).map((product) => (
-                              <Badge key={product} variant="secondary">{productLabel(product)}</Badge>
-                            ))}
-                            {item.products.length > 2 ? <Badge variant="outline">+{item.products.length - 2}</Badge> : null}
-                          </div>
+                          <CustomerProductBadges
+                            products={item.products}
+                            expanded={expandedProductRows.has(item.customerId)}
+                            onToggle={() => toggleProductsExpanded(item.customerId)}
+                          />
                         </td>
                         <td className="px-3 py-3">
                           {item.website ? (
@@ -1241,9 +1712,9 @@ export default function CrossBorderCustomersPage() {
                             <span className="text-muted-foreground">未提供</span>
                           )}
                         </td>
-                        <td className="px-3 py-3">{item.foundAt}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{formatBeijingDateTime(item.foundAt)}</td>
                         <td className="px-3 py-3">
-                          <Badge variant="outline" className={statusBadgeClass(item)}>
+                          <Badge variant="outline" className={cn("whitespace-nowrap", statusBadgeClass(item))}>
                             {scoreLabel(item)}
                           </Badge>
                         </td>
@@ -1253,7 +1724,12 @@ export default function CrossBorderCustomersPage() {
                               <Eye className="h-3.5 w-3.5" />
                               {item.screeningStatus === "screened" ? "查看报告" : item.screeningStatus === "running" ? "查看进度" : "详情"}
                             </Button>
-	                            {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+                              {requiresMemoryRefresh ? (
+                                <Button variant="outline" size="sm" onClick={() => openMemoryRefresh(item)}>
+                                  <Plus className="h-3.5 w-3.5" />
+                                  补充聊天记录
+                                </Button>
+                              ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
 	                              <Button variant="outline" size="sm" onClick={() => {
 	                                setSelectedIds([item.customerId]);
 	                                setSheetMode("bulk");
@@ -1261,19 +1737,11 @@ export default function CrossBorderCustomersPage() {
 	                                开始调研
 	                              </Button>
 	                            ) : null}
-	                            <Button
-	                              variant="ghost"
-	                              size="sm"
-	                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-	                              onClick={() => requestDeleteCustomers([item.customerId], "single")}
-	                            >
-	                              <Trash2 className="h-3.5 w-3.5" />
-	                              删除
-	                            </Button>
-	                          </div>
+		                          </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1291,7 +1759,7 @@ export default function CrossBorderCustomersPage() {
 	          }
 	        }}
 	        activeCustomer={activeCustomer}
-	        selectedCustomers={selectedCustomers}
+	        selectedCustomers={selectedScreeningCustomers}
 	        deleteTargets={deleteTargets}
 	        canRunLead={canRunLead}
         canRunScreening={canRunScreening}
@@ -1319,25 +1787,48 @@ export default function CrossBorderCustomersPage() {
 function CustomerMobileCard({
   item,
   selected,
+  isNewlyAdded,
   toggleSelected,
   openDetail,
-  requestDelete,
+  clearHighlight,
+  openMemoryRefresh,
   startScreening,
+  productsExpanded,
+  toggleProductsExpanded,
 }: {
   item: CustomerListItem;
   selected: boolean;
+  isNewlyAdded: boolean;
   toggleSelected: (customerId: string) => void;
   openDetail: (item: CustomerListItem) => void;
-  requestDelete: (customerId: string) => void;
+  clearHighlight: (customerId: string) => void;
+  openMemoryRefresh?: () => void;
   startScreening: () => void;
+  productsExpanded: boolean;
+  toggleProductsExpanded: () => void;
 }) {
+  const itemWorkflowBadge = workflowBadge(item);
   return (
-    <div className={cn("rounded-md border p-3 text-sm", rowClass(item))}>
+    <div
+      data-customer-id={item.customerId}
+      onMouseDown={() => clearHighlight(item.customerId)}
+      className={cn("rounded-md border p-3 text-sm transition-colors", rowClass(item, isNewlyAdded))}
+    >
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="min-w-0 text-left" onClick={() => openDetail(item)}>
-          <div className="font-medium">{item.companyName}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{item.companyName}</span>
+            {itemWorkflowBadge ? (
+              <Badge variant="outline" className={cn("gap-1 text-[11px]", itemWorkflowBadge.className)}>
+                {itemWorkflowBadge.icon === "check" ? (
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                ) : null}
+                {itemWorkflowBadge.label ? <span>{itemWorkflowBadge.label}</span> : null}
+              </Badge>
+            ) : null}
+          </div>
           <div className="mt-0.5 text-xs text-muted-foreground">
-            {item.countryName} · {buyerTypeLabel(item.buyerType)} · {sourceLabels[item.source]}
+            {customerSubtitle(item, { includeCountry: true, includeBuyerType: true })}
           </div>
         </button>
         <input
@@ -1348,18 +1839,20 @@ function CustomerMobileCard({
         />
       </div>
       <div className="mt-3 flex flex-wrap gap-1">
-        {item.products.map((product) => (
-          <Badge key={product} variant="secondary">{productLabel(product)}</Badge>
-        ))}
+        <CustomerProductBadges
+          products={item.products}
+          expanded={productsExpanded}
+          onToggle={toggleProductsExpanded}
+        />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div>
           <div className="text-muted-foreground">找到时间</div>
-          <div className="font-mono">{item.foundAt}</div>
+          <div className="font-mono">{formatBeijingDateTime(item.foundAt)}</div>
         </div>
         <div>
           <div className="text-muted-foreground">评分</div>
-          <Badge variant="outline" className={cn("mt-1", statusBadgeClass(item))}>
+          <Badge variant="outline" className={cn("mt-1 whitespace-nowrap", statusBadgeClass(item))}>
             {scoreLabel(item)}
           </Badge>
         </div>
@@ -1369,21 +1862,17 @@ function CustomerMobileCard({
           <Eye className="h-3.5 w-3.5" />
           {item.screeningStatus === "screened" ? "查看报告" : "详情"}
         </Button>
-        {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+        {openMemoryRefresh ? (
+          <Button variant="outline" size="sm" onClick={openMemoryRefresh}>
+            <Plus className="h-3.5 w-3.5" />
+            补充聊天记录
+          </Button>
+        ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
           <Button size="sm" onClick={startScreening}>
             <ShieldCheck className="h-3.5 w-3.5" />
             开始调研
           </Button>
         ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => requestDelete(item.customerId)}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          删除
-        </Button>
       </div>
     </div>
   );
@@ -1529,6 +2018,195 @@ function ReportEvidenceSections({ report }: { report: CustomerScreeningReport })
   );
 }
 
+function ReportMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-md border bg-muted/20 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function ReportPanel({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-md border bg-background p-3">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+        {icon}
+        <span>{title}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ReportDetailDialog({
+  customer,
+  onClose,
+}: {
+  customer: CustomerListItem;
+  onClose: () => void;
+}) {
+  const report = reportForCustomer(customer);
+  const riskLabel = report ? riskTierLabels[report.riskTier] ?? report.riskTier : "未背调";
+  const productsLabel = customer.products.map(productLabel).join(", ") || "未记录";
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-3 sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="customer-report-title"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border bg-background shadow-2xl sm:max-h-[calc(100vh-4rem)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="border-b px-4 py-4 sm:px-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={statusBadgeClass(customer)}>
+                  {statusLabels[customer.screeningStatus]}
+                </Badge>
+                {report ? <Badge variant="secondary">{riskLabel}</Badge> : null}
+              </div>
+              <h2 id="customer-report-title" className="break-words text-xl font-semibold tracking-normal">
+                {customer.companyName}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {customer.countryName} · {buyerTypeLabel(customer.buyerType)}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" aria-label="关闭报告详情" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <ReportMetric label="产品兴趣" value={productsLabel} />
+            <ReportMetric label="找到时间" value={formatBeijingDateTime(customer.foundAt)} />
+            <ReportMetric label="综合评分" value={scoreLabel(customer)} />
+            <ReportMetric label="证据覆盖" value={report ? percentLabel(report.evidenceCoverage) : "未计算"} />
+          </div>
+        </header>
+
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <main className="space-y-4">
+              <ReportPanel
+                title="背调结论"
+                icon={<ShieldCheck className="h-4 w-4 text-primary" />}
+              >
+                <div className={cn("rounded-md border px-3 py-2 text-sm leading-6", statusBadgeClass(customer))}>
+                  {report?.recommendedAction ?? customer.recommendedAction ?? "暂无报告，等待背调员工返回结构化结果。"}
+                </div>
+              </ReportPanel>
+
+              {report ? (
+                <>
+                  <ReportPanel
+                    title="评分维度拆解"
+                    icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                  >
+                    <ScoreBreakdownChart blocks={report.scoreBlocks} />
+                  </ReportPanel>
+
+                  <section>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium">证据明细</div>
+                      <Badge variant="outline">{report.evidence.length} 条证据</Badge>
+                    </div>
+                    <ReportEvidenceSections report={report} />
+                  </section>
+                </>
+              ) : (
+                <ReportPanel
+                  title="来源证据"
+                  icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                >
+                  <p className="text-sm leading-6 text-muted-foreground">{customer.evidenceSummary}</p>
+                  <div className="mt-3 space-y-2">
+                    {customer.sourceUrls.map((url) => (
+                      <div key={url} className="break-all rounded-md bg-muted/40 px-2 py-1.5 font-mono text-xs">
+                        {url}
+                      </div>
+                    ))}
+                  </div>
+                </ReportPanel>
+              )}
+            </main>
+
+            <aside className="space-y-4">
+              <ReportPanel title="客户概览">
+                <dl className="grid gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">国家 / 类型</dt>
+                    <dd className="mt-1 font-medium">{customer.countryName} · {buyerTypeLabel(customer.buyerType)}</dd>
+                  </div>
+                  {report ? (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">跟进评级</dt>
+                      <dd className="mt-1 font-medium">{riskLabel}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt className="text-xs text-muted-foreground">报告 ID</dt>
+                    <dd className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                      {report?.reportId ?? customer.reportId ?? customer.customerId}
+                    </dd>
+                  </div>
+                </dl>
+              </ReportPanel>
+
+              {report?.coverageGaps.length ? (
+                <ReportPanel title="证据缺口" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
+                  <div className="space-y-2">
+                    {report.coverageGaps.map((gap, index) => (
+                      <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
+                        <div className="mb-1">
+                          <Badge variant="outline" className="mr-2 align-middle text-[11px]">
+                            {scoreBlockLabels[gap.block] ?? gap.block}
+                          </Badge>
+                          <span>{gap.reason}</span>
+                        </div>
+                        {gap.action ? <div className="text-xs text-muted-foreground">{gap.action}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </ReportPanel>
+              ) : null}
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TaskSheet({
   mode,
   onOpenChange,
@@ -1580,11 +2258,12 @@ function TaskSheet({
   onLeadSubmit: (input: EmployeeLeadTaskInput) => void;
   onScreeningSubmit: (customers: CustomerListItem[], options?: EmployeeScreeningTaskOptions) => void;
   onManualSubmit: (input: ManualScreeningInput, options?: EmployeeScreeningTaskOptions) => void;
-  onDeleteConfirm: () => void;
+  onDeleteConfirm: () => void | Promise<void>;
 }) {
   const open = mode !== null;
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [leadSelection, setLeadSelection] = useState<LeadSelectionState>(defaultLeadSelection);
+  const [leadTargetCountText, setLeadTargetCountText] = useState(String(defaultLeadSelection.targetCount));
   const [screeningOptions, setScreeningOptions] = useState<ScreeningOptionState>(defaultScreeningOptions);
   const [manualForm, setManualForm] = useState<ManualScreeningInput>({
     companyName: "",
@@ -1596,17 +2275,24 @@ function TaskSheet({
     contactPerson: "",
     operatorNotes: "",
   });
-  const leadTaskInput = useMemo(() => leadInputFromSelection(leadSelection), [leadSelection]);
+  const effectiveLeadTargetCount = normalizeLeadTargetCount(Number(leadTargetCountText));
+  const leadTaskInput = useMemo(
+    () => ({
+      ...leadInputFromSelection(leadSelection),
+      targetCount: effectiveLeadTargetCount,
+    }),
+    [effectiveLeadTargetCount, leadSelection],
+  );
   const leadEstimate = useMemo(
     () =>
       estimateLeadTaskCost({
         productCount: leadSelection.productIds.length,
         buyerTypeCount: leadSelection.buyerTypeIds.length,
         countryCount: leadSelection.countryCodes.length,
-        targetCount: leadSelection.targetCount,
+        targetCount: effectiveLeadTargetCount,
         maxResultsPerQuery: leadSelection.maxResultsPerQuery,
       }),
-    [leadSelection],
+    [effectiveLeadTargetCount, leadSelection],
   );
   const screeningOptionsPayload = useMemo(
     () => screeningOptionsFromState(screeningOptions),
@@ -1618,6 +2304,7 @@ function TaskSheet({
         targetCount: Math.max(1, selectedCustomers.length),
         paidEmailValidation: screeningOptions.paidEmailValidation,
         paidTradeData: screeningOptions.paidTradeData,
+        maxPaidSpendUsd: screeningOptions.maxPaidSpendUsd,
       }),
     [screeningOptions, selectedCustomers.length],
   );
@@ -1627,6 +2314,7 @@ function TaskSheet({
         targetCount: 1,
         paidEmailValidation: screeningOptions.paidEmailValidation,
         paidTradeData: screeningOptions.paidTradeData,
+        maxPaidSpendUsd: screeningOptions.maxPaidSpendUsd,
       }),
     [screeningOptions],
   );
@@ -1637,6 +2325,9 @@ function TaskSheet({
 
   useEffect(() => {
     if (!open) return;
+    if (mode === "lead") {
+      setLeadTargetCountText(String(leadSelection.targetCount));
+    }
     const resetSheetScroll = () => contentRef.current?.scrollTo({ top: 0, left: 0 });
     resetSheetScroll();
     const frame = window.requestAnimationFrame(resetSheetScroll);
@@ -1648,6 +2339,11 @@ function TaskSheet({
       window.clearTimeout(focusDelay);
     };
   }, [open, mode, activeCustomer?.customerId]);
+
+  if (mode === "detail") {
+    if (!activeCustomer) return null;
+    return <CustomerReportDialog customer={activeCustomer} onClose={() => onOpenChange(false)} />;
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1742,16 +2438,21 @@ function TaskSheet({
               </FilterGroup>
 
               <FilterGroup title="排序">
-                {(["none", "score_desc", "score_asc"] as const).map((sort) => (
-                  <Button
-                    key={sort}
-                    variant={scoreSort === sort ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setScoreSort(sort)}
+                <label className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm text-muted-foreground">
+                  <ArrowDownWideNarrow className="h-3.5 w-3.5" />
+                  <select
+                    aria-label="筛选抽屉评分排序"
+                    value={scoreSort}
+                    onChange={(event) => setScoreSort(event.target.value as ScoreSort)}
+                    className="h-full bg-transparent font-medium text-foreground outline-none"
                   >
-                    {scoreSortLabels[sort]}
-                  </Button>
-                ))}
+                    {(["none", "score_desc", "score_asc"] as const).map((sort) => (
+                      <option key={sort} value={sort}>
+                        {scoreSortLabels[sort]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </FilterGroup>
 
               <FilterGroup title="评分">
@@ -1882,21 +2583,37 @@ function TaskSheet({
                 }
               >
                 <label className="grid w-full max-w-xs gap-1.5 text-sm">
-                  <span className="text-xs text-muted-foreground">客户数</span>
+                  <span className="text-xs text-muted-foreground">客户数（最多 {MAX_LEAD_TARGET_COUNT}）</span>
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
                       min={1}
+                      max={MAX_LEAD_TARGET_COUNT}
                       step={1}
                       inputMode="numeric"
                       aria-label="目标数量手动输入"
-                      value={leadSelection.targetCount}
-                      onChange={(event) =>
+                      value={leadTargetCountText}
+                      onChange={(event) => {
+                        const raw = event.target.value.replace(/[^\d]/g, "");
+                        if (!raw) {
+                          setLeadTargetCountText("");
+                          return;
+                        }
+                        const nextCount = normalizeLeadTargetCount(Number(raw));
+                        setLeadTargetCountText(String(nextCount));
                         setLeadSelection((current) => ({
                           ...current,
-                          targetCount: normalizeLeadTargetCount(Number(event.target.value)),
-                        }))
-                      }
+                          targetCount: nextCount,
+                        }));
+                      }}
+                      onBlur={() => {
+                        const nextCount = normalizeLeadTargetCount(Number(leadTargetCountText));
+                        setLeadTargetCountText(String(nextCount));
+                        setLeadSelection((current) => ({
+                          ...current,
+                          targetCount: nextCount,
+                        }));
+                      }}
                     />
                     <span className="shrink-0 text-sm text-muted-foreground">个客户</span>
                   </div>
@@ -2115,95 +2832,6 @@ function TaskSheet({
           </>
         ) : null}
 
-        {mode === "detail" && activeCustomer ? (
-          <>
-            <SheetHeader>
-              <SheetTitle>{activeCustomer.companyName}</SheetTitle>
-              <SheetDescription>
-                {activeCustomer.countryName} · {buyerTypeLabel(activeCustomer.buyerType)} · {sourceLabels[activeCustomer.source]}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="space-y-4 px-4 pb-4">
-              {(() => {
-                const report = reportForCustomer(activeCustomer);
-                return (
-                  <>
-              <section className="rounded-md border p-3">
-                <div className="mb-2 text-sm font-medium">客户概览</div>
-                <dl className="grid grid-cols-2 gap-2 text-sm">
-                  <dt className="text-muted-foreground">产品</dt>
-                  <dd>{activeCustomer.products.map(productLabel).join(", ")}</dd>
-                  <dt className="text-muted-foreground">找到时间</dt>
-                  <dd>{activeCustomer.foundAt}</dd>
-                  <dt className="text-muted-foreground">状态</dt>
-                  <dd>{statusLabels[activeCustomer.screeningStatus]}</dd>
-                  <dt className="text-muted-foreground">评分</dt>
-                  <dd>{scoreLabel(activeCustomer)}</dd>
-                  <dt className="text-muted-foreground">风险层级</dt>
-                  <dd>{report ? riskTierLabels[report.riskTier] : "未背调"}</dd>
-                  <dt className="text-muted-foreground">证据覆盖</dt>
-                  <dd>{report ? percentLabel(report.evidenceCoverage) : "未计算"}</dd>
-                </dl>
-              </section>
-
-              <section className="rounded-md border p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  背调结论
-                </div>
-                <div className={cn("rounded-md border px-3 py-2 text-sm", statusBadgeClass(activeCustomer))}>
-                  {report?.recommendedAction ?? activeCustomer.recommendedAction ?? "暂无报告，等待背调员工返回结构化结果。"}
-                </div>
-              </section>
-
-              {report ? (
-                <>
-                  <section className="rounded-md border p-3">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      评分维度拆解
-                    </div>
-                    <ScoreBreakdownChart blocks={report.scoreBlocks} />
-                  </section>
-
-                  <ReportEvidenceSections report={report} />
-
-                  {report.coverageGaps.length > 0 ? (
-                    <section className="rounded-md border p-3">
-                      <div className="mb-2 text-sm font-medium">证据缺口</div>
-                      <div className="space-y-2">
-                        {report.coverageGaps.map((gap, index) => (
-                          <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
-                            <div>{gap.reason}</div>
-                            {gap.action ? <div className="text-xs text-muted-foreground">{gap.action}</div> : null}
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-                </>
-              ) : (
-                <section className="rounded-md border p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    来源证据
-                  </div>
-                  <p className="text-sm leading-6 text-muted-foreground">{activeCustomer.evidenceSummary}</p>
-                  <div className="mt-3 space-y-2">
-                    {activeCustomer.sourceUrls.map((url) => (
-                      <div key={url} className="break-all rounded-md bg-muted/40 px-2 py-1.5 font-mono text-xs">
-                        {url}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-                  </>
-                );
-              })()}
-            </div>
-          </>
-        ) : null}
       </SheetContent>
     </Sheet>
   );

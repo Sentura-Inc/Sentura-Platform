@@ -424,7 +424,7 @@ describe("RDAP and DNS evidence", () => {
 });
 
 describe("contextual score and paid evidence behavior", () => {
-  it("covers trusted, cautious, insufficient, low-score high risk, and forced downgrade tiers", async () => {
+  it("uses final score for tiers and includes evidence coverage in the score", async () => {
     const { client } = await connect();
     const baseBlocks = [
       { block: "legal_identity", status: "scored", max_points: 25, earned_points: 23 },
@@ -452,7 +452,7 @@ describe("contextual score and paid evidence behavior", () => {
       }),
     );
     expect(trusted.risk_tier).toBe("trusted_candidate");
-    expect(trusted.normalized_score).toBe(87.06);
+    expect(trusted.normalized_score).toBe(85.84);
     expect(trusted.evidence_coverage).toBe(0.8095);
 
     const cautious = parseToolResult(
@@ -466,8 +466,9 @@ describe("contextual score and paid evidence behavior", () => {
       }),
     );
     expect(cautious.risk_tier).toBe("cautious");
+    expect(cautious.normalized_score).toBe(70.78);
 
-    const insufficient = parseToolResult(
+    const lowCoverage = parseToolResult(
       await client.callTool({
         name: "cbe_intel_score_buyer",
         arguments: {
@@ -482,9 +483,24 @@ describe("contextual score and paid evidence behavior", () => {
         },
       }),
     );
+    expect(lowCoverage.risk_tier).toBe("cautious");
+    expect(lowCoverage.normalized_score).toBe(68.76);
+    expect(lowCoverage.evidence_coverage).toBeLessThan(0.4);
+
+    const insufficient = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_score_buyer",
+        arguments: {
+          blocks: [
+            { block: "legal_identity", status: "pending_human_input", max_points: 25 },
+            { block: "domain_email", status: "unavailable_api", max_points: 20 },
+            { block: "public_footprint", status: "unavailable_api", max_points: 20 },
+          ],
+        },
+      }),
+    );
     expect(insufficient.risk_tier).toBe("insufficient_evidence");
-    expect(insufficient.normalized_score).toBe(80);
-    expect(insufficient.evidence_coverage).toBeLessThan(0.4);
+    expect(insufficient.normalized_score).toBeNull();
 
     const lowScore = parseToolResult(
       await client.callTool({
@@ -508,6 +524,7 @@ describe("contextual score and paid evidence behavior", () => {
       }),
     );
     expect(forced.risk_tier).toBe("high_risk");
+    expect(forced.normalized_score).toBe(59);
     expect(forced.forced_downgrades).toEqual(["domain_age_under_30_days"]);
   });
 

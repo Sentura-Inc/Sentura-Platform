@@ -6,6 +6,7 @@ import type {
   CbeAgentId,
   CbeAgentRunStatus,
   CbeTaskKind,
+  CancelEmployeeTaskRequest,
   FailEmployeeTaskRequest,
   ListQuery,
   TenantContext,
@@ -20,6 +21,7 @@ export interface EmployeeTaskRecord {
   currentStage: string | null;
   sessionKey: string | null;
   startedAt: string;
+  lastActivityAt: string | null;
   finishedAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
@@ -35,6 +37,7 @@ interface TaskRow {
   current_stage: string | null;
   session_key: string | null;
   started_at: Date;
+  last_activity_at: Date | null;
   finished_at: Date | null;
   error_code: string | null;
   error_message: string | null;
@@ -51,6 +54,7 @@ function toTaskRecord(row: TaskRow): EmployeeTaskRecord {
     currentStage: row.current_stage,
     sessionKey: row.session_key,
     startedAt: row.started_at.toISOString(),
+    lastActivityAt: row.last_activity_at?.toISOString() ?? null,
     finishedAt: row.finished_at?.toISOString() ?? null,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -81,12 +85,14 @@ export async function listEmployeeTasks(context: TenantContext, query: ListQuery
         ar.current_stage,
         ar.session_key,
         ar.started_at,
+        ar.last_activity_at,
         ar.finished_at,
         ar.error_code,
         ar.error_message,
         ar.metadata_json
       from agent_runs ar
       where ar.tenant_id = $1
+        and not (ar.metadata_json ? 'notification_deleted_at')
       ${scope.sql}
       ${statusClause}
       order by ar.started_at desc, ar.id desc
@@ -148,6 +154,7 @@ export async function failEmployeeTask(
           current_stage,
           session_key,
           started_at,
+          last_activity_at,
           finished_at,
           error_code,
           error_message,
@@ -192,5 +199,109 @@ export async function failEmployeeTask(
       },
     });
     return agentRun;
+  });
+}
+
+export async function cancelEmployeeTask(
+  context: TenantContext,
+  taskId: string,
+  input: CancelEmployeeTaskRequest,
+) {
+  return withCbeTransaction(async (client) => {
+    const existing = await client.query<TaskRow>(
+      `
+        select
+          id,
+          agent_id,
+          task_kind,
+          status,
+          target_summary,
+          current_stage,
+          session_key,
+          started_at,
+          last_activity_at,
+          finished_at,
+          error_code,
+          error_message,
+          metadata_json
+        from agent_runs
+        where tenant_id = $1
+          and id = $2
+          and (owner_user_id = $3 or user_id = $3 or $4::boolean)
+        limit 1
+      `,
+      [context.tenantId, taskId, context.userId, context.cbeRole === "admin"],
+    );
+    const row = existing.rows[0];
+    if (!row) {
+      throw new CbeStoreError(404, "task_missing", "CBE task was not found or is outside the user's scope.");
+    }
+    if (row.status !== "queued" && row.status !== "running" && row.status !== "polling") {
+      return toTaskRecord(row);
+    }
+
+    const cancelledAt = new Date().toISOString();
+    const sessionKey = input.session_key ?? row.session_key;
+    const updated = await client.query<TaskRow>(
+      `
+        update agent_runs
+        set
+          status = 'cancelled',
+          current_stage = '用户已取消任务',
+          session_key = coalesce($5, session_key),
+          last_activity_at = now(),
+          finished_at = now(),
+          error_code = 'cancelled',
+          error_message = '任务已由员工取消。',
+          metadata_json = metadata_json || $6::jsonb
+        where tenant_id = $1
+          and id = $2
+          and (owner_user_id = $3 or user_id = $3 or $4::boolean)
+          and status in ('queued', 'running', 'polling')
+        returning *
+      `,
+      [
+        context.tenantId,
+        taskId,
+        context.userId,
+        context.cbeRole === "admin",
+        sessionKey,
+        JSON.stringify({
+          cancelled_by_user_id: context.userId,
+          cancelled_at: cancelledAt,
+        }),
+      ],
+    );
+    const agentRun = updated.rows[0] ?? row;
+
+    if (row.task_kind === "lead") {
+      await client.query(
+        `
+          update lead_runs
+          set
+            status = 'cancelled',
+            completed_at = coalesce(completed_at, now())
+          where tenant_id = $1
+            and agent_run_id = $2
+            and status in ('queued', 'running')
+        `,
+        [context.tenantId, taskId],
+      );
+    }
+
+    await createAgentRunActivityEvent(client, context, {
+      agentRunId: taskId,
+      agentId: row.agent_id,
+      taskKind: row.task_kind,
+      targetSummary: row.target_summary ?? undefined,
+      stage: "cancelled",
+      eventType: "employee_task_cancelled",
+      status: "cancelled",
+      metadataJson: {
+        cancelled_by_user_id: context.userId,
+        cancelled_at: cancelledAt,
+      },
+    });
+    return toTaskRecord(agentRun);
   });
 }

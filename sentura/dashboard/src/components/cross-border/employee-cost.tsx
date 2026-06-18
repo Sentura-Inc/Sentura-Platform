@@ -15,7 +15,12 @@ import {
 import { useGateway } from "@/lib/gateway";
 import type { CostEvent } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
-import { employeeProfile, monthlyCostBudget } from "@/app/client-demos/cross-border/employee/_data/employee-data";
+import { monthlyCostBudget } from "@/app/client-demos/cross-border/employee/_data/employee-data";
+import {
+  fetchEmployeeCostBudget,
+  fetchEmployeeTasks,
+  type EmployeeCostBudgetSnapshot,
+} from "@/app/client-demos/cross-border/employee/_data/employee-api";
 
 interface EmployeeCostSnapshot {
   spendUsd: number;
@@ -25,7 +30,23 @@ interface EmployeeCostSnapshot {
   source: "recorded" | "empty" | "unavailable";
   sourceBreakdown: Array<{ label: string; amountUsd: number; note: string }>;
   events: CostEvent[];
+  scopedSessionCount: number;
+  outsideScopeCount: number;
 }
+
+type EmployeeCostBudgetView = EmployeeCostBudgetSnapshot | {
+  period: "month";
+  baseLimitUsd: number;
+  activeAllowanceUsd: number;
+  limitUsd: number;
+  limitEnabled: boolean;
+  warningRatio: number;
+  hardStopRatio: number;
+  spendUsd: number;
+  remainingUsd: number | null;
+  updatedAt: string | null;
+  source: "fallback";
+};
 
 function monthStartIso() {
   const d = new Date();
@@ -55,7 +76,7 @@ function buildCostBreakdown(events: CostEvent[]): EmployeeCostSnapshot["sourceBr
   ).length;
 
   return [
-    { label: "AI 员工模型", amountUsd: modelSpend, note: "来自 OpenClaw model.usage 的真实模型用量记录" },
+    { label: "AI 员工模型", amountUsd: modelSpend, note: "来自当前数据库任务 session 的真实模型用量记录" },
     {
       label: "外部资料服务",
       amountUsd: externalSpend,
@@ -76,10 +97,27 @@ function emptyCostSnapshot(source: EmployeeCostSnapshot["source"]): EmployeeCost
     source,
     sourceBreakdown: buildCostBreakdown([]),
     events: [],
+    scopedSessionCount: 0,
+    outsideScopeCount: 0,
   };
 }
 
-function summarizeEvents(events: CostEvent[]): Omit<EmployeeCostSnapshot, "source" | "sourceBreakdown"> {
+function fallbackCostBudget(): EmployeeCostBudgetView {
+  return {
+    ...monthlyCostBudget,
+    baseLimitUsd: monthlyCostBudget.limitUsd,
+    activeAllowanceUsd: 0,
+    limitEnabled: true,
+    spendUsd: 0,
+    remainingUsd: monthlyCostBudget.limitUsd,
+    updatedAt: null,
+    source: "fallback",
+  };
+}
+
+function summarizeEvents(
+  events: CostEvent[],
+): Omit<EmployeeCostSnapshot, "source" | "sourceBreakdown" | "scopedSessionCount" | "outsideScopeCount"> {
   const sortedEvents = [...events].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
   );
@@ -102,6 +140,20 @@ export function formatUsd(value: number) {
     currency: "USD",
     maximumFractionDigits: value >= 10 ? 0 : 2,
   }).format(value);
+}
+
+function costBudgetRatio(spendUsd: number, budget: EmployeeCostBudgetView) {
+  if (!budget.limitEnabled || budget.limitUsd <= 0) return 0;
+  return spendUsd / budget.limitUsd;
+}
+
+function formatBudgetLimit(budget: EmployeeCostBudgetView) {
+  return budget.limitEnabled ? formatUsd(budget.limitUsd) : "不限额";
+}
+
+function formatBudgetRemaining(spendUsd: number, budget: EmployeeCostBudgetView) {
+  if (!budget.limitEnabled) return "不限额";
+  return formatUsd(Math.max(0, budget.limitUsd - spendUsd));
 }
 
 function formatCompact(value: number) {
@@ -174,28 +226,52 @@ function costAmountLabel(event: CostEvent) {
 export function useEmployeeCostSnapshot() {
   const { client, state } = useGateway();
   const [snapshot, setSnapshot] = useState<EmployeeCostSnapshot>(() => emptyCostSnapshot("unavailable"));
+  const [costBudget, setCostBudget] = useState<EmployeeCostBudgetView>(() => fallbackCostBudget());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (state !== "connected") return;
     setLoading(true);
     setError(null);
     try {
+      const [latestTasks, nextBudget] = await Promise.all([
+        fetchEmployeeTasks(),
+        fetchEmployeeCostBudget().catch(() => null),
+      ]);
+      if (nextBudget) setCostBudget(nextBudget);
+      const scopedSessionKeys = new Set(
+        latestTasks.map((task) => task.sessionKey).filter((sessionKey): sessionKey is string => Boolean(sessionKey)),
+      );
+      if (state !== "connected") {
+        setSnapshot({
+          ...emptyCostSnapshot("unavailable"),
+          scopedSessionCount: scopedSessionKeys.size,
+        });
+        return;
+      }
       const result = await client.getCostEvents({
-        userToken: employeeProfile.userToken,
         startTime: monthStartIso(),
         limit: 500,
       });
-      if (result.events.length > 0) {
-        const next = summarizeEvents(result.events);
+      const scopedEvents = scopedSessionKeys.size > 0
+        ? result.events.filter((event) => scopedSessionKeys.has(event.sessionKey))
+        : [];
+      const outsideScopeCount = Math.max(0, result.events.length - scopedEvents.length);
+      if (scopedEvents.length > 0) {
+        const next = summarizeEvents(scopedEvents);
         setSnapshot({
           ...next,
           source: "recorded",
           sourceBreakdown: buildCostBreakdown(next.events),
+          scopedSessionCount: scopedSessionKeys.size,
+          outsideScopeCount,
         });
       } else {
-        setSnapshot(emptyCostSnapshot("empty"));
+        setSnapshot({
+          ...emptyCostSnapshot("empty"),
+          scopedSessionCount: scopedSessionKeys.size,
+          outsideScopeCount,
+        });
       }
     } catch (err) {
       const message =
@@ -223,14 +299,20 @@ export function useEmployeeCostSnapshot() {
     };
   }, [refresh]);
 
-  const ratio = snapshot.spendUsd / monthlyCostBudget.limitUsd;
-  const status = ratio >= monthlyCostBudget.hardStopRatio ? "blocked" : ratio >= monthlyCostBudget.warningRatio ? "warning" : "ok";
+  const ratio = costBudgetRatio(snapshot.spendUsd, costBudget);
+  const status = !costBudget.limitEnabled
+    ? "ok"
+    : ratio >= costBudget.hardStopRatio
+      ? "blocked"
+      : ratio >= costBudget.warningRatio
+        ? "warning"
+        : "ok";
 
-  return { snapshot, ratio, status, loading, error, refresh };
+  return { snapshot, costBudget, ratio, status, loading, error, refresh };
 }
 
 export function EmployeeCostMini() {
-  const { snapshot, ratio, status, loading, refresh } = useEmployeeCostSnapshot();
+  const { snapshot, costBudget, ratio, status, loading, refresh } = useEmployeeCostSnapshot();
   const [open, setOpen] = useState(false);
   const [detailsFlash, setDetailsFlash] = useState(false);
   const detailsFlashTimerRef = useRef<number | null>(null);
@@ -283,7 +365,7 @@ export function EmployeeCostMini() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="font-medium">本月 API 成本</span>
-            <span className="font-mono text-muted-foreground">{percent}%</span>
+            <span className="font-mono text-muted-foreground">{costBudget.limitEnabled ? `${percent}%` : "不限额"}</span>
           </div>
           <div className="mt-1 h-1.5 rounded-full bg-muted">
             <div
@@ -296,7 +378,7 @@ export function EmployeeCostMini() {
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>{formatUsd(snapshot.spendUsd)}</span>
-            <span>上限 {formatUsd(monthlyCostBudget.limitUsd)}</span>
+            <span>上限 {formatBudgetLimit(costBudget)}</span>
           </div>
         </div>
       </button>
@@ -307,6 +389,7 @@ export function EmployeeCostMini() {
             <DialogTitle>本月 API 成本明细</DialogTitle>
             <DialogDescription>
               逐条展示 sentura-cost 已记录的模型与外部资料服务调用；可折算美元的计入已用，免费/套餐/积分未折算会单独标明。
+              当前工作台只统计已写入 CBE 数据库的任务 session。
             </DialogDescription>
           </DialogHeader>
 
@@ -334,7 +417,10 @@ export function EmployeeCostMini() {
           >
             {snapshot.events.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                本月还没有真实成本消耗记录。
+                当前数据库任务还没有真实成本消耗记录。
+                {snapshot.outsideScopeCount > 0
+                  ? ` 已排除 ${snapshot.outsideScopeCount} 条不属于当前数据库任务的历史 sentura-cost 记录。`
+                  : null}
               </div>
             ) : (
               <table className="w-full min-w-[680px] text-sm">
@@ -399,18 +485,19 @@ export function EmployeeCostMini() {
   );
 }
 export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
-  const { snapshot, ratio, status, loading, error, refresh } = useEmployeeCostSnapshot();
+  const { snapshot, costBudget, ratio, status, loading, error, refresh } = useEmployeeCostSnapshot();
   const percent = Math.min(100, Math.round(ratio * 100));
-  const remaining = Math.max(0, monthlyCostBudget.limitUsd - snapshot.spendUsd);
   const sourceLabel =
     snapshot.source === "recorded" ? "实时记录" : snapshot.source === "empty" ? "暂无实时记录" : "接口未就绪";
   const costNotice =
     error
-      ? "成本接口暂不可用，当前不显示演示成本；修复 sentura-cost/Gateway 后再读取真实记录。"
+      ? "成本或 CBE 数据库接口暂不可用，当前不显示演示成本；修复 sentura-cost/Gateway/数据库后再读取真实记录。"
       : snapshot.source === "unavailable"
-        ? "正在等待 sentura-cost 返回真实成本记录；接口未就绪时不使用演示金额代替。"
+        ? "正在等待 sentura-cost 和 CBE 数据库返回真实成本记录；接口未就绪时不使用演示金额代替。"
       : snapshot.source === "empty"
-        ? "sentura-cost 当前没有本月真实模型或外部资料服务成本事件；已用显示为 0，且不包含预计任务或演示预算。"
+        ? snapshot.outsideScopeCount > 0
+          ? `当前 CBE 数据库任务没有真实成本事件；已排除 ${snapshot.outsideScopeCount} 条旧 OpenClaw 成本记录，避免把历史账单混入当前工作台。`
+          : "当前 CBE 数据库任务没有本月真实模型或外部资料服务成本事件；已用显示为 0，且不包含预计任务或演示预算。"
         : status === "blocked"
           ? "额度已达上限，高成本任务将被禁用。"
           : "额度接近 80%，建议控制批量背调和付费数据。";
@@ -426,6 +513,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               显示 sentura-cost 已记录的模型和外部资料服务调用；没有真实事件时显示 0
+              ，仅统计当前数据库任务
             </p>
           </div>
           <Badge variant={snapshot.source === "recorded" ? "secondary" : "outline"}>
@@ -440,7 +528,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
           </div>
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-[11px] text-muted-foreground">剩余</div>
-            <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(remaining)}</div>
+            <div className="mt-1 font-mono text-lg font-semibold">{formatBudgetRemaining(snapshot.spendUsd, costBudget)}</div>
           </div>
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-[11px] text-muted-foreground">调用</div>
@@ -451,7 +539,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
         <div>
           <div className="mb-1 flex items-center justify-between text-xs">
             <span>本月额度使用</span>
-            <span className="font-mono text-muted-foreground">{percent}%</span>
+            <span className="font-mono text-muted-foreground">{costBudget.limitEnabled ? `${percent}%` : "不限额"}</span>
           </div>
           <div className="h-2 rounded-full bg-muted">
             <div
@@ -511,9 +599,9 @@ export function TaskCostNotice({
   details: string;
   source?: string;
 }) {
-  const { snapshot } = useEmployeeCostSnapshot();
+  const { snapshot, costBudget } = useEmployeeCostSnapshot();
   const projected = snapshot.spendUsd + estimatedUsd;
-  const blocked = projected >= monthlyCostBudget.limitUsd;
+  const blocked = costBudget.limitEnabled && projected >= costBudget.limitUsd;
 
   return (
     <div
@@ -533,8 +621,9 @@ export function TaskCostNotice({
       </div>
       <p className="mt-1 text-xs opacity-80">{details}</p>
       <p className="mt-2 text-xs opacity-80">
-        按预算预留后约 {formatUsd(projected)} / {formatUsd(monthlyCostBudget.limitUsd)}
-        {blocked ? "，已超过账号上限。" : "。"}
+        {costBudget.limitEnabled
+          ? `按预算预留后约 ${formatUsd(projected)} / ${formatBudgetLimit(costBudget)}${blocked ? "，已超过账号上限。" : "。"}`
+          : `按预算预留后约 ${formatUsd(projected)}，当前未启用账号成本上限。`}
       </p>
       <p className="mt-1 text-xs opacity-80">
         预计值不会写入本月 API 成本；实际成本只在任务产生 sentura-cost 真实调用记录后累加。

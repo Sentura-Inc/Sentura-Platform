@@ -22,6 +22,7 @@ export interface AgentRunRecord {
   taskKind: CbeTaskKind;
   targetSummary: string | null;
   currentStage: string | null;
+  costUsdEstimate: number | null;
   startedAt: string;
   finishedAt: string | null;
   errorCode: string | null;
@@ -40,6 +41,7 @@ interface AgentRunRow {
   task_kind: CbeTaskKind;
   target_summary: string | null;
   current_stage: string | null;
+  cost_usd_estimate: string | null;
   started_at: Date;
   finished_at: Date | null;
   error_code: string | null;
@@ -59,6 +61,7 @@ function toAgentRunRecord(row: AgentRunRow): AgentRunRecord {
     taskKind: row.task_kind,
     targetSummary: row.target_summary,
     currentStage: row.current_stage,
+    costUsdEstimate: row.cost_usd_estimate === null ? null : Number(row.cost_usd_estimate),
     startedAt: row.started_at.toISOString(),
     finishedAt: row.finished_at?.toISOString() ?? null,
     errorCode: row.error_code,
@@ -92,9 +95,10 @@ export async function insertAgentRun(
         target_summary,
         current_stage,
         last_activity_at,
+        cost_usd_estimate,
         metadata_json
       )
-      values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14::jsonb)
+      values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15::jsonb)
       returning *
     `,
     [
@@ -111,6 +115,7 @@ export async function insertAgentRun(
       input.target_record_id ?? null,
       input.target_summary ?? null,
       input.current_stage ?? null,
+      input.cost_usd_estimate ?? null,
       JSON.stringify(input.metadata_json),
     ],
   );

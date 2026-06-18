@@ -357,6 +357,36 @@ function setupEnvNumber(name, fallback) {
   const parsed = Number(setupEnvValue(name, String(fallback)));
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+const senturaLongAgentTimeoutSeconds = Math.max(
+  300,
+  Math.round(setupEnvNumber('SENTURA_AGENT_TIMEOUT_SECONDS', setupEnvNumber('CBE_AGENT_TIMEOUT_SECONDS', 900))),
+);
+const currentDefaultTimeoutSeconds = Number(config.agents.defaults.timeoutSeconds);
+if (!Number.isFinite(currentDefaultTimeoutSeconds) || currentDefaultTimeoutSeconds < senturaLongAgentTimeoutSeconds) {
+  config.agents.defaults.timeoutSeconds = senturaLongAgentTimeoutSeconds;
+  console.log('  Set agents.defaults.timeoutSeconds = ' + senturaLongAgentTimeoutSeconds);
+}
+function ensureModelProviderTimeout(providerId) {
+  if (!providerId) return;
+  if (!config.models || typeof config.models !== 'object' || Array.isArray(config.models)) {
+    config.models = {};
+  }
+  if (!config.models.providers || typeof config.models.providers !== 'object' || Array.isArray(config.models.providers)) {
+    config.models.providers = {};
+  }
+  const existing = config.models.providers[providerId] && typeof config.models.providers[providerId] === 'object'
+    ? config.models.providers[providerId]
+    : {};
+  const currentTimeoutSeconds = Number(existing.timeoutSeconds);
+  if (!Number.isFinite(currentTimeoutSeconds) || currentTimeoutSeconds < senturaLongAgentTimeoutSeconds) {
+    config.models.providers[providerId] = { ...existing, timeoutSeconds: senturaLongAgentTimeoutSeconds };
+    console.log('  Set models.providers.' + providerId + '.timeoutSeconds = ' + senturaLongAgentTimeoutSeconds);
+  }
+}
+const preferredProviderId = preferredModel.includes('/') ? preferredModel.split('/')[0] : '';
+if (preferredProviderId === 'openai') {
+  ensureModelProviderTimeout('openai');
+}
 function envRef(name) {
   return '$' + '{' + name + '}';
 }

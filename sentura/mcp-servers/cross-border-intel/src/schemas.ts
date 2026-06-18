@@ -265,6 +265,19 @@ function round(value: number, precision = 2): number {
   return Math.round(value * factor) / factor;
 }
 
+const SCORE_QUALITY_WEIGHT = 0.8;
+const EVIDENCE_COVERAGE_WEIGHT = 0.2;
+const HIGH_SCORE_THRESHOLD = 80;
+const MEDIUM_SCORE_THRESHOLD = 60;
+const FORCED_DOWNGRADE_SCORE_CAP = MEDIUM_SCORE_THRESHOLD - 1;
+
+function riskTierForFinalScore(score: number | null): z.infer<typeof RiskTierSchema> {
+  if (score === null) return "insufficient_evidence";
+  if (score >= HIGH_SCORE_THRESHOLD) return "trusted_candidate";
+  if (score >= MEDIUM_SCORE_THRESHOLD) return "cautious";
+  return "high_risk";
+}
+
 export function calculateContextualScore(params: {
   profile?: string;
   blocks: ScoreBlock[];
@@ -279,20 +292,16 @@ export function calculateContextualScore(params: {
   const scoreDenominator = scoredBlocks.reduce((sum, block) => sum + block.max_points, 0);
   const coverageDenominator = applicableBlocks.reduce((sum, block) => sum + block.max_points, 0);
   const evidenceCoverage = coverageDenominator === 0 ? 0 : scoreDenominator / coverageDenominator;
-  const normalizedScore = scoreDenominator === 0 ? null : (rawScore / scoreDenominator) * 100;
-
-  let riskTier: z.infer<typeof RiskTierSchema>;
-  if (forcedDowngrades.length > 0) {
-    riskTier = "high_risk";
-  } else if (scoreDenominator === 0 || evidenceCoverage < 0.4) {
-    riskTier = "insufficient_evidence";
-  } else if (normalizedScore !== null && normalizedScore < 55) {
-    riskTier = "high_risk";
-  } else if (normalizedScore !== null && normalizedScore >= 75 && evidenceCoverage >= 0.7) {
-    riskTier = "trusted_candidate";
-  } else {
-    riskTier = "cautious";
-  }
+  const qualityScore = scoreDenominator === 0 ? null : (rawScore / scoreDenominator) * 100;
+  const weightedScore =
+    qualityScore === null
+      ? null
+      : qualityScore * SCORE_QUALITY_WEIGHT + evidenceCoverage * 100 * EVIDENCE_COVERAGE_WEIGHT;
+  const normalizedScore =
+    weightedScore === null
+      ? forcedDowngrades.length > 0 ? 0 : null
+      : forcedDowngrades.length > 0 ? Math.min(weightedScore, FORCED_DOWNGRADE_SCORE_CAP) : weightedScore;
+  const riskTier = riskTierForFinalScore(normalizedScore);
 
   return ContextualScoreResultSchema.parse({
     profile: params.profile ?? "phase1_contextual",

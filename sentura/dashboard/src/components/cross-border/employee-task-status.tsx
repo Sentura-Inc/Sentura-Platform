@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
+import {
+  cancelEmployeeTaskInDb,
+  dismissEmployeeTaskInDb,
+} from "@/app/client-demos/cross-border/employee/_data/employee-api";
+import { cancelCbeEmployeeRuntimeTask } from "@/app/client-demos/cross-border/employee/_data/employee-task-cancellation";
 import {
   formatCbeTaskDuration,
   getCbeTaskTiming,
@@ -19,11 +25,13 @@ const statusLabels: Record<CbeEmployeeTaskRecord["status"], string> = {
   polling: "读取结果",
   completed: "已完成",
   failed: "失败",
+  cancelled: "已取消",
 };
 
 function taskIcon(task: CbeEmployeeTaskRecord) {
   if (task.status === "completed") return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
   if (task.status === "failed") return <AlertTriangle className="h-4 w-4 text-rose-600" />;
+  if (task.status === "cancelled") return <X className="h-4 w-4 text-slate-600" />;
   if (task.status === "queued") return <Clock3 className="h-4 w-4 text-sky-700" />;
   return <Loader2 className="h-4 w-4 animate-spin text-sky-700" />;
 }
@@ -31,6 +39,7 @@ function taskIcon(task: CbeEmployeeTaskRecord) {
 function taskTone(task: CbeEmployeeTaskRecord) {
   if (task.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (task.status === "failed") return "border-rose-200 bg-rose-50 text-rose-950";
+  if (task.status === "cancelled") return "border-slate-200 bg-slate-50 text-slate-900";
   return "border-sky-200 bg-sky-50 text-sky-950";
 }
 
@@ -45,12 +54,44 @@ function completedTaskSummary(task: CbeEmployeeTaskRecord) {
   return `获客员工已返回 ${count} 个客户，客户列表已更新。`;
 }
 
+function formatTaskClock(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
+}
+
 export function EmployeeTaskStatusBar() {
   const pathname = usePathname();
+  const { client } = useGateway();
   const tasks = useCbeEmployeeStore((state) => state.tasks);
+  const cancelTask = useCbeEmployeeStore((state) => state.cancelTask);
   const dismissTask = useCbeEmployeeStore((state) => state.dismissTask);
   const recoverStaleTasks = useCbeEmployeeStore((state) => state.recoverStaleTasks);
   const [now, setNow] = useState(() => Date.now());
+
+  const closeTaskStatus = (task: CbeEmployeeTaskRecord) => {
+    const taskIds = isCbeEmployeeTaskActive(task)
+      ? [task.id]
+      : tasks.filter((item) => !isCbeEmployeeTaskActive(item)).map((item) => item.id);
+    for (const taskId of taskIds) {
+      dismissTask(taskId);
+      void dismissEmployeeTaskInDb(taskId).catch(() => undefined);
+    }
+  };
+
+  const cancelTaskStatus = (task: CbeEmployeeTaskRecord) => {
+    if (!isCbeEmployeeTaskActive(task)) return;
+    const message = "任务已取消，后台结果不会写入列表。";
+    cancelCbeEmployeeRuntimeTask(task.id);
+    cancelTask(task.id, message, task.sessionKey);
+    if (task.sessionKey) {
+      void client.deleteSession(task.sessionKey, { deleteTranscript: false }).catch(() => undefined);
+    }
+    void cancelEmployeeTaskInDb({ id: task.id, sessionKey: task.sessionKey }).catch(() => undefined);
+  };
 
   useEffect(() => {
     recoverStaleTasks();
@@ -84,7 +125,9 @@ export function EmployeeTaskStatusBar() {
           const isActive = isCbeEmployeeTaskActive(visibleTask);
           const elapsed = formatCbeTaskDuration(timing.elapsedMs);
           const remaining = formatCbeTaskDuration(timing.remainingMs);
-          const estimate = formatCbeTaskDuration(visibleTask.estimatedMs);
+          const waitWindow = formatCbeTaskDuration(visibleTask.timeoutMs);
+          const plannedDuration = formatCbeTaskDuration(visibleTask.estimatedMs);
+          const lastActivity = formatTaskClock(visibleTask.lastActivityAt ?? visibleTask.updatedAt);
           const isCompleted = visibleTask.status === "completed";
           return (
             <div
@@ -113,9 +156,11 @@ export function EmployeeTaskStatusBar() {
                     <>
                       <div className="mt-1 leading-5">{visibleTask.message}</div>
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs opacity-75">
-                        <span>预计 {estimate}</span>
+                        <span>计划耗时 {plannedDuration}</span>
+                        <span>最长等待 {waitWindow}</span>
                         <span>已用 {elapsed}</span>
-                        {isActive ? <span>倒计时 {remaining}</span> : null}
+                        {isActive ? <span>剩余等待 {remaining}</span> : null}
+                        {lastActivity ? <span>最后活动 {lastActivity}</span> : null}
                         {typeof visibleTask.resultCount === "number" ? (
                           <span>结果 {visibleTask.resultCount} 条</span>
                         ) : null}
@@ -124,16 +169,26 @@ export function EmployeeTaskStatusBar() {
                     </>
                   )}
                 </div>
-                {!isActive ? (
+                {isActive ? (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    aria-label="取消任务"
+                    onClick={() => cancelTaskStatus(visibleTask)}
+                  >
+                    <X className="h-4 w-4" />
+                    取消
+                  </Button>
+                ) : (
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     aria-label="关闭任务状态"
-                    onClick={() => dismissTask(visibleTask.id)}
+                    onClick={() => closeTaskStatus(visibleTask)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
-                ) : null}
+                )}
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/70">
                 <div
@@ -141,6 +196,8 @@ export function EmployeeTaskStatusBar() {
                     "h-full rounded-full transition-all",
                     visibleTask.status === "failed"
                       ? "bg-rose-500"
+                      : visibleTask.status === "cancelled"
+                        ? "bg-slate-500"
                       : visibleTask.status === "completed"
                         ? "bg-emerald-500"
                         : "bg-sky-500",

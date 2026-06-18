@@ -58,6 +58,21 @@ export function cbeRouteError(error: unknown) {
       400,
     );
   }
+  if (error && typeof error === "object" && "message" in error) {
+    const record = error as { code?: unknown; message?: unknown; details?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) {
+      return cbeJson(
+        {
+          error: {
+            code: typeof record.code === "string" ? record.code : "internal_error",
+            message: record.message,
+            details: record.details,
+          },
+        },
+        500,
+      );
+    }
+  }
   const message = error instanceof Error ? error.message : "Unexpected CBE route error.";
   return cbeJson(
     {

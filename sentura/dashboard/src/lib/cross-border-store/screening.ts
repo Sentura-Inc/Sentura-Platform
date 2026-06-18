@@ -14,6 +14,7 @@ import type {
   TenantContext,
 } from "./schemas";
 import { CreateScreeningRunRequestSchema } from "./schemas";
+import { checkCbeCostBudgetBeforeRun } from "./admin";
 
 export interface ScreeningTargetRecord {
   id: string;
@@ -106,6 +107,59 @@ async function insertScreeningTarget(
   const leadCandidateId = await resolveLeadCandidateId(client, context, target.lead_id ?? report.lead_id);
   const companyName = target.company_name ?? report.company_name;
   const domain = normalizeDomain(target.domain ?? target.website);
+  const existingTargetId =
+    target.target_id?.startsWith("screening_target") ? target.target_id :
+      target.lead_id?.startsWith("screening_target") ? target.lead_id :
+        null;
+  if (existingTargetId) {
+    const existing = await client.query<ScreeningTargetRow>(
+      `
+        update screening_targets
+        set
+          company_name = coalesce($3, company_name),
+          country = coalesce($4, country),
+          domain = coalesce($5, domain),
+          email = coalesce($6, email),
+          contact_person = coalesce($7, contact_person),
+          product_interest_json = case when $8::jsonb <> '[]'::jsonb then $8::jsonb else product_interest_json end,
+          supplied_fields_json = supplied_fields_json || $9::jsonb
+        where tenant_id = $1
+          and id = $2
+          and (
+            $10::boolean
+            or owner_user_id = $11
+            or visibility_scope = 'tenant_shared'
+            or (visibility_scope = 'team' and team_name = $12)
+          )
+        returning id, company_name, country, domain
+      `,
+      [
+        context.tenantId,
+        existingTargetId,
+        companyName ?? null,
+        target.country ?? null,
+        domain,
+        target.email ?? null,
+        target.contact_person ?? null,
+        JSON.stringify(target.product_interest ?? []),
+        JSON.stringify({
+          supplied_fields: target.supplied_fields ?? [],
+          missing_fields: target.missing_fields ?? [],
+          website: target.website,
+          source: target.source,
+        }),
+        context.cbeRole === "admin",
+        context.userId,
+        context.teamName ?? null,
+      ],
+    );
+    if (existing.rows[0]) {
+      return {
+        record: toScreeningTargetRecord(existing.rows[0]),
+        leadCandidateId: null,
+      };
+    }
+  }
   const result = await client.query<ScreeningTargetRow>(
     `
       insert into screening_targets (
@@ -237,6 +291,13 @@ export async function createScreeningRun(
   rawInput: CreateScreeningRunRequest,
 ) {
   const input = CreateScreeningRunRequestSchema.parse(rawInput);
+  await checkCbeCostBudgetBeforeRun(context, {
+    agentId: "cbe-buyer-screening",
+    taskKind: "screening",
+    targetSummary: input.target_summary,
+    estimatedCostUsd: input.estimated_cost_usd,
+    metadataJson: input.metadata_json,
+  });
   return withCbeTransaction(async (client) => {
     const agentRun = await insertAgentRun(client, context, {
       agent_id: "cbe-buyer-screening",
@@ -247,6 +308,7 @@ export async function createScreeningRun(
       target_record_id: input.target_record_id,
       target_summary: input.target_summary,
       current_stage: input.session_key ? "submitted_to_employee" : "queued",
+      cost_usd_estimate: input.estimated_cost_usd,
       visibility_scope: input.visibility_scope,
       metadata_json: input.metadata_json,
     });
@@ -278,12 +340,19 @@ export async function saveScreeningReports(
   return withCbeTransaction(async (client) => {
     const targets: ScreeningTargetRecord[] = [];
     const reports: ScreeningReportRecord[] = [];
+    const affectedCustomerIds: string[] = [];
     let evidenceCount = 0;
     let blockCount = 0;
 
     for (const report of input.payload.reports) {
       const target = await insertScreeningTarget(client, context, report);
       targets.push(target.record);
+      const targetRecordId =
+        report.target?.lead_id ??
+        report.target?.target_id ??
+        report.lead_id ??
+        target.record.id;
+      affectedCustomerIds.push(target.leadCandidateId ?? targetRecordId);
       const reportResult = await client.query<ScreeningReportRow>(
         `
           insert into screening_reports (
@@ -349,6 +418,9 @@ export async function saveScreeningReports(
       currentStage: "screening_reports_saved",
       metadataJson: {
         saved_reports: reports.length,
+        saved_customer_ids: affectedCustomerIds,
+        affected_customer_ids: affectedCustomerIds,
+        screening_target_ids: targets.map((target) => target.id),
         saved_evidence: evidenceCount,
         saved_score_blocks: blockCount,
       },
@@ -364,7 +436,11 @@ export async function saveScreeningReports(
       stage: "completed",
       eventType: "screening_run_completed",
       status: "completed",
-      metadataJson: { saved_reports: reports.length, saved_evidence: evidenceCount },
+      metadataJson: {
+        saved_reports: reports.length,
+        saved_customer_ids: affectedCustomerIds,
+        saved_evidence: evidenceCount,
+      },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-buyer-screening",

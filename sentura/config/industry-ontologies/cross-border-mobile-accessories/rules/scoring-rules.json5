@@ -6,7 +6,7 @@
   tenant: "cross-border-ecommerce",
   scoringModel: {
     name: "contextual_evidence_blocks_v1",
-    description: "Normalize score from evidence blocks that were actually checked, and report evidence coverage separately from score.",
+    description: "Compute one customer-facing final score from evidence quality and evidence coverage, then derive all tiers from that final score.",
     blockStatuses: [
       {
         status: "scored",
@@ -42,15 +42,17 @@
     formula: {
       scoreDenominator: "sum(max_points) where status == scored",
       rawScore: "sum(earned_points) where status == scored",
-      normalizedScore: "rawScore / scoreDenominator * 100",
+      qualityScore: "rawScore / scoreDenominator * 100",
       evidenceCoverage: "sum(max_points where status == scored) / sum(max_points where status != not_applicable)",
+      normalizedScore: "qualityScore * 0.8 + evidenceCoverage * 100 * 0.2",
       noEvidenceRule: "If scoreDenominator is 0, return risk_tier insufficient_evidence and ask for minimum clues.",
+      forcedDowngradeRule: "If forced_downgrades exists, cap normalizedScore at 59 so the final score and high/medium/low tier remain consistent.",
     },
     riskTiers: [
-      { id: "trusted_candidate", minScore: 75, minCoverage: 0.7, forcedDowngrade: false },
-      { id: "cautious", minScore: 55, maxScore: 74.999, minCoverage: 0.4, forcedDowngrade: false },
-      { id: "insufficient_evidence", maxCoverageExclusive: 0.4, forcedDowngrade: false },
-      { id: "high_risk", maxScoreExclusive: 55, minCoverage: 0.4, forcedDowngrade: true },
+      { id: "trusted_candidate", minScore: 80 },
+      { id: "cautious", minScore: 60, maxScore: 79.999 },
+      { id: "insufficient_evidence", whenScoreDenominatorIsZero: true },
+      { id: "high_risk", maxScoreExclusive: 60 },
     ],
   },
   evidenceBlocks: [

@@ -691,7 +691,8 @@ export default function CrossBorderScreeningPage() {
 4. 如果 enable_paid_email_validation=true 且输入没有 email，先从目标官网公开 contact/about/sales/wholesale/support 页面寻找同域邮箱，再用 cross-border-intel email_domain_check 对找到的同域邮箱做 Abstract/Hunter paid validation；如果官网没有同域邮箱，才做 domain-only DNS 并记录 direct_contact_validation 缺口。
 5. 可用时调用 cross-border-intel MCP 工具；工具或 API key 不可用时标记为 coverage gap，不要当成负面证据。
 6. 公开 scam/fraud/complaint 结果只有在命中目标公司名或目标域名时才可作为负面证据；通用消费者警示页只能作为 coverage_only。
-7. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
+7. 最终 normalized_score 必须把证据覆盖率纳入分数：证据质量分 80% + 证据覆盖率分 20%；risk_tier 只按最终分判断，80-100 为 trusted_candidate，60-79 为 cautious，60 以下为 high_risk；完全无法计算时才用 insufficient_evidence。
+8. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
 
 背调输入 JSON：
 ${JSON.stringify(payload, null, 2)}
@@ -1036,7 +1037,7 @@ ${REPORT_JSON_END}`;
             {selectedReport ? (
               <div className="space-y-4 p-3">
                 <div className={cn("rounded-md border px-3 py-3", riskClass(selectedReport.risk_tier))}>
-                  <div className="text-xs">风险层级</div>
+                  <div className="text-xs">跟进评级</div>
                   <div className="mt-1 text-xl font-semibold">{riskLabels[selectedReport.risk_tier]}</div>
                   <div className="mt-1 text-sm">
                     {selectedReport.normalized_score ?? "N/A"}/100 · 证据覆盖 {percent(selectedReport.evidence_coverage)}

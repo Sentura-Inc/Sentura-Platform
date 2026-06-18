@@ -1,0 +1,553 @@
+"use client";
+
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, CheckCircle2, ShieldCheck, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type {
+  CustomerEvidenceItem,
+  CustomerListItem,
+  CustomerScoreBlock,
+  CustomerScreeningReport,
+  ScreeningEvidenceLayer,
+} from "@/app/client-demos/cross-border/employee/_data/employee-data";
+
+const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
+  not_started: "未背调",
+  running: "背调中",
+  screened: "已评分",
+  insufficient_evidence: "证据不足",
+  failed: "失败",
+};
+
+const riskTierLabels: Record<string, string> = {
+  trusted_candidate: "可信候选",
+  cautious: "谨慎跟进",
+  insufficient_evidence: "证据不足",
+  high_risk: "高风险",
+};
+
+const scoreBlockLabels: Record<string, string> = {
+  legal_identity: "公司注册信息",
+  domain_email: "域名 / 邮箱",
+  public_footprint: "公开网页足迹",
+  business_fit: "业务匹配",
+  trade_financial: "贸易 / 财务",
+  conversation_behavior: "Accio 行为记录",
+};
+
+const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
+  legal_registry: "公司注册信息",
+  domain_rdap: "域名 / RDAP",
+  email_dns: "邮箱 / DNS",
+  official_contact: "官网公开联系信息",
+  public_footprint: "公开网页足迹",
+  trade_customs: "贸易 / 海关记录",
+  financial_public_filing: "SEC / 财务公开文件",
+  accio_behavior: "Accio 行为记录",
+};
+
+const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
+  "legal_registry",
+  "domain_rdap",
+  "email_dns",
+  "official_contact",
+  "public_footprint",
+  "trade_customs",
+  "financial_public_filing",
+  "accio_behavior",
+];
+
+const buyerTypeDisplayLabels: Record<string, string> = {
+  "repair-chain": "维修连锁",
+  "electronics-retailer": "电子零售商",
+  "accessory-retailer": "配件零售商",
+  "cell-phone-store": "手机门店",
+  reseller: "转售采购商",
+  importer: "进口采购商",
+  distributor: "分销商",
+  retailer: "零售商",
+  "e-commerce-seller": "电商卖家",
+  "manual-input": "手动录入",
+  "accio-handoff": "聊天记录移交",
+};
+
+const productDisplayLabels: Record<string, string> = {
+  "phone-case": "手机壳",
+  "tempered-glass": "钢化膜",
+  "usb-c-charger": "USB-C 充电器",
+  magsafe: "MagSafe 配件",
+  "repair-parts": "维修配件",
+  cable: "数据线",
+  "oled-screen": "OLED 屏幕",
+};
+
+function normalizeFilterValue(value: string) {
+  return value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
+}
+
+function canonicalBuyerType(value: string) {
+  const normalized = normalizeFilterValue(value);
+  if (!normalized) return "";
+  if (normalized.includes("聊天") || normalized.includes("accio")) return "accio-handoff";
+  if (normalized.includes("manual") || normalized.includes("手动")) return "manual-input";
+  if (normalized.includes("repair") || normalized.includes("维修")) return "repair-chain";
+  if (normalized.includes("distributor") || normalized.includes("经销") || normalized.includes("分销")) return "distributor";
+  if (normalized === "retailer" || normalized.includes("零售商")) return "retailer";
+  if (normalized.includes("e-commerce") || normalized.includes("电商")) return "e-commerce-seller";
+  if (normalized.includes("cell-phone-store") || normalized.includes("手机门店")) return "cell-phone-store";
+  if (normalized.includes("electronics-retailer") || normalized.includes("电子零售")) return "electronics-retailer";
+  if (normalized.includes("accessory-retailer") || normalized.includes("配件零售")) return "accessory-retailer";
+  if (normalized.includes("reseller") || normalized.includes("转售")) return "reseller";
+  if (normalized.includes("importer") || normalized.includes("进口")) return "importer";
+  return normalized;
+}
+
+function canonicalProduct(value: string) {
+  const normalized = normalizeFilterValue(value);
+  if (!normalized) return "";
+  if (normalized.includes("usb-c") || normalized.includes("charger") || normalized.includes("充电")) return "usb-c-charger";
+  if (normalized.includes("oled")) return "oled-screen";
+  if (normalized.includes("tempered") || normalized.includes("screen-protector") || normalized.includes("钢化膜")) return "tempered-glass";
+  if (normalized.includes("phone-case") || normalized.includes("手机壳")) return "phone-case";
+  if (normalized.includes("repair-parts") || normalized.includes("repair-part") || normalized.includes("维修配件")) return "repair-parts";
+  if (normalized.includes("magsafe")) return "magsafe";
+  if (normalized === "cable" || normalized.includes("数据线")) return "cable";
+  return normalized;
+}
+
+function buyerTypeLabel(value: string) {
+  const canonical = canonicalBuyerType(value);
+  return buyerTypeDisplayLabels[canonical] ?? value;
+}
+
+function productLabel(value: string) {
+  const canonical = canonicalProduct(value);
+  return productDisplayLabels[canonical] ?? value;
+}
+
+function parseCustomerDate(value: string) {
+  const source = value.trim();
+  if (!source) return null;
+  const hasExplicitZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(source);
+  const normalized = source.includes("T") ? source : source.replace(" ", "T");
+  const date = new Date(hasExplicitZone ? normalized : `${normalized}+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBeijingDateTime(value: string) {
+  const date = parseCustomerDate(value);
+  if (!date) return value;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
+function statusBadgeClass(item: CustomerListItem) {
+  if (item.screeningStatus === "running") return "border-sky-200 bg-sky-50 text-sky-800";
+  if (item.screeningStatus === "failed") return "border-rose-200 bg-rose-50 text-rose-800";
+  if (item.scoreTier === "high") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (item.scoreTier === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (item.scoreTier === "low") return "border-rose-200 bg-rose-50 text-rose-800";
+  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
+  return "border-slate-200 bg-white text-slate-700";
+}
+
+function scoreLabel(item: CustomerListItem) {
+  if (item.screeningStatus === "running") return "背调中";
+  if (typeof item.normalizedScore === "number") {
+    if (item.scoreTier === "high") return `${item.normalizedScore}/100 · 高分 · 优先跟进`;
+    if (item.scoreTier === "medium") return `${item.normalizedScore}/100 · 中等 · 谨慎跟进`;
+    if (item.scoreTier === "low") return `${item.normalizedScore}/100 · 低分 · 暂缓/高风险`;
+    return `${item.normalizedScore}/100`;
+  }
+  if (item.screeningStatus === "insufficient_evidence") return "证据不足";
+  return "未评分";
+}
+
+function percentLabel(value: number | undefined) {
+  if (typeof value !== "number") return "未计算";
+  return `${Math.round(value * 100)}%`;
+}
+
+function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
+  if (typeof score !== "number") return "insufficient_evidence";
+  if (score >= 80) return "trusted_candidate";
+  if (score >= 60) return "cautious";
+  return "high_risk";
+}
+
+function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | null {
+  if (item.screeningReport) return item.screeningReport;
+  if (item.screeningStatus !== "screened" && item.screeningStatus !== "insufficient_evidence") return null;
+  return {
+    reportId: item.reportId ?? item.customerId,
+    riskTier: riskTierForScore(item.normalizedScore),
+    normalizedScore: item.normalizedScore ?? null,
+    evidenceCoverage: undefined,
+    recommendedAction: item.recommendedAction ?? "复核背调结果后再决定是否跟进。",
+    scoreBlocks: [],
+    evidence: item.sourceUrls.map((url) => ({
+      layer: "public_footprint",
+      sourceUrl: url,
+      finding: item.evidenceSummary,
+      scoreBlock: "public_footprint",
+      scoreImpact: "neutral",
+      affectsScore: true,
+    })),
+    coverageGaps: [],
+  };
+}
+
+function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
+  const grouped = new Map<ScreeningEvidenceLayer, CustomerEvidenceItem[]>();
+  for (const item of evidence) {
+    grouped.set(item.layer, [...(grouped.get(item.layer) ?? []), item]);
+  }
+  return grouped;
+}
+
+function scoreSegmentClass(block: CustomerScoreBlock) {
+  if (block.status === "scored") return "bg-emerald-500";
+  if (block.status === "not_applicable") return "bg-slate-300";
+  if (block.status === "disabled_by_budget") return "bg-amber-400";
+  if (block.status === "unavailable_api") return "bg-zinc-400";
+  return "bg-sky-300";
+}
+
+function statusText(status: CustomerScoreBlock["status"]) {
+  const labels: Record<CustomerScoreBlock["status"], string> = {
+    scored: "已计分",
+    not_applicable: "不适用",
+    unavailable_api: "接口不可用",
+    disabled_by_budget: "预算未启用",
+    pending_human_input: "待补充",
+  };
+  return labels[status];
+}
+
+function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
+  const displayBlocks = blocks.length > 0 ? blocks : [];
+  const maxTotal = displayBlocks.reduce((sum, block) => sum + block.maxPoints, 0);
+  if (displayBlocks.length === 0 || maxTotal <= 0) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+        本次报告没有返回评分维度拆解。
+      </div>
+    );
+  }
+  const earnedTotal = displayBlocks.reduce(
+    (sum, block) => sum + (block.status === "scored" ? block.earnedPoints ?? 0 : 0),
+    0,
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-full bg-muted">
+        <div className="flex h-3 w-full">
+          {displayBlocks.map((block) => (
+            <div
+              key={block.block}
+              className={scoreSegmentClass(block)}
+              title={`${scoreBlockLabels[block.block] ?? block.block} · ${block.maxPoints} 权重`}
+              style={{ width: `${(block.maxPoints / maxTotal) * 100}%` }}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        单项合计 {Number(earnedTotal.toFixed(2))} / {maxTotal}，总分按已计分维度动态归一化。
+      </div>
+      <div className="space-y-2">
+        {displayBlocks.map((block) => {
+          const earned = block.status === "scored" ? block.earnedPoints ?? 0 : 0;
+          const missing = Math.max(0, block.maxPoints - earned);
+          return (
+            <div key={block.block} className="rounded-md border p-2">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-medium">{scoreBlockLabels[block.block] ?? block.block}</span>
+                <span className="font-mono text-muted-foreground">
+                  权重 {block.maxPoints} ·{" "}
+                  {block.status === "scored" ? `单项得分 ${earned}/${block.maxPoints}` : statusText(block.status)}
+                </span>
+              </div>
+              <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                {block.status === "scored" ? (
+                  <>
+                    <div className="bg-emerald-500" style={{ width: `${(earned / block.maxPoints) * 100}%` }} />
+                    <div className="bg-rose-200" style={{ width: `${(missing / block.maxPoints) * 100}%` }} />
+                  </>
+                ) : (
+                  <div className={scoreSegmentClass(block)} style={{ width: "100%" }} />
+                )}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                {block.summary ?? block.reason ?? "该维度未返回详细说明。"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
+  if (evidence.length === 0) {
+    return <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">本维度暂无证据。</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {evidence.map((item, index) => (
+        <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
+              {item.scoreImpact ?? "neutral"}
+            </Badge>
+            {item.sourceType ? <Badge variant="secondary">{item.sourceType}</Badge> : null}
+            {item.costPosture ? <span className="text-xs text-muted-foreground">{item.costPosture}</span> : null}
+          </div>
+          <div className="mt-2 leading-6">{item.finding}</div>
+          <a
+            href={item.sourceUrl.startsWith("http") ? item.sourceUrl : undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block break-all font-mono text-xs text-primary"
+          >
+            {item.sourceUrl}
+          </a>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {item.scoreBlock ? <span>维度 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+            {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
+            {item.fetchedAt ? <span>{item.fetchedAt}</span> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportEvidenceSections({ report }: { report: CustomerScreeningReport }) {
+  const grouped = evidenceByLayer(report.evidence);
+  return (
+    <div className="space-y-3">
+      {evidenceLayerOrder.map((layer) => {
+        const items = grouped.get(layer) ?? [];
+        return (
+          <section key={layer} className="rounded-md border p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-sm font-medium">{evidenceLayerLabels[layer]}</div>
+              <Badge variant={items.length > 0 ? "secondary" : "outline"}>{items.length} 条</Badge>
+            </div>
+            <EvidenceList evidence={items} />
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReportMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-md border bg-muted/20 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function ReportPanel({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-md border bg-background p-3">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+        {icon}
+        <span>{title}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export function CustomerReportDialog({
+  customer,
+  onClose,
+}: {
+  customer: CustomerListItem;
+  onClose: () => void;
+}) {
+  const report = reportForCustomer(customer);
+  const riskLabel = report ? riskTierLabels[report.riskTier] ?? report.riskTier : "未背调";
+  const productsLabel = customer.products.map(productLabel).join(", ") || "未记录";
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  const dialog = (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-3 sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="customer-report-title"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border bg-background shadow-2xl sm:max-h-[calc(100vh-4rem)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="border-b px-4 py-4 sm:px-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={statusBadgeClass(customer)}>
+                  {statusLabels[customer.screeningStatus]}
+                </Badge>
+                {report ? <Badge variant="secondary">{riskLabel}</Badge> : null}
+              </div>
+              <h2 id="customer-report-title" className="break-words text-xl font-semibold tracking-normal">
+                {customer.companyName}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {customer.countryName} · {buyerTypeLabel(customer.buyerType)}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" aria-label="关闭报告详情" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <ReportMetric label="产品兴趣" value={productsLabel} />
+            <ReportMetric label="找到时间" value={formatBeijingDateTime(customer.foundAt)} />
+            <ReportMetric label="综合评分" value={scoreLabel(customer)} />
+            <ReportMetric label="证据覆盖" value={report ? percentLabel(report.evidenceCoverage) : "未计算"} />
+          </div>
+        </header>
+
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <main className="space-y-4">
+              <ReportPanel
+                title="背调结论"
+                icon={<ShieldCheck className="h-4 w-4 text-primary" />}
+              >
+                <div className={cn("rounded-md border px-3 py-2 text-sm leading-6", statusBadgeClass(customer))}>
+                  {report?.recommendedAction ?? customer.recommendedAction ?? "暂无报告，等待背调员工返回结构化结果。"}
+                </div>
+              </ReportPanel>
+
+              {report ? (
+                <>
+                  <ReportPanel
+                    title="评分维度拆解"
+                    icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                  >
+                    <ScoreBreakdownChart blocks={report.scoreBlocks} />
+                  </ReportPanel>
+
+                  <section>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium">证据明细</div>
+                      <Badge variant="outline">{report.evidence.length} 条证据</Badge>
+                    </div>
+                    <ReportEvidenceSections report={report} />
+                  </section>
+                </>
+              ) : (
+                <ReportPanel
+                  title="来源证据"
+                  icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                >
+                  <p className="text-sm leading-6 text-muted-foreground">{customer.evidenceSummary}</p>
+                  <div className="mt-3 space-y-2">
+                    {customer.sourceUrls.map((url) => (
+                      <div key={url} className="break-all rounded-md bg-muted/40 px-2 py-1.5 font-mono text-xs">
+                        {url}
+                      </div>
+                    ))}
+                  </div>
+                </ReportPanel>
+              )}
+            </main>
+
+            <aside className="space-y-4">
+              <ReportPanel title="客户概览">
+                <dl className="grid gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">国家 / 类型</dt>
+                    <dd className="mt-1 font-medium">{customer.countryName} · {buyerTypeLabel(customer.buyerType)}</dd>
+                  </div>
+                  {report ? (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">跟进评级</dt>
+                      <dd className="mt-1 font-medium">{riskLabel}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt className="text-xs text-muted-foreground">报告 ID</dt>
+                    <dd className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                      {report?.reportId ?? customer.reportId ?? customer.customerId}
+                    </dd>
+                  </div>
+                </dl>
+              </ReportPanel>
+
+              {report?.coverageGaps.length ? (
+                <ReportPanel title="证据缺口" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
+                  <div className="space-y-2">
+                    {report.coverageGaps.map((gap, index) => (
+                      <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
+                        <div className="mb-1">
+                          <Badge variant="outline" className="mr-2 align-middle text-[11px]">
+                            {scoreBlockLabels[gap.block] ?? gap.block}
+                          </Badge>
+                          <span>{gap.reason}</span>
+                        </div>
+                        {gap.action ? <div className="text-xs text-muted-foreground">{gap.action}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </ReportPanel>
+              ) : null}
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(dialog, document.body);
+}

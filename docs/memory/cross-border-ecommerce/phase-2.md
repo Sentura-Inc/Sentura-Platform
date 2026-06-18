@@ -20,6 +20,11 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-17 | Phase 2 P2.2 typed Dashboard store/API routes | Implemented typed Dashboard CBE store modules, Employee/Admin App Router routes, validated Lead/Screening/Accio completion writes, marker parse-failure run/audit handling, and CE19 static/live PostgreSQL checks. |
 | 2026-06-17 | Phase 2 P2.3 Employee DB-backed UI migration | Moved Employee home/customers/memory reads to P2.2 APIs, reduced localStorage to draft cache, wired hidden task create-complete-fail DB lifecycle, and passed CE20 verification. |
 | 2026-06-17 | Phase 2 DB inspection query fix | Added a schema-correct live DB inspection script after manual psql queries exposed stale UI-projection column assumptions; updated CE20.15 and Phase 2 docs. |
+| 2026-06-18 | Phase 2 customer list UX and notification highlight | Simplified the `获客与背调` list by lightening row colors, removing row-level delete, compacting score sort, adding business score wording, and making completed-task notifications flash affected rows for 3 seconds. |
+| 2026-06-18 | Phase 2 customer list polish and dismissal fixes | Added click-to-expand product overflow chips, Beijing display times, green `✅` screened status, message-center outside-click close, itemized Screening budget estimates, and durable terminal task-banner dismissal across route switches. |
+| 2026-06-19 | Phase 2 Manager report-window parity fix | Reused the shared Employee report dialog for Manager report actions, rendered it through a body portal to avoid parent-dialog clipping, removed stale duplicate Manager report code, and verified Lin Yue -> Currys report layout plus close behavior. |
+| 2026-06-19 | Phase 2 Manager login parity | Added a Manager login page copied from the Employee login layout, wired admin name/password auth for preset `孙总/1234`, removed default frontend admin-header bypass, and verified cookie-backed Manager session/API access. |
+| 2026-06-19 | Phase 2 Employee/Manager login kickout fix | Split CBE login cookies by role, made Employee and Manager guards call role-specific session checks, enforced expected roles in tenant context, fixed persistent UI hydration mismatch, and verified dual-cookie coexistence plus browser Manager login persistence. |
 
 ## Current Phase 2 Ground Truth
 
@@ -31,8 +36,165 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - P2.1 is complete and was re-verified on 2026-06-17. The PostgreSQL foundation lives under `sentura/lib/cross-border-store/` and uses `CBE_DATABASE_URL`; credentials must remain in env/secret injection, not committed files.
 - P2.2 typed Dashboard store/API routes are complete.
 - P2.3 DB-backed Employee UI migration is complete. `个人中心`, `获客与背调`, `记忆整理`, task notifications, and hidden Lead/Screening/Accio create-complete-fail flows now read/write through the P2.2 APIs; `localStorage` is limited to draft/cache state and explicit demo seed fallback.
+- `获客与背调` keeps its current main row information but now uses lighter row backgrounds, a single `评分排序` select, no row-level delete buttons, expandable product overflow chips, Beijing `YYYY-MM-DD HH:mm:ss` found times, no `新找到` row badge, green `✅` screened status, and business score wording. Completed Lead/Screening task links use `highlightTask` to locate affected rows and flash a light-blue outline for 3 seconds.
+- The global message center closes when the user clicks outside its dialog. Terminal task-status banners persist dismissal locally and through the task dismiss API so dismissed completed banners do not reappear after route switching.
+- Manager-side `查看报告` uses the shared Employee `CustomerReportDialog` implementation. The report overlay renders through `document.body` so it is not clipped by the Manager employee-detail dialog's transform/overflow container; `X` and outside-click close are verified.
+- Manager has a dedicated `/client-demos/cross-border/admin/login` page matching the Employee login layout. The preset Manager account is `孙总` / `1234`; login submits `cbeRole: "admin"`. CBE login now writes role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) plus the legacy `sentura_cbe_session` compatibility cookie, and session checks pass `role=operator` or `role=admin` so Employee and Manager sessions can coexist without kicking each other back to login. Manager APIs rely on cookie session by default; `NEXT_PUBLIC_CBE_ADMIN_USER_ID` remains only as an explicit override.
 - Manual DB inspection for P2.3 should use `scripts/inspect-cross-border-live-db.sql`. The physical tables intentionally do not duplicate every UI projection field as same-named columns.
 - P2.4 Lead Discovery coordinator concurrency is next.
+
+## 2026-06-18 — Phase 2 customer list UX and notification highlight
+
+### Changes made
+
+- Kept the existing `获客与背调` list primary columns and row information intact.
+- Lightened full-row status backgrounds so the table reads calmer while preserving status grouping.
+- Removed row-level delete buttons and kept the top `删除所选` action as the only delete entry point.
+- Replaced persistent `评分高到低` / `评分低到高` buttons with one `评分排序` select.
+- Added business score wording:
+  - high score: `高分 · 优先跟进`;
+  - medium score: `中等 · 谨慎跟进`;
+  - low score: `低分 · 暂缓/高风险`;
+  - `证据不足` remains gray.
+- Added task-to-customer highlight plumbing:
+  - Lead/Screening completion metadata stores affected customer IDs for new runs;
+  - existing DB customer projections expose `leadAgentRunId` and `screeningAgentRunId`;
+  - notification links route to `/client-demos/cross-border/employee/customers?highlightTask=...`;
+  - the customer page maps the task to affected rows, clears filters if needed, scrolls to the visible row, and flashes a light-blue outline for 3 seconds.
+- Added follow-up list polish:
+  - product overflow chips such as `+1` expand inline to show all products and collapse with `收起`;
+  - row-level `新找到` badges were removed while row highlight remains available through task links;
+  - screened rows render a green `✅` instead of a text `已完成` badge;
+  - `找到时间` is formatted in Beijing time as `YYYY-MM-DD HH:mm:ss`;
+  - Screening budget estimates are itemized from model/search/email/trade-data unit assumptions instead of a fixed demo value.
+- Fixed overlays and terminal task dismissal:
+  - message center listens for outside pointer clicks while open and closes itself;
+  - terminal task close marks all terminal banners dismissed locally and calls the task dismiss API;
+  - local dismissed IDs are preserved when DB task polling refreshes the store.
+
+### Verification
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 353/353.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 127/127.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 147/147.
+- Browser validation on `/client-demos/cross-border/employee/customers`: PASS, sort select present, top `删除所选` present, row-level delete count 0, no console errors.
+- Browser validation on `/client-demos/cross-border/employee/customers?highlightTask=run_4d25b516-78d7-438f-9bb4-578a88e22127`: PASS, five visible screening rows flashed and the highlight cleared after 3 seconds.
+- Browser validation on `/client-demos/cross-border/employee/customers`: PASS, 15 visible rows, product `+1` expanded in place with `收起`, found times were Beijing `YYYY-MM-DD HH:mm:ss`, no ISO markers or `新找到` text, green `✅` status shown, and no console errors.
+- Browser validation on task/message overlays: PASS, message dialog closed on outside click; completed task banner close left zero task-status close buttons immediately and after route switching.
+- `git diff --check`: PASS.
+
+## 2026-06-19 — Phase 2 Manager report-window parity fix
+
+### Context
+
+The Manager `员工管理` detail dialog could open `查看报告` from the embedded `获客与背调` list, but the report window still looked messy because a fixed-position report overlay was rendered inside the parent Base UI `DialogContent`. That parent dialog uses transform/overflow constraints, so nested fixed content could be visually clipped or layered awkwardly.
+
+### Changes made
+
+- Kept `sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx` as the single shared Employee report-window implementation.
+- Updated `CustomerReportDialog` to render the overlay through `createPortal(..., document.body)` and use `z-[70]`, so report windows opened from Manager detail dialogs escape parent clipping and stack above the underlying detail surface.
+- Removed the stale Manager-specific duplicate `ReportDetailDialog` and duplicated report layout helpers from `sentura/dashboard/src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`.
+- Manager customer-list and high-value report actions now convert `AdminCustomerRow` into the Employee `CustomerListItem` shape and render `CustomerReportDialog` only.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec eslint src/components/cross-border/customer-report-dialog.tsx src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`: PASS.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `git diff --check`: PASS.
+- Chrome smoke against `http://localhost:3002/client-demos/cross-border/admin/employees`: PASS.
+  - Opened Lin Yue detail, then Currys `查看报告`.
+  - Report title, top metrics, `背调结论`, `评分维度拆解`, `证据明细`, and `客户概览` were visible.
+  - Report dialog bounding box was fully inside the 1440x1000 viewport.
+  - Report dialog was not inside Manager Base UI `DialogContent`.
+  - `X` closed the report dialog.
+  - Outside overlay click closed only the report and left the Manager employee-detail dialog open.
+  - Browser console captured no warnings or errors.
+
+## 2026-06-19 — Phase 2 Manager login parity
+
+### Context
+
+The user asked for a Manager login interface matching the Employee login screen and a temporary preset Manager account:
+
+- Name: `孙总`
+- Password: `1234`
+
+The Manager area previously still had frontend code that sent a default `x-cbe-admin-user-id: cbe-user-admin-001` header, so Manager pages could bypass a real login session.
+
+### Changes made
+
+- Added `sentura/dashboard/src/app/client-demos/cross-border/admin/login/page.tsx`, copied from the Employee login page's logo/card/input/button layout, with Manager labels and `cbeRole: "admin"` in the login request.
+- Extended `sentura/dashboard/src/app/api/auth/login/route.ts` so name/password login can target either `operator` or `admin`.
+- Added a narrow preset-manager self-heal path for seeded admin `cbe-user-admin-001`: when `孙总/1234` is submitted, the API updates the old seeded admin profile to `孙总` and writes a scrypt password hash before signing the admin session.
+- Updated `sentura/lib/cross-border-store/ids.ts` and `seed.ts` so future seed runs create/update the preset admin as `孙总` with password hash for `1234`.
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/admin/_data/admin-api.ts` so Manager API calls use cookie session by default and redirect to Manager login on 401/403. The admin debug header is now only sent if `NEXT_PUBLIC_CBE_ADMIN_USER_ID` is explicitly set.
+- Updated `sentura/dashboard/src/components/app-shell.tsx` so Manager business pages require an `admin` session, Manager login hides app nav/account chrome like Employee login, and the Manager account menu displays the session name and supports logout.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 172/172.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 389/389.
+- `POST http://localhost:3002/api/auth/login` with `{"displayName":"孙总","password":"1234","cbeRole":"admin"}`: PASS, returned 200, `displayName=孙总`, `cbeRole=admin`, session cookie, and Manager employees redirect.
+- Same login route with wrong password: PASS, returned 401.
+- Cookie-authenticated `GET /api/client-demos/cross-border/session`: PASS, returned `孙总/admin`.
+- Cookie-authenticated `GET /api/client-demos/cross-border/admin/operators`: PASS, returned 200.
+
+## 2026-06-19 — Phase 2 Employee/Manager login kickout fix
+
+### Context
+
+The user reported that both the Employee operating platform and Manager platform could flash and then return to login. Root cause: both platforms shared `sentura_cbe_session`, while AppShell immediately redirected when the cookie role did not match the current platform. Logging into one platform could therefore overwrite the cookie needed by the other platform.
+
+The Next dev log also showed a related page-stability issue on Employee home: persisted range state rendered as `本周` on the client while the server rendered the default `本月`, causing a hydration mismatch.
+
+### Changes made
+
+- Added role-scoped CBE session cookies:
+  - `sentura_cbe_employee_session`;
+  - `sentura_cbe_admin_session`;
+  - legacy `sentura_cbe_session` is still written/read for compatibility, but only accepted when the decoded role matches the expected role.
+- Updated `cbeSessionFromRequest(request, expectedRole)` and tenant context resolution so Employee API paths expect `operator` and Manager API paths expect `admin`.
+- Updated login to set both the legacy cookie and the matching role cookie.
+- Updated logout to support `?role=operator|admin`, clearing only the relevant role cookie plus the legacy cookie for that logout.
+- Updated AppShell and Employee home session fetches to call `/api/client-demos/cross-border/session?role=operator` or `?role=admin`.
+- Fixed `usePersistentUiState` so first render uses the stable default and reads `localStorage` after mount, preventing first-render SSR/client text mismatch for filters such as Employee home `本月/本周`.
+- Added static regression coverage for role-scoped session cookies, role-specific guards/logout, and hydration-safe persistent UI state.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `node_modules/.bin/tsx scripts/test-cross-border-phase2-store.ts`: PASS, 174/174.
+- `node_modules/.bin/tsx scripts/test-cross-border-agents.ts`: PASS, 392/392.
+- HTTP smoke on `http://127.0.0.1:3002`:
+  - `POST /api/auth/login` with `孙总/1234/admin`: PASS, returned 200 and wrote both `sentura_cbe_session` and `sentura_cbe_admin_session`.
+  - Admin cookie accepted `role=admin` and was rejected for `role=operator`.
+  - Generated Employee role cookie accepted `role=operator` and was rejected for `role=admin`.
+  - Combined Admin + Employee cookies kept both `role=admin` and `role=operator` session endpoints active.
+- Browser smoke on `http://127.0.0.1:3002/client-demos/cross-border/admin/login`: PASS, submitted `孙总/1234`, reached `/client-demos/cross-border/admin/employees`, saw Manager business page content, no Next error overlay, and no browser console errors. Navigating to Employee without an Employee cookie correctly showed Employee login; navigating back to Manager kept the Manager session active and did not flash back to Manager login.
+
+## 2026-06-18 — Phase 2 customer list polish and dismissal fixes
+
+### Changes made
+
+- Added `CustomerProductBadges` so compact product chips show the first two products and a clickable `+N`; clicking expands the complete product list in place and shows `收起`.
+- Removed row `新找到` badges from desktop and mobile customer rows while preserving task-linked flash highlighting.
+- Replaced text `已完成` list badges with a green `✅` for screened customers.
+- Formatted `找到时间` in Beijing time as `YYYY-MM-DD HH:mm:ss` across list rows, mobile cards, and detail metrics.
+- Reworked Screening estimated cost from fixed demo per-target pricing into itemized OpenAI model token, Tavily search, optional Abstract/Hunter email validation, and optional paid trade-data budget assumptions.
+- Added outside-pointer close behavior for the global message center dialog.
+- Persisted terminal task-status dismissal locally and through `/employee/tasks/[id]/dismiss`; closing a terminal banner dismisses all terminal banners so older completed tasks do not reappear after route switching.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 353/353.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 127/127.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 147/147.
+- `git diff --check`: PASS.
+- Browser validation on `/client-demos/cross-border/employee/customers`: PASS, product `+1` expanded and collapsed, Beijing display times had no ISO markers, `新找到` was absent, green `✅` was present, task status close remained dismissed after route switching, and browser console had no errors.
+- Browser validation on message center: PASS, dialog opened with `aria-expanded=true`, outside click closed it and reset `aria-expanded=false`, and browser console had no errors.
 
 ## 2026-06-16 — Next-phase planning readout
 

@@ -140,7 +140,7 @@ Primary statistic cards:
 | Leads found through Marketing Acquisition | `lead_candidates` filtered by `user_id` or joined run membership. | `获客员工找到的潜在客户` |
 | Customers deeply investigated through Screening | `screening_reports` filtered by `user_id` / selected target ownership. | `背调员工深度调研客户` |
 | Chat records organized through Accio Memory | `accio_summaries` or analyzed `accio_imports`. | `记忆员工整理聊天记录` |
-| High-score buyers | `screening_reports.risk_tier = trusted_candidate`. | `高可信候选客户` |
+| High-score buyers | `screening_reports.normalized_score >= 80`. | `高分客户` |
 
 Secondary panels:
 
@@ -205,7 +205,7 @@ The main body is a full-width list/table. Use stable column widths on desktop; c
 | 产品 | `matched_products` / `product_interest` | Show 1-2 chips, then `+N`. |
 | 网站 | `website` | Domain text; opens source drawer or external URL in a safe new tab. |
 | 找到时间 | `found_at` | From Lead Discovery, manual creation, or Accio handoff time. |
-| 评分 | `normalized_score` + `score_tier` | Hidden as `未评分` until Screening finishes. |
+| 评分 | final `normalized_score` + `score_tier` | `normalized_score` is the single customer-facing score: evidence quality 80% + evidence coverage 20%. Hidden as `未评分` until Screening can calculate a score. |
 | 操作 | row actions | `开始调研` if not scored; `查看报告` if scored; `查看进度` while running. |
 
 ### 5.3 Row Status Colors
@@ -216,9 +216,9 @@ Use color as a row background plus a text badge; never rely on color only.
 |---|---|---|---|
 | Not investigated | White / neutral | `未背调` | Lead exists but Screening has not run. |
 | Running | Light blue | `背调中` | Hidden Screening task is active. |
-| High score | Light green | `高分` | `normalized_score >= 75` and no forced downgrade. |
-| Medium score | Light orange | `中等` | `55 <= normalized_score < 75` or high score with lower evidence coverage. |
-| Low score | Light red | `低分` | `normalized_score < 55` or forced downgrade. |
+| High score | Light green | `高分` | final `normalized_score >= 80`. |
+| Medium score | Light orange | `中等` | final `60 <= normalized_score < 80`. |
+| Low score | Light red | `低分` | final `normalized_score < 60`; forced downgrades must be reflected by capping the final score into this band. |
 
 Recommended implementation tokens:
 

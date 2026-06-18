@@ -2,11 +2,11 @@ import type { CbeDb } from "./db";
 import { queryCbe } from "./db";
 import { CbeStoreError } from "./errors";
 import {
-  CBE_DEFAULT_OPERATOR_USER_ID,
   CBE_TENANT_ID,
   TenantContextSchema,
   type TenantContext,
 } from "./schemas";
+import { cbeSessionFromRequest, type CbeSessionRole } from "./session";
 
 interface ProfileRow {
   tenant_id: string;
@@ -18,17 +18,38 @@ interface ProfileRow {
   status: string;
 }
 
-export function userIdFromRequest(request: Request) {
+function expectedRoleFromPath(pathname: string): CbeSessionRole | undefined {
+  if (pathname.includes("/api/client-demos/cross-border/admin/")) return "admin";
+  if (pathname.includes("/api/client-demos/cross-border/employee/")) return "operator";
+  return undefined;
+}
+
+export function userIdFromRequest(request: Request, expectedRole?: CbeSessionRole) {
+  const pathname = new URL(request.url).pathname;
+  const role = expectedRole ?? expectedRoleFromPath(pathname);
+  const adminOverrideUserId = request.headers.get("x-cbe-admin-user-id")?.trim();
+  if (adminOverrideUserId && role === "admin" && pathname.includes("/api/client-demos/cross-border/admin/")) {
+    return adminOverrideUserId;
+  }
   return (
+    cbeSessionFromRequest(request, role)?.userId ||
     request.headers.get("x-cbe-user-id")?.trim() ||
     request.headers.get("x-sentura-user-id")?.trim() ||
     process.env.CBE_DEMO_USER_ID?.trim() ||
-    CBE_DEFAULT_OPERATOR_USER_ID
+    null
   );
 }
 
-export async function resolveCbeTenantContext(request: Request): Promise<TenantContext> {
-  const userId = userIdFromRequest(request);
+export async function resolveCbeTenantContext(
+  request: Request,
+  options: { expectedRole?: CbeSessionRole } = {},
+): Promise<TenantContext> {
+  const pathname = new URL(request.url).pathname;
+  const expectedRole = options.expectedRole ?? expectedRoleFromPath(pathname);
+  const userId = userIdFromRequest(request, expectedRole);
+  if (!userId) {
+    throw new CbeStoreError(401, "cbe_login_required", "CBE login is required.");
+  }
   const result = await queryCbe<ProfileRow>(
     `
       select
@@ -52,6 +73,9 @@ export async function resolveCbeTenantContext(request: Request): Promise<TenantC
   const row = result.rows[0];
   if (!row || row.status !== "active") {
     throw new CbeStoreError(401, "cbe_profile_missing", "Active CBE user profile was not found.");
+  }
+  if (expectedRole && row.cbe_role !== expectedRole) {
+    throw new CbeStoreError(401, "cbe_role_mismatch", "CBE login role does not match this workspace.");
   }
 
   return TenantContextSchema.parse({

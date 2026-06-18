@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { randomBytes, scryptSync } from "node:crypto";
 import {
   CBE_DATA_REGION,
   CBE_SEED_USERS,
@@ -7,6 +8,18 @@ import {
   CBE_TENANT_SLUG,
 } from "./ids.js";
 import { CbeSeedSummarySchema, type CbeSeedSummary } from "./schemas.js";
+
+type SeedUser = (typeof CBE_SEED_USERS)[keyof typeof CBE_SEED_USERS];
+
+function hashCbePassword(password: string) {
+  const salt = randomBytes(16);
+  const key = scryptSync(password, salt, 64);
+  return `scrypt$${salt.toString("base64url")}$${key.toString("base64url")}`;
+}
+
+function seededPasswordHash(user: SeedUser) {
+  return "defaultPassword" in user ? hashCbePassword(user.defaultPassword) : null;
+}
 
 async function seedWithClient(client: PoolClient): Promise<CbeSeedSummary> {
   await client.query(
@@ -43,16 +56,18 @@ async function seedWithClient(client: PoolClient): Promise<CbeSeedSummary> {
           cbe_role,
           display_name,
           team_name,
-          status
+          status,
+          password_hash
         )
-        values ($1, $2, $3, $4, $5, $6, 'active')
+        values ($1, $2, $3, $4, $5, $6, 'active', $7)
         on conflict (tenant_id, user_id) do update set
           cbe_role = excluded.cbe_role,
           display_name = excluded.display_name,
           team_name = excluded.team_name,
-          status = excluded.status
+          status = excluded.status,
+          password_hash = coalesce(excluded.password_hash, cbe_user_profiles.password_hash)
       `,
-      [user.profileId, CBE_TENANT_ID, user.id, user.cbeRole, user.displayName, user.teamName],
+      [user.profileId, CBE_TENANT_ID, user.id, user.cbeRole, user.displayName, user.teamName, seededPasswordHash(user)],
     );
   }
 

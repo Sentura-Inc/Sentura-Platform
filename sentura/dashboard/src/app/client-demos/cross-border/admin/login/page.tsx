@@ -1,0 +1,89 @@
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { Loader2, LogIn } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+export default function ManagerLoginPage() {
+  const router = useRouter();
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (!displayName.trim() || !password) {
+      setError("请输入管理者姓名和密码。");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName: displayName.trim(), password, cbeRole: "admin" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error?.message ?? "登录失败。");
+      }
+      const next = new URLSearchParams(window.location.search).get("next");
+      const canUseNext = next
+        && next.startsWith("/client-demos/cross-border/admin")
+        && !next.startsWith("/client-demos/cross-border/admin/login");
+      router.replace(canUseNext ? next : body.redirectTo ?? "/client-demos/cross-border/admin/employees");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败。");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-md items-center px-4">
+      <Card className="w-full border-border/70 shadow-sm">
+        <CardHeader className="justify-items-center pb-3 pt-6">
+          <Image
+            src="/logo-full.svg"
+            alt="Sentura"
+            width={129}
+            height={156}
+            priority
+            className="h-20 w-auto sm:h-24"
+          />
+        </CardHeader>
+        <CardContent className="space-y-3 px-6 pb-6">
+          <Input
+            autoComplete="username"
+            placeholder="管理者姓名"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void submit();
+            }}
+          />
+          <Input
+            autoComplete="current-password"
+            type="password"
+            placeholder="密码"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void submit();
+            }}
+          />
+          {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          <Button className="w-full" onClick={submit} disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+            登录
+          </Button>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}

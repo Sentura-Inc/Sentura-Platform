@@ -7,8 +7,10 @@ import {
   ArrowRight,
   CheckCircle2,
   Database,
+  Loader2,
   Search,
   ShieldCheck,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -23,13 +25,19 @@ import {
   employeeProfile,
 } from "./_data/employee-data";
 import {
+  deleteEmployeeNotifications,
   fetchEmployeeCustomers,
   fetchEmployeeMemoryRecords,
   fetchEmployeeTasks,
 } from "./_data/employee-api";
 import { cn } from "@/lib/utils";
+import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
 type HomeRange = "today" | "week" | "month" | "all";
+type CustomerHighlightScope = "lead-results" | "screening-results" | "trusted" | "pending";
+
+const customerPagePath = "/client-demos/cross-border/employee/customers";
+const memoryPagePath = "/client-demos/cross-border/employee/memory";
 
 const rangeOptions: Array<{ id: HomeRange; label: string }> = [
   { id: "today", label: "今日" },
@@ -37,6 +45,24 @@ const rangeOptions: Array<{ id: HomeRange; label: string }> = [
   { id: "month", label: "本月" },
   { id: "all", label: "全部" },
 ];
+const HOME_RANGE_STORAGE_KEY = "sentura:cbe:employee:home-range:v1";
+
+function isHomeRange(value: unknown): value is HomeRange {
+  return rangeOptions.some((item) => item.id === value);
+}
+
+function customerHighlightHref(scope: CustomerHighlightScope, range: HomeRange, customerId?: string) {
+  const params = new URLSearchParams({
+    highlight: scope,
+    highlightRange: range,
+  });
+  if (customerId) params.set("highlightCustomer", customerId);
+  return `${customerPagePath}?${params.toString()}`;
+}
+
+function memoryHighlightHref() {
+  return `${memoryPagePath}?highlight=memory-results`;
+}
 
 function parseFoundAt(value: string) {
   const date = new Date(value.replace(" ", "T"));
@@ -73,8 +99,16 @@ export default function CrossBorderEmployeeHomePage() {
   const setRows = useCbeEmployeeStore((store) => store.setRows);
   const setMemoryRows = useCbeEmployeeStore((store) => store.setMemoryRows);
   const setTasks = useCbeEmployeeStore((store) => store.setTasks);
-  const [selectedRange, setSelectedRange] = useState<HomeRange>("month");
+  const deleteTaskNotifications = useCbeEmployeeStore((store) => store.deleteTaskNotifications);
+  const [selectedRange, setSelectedRange] = usePersistentUiState<HomeRange>(
+    HOME_RANGE_STORAGE_KEY,
+    "month",
+    isHomeRange,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionDisplayName, setSessionDisplayName] = useState<string | null>(null);
+  const [deletingMessageIds, setDeletingMessageIds] = useState<Set<string>>(() => new Set());
+  const [messageActionError, setMessageActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,10 +135,33 @@ export default function CrossBorderEmployeeHomePage() {
     };
   }, [setMemoryRows, setRows, setTasks]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshSessionName() {
+      try {
+        const response = await fetch("/api/client-demos/cross-border/session?role=operator", { cache: "no-store" });
+        const body = await response.json().catch(() => ({}));
+        const displayName = typeof body?.user?.displayName === "string"
+          ? body.user.displayName.trim()
+          : "";
+        if (!cancelled && response.ok && body?.user?.cbeRole === "operator" && displayName) {
+          setSessionDisplayName(displayName);
+        }
+      } catch {
+        if (!cancelled) setSessionDisplayName(null);
+      }
+    }
+    void refreshSessionName();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const visibleCustomers = useMemo(
     () => customerRows.filter((item) => isInHomeRange(item.foundAt, selectedRange)),
     [customerRows, selectedRange],
   );
+  const currentEmployeeName = sessionDisplayName ?? employeeProfile.name;
   const selectedRangeLabel = rangeOptions.find((item) => item.id === selectedRange)?.label ?? "本月";
   const screenedCustomers = visibleCustomers.filter((item) => item.screeningStatus === "screened");
   const highScoreCustomers = visibleCustomers.filter((item) => item.scoreTier === "high");
@@ -115,8 +172,15 @@ export default function CrossBorderEmployeeHomePage() {
     () =>
       tasks
         .filter((task) => !isCbeEmployeeTaskActive(task))
-        .sort((left, right) => (right.completedAt ?? right.updatedAt) - (left.completedAt ?? left.updatedAt))
-        .slice(0, 8),
+        .sort((left, right) => (right.completedAt ?? right.updatedAt) - (left.completedAt ?? left.updatedAt)),
+    [tasks],
+  );
+  const allMessagesDeleting = taskMessages.length > 0 && taskMessages.every((item) => deletingMessageIds.has(item.id));
+  const latestLeadFailure = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.kind === "lead" && task.status === "failed")
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0],
     [tasks],
   );
 
@@ -126,28 +190,28 @@ export default function CrossBorderEmployeeHomePage() {
       value: visibleCustomers.length,
       note: `${selectedRangeLabel}获客员工找到的潜在客户`,
       icon: Search,
-      href: "/client-demos/cross-border/employee/customers",
+      href: customerHighlightHref("lead-results", selectedRange),
     },
     {
       label: "背调结果",
       value: screenedCustomers.length,
       note: "背调员工深度调研客户",
       icon: ShieldCheck,
-      href: "/client-demos/cross-border/employee/customers",
+      href: customerHighlightHref("screening-results", selectedRange),
     },
     {
       label: "记忆整理",
       value: memoryRows.length,
       note: "记忆员工整理聊天记录",
       icon: Database,
-      href: "/client-demos/cross-border/employee/memory",
+      href: memoryHighlightHref(),
     },
     {
       label: "高可信客户",
       value: highScoreCustomers.length,
       note: "高可信候选客户",
       icon: TrendingUp,
-      href: "/client-demos/cross-border/employee/customers",
+      href: customerHighlightHref("trusted", selectedRange),
     },
   ];
 
@@ -160,6 +224,25 @@ export default function CrossBorderEmployeeHomePage() {
     { label: "证据不足", count: visibleCustomers.filter((item) => item.screeningStatus === "insufficient_evidence").length, tone: "bg-zinc-400" },
   ];
 
+  async function deleteMessages(ids: string[]) {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    setMessageActionError(null);
+    setDeletingMessageIds((current) => new Set([...current, ...uniqueIds]));
+    try {
+      const result = await deleteEmployeeNotifications(uniqueIds);
+      deleteTaskNotifications(result.deletedIds);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : "消息删除失败。");
+    } finally {
+      setDeletingMessageIds((current) => {
+        const next = new Set(current);
+        for (const id of uniqueIds) next.delete(id);
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -168,7 +251,7 @@ export default function CrossBorderEmployeeHomePage() {
             <Badge variant="secondary">{employeeProfile.role}</Badge>
             <Badge variant="outline">{employeeProfile.tenant}</Badge>
           </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-normal">你好，{employeeProfile.name}</h1>
+          <h1 className="mt-3 text-2xl font-semibold tracking-normal">你好，{currentEmployeeName}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             当前查看 {selectedRangeLabel} 数据，优先处理待背调客户、失败任务和需要补充线索的记录。
           </p>
@@ -191,6 +274,14 @@ export default function CrossBorderEmployeeHomePage() {
       {loadError ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {loadError}
+        </div>
+      ) : null}
+
+      {!loadError && customerRows.length === 0 ? (
+        <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+          {latestLeadFailure
+            ? `当前数据库没有客户；最近一次获客任务失败，未写入客户：${latestLeadFailure.message}`
+            : "当前数据库没有客户；还没有成功完成并写入数据库的获客任务。"}
         </div>
       ) : null}
 
@@ -227,7 +318,7 @@ export default function CrossBorderEmployeeHomePage() {
                 pendingCustomers.map((item) => (
                   <Link
                     key={item.customerId}
-                    href="/client-demos/cross-border/employee/customers"
+                    href={customerHighlightHref("pending", selectedRange, item.customerId)}
                     className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
                   >
                     <div className="min-w-0">
@@ -254,7 +345,7 @@ export default function CrossBorderEmployeeHomePage() {
                 highScoreCustomers.map((item) => (
                   <Link
                     key={item.customerId}
-                    href="/client-demos/cross-border/employee/customers"
+                    href={customerHighlightHref("trusted", selectedRange, item.customerId)}
                     className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
                   >
                     <div className="min-w-0">
@@ -300,32 +391,67 @@ export default function CrossBorderEmployeeHomePage() {
           <Card id="employee-messages" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
               <CardTitle className="text-base">消息提醒</CardTitle>
-              <Badge variant="secondary">{taskMessages.length}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{taskMessages.length}</Badge>
+                {taskMessages.length > 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={allMessagesDeleting}
+                    onClick={() => void deleteMessages(taskMessages.map((item) => item.id))}
+                  >
+                    {allMessagesDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    全部删除
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
+              {messageActionError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {messageActionError}
+                </div>
+              ) : null}
               {taskMessages.length > 0 ? (
-                taskMessages.map((item) => (
-                  <div key={item.id} className="rounded-md border px-3 py-2 text-sm">
-                    <div className="flex items-start gap-2">
-                      {item.status === "failed" ? (
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                      ) : (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="leading-5">{item.title}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {new Intl.DateTimeFormat("zh-CN", {
-                            month: "2-digit",
-                            day: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.targetLabel ?? item.message}
+                <div className="max-h-[360px] space-y-2 overflow-y-auto overscroll-contain pr-1">
+                  {taskMessages.map((item) => (
+                    <div key={item.id} className="rounded-md border px-3 py-2 text-sm">
+                      <div className="flex items-start gap-2">
+                        {item.status === "failed" ? (
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        ) : (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="leading-5">{item.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {new Intl.DateTimeFormat("zh-CN", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.targetLabel ?? item.message}
+                          </div>
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`删除消息：${item.title}`}
+                          title="删除消息"
+                          disabled={deletingMessageIds.has(item.id)}
+                          onClick={() => void deleteMessages([item.id])}
+                        >
+                          {deletingMessageIds.has(item.id) ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
                   暂无任务通知。

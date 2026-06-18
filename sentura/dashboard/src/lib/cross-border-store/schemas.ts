@@ -7,11 +7,9 @@ export const CBE_STORE_REQUIRED_ENV = "CBE_DATABASE_URL";
 export const CBE_PRODUCT_ROLES = ["admin", "operator"] as const;
 export const CBE_OPERATOR_SURFACES = ["personal", "customers", "memory"] as const;
 export const CBE_ADMIN_MONITORING_MODULES = [
-  "overview",
-  "live-tasks",
-  "customers",
-  "operators",
-  "agent-usage",
+  "employees",
+  "high-value-customers",
+  "costs",
 ] as const;
 
 export const CbeRoleSchema = z.enum(CBE_PRODUCT_ROLES);
@@ -25,6 +23,8 @@ export const CbeAgentRunStatusSchema = z.enum([
   "cancelled",
 ]);
 export const CbeTaskKindSchema = z.enum(["lead", "screening", "accio_memory", "handoff"]);
+export const CbeCostPeriodSchema = z.enum(["day", "week", "month", "all_time"]);
+export const CbeCostApprovalStatusSchema = z.enum(["pending", "approved", "rejected", "cancelled"]);
 export const CbeAgentIdSchema = z.enum([
   "cbe-lead-discovery",
   "cbe-buyer-screening",
@@ -39,9 +39,18 @@ export type CbeAdminMonitoringModule = (typeof CBE_ADMIN_MONITORING_MODULES)[num
 export type CbeVisibilityScope = z.infer<typeof CbeVisibilityScopeSchema>;
 export type CbeAgentRunStatus = z.infer<typeof CbeAgentRunStatusSchema>;
 export type CbeTaskKind = z.infer<typeof CbeTaskKindSchema>;
+export type CbeCostPeriod = z.infer<typeof CbeCostPeriodSchema>;
+export type CbeCostApprovalStatus = z.infer<typeof CbeCostApprovalStatusSchema>;
 export type CbeAgentId = z.infer<typeof CbeAgentIdSchema>;
 export type CbeDataScope = z.infer<typeof CbeDataScopeSchema>;
 export type CbeDataTier = z.infer<typeof CbeDataTierSchema>;
+
+function roundMoneyUsd(value: number) {
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+export const CbeMoneyUsdSchema = z.number().min(0).transform(roundMoneyUsd);
 
 export const TenantContextSchema = z.object({
   tenantId: z.string().min(1),
@@ -97,6 +106,8 @@ export const ListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   status: z.string().min(1).optional(),
   team_name: z.string().min(1).optional(),
+  owner_user_id: z.string().min(1).optional(),
+  range: z.enum(["today", "week", "month", "all"]).default("month"),
 });
 export type ListQuery = z.infer<typeof ListQuerySchema>;
 
@@ -109,6 +120,7 @@ export const CreateAgentRunInputSchema = z.object({
   target_record_id: z.string().min(1).optional(),
   target_summary: z.string().min(1).optional(),
   current_stage: z.string().min(1).optional(),
+  cost_usd_estimate: CbeMoneyUsdSchema.optional(),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   metadata_json: JsonRecordSchema.default({}),
 });
@@ -116,10 +128,11 @@ export type CreateAgentRunInput = z.infer<typeof CreateAgentRunInputSchema>;
 
 export const CreateLeadRunRequestSchema = z.object({
   query_config: JsonRecordSchema,
-  target_count: z.number().int().positive().max(500),
+  target_count: z.number().int().positive().max(20),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
   target_summary: z.string().min(1).optional(),
+  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
 });
 export type CreateLeadRunRequest = z.infer<typeof CreateLeadRunRequestSchema>;
 
@@ -182,6 +195,7 @@ export const CreateScreeningRunRequestSchema = z.object({
   target_record_id: z.string().min(1).optional(),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
+  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
   metadata_json: JsonRecordSchema.default({}),
 });
 export type CreateScreeningRunRequest = z.infer<typeof CreateScreeningRunRequestSchema>;
@@ -286,6 +300,13 @@ export const AccioConversationImportSchema = z.object({
 });
 export type AccioConversationImport = z.infer<typeof AccioConversationImportSchema>;
 
+export const AccioSupplementTargetSchema = z.object({
+  customer_id: z.string().min(1),
+  company_name: z.string().min(1),
+  source: z.enum(["lead_discovery", "manual_screening", "accio_handoff"]),
+});
+export type AccioSupplementTarget = z.infer<typeof AccioSupplementTargetSchema>;
+
 export const CreateAccioImportRequestSchema = z.object({
   source_file_name: z.string().min(1).optional(),
   file_hash: z.string().min(16),
@@ -293,9 +314,67 @@ export const CreateAccioImportRequestSchema = z.object({
   classification: CbeDataTierSchema.default("T2"),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
+  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
+  supplement_target: AccioSupplementTargetSchema.optional(),
   conversations: z.array(AccioConversationImportSchema).default([]),
 });
 export type CreateAccioImportRequest = z.infer<typeof CreateAccioImportRequestSchema>;
+
+export const AdminCreateOperatorRequestSchema = z.object({
+  display_name: z.string().min(1),
+  password: z.string().min(4),
+  email: z.string().email().optional(),
+  team_name: z.string().min(1).optional(),
+  department_id: z.string().min(1).optional(),
+  initial_limits: z.array(z.object({
+    period: CbeCostPeriodSchema,
+    limit_usd: CbeMoneyUsdSchema,
+    enabled: z.boolean().default(true),
+  })).default([]),
+});
+export type AdminCreateOperatorRequest = z.infer<typeof AdminCreateOperatorRequestSchema>;
+
+export const AdminUpdateOperatorRequestSchema = z.object({
+  status: z.enum(["active", "suspended"]).optional(),
+  display_name: z.string().min(1).optional(),
+  team_name: z.string().min(1).nullable().optional(),
+  password: z.string().min(4).optional(),
+});
+export type AdminUpdateOperatorRequest = z.infer<typeof AdminUpdateOperatorRequestSchema>;
+
+export const AdminCostLimitPatchRequestSchema = z.object({
+  user_id: z.string().min(1),
+  period: CbeCostPeriodSchema,
+  limit_usd: CbeMoneyUsdSchema,
+  enabled: z.boolean().default(true),
+});
+export type AdminCostLimitPatchRequest = z.infer<typeof AdminCostLimitPatchRequestSchema>;
+
+export const AdminCostAllowancePatchRequestSchema = z.object({
+  user_id: z.string().min(1),
+  period: CbeCostPeriodSchema.default("month"),
+  amount_usd: CbeMoneyUsdSchema,
+});
+export type AdminCostAllowancePatchRequest = z.infer<typeof AdminCostAllowancePatchRequestSchema>;
+
+export const AdminCostApprovalDecisionRequestSchema = z.object({
+  request_id: z.string().min(1),
+  decision: z.enum(["approved", "rejected"]),
+  approved_amount_usd: CbeMoneyUsdSchema.optional(),
+  expires_at: z.string().datetime({ offset: true }).optional(),
+  decision_note: z.string().min(1).optional(),
+});
+export type AdminCostApprovalDecisionRequest = z.infer<typeof AdminCostApprovalDecisionRequestSchema>;
+
+export const DeleteMemoryRecordsRequestSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(100),
+});
+export type DeleteMemoryRecordsRequest = z.infer<typeof DeleteMemoryRecordsRequestSchema>;
+
+export const DeleteCustomerRecordsRequestSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(100),
+});
+export type DeleteCustomerRecordsRequest = z.infer<typeof DeleteCustomerRecordsRequestSchema>;
 
 export const AccioSummaryMarkerSchema = z.object({
   conversation_id: z.string().min(1),
@@ -350,6 +429,11 @@ export const NotificationReadRequestSchema = z.object({
 });
 export type NotificationReadRequest = z.infer<typeof NotificationReadRequestSchema>;
 
+export const NotificationDeleteRequestSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+});
+export type NotificationDeleteRequest = z.infer<typeof NotificationDeleteRequestSchema>;
+
 export const FailEmployeeTaskRequestSchema = z.object({
   session_key: z.string().min(1).optional(),
   error_code: z.enum([
@@ -365,3 +449,8 @@ export const FailEmployeeTaskRequestSchema = z.object({
   details: JsonRecordSchema.optional(),
 });
 export type FailEmployeeTaskRequest = z.infer<typeof FailEmployeeTaskRequestSchema>;
+
+export const CancelEmployeeTaskRequestSchema = z.object({
+  session_key: z.string().min(1).optional(),
+});
+export type CancelEmployeeTaskRequest = z.infer<typeof CancelEmployeeTaskRequestSchema>;

@@ -12,7 +12,7 @@ import {
 } from "@/app/client-demos/cross-border/employee/_data/employee-data";
 
 export type CbeEmployeeTaskKind = "lead" | "screening" | "accio_memory";
-export type CbeEmployeeTaskStatus = "queued" | "running" | "polling" | "completed" | "failed";
+export type CbeEmployeeTaskStatus = "queued" | "running" | "polling" | "completed" | "failed" | "cancelled";
 
 export interface CbeEmployeeTaskRecord {
   id: string;
@@ -22,6 +22,7 @@ export interface CbeEmployeeTaskRecord {
   message: string;
   startedAt: number;
   updatedAt: number;
+  lastActivityAt?: number;
   completedAt?: number;
   estimatedMs: number;
   timeoutMs: number;
@@ -29,6 +30,7 @@ export interface CbeEmployeeTaskRecord {
   sessionKey?: string;
   targetLabel?: string;
   resultCount?: number;
+  affectedCustomerIds?: string[];
   error?: string;
   dismissed?: boolean;
   notificationRead?: boolean;
@@ -50,7 +52,7 @@ interface StartTaskInput {
 }
 
 interface TaskProgressInput {
-  status: Exclude<CbeEmployeeTaskStatus, "failed">;
+  status: Exclude<CbeEmployeeTaskStatus, "failed" | "cancelled">;
   message: string;
   sessionKey?: string;
 }
@@ -58,6 +60,7 @@ interface TaskProgressInput {
 interface CbeEmployeeDraftCache {
   customerQuery?: string;
   memoryQuery?: string;
+  dismissedTaskIds?: string[];
   updatedAt?: number;
 }
 
@@ -73,17 +76,19 @@ interface CbeEmployeeState {
   upsertMemoryRows: (updates: MemoryRecordItem[]) => void;
   setTasks: (tasks: CbeEmployeeTaskRecord[]) => void;
   markTaskNotificationsRead: (taskIds: string[]) => void;
+  deleteTaskNotifications: (taskIds: string[]) => void;
   setDraftCache: (draftCache: Partial<CbeEmployeeDraftCache>) => void;
   startTask: (input: StartTaskInput) => string;
   updateTaskProgress: (id: string, progress: TaskProgressInput) => void;
   completeTask: (id: string, resultCount: number, message: string, sessionKey?: string) => void;
   failTask: (id: string, error: string, sessionKey?: string) => void;
+  cancelTask: (id: string, message?: string, sessionKey?: string) => void;
   dismissTask: (id: string) => void;
   recoverStaleTasks: (now?: number) => void;
 }
 
 const ACTIVE_TASK_STATUSES = new Set<CbeEmployeeTaskStatus>(["queued", "running", "polling"]);
-const MAX_RETAINED_TASKS = 12;
+const MAX_DISMISSED_TASK_IDS = 50;
 const STALE_GRACE_MS = 30_000;
 const DEMO_SEED_ENABLED =
   process.env.NEXT_PUBLIC_CBE_USE_DEMO_SEED === "1" || process.env.CBE_USE_DEMO_SEED === "1";
@@ -101,10 +106,30 @@ function taskSort(left: CbeEmployeeTaskRecord, right: CbeEmployeeTaskRecord) {
 }
 
 function trimTasks(tasks: CbeEmployeeTaskRecord[]) {
-  const sorted = [...tasks].sort(taskSort);
-  const active = sorted.filter((task) => ACTIVE_TASK_STATUSES.has(task.status));
-  const terminal = sorted.filter((task) => !ACTIVE_TASK_STATUSES.has(task.status)).slice(0, MAX_RETAINED_TASKS);
-  return [...active, ...terminal].slice(0, MAX_RETAINED_TASKS + active.length);
+  return [...tasks].sort(taskSort);
+}
+
+function mergeTasksWithLocalDismissals(
+  incomingTasks: CbeEmployeeTaskRecord[],
+  currentTasks: CbeEmployeeTaskRecord[],
+  draftCache: CbeEmployeeDraftCache,
+) {
+  const currentById = new Map(currentTasks.map((task) => [task.id, task]));
+  const dismissedIds = new Set(draftCache.dismissedTaskIds ?? []);
+  return incomingTasks.map((task) => ({
+    ...task,
+    dismissed: task.dismissed || currentById.get(task.id)?.dismissed || dismissedIds.has(task.id),
+  }));
+}
+
+function rememberDismissedTask(draftCache: CbeEmployeeDraftCache, id: string): CbeEmployeeDraftCache {
+  const dismissedTaskIds = [id, ...(draftCache.dismissedTaskIds ?? []).filter((taskId) => taskId !== id)]
+    .slice(0, MAX_DISMISSED_TASK_IDS);
+  return {
+    ...draftCache,
+    dismissedTaskIds,
+    updatedAt: Date.now(),
+  };
 }
 
 function applyRowUpdater(current: CustomerListItem[], updater: RowUpdater) {
@@ -159,9 +184,12 @@ export function formatCbeTaskDuration(ms: number) {
 export function getCbeTaskTiming(task: CbeEmployeeTaskRecord, now = Date.now()) {
   const endAt = isCbeEmployeeTaskActive(task) ? now : task.completedAt ?? task.updatedAt;
   const elapsedMs = Math.max(0, endAt - task.startedAt);
-  const remainingMs = Math.max(0, task.estimatedMs - elapsedMs);
+  const waitWindowMs = Math.max(task.timeoutMs, 1);
+  const remainingMs = isCbeEmployeeTaskActive(task)
+    ? Math.max(0, task.deadlineAt - now)
+    : 0;
   const progressPercent = isCbeEmployeeTaskActive(task)
-    ? Math.min(95, Math.max(5, Math.round((elapsedMs / Math.max(task.estimatedMs, 1)) * 100)))
+    ? Math.min(95, Math.max(5, Math.round((elapsedMs / waitWindowMs) * 100)))
     : 100;
   return { elapsedMs, remainingMs, progressPercent };
 }
@@ -198,8 +226,8 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           memoryRows: upsertMemoryRecordRows(state.memoryRows, updates),
         })),
       setTasks: (tasks) =>
-        set(() => ({
-          tasks: trimTasks(tasks),
+        set((state) => ({
+          tasks: trimTasks(mergeTasksWithLocalDismissals(tasks, state.tasks, state.draftCache)),
         })),
       markTaskNotificationsRead: (taskIds) =>
         set((state) => {
@@ -208,6 +236,14 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
             tasks: state.tasks.map((task) =>
               readIds.has(task.id) ? { ...task, notificationRead: true } : task,
             ),
+          };
+        }),
+      deleteTaskNotifications: (taskIds) =>
+        set((state) => {
+          const deleteIds = new Set(taskIds);
+          if (deleteIds.size === 0) return { tasks: state.tasks };
+          return {
+            tasks: state.tasks.filter((task) => !deleteIds.has(task.id)),
           };
         }),
       setDraftCache: (draftCache) =>
@@ -229,6 +265,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           message: input.message,
           startedAt: now,
           updatedAt: now,
+          lastActivityAt: now,
           estimatedMs: input.estimatedMs,
           timeoutMs: input.timeoutMs,
           deadlineAt: now + input.timeoutMs,
@@ -243,13 +280,16 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           tasks: trimTasks(
             state.tasks.map((task) =>
               task.id === id
-                ? {
-                    ...task,
-                    status: progress.status,
-                    message: progress.message,
-                    sessionKey: progress.sessionKey ?? task.sessionKey,
-                    updatedAt: Date.now(),
-                  }
+                ? !ACTIVE_TASK_STATUSES.has(task.status)
+                  ? task
+                  : {
+                      ...task,
+                      status: progress.status,
+                      message: progress.message,
+                      sessionKey: progress.sessionKey ?? task.sessionKey,
+                      lastActivityAt: Date.now(),
+                      updatedAt: Date.now(),
+                    }
                 : task,
             ),
           ),
@@ -258,7 +298,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
         set((state) => ({
           tasks: trimTasks(
             state.tasks.map((task) => {
-              if (task.id !== id) return task;
+              if (task.id !== id || !ACTIVE_TASK_STATUSES.has(task.status)) return task;
               const now = Date.now();
               return {
                 ...task,
@@ -269,6 +309,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
                 error: undefined,
                 dismissed: false,
                 completedAt: now,
+                lastActivityAt: now,
                 updatedAt: now,
               };
             }),
@@ -279,22 +320,46 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           tasks: trimTasks(
             state.tasks.map((task) =>
               task.id === id
-                ? {
-                    ...task,
-                    status: "failed",
-                    message: error,
-                    sessionKey: sessionKey ?? task.sessionKey,
-                    error,
-                    dismissed: false,
-                    updatedAt: Date.now(),
-                  }
+                ? !ACTIVE_TASK_STATUSES.has(task.status)
+                  ? task
+                  : {
+                      ...task,
+                      status: "failed",
+                      message: error,
+                      sessionKey: sessionKey ?? task.sessionKey,
+                      error,
+                      dismissed: false,
+                      lastActivityAt: Date.now(),
+                      updatedAt: Date.now(),
+                    }
                 : task,
             ),
+          ),
+        })),
+      cancelTask: (id, message = "任务已取消，后台结果不会写入列表。", sessionKey) =>
+        set((state) => ({
+          tasks: trimTasks(
+            state.tasks.map((task) => {
+              if (task.id !== id || !ACTIVE_TASK_STATUSES.has(task.status)) return task;
+              const now = Date.now();
+              return {
+                ...task,
+                status: "cancelled",
+                message,
+                sessionKey: sessionKey ?? task.sessionKey,
+                error: undefined,
+                dismissed: false,
+                completedAt: now,
+                lastActivityAt: now,
+                updatedAt: now,
+              };
+            }),
           ),
         })),
       dismissTask: (id) =>
         set((state) => ({
           tasks: state.tasks.map((task) => (task.id === id ? { ...task, dismissed: true } : task)),
+          draftCache: rememberDismissedTask(state.draftCache, id),
         })),
       recoverStaleTasks: (now = Date.now()) =>
         set((state) => ({
@@ -314,26 +379,26 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           ),
         })),
     }),
-    {
-      name: "sentura-cbe-employee-draft-cache-v1",
-      version: 2,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        draftCache: state.draftCache,
-      }),
-      merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<CbeEmployeeState> | undefined;
-        return {
-          ...currentState,
-          rows: currentState.rows,
-          memoryRows: currentState.memoryRows,
-          tasks: currentState.tasks,
-          draftCache:
-            persisted?.draftCache && typeof persisted.draftCache === "object"
-              ? persisted.draftCache
-              : currentState.draftCache,
-        };
-      },
-    },
-  ),
+	    {
+	      name: "sentura-cbe-employee-draft-cache-v1",
+	      version: 2,
+	      storage: createJSONStorage(() => localStorage),
+	      partialize: (state) => ({
+	        draftCache: state.draftCache,
+	      }),
+	      merge: (persistedState, currentState) => {
+	        const persisted = persistedState as Partial<CbeEmployeeState> | undefined;
+	        return {
+	          ...currentState,
+	          rows: currentState.rows,
+	          memoryRows: currentState.memoryRows,
+	          tasks: currentState.tasks,
+	          draftCache:
+	            persisted?.draftCache && typeof persisted.draftCache === "object"
+	              ? persisted.draftCache
+	              : currentState.draftCache,
+	        };
+	      },
+	    },
+	  ),
 );

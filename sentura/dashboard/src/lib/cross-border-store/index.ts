@@ -13,5 +13,6 @@ export * from "./notifications";
 export * from "./route-utils";
 export * from "./schemas";
 export * from "./screening";
+export * from "./session";
 export * from "./tasks";
 export * from "./tenant-context";

@@ -136,7 +136,7 @@ Primary layout:
 - Right score/report panel:
   - contextual score gauge
   - evidence coverage meter
-  - risk tier
+  - follow-up tier
   - forced-downgrade flags
   - recommended next action
   - live `cbe-buyer-screening` AgentChat surface
@@ -145,8 +145,8 @@ Display rules:
 
 - Every evidence card shows source type, confidence, cost, and whether it affects score or only coverage.
 - Missing API evidence is shown as `未启用/不可用`, not as a fraud signal.
-- Score and evidence coverage are separate, e.g. `可信候选 76/100 · 证据覆盖 90%`.
-- If coverage is low, primary message is `证据不足，建议补充公司注册号/域名/公司邮箱`, not `客户很差`.
+- Final score already includes evidence coverage, e.g. `79.33/100 · 中等 · 证据覆盖 90%`.
+- If coverage is low but at least one scored block exists, show the lower final score and explain which evidence would raise it; use `证据不足` only when no normal score can be computed.
 - If behavior is not applicable, display `行为记录：未适用（冷启动潜客）` rather than `0/15`.
 
 ## 4. Low-Cost Evidence Ladder
@@ -237,7 +237,7 @@ Do not:
 Trade-data rule:
 
 - Missing customs/trade data does not mean the company is fake.
-- Missing trade data lowers evidence coverage but should not automatically lower normalized score.
+- Missing trade data lowers evidence coverage and therefore affects the final score through the 20% coverage component, but it must not be treated as fraud evidence.
 
 ## 9. Financial Checks
 
@@ -268,10 +268,10 @@ Phase 1 uses contextual scoring because cold leads have no behavior record yet, 
 Principles:
 
 1. Score only evidence blocks applicable to the current context.
-2. Show `evidence_coverage` separately from `normalized_score`.
+2. Make `normalized_score` the single final score: evidence quality 80% + evidence coverage 20%.
 3. Mark unavailable paid/API evidence as `unavailable_api` or `disabled_by_budget`; do not silently penalize as fraud.
-4. Apply forced-downgrade rules after normalized scoring.
-5. Prefer transparent "score based on available evidence" over a fake fixed 100-point score.
+4. Show `evidence_coverage` separately as an explanation for the final score, not as a hidden second tier.
+5. Forced downgrades must be reflected in the final score, e.g. cap at 59, so the visible score and tier stay consistent.
 
 Evidence statuses:
 
@@ -301,18 +301,19 @@ applicable_blocks = blocks where status != not_applicable
 scored_blocks = blocks where status == scored
 score_denominator = sum(max_points of scored_blocks)
 raw_score = sum(earned_points of scored_blocks)
-normalized_score = raw_score / score_denominator * 100
+quality_score = raw_score / score_denominator * 100
 evidence_coverage = sum(max_points of scored_blocks) / sum(max_points of applicable_blocks)
+normalized_score = quality_score * 0.8 + evidence_coverage * 100 * 0.2
 ```
 
 If `score_denominator` is `0`, return `risk_tier="insufficient_evidence"` and explain minimum clues needed.
 
 Risk tiers:
 
-- `trusted_candidate`: normalized score >= 75, evidence coverage >= 0.70, and no forced downgrade.
-- `cautious`: normalized score 55-74, or score >= 75 with evidence coverage 0.40-0.69.
-- `insufficient_evidence`: evidence coverage < 0.40 and no forced downgrade.
-- `high_risk`: normalized score < 55 with evidence coverage >= 0.40, or any forced downgrade.
+- `trusted_candidate`: final normalized score >= 80.
+- `cautious`: final normalized score 60-79.
+- `high_risk`: final normalized score < 60.
+- `insufficient_evidence`: no scored evidence blocks, so no normal score can be computed.
 
 Forced downgrade rules:
 
@@ -334,9 +335,9 @@ Cold lead scoring example:
 {
   "score": {
     "profile": "cold_lead_low_cost",
-    "normalized_score": 76,
+    "normalized_score": 79.33,
     "evidence_coverage": 0.9,
-    "risk_tier": "trusted_candidate",
+    "risk_tier": "cautious",
     "blocks": [
       {
         "block": "legal_identity",
@@ -393,10 +394,10 @@ Cold lead scoring example:
   "lead_id": "lead_20260607_0001",
   "target_source": "marketing_lead",
   "company_name": "Example Mobile Distribution Ltd",
-  "risk_tier": "trusted_candidate",
-  "normalized_score": 76,
+  "risk_tier": "cautious",
+  "normalized_score": 79.33,
   "evidence_coverage": 0.9,
-  "recommended_action": "试探接触，要求对方使用公司域名邮箱确认需求，并补充公司注册号或采购历史。",
+  "recommended_action": "谨慎跟进，要求对方使用公司域名邮箱确认需求，并补充公司注册号或采购历史以提高评分。",
   "score_blocks": [
     {
       "block": "legal_identity",

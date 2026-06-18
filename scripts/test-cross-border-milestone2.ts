@@ -234,14 +234,14 @@ const coldLeadScore = calculateContextualScore({
 });
 check("cold lead score excludes conversation_behavior from denominator", coldLeadScore.coverage_denominator === 100);
 check("disabled paid APIs reduce evidence coverage", coldLeadScore.evidence_coverage === 0.9);
-check("disabled paid APIs do not reduce normalized score", coldLeadScore.normalized_score === 76.67);
-check("cold lead risk tier is trusted_candidate", coldLeadScore.risk_tier === "trusted_candidate");
+check("disabled paid APIs reduce final score through coverage component", coldLeadScore.normalized_score === 79.33);
+check("cold lead risk tier follows final score threshold", coldLeadScore.risk_tier === "cautious");
 
 const withoutPaidGapScore = calculateContextualScore({
   profile: "cold_lead_low_cost_no_paid_gap",
   blocks: coldLeadBlocks.filter((block) => block.block !== "trade_financial"),
 });
-check("removing disabled trade block preserves normalized score", withoutPaidGapScore.normalized_score === coldLeadScore.normalized_score);
+check("removing disabled trade block improves final score", withoutPaidGapScore.normalized_score === 81.33);
 check("removing disabled trade block improves coverage", withoutPaidGapScore.evidence_coverage === 1);
 
 const forcedDowngradeScore = calculateContextualScore({
@@ -250,6 +250,7 @@ const forcedDowngradeScore = calculateContextualScore({
   forcedDowngrades: ["free_or_disposable_email_only"],
 });
 check("forced downgrade overrides otherwise good score", forcedDowngradeScore.risk_tier === "high_risk");
+check("forced downgrade is reflected in final score", forcedDowngradeScore.normalized_score === 59);
 
 const screeningReport = ScreeningReportSchema.parse({
   report_id: "screen_20260608_0001",

@@ -20,7 +20,9 @@ const STORE_DIR = path.join(ROOT, "sentura/lib/cross-border-store");
 const DASHBOARD_STORE = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-store/index.ts");
 const DASHBOARD_STORE_DIR = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-store");
 const DASHBOARD_API_DIR = path.join(ROOT, "sentura/dashboard/src/app/api/client-demos/cross-border");
+const DASHBOARD_AUTH_API_DIR = path.join(ROOT, "sentura/dashboard/src/app/api/auth");
 const DASHBOARD_EMPLOYEE_DIR = path.join(ROOT, "sentura/dashboard/src/app/client-demos/cross-border/employee");
+const DASHBOARD_ADMIN_DIR = path.join(ROOT, "sentura/dashboard/src/app/client-demos/cross-border/admin");
 const DASHBOARD_COMPONENTS_DIR = path.join(ROOT, "sentura/dashboard/src/components");
 const DASHBOARD_STORES_DIR = path.join(ROOT, "sentura/dashboard/src/stores");
 const DASHBOARD_PACKAGE_JSON = path.join(ROOT, "sentura/dashboard/package.json");
@@ -556,6 +558,9 @@ const requiredTables = [
   "lead_identities",
   "lead_run_results",
   "lead_allocations",
+  "cbe_cost_limits",
+  "cbe_cost_allowances",
+  "cbe_cost_approval_requests",
   "cbe_schema_migrations",
 ];
 
@@ -579,6 +584,10 @@ const requiredIndexes = [
   "screening_targets_owner_scope_idx",
   "accio_imports_owner_scope_idx",
   "agent_run_activity_monitor_idx",
+  "cbe_cost_limits_user_idx",
+  "cbe_cost_allowances_user_idx",
+  "cbe_cost_approval_requests_pending_idx",
+  "cbe_cost_approval_requests_user_idx",
 ];
 
 const p22StoreModules = [
@@ -596,10 +605,13 @@ const p22StoreModules = [
   "agent-runs.ts",
   "handoffs.ts",
   "route-utils.ts",
+  "admin.ts",
+  "session.ts",
 ];
 
 const p22EmployeeRoutes = [
   "employee/customers/route.ts",
+  "employee/cost-budget/route.ts",
   "employee/lead-runs/route.ts",
   "employee/lead-runs/[id]/complete/route.ts",
   "employee/screening-runs/route.ts",
@@ -620,7 +632,27 @@ const p22AdminRoutes = [
   "admin/customers/route.ts",
   "admin/operators/route.ts",
   "admin/operators/[id]/route.ts",
+  "admin/operators/[id]/customers/route.ts",
+  "admin/high-value-customers/route.ts",
+  "admin/costs/route.ts",
+  "admin/cost-limits/route.ts",
+  "admin/cost-approvals/route.ts",
   "admin/agent-usage/route.ts",
+];
+
+const cbeAuthRoutes = [
+  "login/route.ts",
+  "logout/route.ts",
+];
+
+const cbeManagerPages = [
+  "login/page.tsx",
+  "page.tsx",
+  "employees/page.tsx",
+  "high-value-customers/page.tsx",
+  "costs/page.tsx",
+  "_data/admin-api.ts",
+  "_components/report-dialog.tsx",
 ];
 
 const p23EmployeeRoutes = [
@@ -645,6 +677,9 @@ for (const index of requiredIndexes) {
   check(`schema includes index: ${index}`, migrationSql.includes(index));
 }
 check("schema defines admin/operator CBE roles", migrationSql.includes("cbe_role in ('admin', 'operator')"));
+check("schema extends CBE profiles with manager-visible email", migrationSql.includes("add column if not exists email text"));
+check("schema defines manager cost control periods", ["'day'", "'week'", "'month'", "'all_time'"].every((needle) => migrationSql.includes(needle)));
+check("schema defines cost approval lifecycle", ["cbe_cost_limits", "cbe_cost_allowances", "cbe_cost_approval_requests", "'pending'", "'approved'", "'rejected'"].every((needle) => migrationSql.includes(needle)));
 check("schema defines owner/team/visibility fields", ["owner_user_id", "team_name", "visibility_scope"].every((needle) => migrationSql.includes(needle)));
 check("schema defines task activity monitoring events", migrationSql.includes("agent_run_activity_events") && migrationSql.includes("target_summary"));
 check("schema defines migration history table", migrationSql.includes("cbe_schema_migrations"));
@@ -679,8 +714,9 @@ check("sentura/lib package exports cross-border-store", senturaLibPackage.includ
 check("sentura/lib typecheck includes cross-border-store", senturaLibTsconfig.includes("cross-border-store/**/*.ts"));
 check(
   "seed records do not include email addresses or raw tokens",
-  !/[@]|user_token_hash:|tokenHash|password|apiKey|secret/i.test(idsTs + seedTs),
+  !/[@]|user_token_hash:|tokenHash|apiKey|secret/i.test(idsTs + seedTs),
 );
+check("seed defines requested temporary manager login", idsTs.includes('displayName: "孙总"') && idsTs.includes('defaultPassword: "1234"') && seedTs.includes("password_hash") && seedTs.includes("hashCbePassword"));
 
 section("CE19/P2.2 Dashboard store and route structure");
 const dashboardStoreSource = p22StoreModules
@@ -691,6 +727,12 @@ for (const [file] of dashboardStoreSource) {
 for (const route of [...p22EmployeeRoutes, ...p22AdminRoutes]) {
   check(`P2.2 route exists: ${route}`, exists(path.join(DASHBOARD_API_DIR, route)));
 }
+for (const route of cbeAuthRoutes) {
+  check(`manager auth route exists: ${route}`, exists(path.join(DASHBOARD_AUTH_API_DIR, route)));
+}
+for (const page of cbeManagerPages) {
+  check(`manager UI file exists: ${page}`, exists(path.join(DASHBOARD_ADMIN_DIR, page)));
+}
 const p22AllStoreText = dashboardStoreSource.map(([, text]) => text).join("\n");
 const completionRouteText = [
   read(path.join(DASHBOARD_API_DIR, "employee/lead-runs/[id]/complete/route.ts")),
@@ -698,6 +740,12 @@ const completionRouteText = [
   read(path.join(DASHBOARD_API_DIR, "employee/memory/imports/[id]/complete/route.ts")),
 ].join("\n");
 const adminRouteText = p22AdminRoutes.map((route) => read(path.join(DASHBOARD_API_DIR, route))).join("\n");
+const authRouteText = cbeAuthRoutes.map((route) => read(path.join(DASHBOARD_AUTH_API_DIR, route))).join("\n");
+const managerPageText = cbeManagerPages.map((page) => read(path.join(DASHBOARD_ADMIN_DIR, page))).join("\n");
+const managerEmployeeApiTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-api.ts"));
+const managerAppShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
+const managerAdminApiTs = read(path.join(DASHBOARD_ADMIN_DIR, "_data/admin-api.ts"));
+const managerLoginPageTs = read(path.join(DASHBOARD_ADMIN_DIR, "login/page.tsx"));
 
 check("dashboard package declares server store dependencies", dashboardPackage.includes('"pg"') && dashboardPackage.includes('"zod"') && dashboardPackage.includes('"@types/pg"'));
 check("P2.2 store uses environment-backed pg pool", read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("CBE_DATABASE_URL") && read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("application_name"));
@@ -707,9 +755,44 @@ check("P2.2 completion routes fail agent_runs on validation errors", completionR
 check("P2.2 writes audit events for major store actions", p22AllStoreText.includes("createAuditEvent") && p22AllStoreText.includes("lead_run_completed") && p22AllStoreText.includes("screening_reports_saved") && p22AllStoreText.includes("accio_summaries_saved"));
 check("P2.2 store writes task activity events for admin monitoring", p22AllStoreText.includes("agent_run_activity_events") && p22AllStoreText.includes("createAgentRunActivityEvent"));
 check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreText.includes("scopedOwnerClause") && p22AllStoreText.includes("owner_user_id") && p22AllStoreText.includes("tenant_shared"));
-check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)") && !adminRouteText.includes("POST("));
+check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)"));
 check("P2.2 route handlers use Next App Router node runtime", [...p22EmployeeRoutes, ...p22AdminRoutes].every((route) => read(path.join(DASHBOARD_API_DIR, route)).includes('runtime = "nodejs"')));
 check("P2.2 route handlers do not expose raw SQL to employees", !/\b(select|insert into|update|delete from)\b/i.test(completionRouteText));
+
+section("CE21 Manager account system");
+check("manager schemas define cost limits and approval decisions", ["AdminCostLimitPatchRequestSchema", "AdminCostApprovalDecisionRequestSchema", "AdminCreateOperatorRequestSchema", "estimated_cost_usd"].every((needle) => dashboardSchemasTs.includes(needle)));
+const tenantContextTs = read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts"));
+const sessionHelperTs = read(path.join(DASHBOARD_STORE_DIR, "session.ts"));
+check("tenant context resolves role-scoped session before debug headers", tenantContextTs.includes("cbeSessionFromRequest(request, role)?.userId") && tenantContextTs.includes("expectedRoleFromPath") && tenantContextTs.includes("x-cbe-user-id"));
+check("session helper uses httpOnly-compatible signed role-scoped cookies", ["CBE_SESSION_COOKIE", "CBE_EMPLOYEE_SESSION_COOKIE", "CBE_ADMIN_SESSION_COOKIE", "cbeSessionCookieNameForRole", "createHmac", "timingSafeEqual"].every((needle) => sessionHelperTs.includes(needle)));
+check("auth login resolves RBAC token and sets CBE session cookies", authRouteText.includes("sentura.rbac.users.resolveByToken") && authRouteText.includes("response.cookies.set") && authRouteText.includes("CBE_SESSION_COOKIE") && authRouteText.includes("cbeSessionCookieNameForRole"));
+check("auth login can self-heal the seeded manager preset without raw DB env access", authRouteText.includes("PRESET_MANAGER_LOGIN") && authRouteText.includes("cbe-user-admin-001") && authRouteText.includes('displayName: "孙总"') && authRouteText.includes('password: "1234"') && authRouteText.includes("hashCbePassword"));
+check("manager login page copies employee login layout and submits admin role", managerLoginPageTs.includes('src="/logo-full.svg"') && managerLoginPageTs.includes('placeholder="管理者姓名"') && managerLoginPageTs.includes('cbeRole: "admin"') && managerLoginPageTs.includes("/client-demos/cross-border/admin/employees"));
+check("manager login is enforced by admin session instead of default admin header", managerAdminApiTs.includes("NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim()") && !managerAdminApiTs.includes('?? "cbe-user-admin-001"') && managerAdminApiTs.includes("/client-demos/cross-border/admin/login?next=") && managerAppShellTs.includes("isAdminLoginPath") && managerAppShellTs.includes("/api/client-demos/cross-border/session?role=admin") && managerAppShellTs.includes('body?.user?.cbeRole !== "admin"'));
+check("employee and manager guards use separate role sessions", managerAppShellTs.includes("/api/client-demos/cross-border/session?role=operator") && managerAppShellTs.includes("/api/client-demos/cross-border/session?role=admin") && managerAppShellTs.includes("logout?role="));
+check("admin operator creation writes real CBE name/password profile without gateway dependency", adminRouteText.includes("createLocalOperatorIdentity") && adminRouteText.includes("password_only") && !adminRouteText.includes("sentura.rbac.users.upsert") && p22AllStoreText.includes("upsertAdminOperatorProfile") && p22AllStoreText.includes("password_hash") && p22AllStoreText.includes("operator_name_exists"));
+check("CBE route errors surface plain RPC error messages", read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes('"message" in error') && read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes("record.message"));
+check("admin store exposes manager three-page data functions", ["listAdminOperators", "listAdminHighValueCustomers", "listAdminCosts", "upsertAdminCostLimit", "decideAdminCostApproval"].every((needle) => p22AllStoreText.includes(needle)));
+check("admin routes include write endpoints for operator status, limits, approvals", adminRouteText.includes("PATCH(") && adminRouteText.includes("POST(") && adminRouteText.includes("AdminCostLimitPatchRequestSchema") && adminRouteText.includes("AdminCostApprovalDecisionRequestSchema"));
+check("employee task create paths call budget preflight before agent run insert", ["lead-runs.ts", "screening.ts", "accio.ts"].every((file) => {
+  const text = read(path.join(DASHBOARD_STORE_DIR, file));
+  return /await checkCbeCostBudgetBeforeRun[\s\S]+insertAgentRun/.test(text);
+}));
+check("employee API passes estimated task costs to server", ["estimateLeadTaskCost", "estimateScreeningTaskCost", "estimateMemoryTaskCost", "estimated_cost_usd"].every((needle) => managerEmployeeApiTs.includes(needle)));
+check("AppShell switches employee and manager titles/nav", managerAppShellTs.includes("跨境电商员工操作系统") && managerAppShellTs.includes("跨境电商管理者系统") && managerAppShellTs.includes("员工管理") && managerAppShellTs.includes("高分客户") && managerAppShellTs.includes("成本监控"));
+check("manager UI renders only the requested three pages", managerPageText.includes("员工管理") && managerPageText.includes("高分客户") && managerPageText.includes("成本监控") && managerPageText.includes("完整背调报告"));
+check("manager cost UI separates actual, estimated, and unpriced cost signals", managerPageText.includes("真实成本") && managerPageText.includes("estimated") && managerPageText.includes("未定价调用"));
+check("manager cost amounts are capped at two decimals in UI, schema, and overrun math", [
+  "function money(value: unknown)",
+  "moneyInput",
+  "limit_usd: money(limitInputs",
+  "amount_usd: money(allowanceInputs",
+  "approved_amount_usd: money(approvalInputs",
+].every((needle) => managerPageText.includes(needle)) && dashboardSchemasTs.includes("CbeMoneyUsdSchema") && [
+  "function moneyUsd(",
+  "function moneyUsdText(",
+  "requestedAllowanceUsd = moneyUsd",
+].every((needle) => p22AllStoreText.includes(needle)) && !p22AllStoreText.includes("toFixed(6)"));
 
 section("CE20/P2.3 Employee DB-backed UI migration");
 for (const route of p23EmployeeRoutes) {
@@ -722,6 +805,7 @@ const employeeHomePageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "page.tsx"));
 const employeeCustomersPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx"));
 const employeeMemoryPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "memory/page.tsx"));
 const appShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
+const authLoginPageTs = read(path.join(ROOT, "sentura/dashboard/src/app/auth/login/page.tsx"));
 const p23RouteText = p23EmployeeRoutes.map((route) => read(path.join(DASHBOARD_API_DIR, route))).join("\n");
 const dbInspectionSql = read(CBE_DB_INSPECTION_SQL);
 
@@ -734,7 +818,10 @@ check("P2.3 demo seed fallback is explicit", employeeStoreTs.includes("CBE_USE_D
 check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeHomePageTs.includes(needle)));
 check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb", "refreshDbBackedLists"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
-check("P2.3 notification center uses DB read markers", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && !appShellTs.includes("NOTIFICATION_READ_STORAGE_KEY"));
+check("P2.3 employee header keeps DB task refresh and task notification links", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && appShellTs.includes("employee-messages"));
+check("P2.3 employee and manager notifications use scrollable full message lists", (appShellTs.match(/max-h-80 overflow-y-auto/g)?.length ?? 0) >= 2 && appShellTs.includes("messages.map((item)") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
+check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includes("fetchEmployeeCostBudget") && employeeApiTs.includes("/api/client-demos/cross-border/employee/cost-budget") && read(path.join(DASHBOARD_API_DIR, "employee/cost-budget/route.ts")).includes("getEmployeeCostBudget") && p22AllStoreText.includes("export async function getEmployeeCostBudget") && p22AllStoreText.includes("limitUsd = limitEnabled ? moneyUsd(baseLimitUsd + activeAllowanceUsd) : 0") && p22AllStoreText.includes("if (scopedEvents.length === 0) return null"));
+check("P2.3 employee login uses manager-set name/password session", authLoginPageTs.includes("displayName") && authLoginPageTs.includes("password") && authRouteText.includes("verifyCbePassword") && appShellTs.includes("/api/auth/logout"));
 check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));
 check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
 check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));

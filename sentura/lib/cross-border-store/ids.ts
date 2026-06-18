@@ -9,7 +9,8 @@ export const CBE_SEED_USERS = {
   admin: {
     id: "cbe-user-admin-001",
     profileId: "cbe-profile-admin-001",
-    displayName: "CBE Admin",
+    displayName: "孙总",
+    defaultPassword: "1234",
     role: "customer_admin",
     departmentId: "sales",
     cbeRole: "admin",

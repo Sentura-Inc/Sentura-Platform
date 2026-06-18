@@ -24,6 +24,8 @@ export type ScreeningEvidenceLayer =
   | "financial_public_filing"
   | "accio_behavior";
 
+export const MAX_LEAD_TARGET_COUNT = 20;
+
 export interface CustomerScoreBlock {
   block: string;
   status: ScreeningEvidenceStatus;
@@ -81,11 +83,77 @@ export interface CustomerListItem {
   normalizedScore?: number;
   scoreTier?: ScoreTier;
   reportId?: string;
+  leadAgentRunId?: string;
+  screeningAgentRunId?: string;
   latestAgentRunId?: string;
   sourceUrls: string[];
   evidenceSummary: string;
   recommendedAction?: string;
   screeningReport?: CustomerScreeningReport;
+}
+
+export function coverageGapReasonForBlock(block: string, status?: ScreeningEvidenceStatus) {
+  if (status === "disabled_by_budget") {
+    return "付费贸易、邮箱或外部资料源未启用，未调用该付费证据。";
+  }
+  if (status === "unavailable_api") {
+    return "已尝试调用该证据源，但 API 未配置、不可用或返回不可用结果。";
+  }
+  if (status === "not_applicable") {
+    return "该客户当前没有适用的数据输入，不参与本次评分。";
+  }
+  if (status === "pending_human_input") {
+    return "员工报告未返回该维度的可核验证据，需要人工补充或重新背调。";
+  }
+  switch (block) {
+    case "legal_identity":
+      return "公司注册信息或官方注册页未搜索到可核验主体记录。";
+    case "domain_email":
+      return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够证据。";
+    case "public_footprint":
+      return "公开网页搜索未找到足够业务足迹或可信来源。";
+    case "business_fit":
+      return "公开页面未确认产品、渠道或买家画像匹配。";
+    case "trade_financial":
+      return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
+    case "conversation_behavior":
+      return "没有 Accio 或销售对话记录可用于行为判断。";
+    default:
+      return "该证据源未返回可用结果；员工报告未提供更具体原因。";
+  }
+}
+
+export function coverageGapActionForBlock(block: string, status?: ScreeningEvidenceStatus) {
+  if (status === "disabled_by_budget") return "开启对应付费来源或提高单次预算后重新背调。";
+  if (status === "unavailable_api") return "检查 API key、额度和供应商可用性后重试。";
+  if (status === "not_applicable") return "如后续产生 Accio 对话或销售记录，可再补充行为证据。";
+  switch (block) {
+    case "legal_identity":
+      return "补充公司注册号、法定名称或官方注册地区后重新查询。";
+    case "domain_email":
+      return "补充官网域名、业务邮箱或联系人邮箱后重新验证。";
+    case "trade_financial":
+      return "开启贸易/财务数据源，或补充进口商名称、注册号后重新搜索。";
+    case "conversation_behavior":
+      return "导入 Accio 聊天记录或销售跟进记录后再评估。";
+    default:
+      return undefined;
+  }
+}
+
+export function coverageGapsFromScoreBlocks(blocks: CustomerScoreBlock[]): CustomerCoverageGap[] {
+  return blocks
+    .filter((block) => block.status !== "scored")
+    .map((block) => ({
+      block: block.block,
+      reason: block.reason?.trim() || coverageGapReasonForBlock(block.block, block.status),
+      action: coverageGapActionForBlock(block.block, block.status),
+    }));
+}
+
+export function isGenericCoverageGapReason(reason: string | undefined) {
+  const normalized = reason?.trim();
+  return !normalized || normalized === "缺少该维度证据。" || normalized === "缺少该维度证据";
 }
 
 export type MemoryStatus = "not_started" | "running" | "analyzed" | "failed";
@@ -102,6 +170,9 @@ export interface MemoryRecordItem {
   memoryPreviewStatus: "preview_only" | "approved" | "rejected";
   summary: string;
   handoffCompany?: string;
+  supplementCustomerId?: string;
+  supplementCompanyName?: string;
+  supplementSource?: CustomerListItem["source"];
 }
 
 export interface CostBudget {
@@ -272,24 +343,36 @@ export const monthlyCostBudget: CostBudget = {
 };
 
 export const costEstimateAssumptions = {
-  sourceLabel: "按近期真实用量校准",
+  sourceLabel: "官方单价演算",
   leadSourceLabel: "官方价格 + 近期真实用量",
   leadDiscovery: {
-    minimumUsd: 0.18,
-    modelReserveUsd: 0.14,
+    minimumUsd: 0.08,
     openAiGpt55InputPerMillionUsd: 5,
     openAiGpt55CachedInputPerMillionUsd: 0.5,
     openAiGpt55OutputPerMillionUsd: 30,
-    openAiWebSearchCallUsd: 0.01,
+    modelBaseInputTokens: 6000,
+    modelInputTokensPerSearch: 4000,
+    modelInputTokensPerFetchedPage: 600,
+    modelBaseOutputTokens: 1200,
+    modelOutputTokensPerCandidate: 450,
+    promptCacheRatio: 0.35,
     tavilyAdvancedSearchRequestUsd: 0.016,
     retainedCandidateReviewUsd: 0.0015,
-    safetyMultiplier: 1.18,
+    safetyMultiplier: 1.15,
   },
   screening: {
-    minimumUsd: 0.16,
-    modelAndPublicEvidencePerTargetUsd: 0.15,
-    paidEmailValidationPerTargetUsd: 0.03,
-    paidTradeDataPerTargetUsd: 0.1,
+    minimumUsd: 0.05,
+    openAiGpt55InputPerMillionUsd: 5,
+    openAiGpt55CachedInputPerMillionUsd: 0.5,
+    openAiGpt55OutputPerMillionUsd: 30,
+    modelBaseInputTokens: 4500,
+    modelInputTokensPerTarget: 3800,
+    modelOutputTokensPerTarget: 1500,
+    promptCacheRatio: 0.3,
+    tavilyAdvancedSearchRequestUsd: 0.016,
+    publicSearchRequestsPerTarget: 2,
+    abstractEmailReputationRequestUsd: 17 / 5000,
+    hunterVerificationCreditUsd: 49 / 2000,
   },
   memory: {
     minimumUsd: 0.12,
@@ -444,21 +527,21 @@ export const customerRows: CustomerListItem[] = [
     products: ["screen protector", "phone case"],
     website: "https://tecno-retail.example",
     foundAt: "2026-06-12 11:06",
-    screeningStatus: "insufficient_evidence",
+    screeningStatus: "screened",
     normalizedScore: 61,
     scoreTier: "medium",
     reportId: "screen-tecno-mx-002",
     latestAgentRunId: "run-screen-20260612-1106",
     sourceUrls: ["https://tecno-retail.example/contact"],
     evidenceSummary: "公开页面不足，缺少注册号或可信同域联系人。",
-    recommendedAction: "补充公司注册号或公司邮箱后重新背调。",
+    recommendedAction: "谨慎跟进；补充公司注册号或公司邮箱后提高评分。",
     screeningReport: {
       reportId: "screen-tecno-mx-002",
-      riskTier: "insufficient_evidence",
+      riskTier: "cautious",
       normalizedScore: 61,
       evidenceCoverage: 0.38,
       createdAt: "2026-06-12 11:06",
-      recommendedAction: "补充公司注册号或公司邮箱后重新背调。",
+      recommendedAction: "谨慎跟进；补充公司注册号或公司邮箱后提高评分。",
       scoreBlocks: reportBlocks({
         legal_identity: { status: "pending_human_input", earnedPoints: null, sourceCount: 0, reason: "缺少注册号或可确认法律主体的官方来源。" },
         domain_email: { earnedPoints: 12, summary: "官网可访问，但缺少可信同域联系人。" },
@@ -679,22 +762,40 @@ export function estimateLeadTaskCost({
   const safeProductCount = Math.max(1, productCount);
   const safeBuyerTypeCount = Math.max(1, buyerTypeCount);
   const safeCountryCount = Math.max(1, countryCount);
-  const safeTargetCount = Math.max(1, targetCount);
+  const rawTargetCount = Math.floor(targetCount);
+  const safeTargetCount = Number.isFinite(rawTargetCount)
+    ? Math.min(MAX_LEAD_TARGET_COUNT, Math.max(1, rawTargetCount))
+    : 1;
   const safeMaxResultsPerQuery = Math.max(1, maxResultsPerQuery);
   const queryCount = safeProductCount * safeBuyerTypeCount * safeCountryCount;
   const searchUnits = queryCount * safeMaxResultsPerQuery;
   const assumptions = costEstimateAssumptions.leadDiscovery;
-  const estimatedSearchRequestCount = Math.max(1, Math.min(queryCount, Math.ceil(safeTargetCount / 5)));
+  const expectedRetainedPerSearch = Math.max(1, Math.min(6, Math.ceil(safeMaxResultsPerQuery * 0.35)));
+  const estimatedSearchRequestCount = Math.max(
+    1,
+    Math.min(queryCount, Math.ceil(safeTargetCount / expectedRetainedPerSearch)),
+  );
+  const estimatedFetchedPages = Math.min(searchUnits, estimatedSearchRequestCount * safeMaxResultsPerQuery, safeTargetCount * 3);
   const searchRequestUsd = estimatedSearchRequestCount * assumptions.tavilyAdvancedSearchRequestUsd;
-  const openAiSearchToolReserveUsd = estimatedSearchRequestCount * assumptions.openAiWebSearchCallUsd;
+  const estimatedModelInputTokens =
+    assumptions.modelBaseInputTokens +
+    estimatedSearchRequestCount * assumptions.modelInputTokensPerSearch +
+    estimatedFetchedPages * assumptions.modelInputTokensPerFetchedPage;
+  const cachedInputTokens = Math.round(estimatedModelInputTokens * assumptions.promptCacheRatio);
+  const uncachedInputTokens = estimatedModelInputTokens - cachedInputTokens;
+  const estimatedModelOutputTokens =
+    assumptions.modelBaseOutputTokens + safeTargetCount * assumptions.modelOutputTokensPerCandidate;
+  const modelUsd =
+    (uncachedInputTokens / 1_000_000) * assumptions.openAiGpt55InputPerMillionUsd +
+    (cachedInputTokens / 1_000_000) * assumptions.openAiGpt55CachedInputPerMillionUsd +
+    (estimatedModelOutputTokens / 1_000_000) * assumptions.openAiGpt55OutputPerMillionUsd;
   const retainedCandidateUsd =
     Math.min(safeTargetCount, searchUnits) * assumptions.retainedCandidateReviewUsd;
   const estimatedUsd = Number(
     Math.max(
       assumptions.minimumUsd,
-      (assumptions.modelReserveUsd +
+      (modelUsd +
         searchRequestUsd +
-        openAiSearchToolReserveUsd +
         retainedCandidateUsd) *
         assumptions.safetyMultiplier,
     ).toFixed(2),
@@ -703,7 +804,7 @@ export function estimateLeadTaskCost({
     label: "寻找客户",
     estimatedUsd,
     source: costEstimateAssumptions.leadSourceLabel,
-    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，按近期真实任务只预估约 ${estimatedSearchRequestCount} 次有效搜索/抓取。模型预留 US$${assumptions.modelReserveUsd.toFixed(2)}，搜索工具按官方价格约 US$${(assumptions.tavilyAdvancedSearchRequestUsd + assumptions.openAiWebSearchCallUsd).toFixed(3)}/次，候选整理 US$${assumptions.retainedCandidateReviewUsd.toFixed(4)}/个，再乘 ${assumptions.safetyMultiplier.toFixed(2)} 安全系数；实际账单以完成后的 sentura-cost 记录为准。`,
+    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按 ${estimatedSearchRequestCount} 次 Tavily advanced web_search（US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}/次）、约 ${estimatedFetchedPages} 个公开页面、约 ${estimatedModelInputTokens.toLocaleString("zh-CN")} input tokens（其中 ${cachedInputTokens.toLocaleString("zh-CN")} cached）和 ${estimatedModelOutputTokens.toLocaleString("zh-CN")} output tokens 估算。模型单价按 OpenAI gpt-5.5 标准短上下文 input US$${assumptions.openAiGpt55InputPerMillionUsd}/1M、cached input US$${assumptions.openAiGpt55CachedInputPerMillionUsd}/1M、output US$${assumptions.openAiGpt55OutputPerMillionUsd}/1M；搜索按 Tavily Pay-as-you-go advanced 2 credits × US$0.008/credit。实际账单以完成后的 sentura-cost 记录为准。`,
   };
 }
 
@@ -711,26 +812,46 @@ export function estimateScreeningTaskCost({
   targetCount,
   paidEmailValidation = false,
   paidTradeData = false,
+  maxPaidSpendUsd = 0,
 }: {
   targetCount: number;
   paidEmailValidation?: boolean;
   paidTradeData?: boolean;
+  maxPaidSpendUsd?: number;
 }): TaskEstimate {
   const assumptions = costEstimateAssumptions.screening;
-  const perTarget =
-    assumptions.modelAndPublicEvidencePerTargetUsd +
-    (paidEmailValidation ? assumptions.paidEmailValidationPerTargetUsd : 0) +
-    (paidTradeData ? assumptions.paidTradeDataPerTargetUsd : 0);
-  const estimatedUsd = Number(Math.max(assumptions.minimumUsd, targetCount * perTarget).toFixed(2));
+  const safeTargetCount = Math.max(1, Math.floor(targetCount));
+  const estimatedInputTokens =
+    assumptions.modelBaseInputTokens +
+    safeTargetCount * assumptions.modelInputTokensPerTarget;
+  const cachedInputTokens = Math.round(estimatedInputTokens * assumptions.promptCacheRatio);
+  const uncachedInputTokens = estimatedInputTokens - cachedInputTokens;
+  const estimatedOutputTokens = safeTargetCount * assumptions.modelOutputTokensPerTarget;
+  const modelUsd =
+    (uncachedInputTokens / 1_000_000) * assumptions.openAiGpt55InputPerMillionUsd +
+    (cachedInputTokens / 1_000_000) * assumptions.openAiGpt55CachedInputPerMillionUsd +
+    (estimatedOutputTokens / 1_000_000) * assumptions.openAiGpt55OutputPerMillionUsd;
+  const publicSearchCount = safeTargetCount * assumptions.publicSearchRequestsPerTarget;
+  const publicSearchUsd = publicSearchCount * assumptions.tavilyAdvancedSearchRequestUsd;
+  const emailValidationUsd = paidEmailValidation
+    ? safeTargetCount * (assumptions.abstractEmailReputationRequestUsd + assumptions.hunterVerificationCreditUsd)
+    : 0;
+  const tradeDataReservedUsd = paidTradeData ? Math.max(0, maxPaidSpendUsd) : 0;
+  const estimatedUsd = Number(
+    Math.max(
+      assumptions.minimumUsd,
+      modelUsd + publicSearchUsd + emailValidationUsd + tradeDataReservedUsd,
+    ).toFixed(2),
+  );
   const enabled = [
     paidEmailValidation ? "邮箱验证" : null,
-    paidTradeData ? "贸易数据" : null,
+    paidTradeData ? `贸易数据最多预留 US$${tradeDataReservedUsd.toFixed(2)}` : null,
   ].filter(Boolean);
   return {
-    label: targetCount > 1 ? "批量背调" : "单个背调",
+    label: safeTargetCount > 1 ? "批量背调" : "单个背调",
     estimatedUsd,
     source: costEstimateAssumptions.sourceLabel,
-    details: `${targetCount} 个客户，默认模型 + 公开证据查询约 US$${assumptions.modelAndPublicEvidencePerTargetUsd.toFixed(2)}/个${enabled.length ? `，额外启用 ${enabled.join("、")} 的小额预留` : "，不预留外部付费数据"}。邮箱付费验证只有找到具体邮箱才可能触发；ImportYeti 返回 requestCost=0 时不会形成等额外部账单。`,
+    details: `${safeTargetCount} 个客户：模型约 ${estimatedInputTokens.toLocaleString("zh-CN")} input tokens（${cachedInputTokens.toLocaleString("zh-CN")} cached）+ ${estimatedOutputTokens.toLocaleString("zh-CN")} output tokens；公开网页按 ${publicSearchCount} 次 Tavily advanced web_search × US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)} 估算。模型单价按 OpenAI gpt-5.5 input US$${assumptions.openAiGpt55InputPerMillionUsd}/1M、cached input US$${assumptions.openAiGpt55CachedInputPerMillionUsd}/1M、output US$${assumptions.openAiGpt55OutputPerMillionUsd}/1M。${paidEmailValidation ? `邮箱验证按 Abstract US$${assumptions.abstractEmailReputationRequestUsd.toFixed(4)}/次 + Hunter US$${assumptions.hunterVerificationCreditUsd.toFixed(4)}/credit，约 US$${emailValidationUsd.toFixed(2)}。` : "未启用邮箱付费验证。"}${enabled.length ? ` 已启用：${enabled.join("、")}。` : " 不预留外部付费数据。"}实际账单以任务完成后的 sentura-cost 真实记录为准；ImportYeti 返回 requestCost=0 时不会形成等额外部账单。`,
   };
 }
 

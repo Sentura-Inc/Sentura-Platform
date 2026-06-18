@@ -331,7 +331,7 @@ CBE_MAX_PAID_SPEND_USD=5
 
 - `cbe_intel_trade_record_search` 会估算本次请求成本。
 - 只有 request budget 和全局 budget 都覆盖预估成本时才会调用。
-- 未启用或超预算时返回 `disabled_by_budget` / `unavailable_api`，只影响 `evidence_coverage`，不扣 normalized score。
+- 未启用或超预算时返回 `disabled_by_budget` / `unavailable_api`，只通过 `evidence_coverage` 的 20% 权重影响最终 `normalized_score`，不能当作买家造假或负面质量证据。
 
 ### 5.9 `IMPORTYETI_API_KEY`
 
@@ -587,7 +587,7 @@ openclaw mcp probe cross-border-intel
 - 第一次客户 demo 只启用：LLM key、`BRAVE_API_KEY` 或 `TAVILY_API_KEY`、`COMPANIES_HOUSE_API_KEY`、`SEC_USER_AGENT`。RDAP/DNS 不需要 key。
 - Abstract/Hunter/Volza/ImportYeti/OpenCorporates 只有在客户确认预算后启用。
 - 所有 tool 输出必须保留 `source_url`、`source_type`、`fetched_at`、`confidence`。
-- 没有 key 或超预算时，系统应该报告证据覆盖缺口，不应直接扣买家真实性分。
+- 没有 key 或超预算时，系统应该报告证据覆盖缺口；覆盖率会按权重进入最终分，但不能被解释成买家真实性负面证据。
 - 不发送自动外联邮件，不写外部 CRM，不把 Accio 原始聊天发到外部 channel。
 
 ## 11. 常见问题

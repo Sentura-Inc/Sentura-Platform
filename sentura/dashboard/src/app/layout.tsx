@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sentura 跨境电商客户系统",
-  description: "面向跨境电商员工的客户开发与背调工作台",
+  title: "Sentura 跨境电商系统",
+  description: "面向跨境电商员工与管理者的客户开发、背调和成本监控工作台",
 };
 
 export default function RootLayout({

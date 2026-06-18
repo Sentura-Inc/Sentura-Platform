@@ -12,6 +12,7 @@ import type {
   TenantContext,
 } from "./schemas";
 import { CreateLeadRunRequestSchema } from "./schemas";
+import { checkCbeCostBudgetBeforeRun } from "./admin";
 
 export interface LeadRunRecord {
   id: string;
@@ -186,6 +187,13 @@ export async function createLeadRun(
   rawInput: CreateLeadRunRequest,
 ) {
   const input = CreateLeadRunRequestSchema.parse(rawInput);
+  await checkCbeCostBudgetBeforeRun(context, {
+    agentId: "cbe-lead-discovery",
+    taskKind: "lead",
+    targetSummary: input.target_summary,
+    estimatedCostUsd: input.estimated_cost_usd,
+    metadataJson: { query_config: input.query_config, target_count: input.target_count },
+  });
   return withCbeTransaction(async (client) => {
     const agentRun = await insertAgentRun(client, context, {
       agent_id: "cbe-lead-discovery",
@@ -194,6 +202,7 @@ export async function createLeadRun(
       session_key: input.session_key,
       target_summary: input.target_summary,
       current_stage: input.session_key ? "submitted_to_employee" : "queued",
+      cost_usd_estimate: input.estimated_cost_usd,
       visibility_scope: input.visibility_scope,
       metadata_json: { query_config: input.query_config },
     });
@@ -381,6 +390,8 @@ export async function saveLeadRunResult(
       metadataJson: {
         lead_run_id: leadRunId,
         saved_leads: candidateRecords.length,
+        saved_customer_ids: candidateRecords.map((candidate) => candidate.id),
+        lead_candidate_ids: candidateRecords.map((candidate) => candidate.id),
         shortage_reason: input.payload.shortage_reason,
       },
     });
@@ -397,7 +408,10 @@ export async function saveLeadRunResult(
       stage: "completed",
       eventType: "lead_run_completed",
       status: "completed",
-      metadataJson: { saved_leads: candidateRecords.length },
+      metadataJson: {
+        saved_leads: candidateRecords.length,
+        saved_customer_ids: candidateRecords.map((candidate) => candidate.id),
+      },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-lead-discovery",
