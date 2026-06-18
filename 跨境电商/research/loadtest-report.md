@@ -336,3 +336,30 @@ TRACK=B IY_CAP=20 HUNTER_CAP=20 ABS_CAP=20 OPENCLAW_DIR=/root/sentura/openclaw O
 tail -f /root/loadmon.log
 ```
 合格判据:成功率 100%,无 agent_timeout,无大量 429(出现 429 时应观察到 fallback 切换而非 Main lane 30min 挂起),gwRSS 不逼近宿主上限,容器内存不触 OOM-kill。
+
+---
+
+# 第十一章 — 两员工补测轮(cbe-accio-memory + cbe-lead-discovery,2026-06-19)
+
+> 第八~十章只覆盖 **cbe-buyer-screening**。本章补齐另外两个员工。**完整独立报告见 [two-agent-round-report.md](two-agent-round-report.md)**,此处留摘要。
+
+**范围**:accio-memory(Accio 聊天→结构化摘要,零外部 API、只读记忆)、lead-discovery(NL brief→web_search 找买家→去重→LeadCandidate,仅 Tavily+免费 RDAP/DNS)。三层:L1 功能 / L2 handoff 链路 / L3 最高强度压测。新脚手架 `scripts/cbe-{lib,agent-functional,agent-stress,handoff-e2e,gen-fixtures}.mjs`(AGENT-env)。
+
+**L1 功能**:accio 核心全绿(A1A2A8 18/18、A3 不编价、malformed emptyconv 硬停/badfields 报错)+ **LanceDB 前后 0 文件(只读零写入铁证)**;lead L4-L8 全绿(去重完美、增强只开 2 工具、guardrail 拒绝、缺货诚实)。
+
+**L2 handoff**:确认非运行时跨员工调用(两发送方结构性禁 `sessions_send/spawn/gateway`,negative-assert 通过)=产物式剪贴板交接。**发现+修 handoff 数据丢失 bug**:背调仪表盘 `buildScreeningPayload` 只解 `{leads}`/裸数组 → accio `{targets}` + lead 完整信封被**静默吞空**;改 `unwrapTargets` 接 4 形状,E2E 0→2 全过。
+
+**L3 拆护盾压测**(逐档抬 maxConcurrent):
+
+| maxConcurrent | 成功率 | 吞吐 | gwRSS | 真 429 | 跨会话串扰 |
+|---|---|---|---|---|---|
+| 8 | 95% | 4.4/min | 1366M | 0 | 0 |
+| 24 | 99% | 12.7/min | 1549M | 0 | 0 |
+| 32 | 98% | 13.9/min | 1931M | 0 | 0 |
+| 48 | **10%(崩)** | — | 触 1.5G 阈值 | 0 | 0 |
+
+结论:**拐点 32↔48,生产安全并发 ≈32,吞吐 ~14/min 封顶(DeepSeek 单 turn 延迟决定)**;**DeepSeek 付费档全程 0 真 429 → 这盒逼不出 provider 429**(网关 `rss_threshold` 1.5G 默认值+延迟先到顶,而宿主 14G 空闲 load<1 → **天花板是 OpenClaw 软配置非硬件**,调高 rssThreshold 可解锁);**跨会话串扰 8→48 档全 0**(每会话 nonce 全扫,隔离铁证);marker 存活 ~90% accio/~95-100% lead。
+
+**DeepSeek 运维事件**:测试期同事额度耗尽→真实 `402`→**fallback 组织性触发、qwen 接住 40 次(史上首次非注入实证)**;用户充 $20+换新 key 后**网关仍 402**,抓包+`secrets audit` 定位根因=`agents/main/agent/auth-profiles.json` 明文旧 key 优先级压过 .env/apiKey(cbe 员工继承 main profile),改该文件 key→恢复(e2e 191s→64s、0 billing)。
+
+**修复**:F-handoff(`screening/page.tsx` unwrapTargets,commit `3665947f`);F-accio-2/F-lead-2 marker 非法 JSON → accio/lead 仪表盘解析器加 `parseJsonArrayTolerant` 逐元素抢救 + buildEmployeePrompt 严格 JSON 指令(commit `93288e7d`);auth-profiles key(服务器)。**建议**:调高 rssThreshold、大 accio 导出首选 glm-4.6(200K,规避 qwen context-overflow)、auth-profiles key 迁 SecretRef。CE14.1~CE14.x。

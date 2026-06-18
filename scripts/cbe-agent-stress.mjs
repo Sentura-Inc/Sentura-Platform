@@ -31,23 +31,41 @@ const ACCIO_AGENT = "cbe-accio-memory", LEAD_AGENT = "cbe-lead-discovery";
 const accioProviderOf = { cbe_intel_parse_accio_chat: "accio_parse", cbe_intel_summarize_accio_chat: "accio_summary", memory_search: "memory_search", memory_get: "memory_get" };
 const leadProviderOf = { web_search: "tavily", web_fetch: "web_fetch", cbe_intel_domain_rdap_lookup: "rdap", cbe_intel_email_domain_check: "dns" };
 
-// accio fixture mix — golden (cheap, marker-survival sampling) + token-heavy exports (host-RSS + token bomb)
-const ACCIO_MIX = [
-  { f: "accio-chat-records.sample.json", w: 0.55 },
-  { f: "generated/accio-20conv.json", w: 0.25 },
-  { f: "generated/accio-50conv.json", w: 0.20 },
-];
+// accio fixture mix, selectable via ACCIO_MODE:
+//   fast  = golden 3-conv only (fast turns → best for piling up concurrent DeepSeek calls / 429-forcing)
+//   mixed = golden + 20/50-conv (token variety)
+//   heavy = 50/120-conv token bomb (host-RSS + large-export latency axis; needs a high WAIT_MS)
+const ACCIO_MIXES = {
+  fast: [{ f: "accio-chat-records.sample.json", w: 1.0 }],
+  mixed: [{ f: "accio-chat-records.sample.json", w: 0.55 }, { f: "generated/accio-20conv.json", w: 0.25 }, { f: "generated/accio-50conv.json", w: 0.20 }],
+  heavy: [{ f: "generated/accio-50conv.json", w: 0.5 }, { f: "generated/accio-120conv.json", w: 0.5 }],
+};
+const ACCIO_MIX = ACCIO_MIXES[process.env.ACCIO_MODE || "fast"] || ACCIO_MIXES.fast;
 function pickAccio(idx) { const r = (idx * 0.61803398875) % 1; let a = 0; for (const m of ACCIO_MIX) { a += m.w; if (r < a) return m.f; } return ACCIO_MIX[0].f; }
 const LEAD_BRIEFS = [
   "为英国(GB)找 5 个手机壳/钢化膜下游 B2B 买家(零售/电商/维修连锁),排除批发商/工厂/目录/社媒,给公司名+官网+来源URL。",
   "为美国(US)找 5 个 USB-C 充电器下游 B2B 买家(电商零售),排除市场页/工厂,给公司名+官网+来源URL。",
   "为德国(DE)找 5 个手机配件下游 B2B 买家(零售),只要公司官网,排除目录站。",
 ];
+// VERBATIM production prompt (dashboard buildEmployeePrompt) + a NONCE tag for the bleed check —
+// using the real prompt so marker-survival is measured on the production path, not a paraphrase.
 const accioPrompt = (json, nonce) =>
 `[CBE Accio Memory Employee Task] (压测标记 NONCE=${nonce})
 
 请处理以下 Alibaba Accio JSON，严格按 \`跨境电商/DESIGN.md\` Milestone 6 输出报告。
-要求：先调用 Accio parser 验证并报告 conversation_count；再调用 Accio summarizer 为每条 conversation 生成 AccioChatSummary(缺失字段基于原文补齐，不要编造价格/数量)；只生成 memory_write_preview，不要声称已写入长期记忆；生成 screening_handoff_target，source 必须是 "accio_memory"；最后用 ${A_START} 和 ${A_END} 标记包住 JSON 数组供 Dashboard 解析。
+
+要求：
+- 只依据下方 JSON 的 buyer/messages/attachments 分析，不要使用示例模板、文件名或 Dashboard 预设内容补全事实。
+- 先调用 Accio parser 工具验证 JSON，并总结 conversation_count。
+- 再调用 Accio summarizer 工具，为每条 conversation 生成一个 AccioChatSummary；如工具遗漏了 messages 中明确出现的字段，请基于原文补齐。
+- 提取公司信息、产品、型号、数量、月潜量、目标/报价/最佳价格、包装加价、付款/物流/证书条款、next_actions、behavior_signals。
+- 只生成 memory_write_preview，不要声称已经写入长期记忆。
+- 生成 screening_handoff_target，source 必须是 "accio_memory"。
+- 最后用以下标记包住 JSON 数组，供 Dashboard 解析：
+${A_START}
+[...]
+${A_END}
+
 Accio JSON:
 ${json}`;
 const leadJsonTail = `请用简体中文输出操作员摘要,并在最后用 ${Lc_START} 和 ${Lc_END} 标记(不要放进代码块)包一段 leads JSON 数组,每个候选含 lead_id、company_name、country、buyer_type、matched_products、source_urls、discovery_evidence、dedupe_key、duplicate_status、created_at。`;
