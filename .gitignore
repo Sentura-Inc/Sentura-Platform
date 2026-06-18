@@ -39,3 +39,6 @@ openclaw/pnpm-lock.yaml
 # root — bare `memory/` would also match `docs/memory/`, which is the
 # team-shared session log and MUST stay tracked.
 /memory/
+
+# cbe synthesized stress fixtures (reproducible via scripts/cbe-gen-fixtures.mjs)
+跨境电商/fixtures/generated/

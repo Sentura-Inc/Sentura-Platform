@@ -650,11 +650,21 @@ export default function CrossBorderScreeningPage() {
       };
     } else {
       const parsed = JSON.parse(batchJson || "[]") as unknown;
-      const targets = Array.isArray(parsed)
-        ? parsed
-        : parsed && typeof parsed === "object" && Array.isArray((parsed as { leads?: unknown }).leads)
-          ? (parsed as { leads: unknown[] }).leads
-          : [];
+      // Accept every shape the senders actually emit: a bare array, { leads: [...] } (lead-discovery
+      // clipboard), { targets: [...] } (accio-memory clipboard), and the full handoff envelope
+      // { handoff_id, ..., targets | leads: [...] } (lead-discovery agent package). Previously only a
+      // bare array or { leads } were unwrapped, so a pasted accio { targets } batch or the lead
+      // envelope silently parsed to an EMPTY screening run (no error, no leads) — a handoff data-loss bug.
+      const unwrapTargets = (value: unknown): unknown[] => {
+        if (Array.isArray(value)) return value;
+        if (value && typeof value === "object") {
+          const rec = value as { leads?: unknown; targets?: unknown };
+          if (Array.isArray(rec.leads)) return rec.leads;
+          if (Array.isArray(rec.targets)) return rec.targets;
+        }
+        return [];
+      };
+      const targets = unwrapTargets(parsed);
       payload = { mode: "batch", targets };
     }
     payload.enable_paid_email_validation = enablePaidEmailValidation;
