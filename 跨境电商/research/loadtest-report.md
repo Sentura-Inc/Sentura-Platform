@@ -263,22 +263,44 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 
 ---
 
-## 十、待办 / 后续
+## 十、P0-2 DeepSeek 429 fallback 验证(Tier 0,2026-06-17)
+
+> 当初审计的 P0-2 给三个 cbe 员工配了 `model:{primary:deepseek/deepseek-chat, fallbacks:[qwen/qwen3.5-plus, moonshot/kimi-k2.6]}`,目的是"一次 DeepSeek 429 别冻死整个平台 30 分钟"。但所有压测里 DeepSeek 从没被压出硬 429(maxConcurrent=8 是天然护盾),这条 fallback **写了从没真触发过**。Tier 0 用**故障注入**把它逼出来验。
+
+### 怎么测的(故障注入,可控可恢复)
+读源码先确认机制是 **OpenClaw 原生**(`src/agents/model-fallback.ts`:429→`reason:rate_limit`→逐请求走链,带 `model-fallback/decision` 日志)。然后:写个 15 行本地 mock(对 `/chat/completions` 一律返回 HTTP 429),把 `models.providers.deepseek.baseUrl` 临时指向 mock,重启网关,跑任务,看 fallback 行为;跑后还原 baseUrl + 重启 + 验真 DeepSeek 恢复。
+
+### 结果:机制活、429 不冻平台 ✅,但 fallback 现在**接不上**(provider 未注册)
+- **单任务**:DeepSeek 调用命中 mock → 429,gateway.log 完整记录逐级 failover:
+  `failover decision: decision=fallback_model reason=rate_limit from=deepseek/deepseek-chat rawError=429`
+  → `candidate_failed candidate=deepseek/deepseek-chat reason=rate_limit next=qwen/qwen3.5-plus`
+  → `candidate_failed candidate=qwen/qwen3.5-plus reason=model_not_found next=moonshot/kimi-k2.6`
+  → `candidate_failed candidate=moonshot/kimi-k2.6 reason=model_not_found next=none`
+  → `FallbackSummaryError: All models failed (3)`。**全程 8.13s 失败,不是 30 分钟挂起。** ✅
+- **并发**:4 任务 C=4 同时撞 429 → **8s 全部快速失败、互不阻塞,Main lane 没冻**。✅ 坐实"一次 429 不会冻死平台"。
+- **但**:Qwen/Kimi 候选返回 **`model_not_found`** —— 不只是缺 key,是 **`models.providers` 里压根没声明 `qwen`/`moonshot` 这两个 provider 和它们的 model**(`.env` 也只有 `DEEPSEEK_API_KEY`)。错误信息直接给了修法:`Add { "id": "qwen3.5-plus" } to models.providers["qwen"].models[]` + 注册 moonshot + 配 key。
+
+### 结论
+**P0-2 的核心保证成立**:DeepSeek 429 会在 ~8s 内逐级 fallback、不会自挂起冻平台(原审计最怕的就是这个)。**但 fallback 现在是"空网"**:真出 DeepSeek 故障,Qwen/Kimi 接不上(provider 未注册 + 无 key),任务还是会失败——只是"快速失败"而非"冻死"。**要真能用 Qwen/Kimi 顶上(Tier 1),需要:① 在 `models.providers` 注册 qwen + moonshot provider 和 model;② 配 DashScope + Moonshot 的 key;③ 再注入 429 验证 Qwen 真接上来出答案。** 已还原(`deepseek.baseUrl=https://api.deepseek.com`,重启后真任务 ok),平台无残留。
+
+---
+
+## 十一、待办 / 后续
 
 - [x] **修 SEC 大陆不可用(发现①)— 已完成 2026-06-17**:根因 = IPv4-only 主机 + undici Happy-Eyeballs 抢 IPv6;修复 = MCP 进程启动 `setDefaultAutoSelectFamily(false)`+`setDefaultResultOrder("ipv4first")`。验证 SEC 0/45 → 9/9 `found`。
 - 次要优化(可选):`sec_lookup` 返回的 `submissions` 整块 ~32KB,轨迹存储会截断(不影响员工用前部 status/cik/sic,但压测 parser 需正则兜底取 status——已修 `cbe-fulltool-stress.mjs`/`cbe-functional-test.mjs`)。后续可让工具只回最近 N 条 filings 瘦身。
 - [x] **修 Abstract 并发限流(发现②)— 已完成 2026-06-17**:`tools.ts` 通用 `fetchJson` 加 429/503 重试 + 指数退避 + 抖动;验证 Abstract C=3 时 2/9 → 6/6。
 - [x] **修 CH 命中率(发现③)— 已完成 2026-06-17**:根因是工具 bug(`company_profile` CH 分支多要求 `country==="GB"`,员工常省略 country),非"没拿到号";去掉冗余 `country` 闸,CH 2/5 → 4/4。**不需要配 OpenCorporates key**。
 - 三个 Phase 2 工具级发现(SEC / Abstract / CH)**全部已修复并验证**;剩 ImportYeti 偶发 1/8 未命中(无海关记录或瞬时,非系统性,未追)。
-- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
+- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。P0-2 fallback 机制已 **Tier 0 验证**(见第十章:429→8s 逐级 fallback、不冻平台 ✅);**Tier 1(真用 Qwen/Kimi 顶上)待办**:`models.providers` 注册 qwen+moonshot provider/model + 配 DashScope/Moonshot key + 再注入 429 验真接上。
 
 - **Phase 2 终极压测(配额感知双轨)**:Track A 免费源高并发测吞吐天花板 / Track B 全 8 工具小批量(N=10~20,低并发,预算熔断 ImportYeti≤30)测全链路真成本。驱动 `scripts/cbe-fulltool-stress.mjs`(待写,复用功能验证驱动 + 配额预检 + 调用计数器)。
 - 订正 `server-location-llm-decision-report.md` 第 0 章表:Hunter/ImportYeti 已从"付费/缺口"变"配齐可用"。
-- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。在真实超高并发(maxConcurrent≫16,多 key)下实测 P0-2 fallback 仍是未覆盖项。
+- **其余 P1 残留**(与本压测无关,后续):P1-1 真 resolver 测试、P1-2/3 标记解析 E2E + 遵守率基线、adapter LIVE/DEGRADED 记录、国产模型文件 git commit、meta-agent 也加 fallback。P0-2 fallback 机制已 **Tier 0 验证**(见第十章:429→8s 逐级 fallback、不冻平台 ✅);**Tier 1(真用 Qwen/Kimi 顶上)待办**:`models.providers` 注册 qwen+moonshot provider/model + 配 DashScope/Moonshot key + 再注入 429 验真接上。
 
 ---
 
-## 十一、如何复现
+## 十二、如何复现
 
 ```bash
 # 服务器上(loopback,gateway 在跑):
