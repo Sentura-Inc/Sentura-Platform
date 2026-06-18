@@ -256,18 +256,49 @@ function validateExport(raw: unknown): AccioChatExport {
   };
 }
 
+// Best-effort parse of an LLM-emitted JSON array. Plain JSON.parse first; on failure (DeepSeek/
+// fallback models occasionally emit an unescaped quote, an inline annotation like `15000 (5k/model)`,
+// or a trailing comma in ONE element), salvage the balanced top-level {...} objects and parse each
+// independently so one malformed summary doesn't blank the whole dashboard report.
+function parseJsonArrayTolerant(raw: string): unknown[] {
+  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      for (const k of ["summaries", "leads", "targets"]) if (Array.isArray(obj[k])) return obj[k] as unknown[];
+    }
+    return [];
+  } catch {
+    const items: unknown[] = [];
+    let depth = 0, startIdx = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const c = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === "\"") inStr = false;
+        continue;
+      }
+      if (c === "\"") inStr = true;
+      else if (c === "{") { if (depth === 0) startIdx = i; depth += 1; }
+      else if (c === "}") {
+        if (depth > 0) { depth -= 1; if (depth === 0 && startIdx >= 0) { try { items.push(JSON.parse(text.slice(startIdx, i + 1))); } catch { /* drop malformed element */ } startIdx = -1; } }
+      }
+    }
+    return items;
+  }
+}
+
 function extractSummariesFromEmployeeText(text: string): AccioSummary[] | null {
   const start = text.indexOf(SUMMARY_JSON_START);
   const end = text.indexOf(SUMMARY_JSON_END);
   if (start === -1 || end === -1 || end <= start) return null;
   const jsonText = text.slice(start + SUMMARY_JSON_START.length, end).trim();
-  try {
-    const parsed = JSON.parse(jsonText);
-    if (!Array.isArray(parsed)) return null;
-    return parsed.map(normalizeSummary);
-  } catch {
-    return null;
-  }
+  const parsed = parseJsonArrayTolerant(jsonText);
+  if (!parsed.length) return null;
+  return parsed.map(normalizeSummary);
 }
 
 function normalizeSummary(value: unknown): AccioSummary {
@@ -452,6 +483,7 @@ function buildEmployeePrompt(chatExport: AccioChatExport) {
 - 提取公司信息、产品、型号、数量、月潜量、目标/报价/最佳价格、包装加价、付款/物流/证书条款、next_actions、behavior_signals。
 - 只生成 memory_write_preview，不要声称已经写入长期记忆。
 - 生成 screening_handoff_target，source 必须是 "accio_memory"。
+- 标记之间必须是严格合法的 JSON：字符串里的双引号要转义，数值字段只填纯数字（任何换算/区间/备注放进字符串字段如 notes，不要写成 15000 (5000/model) 这种），不要加注释或尾随逗号。
 - 最后用以下标记包住 JSON 数组，供 Dashboard 解析：
 ${SUMMARY_JSON_START}
 [...]

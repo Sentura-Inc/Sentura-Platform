@@ -313,18 +313,48 @@ function normalizeLeadCandidates(value: unknown, runId: string, fallbackQuery: s
     : [];
 }
 
+// Best-effort parse of an LLM-emitted JSON array. Plain JSON.parse first; on failure (the lead
+// employee occasionally emits an unescaped quote inside a Chinese evidence string, etc.), salvage the
+// balanced top-level {...} objects and parse each independently so one malformed lead doesn't blank
+// the whole list (previously a bare JSON.parse threw and lost every lead). Also unwraps { leads | targets }.
+function parseJsonArrayTolerant(raw: string): unknown[] {
+  const text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      for (const k of ["leads", "targets", "summaries"]) if (Array.isArray(obj[k])) return obj[k] as unknown[];
+    }
+    return [];
+  } catch {
+    const items: unknown[] = [];
+    let depth = 0, startIdx = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const c = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === "\"") inStr = false;
+        continue;
+      }
+      if (c === "\"") inStr = true;
+      else if (c === "{") { if (depth === 0) startIdx = i; depth += 1; }
+      else if (c === "}") {
+        if (depth > 0) { depth -= 1; if (depth === 0 && startIdx >= 0) { try { items.push(JSON.parse(text.slice(startIdx, i + 1))); } catch { /* drop malformed element */ } startIdx = -1; } }
+      }
+    }
+    return items;
+  }
+}
+
 function extractLeadsFromEmployeeText(text: string, runId: string, fallbackQuery: string): LeadCandidate[] {
   const start = text.indexOf(LEADS_JSON_START);
   const end = text.indexOf(LEADS_JSON_END);
   if (start === -1 || end === -1 || end <= start) return [];
   const raw = text.slice(start + LEADS_JSON_START.length, end).trim();
   if (!raw) return [];
-  const parsed = JSON.parse(raw) as unknown;
-  const leads = Array.isArray(parsed)
-    ? parsed
-    : parsed && typeof parsed === "object" && Array.isArray((parsed as { leads?: unknown }).leads)
-      ? (parsed as { leads: unknown[] }).leads
-      : [];
+  const leads = parseJsonArrayTolerant(raw);
   return normalizeLeadCandidates(leads, runId, fallbackQuery);
 }
 
@@ -538,7 +568,8 @@ ${JSON.stringify(runInputs, null, 2)}
 
 输出要求：
 - 先给简短中文结论。
-- 然后必须输出可被 Dashboard 解析的 JSON，放在以下两个标记之间，不要用 Markdown 代码块：
+- 然后必须输出可被 Dashboard 解析的 JSON，放在以下两个标记之间，不要用 Markdown 代码块。
+- 标记之间必须是严格合法的 JSON：字符串里的双引号必须转义（中文描述里尤其注意），不要加注释或尾随逗号，每个候选都是独立合法对象。duplicate_status 只能是 new / possible_duplicate / duplicate 之一。
 ${LEADS_JSON_START}
 {
   "run_id": "${runInputs.run_id}",
