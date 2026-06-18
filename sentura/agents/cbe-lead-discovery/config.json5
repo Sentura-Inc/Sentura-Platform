@@ -21,10 +21,10 @@
           "deepseek/deepseek-chat": {
             agentRuntime: { id: "openclaw" },
           },
-          "qwen/qwen3.5-plus": {
+          "qwen/qwen-plus": {
             agentRuntime: { id: "openclaw" },
           },
-          "moonshot/kimi-k2.6": {
+          "glm/glm-4.6": {
             agentRuntime: { id: "openclaw" },
           },
         },

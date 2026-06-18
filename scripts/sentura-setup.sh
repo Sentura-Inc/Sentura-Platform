@@ -347,7 +347,7 @@ const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
 // SENTURA_CBE_AGENT_MODEL flips their primary (e.g. 'deepseek/deepseek-chat')
 // at install time without editing source configs.
 const cbePreferredModel = process.env.SENTURA_CBE_AGENT_MODEL || preferredModel;
-const cbeDomesticModelRefs = ['deepseek/deepseek-chat', 'qwen/qwen3.5-plus', 'moonshot/kimi-k2.6'];
+const cbeDomesticModelRefs = ['deepseek/deepseek-chat', 'qwen/qwen-plus', 'glm/glm-4.6'];
 const cbeDomesticModelOptions = Object.fromEntries(
   cbeDomesticModelRefs.map((modelRef) => [modelRef, { agentRuntime: { id: 'openclaw' } }]),
 );
@@ -406,6 +406,30 @@ function setupEnvNumber(name, fallback) {
 function envRef(name) {
   return '$' + '{' + name + '}';
 }
+// Declare the cbe agents' domestic fallback providers (Qwen via DashScope, GLM via Zhipu),
+// matching cbeDomesticModelRefs above. These are CUSTOM providers (not in OpenClaw's built-in
+// provider table), which means OpenClaw has no env-key convention for them (getEnvApiKey returns
+// undefined) -- the apiKey MUST be set explicitly. We use an env-ref so the secret stays in
+// ~/.openclaw/.env (DASHSCOPE_API_KEY / GLM_API_KEY) and out of openclaw.json; OpenClaw resolves
+// it at runtime. If a key is absent the env-ref resolves empty and that fallback simply fails
+// auth gracefully (deepseek primary still works) -- same degrade as an unconfigured fallback.
+config.models = config.models || {};
+config.models.providers = config.models.providers || {};
+function cbeModelEntry(id, name, contextWindow, reasoning) {
+  return { id, name, reasoning, input: ['text'], contextWindow, maxTokens: 8192, compat: { maxTokensField: 'max_tokens' }, api: 'openai-completions' };
+}
+config.models.providers.qwen = {
+  baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  api: 'openai-completions',
+  apiKey: envRef('DASHSCOPE_API_KEY'),
+  models: [cbeModelEntry('qwen-plus', 'Qwen Plus', 131072, false)],
+};
+config.models.providers.glm = {
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  api: 'openai-completions',
+  apiKey: envRef('GLM_API_KEY'),
+  models: [cbeModelEntry('glm-4.6', 'GLM-4.6', 200000, true)],
+};
 function buildCrossBorderIntelEnv() {
   const env = {};
   for (const name of [
@@ -446,7 +470,7 @@ function ensurePreferredModelAllowlistEntry(modelRef) {
     if (providerId === 'openai-codex') entry.alias = 'Codex';
     if (providerId === 'deepseek' && modelId === 'deepseek-chat') entry.alias = 'DeepSeek';
     if (providerId === 'qwen') entry.alias = 'Qwen';
-    if (providerId === 'moonshot') entry.alias = 'Kimi';
+    if (providerId === 'glm') entry.alias = 'GLM';
   }
   config.agents.defaults.models[modelRef] = entry;
   if (!existing) {

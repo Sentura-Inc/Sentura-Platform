@@ -293,7 +293,7 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
    - 还原后真任务正常(DeepSeek 主、不 fallback)。
 
 **结论:P0-2 fallback 现在是真网。** DeepSeek 挂 → Qwen 顶;DeepSeek+Qwen 都挂 → GLM 顶;三层都验过真出答案、任务成功,且全程 429 不冻平台。已干净还原,平台无残留。
-> **durability 待办**:本次接线在服务器 `openclaw.json`(runtime)。repo 源(`sentura/agents/cbe-*/config.json5` 的 model 别名列表 + `scripts/sentura-setup.{sh,ps1}` 的 provider 声明/key 接线)仍是旧的 `[qwen3.5-plus, moonshot/kimi-k2.6]` —— **重跑 setup 会把 fallback 打回旧的**。要持久化需更新这几处源(model 别名 → `qwen/qwen-plus`+`glm/glm-4.6`;setup 声明 qwen/glm provider + 从 .env 接 apiKey)。
+> **durability 已落地 ✅**:不只改了服务器 runtime,也回写了 repo 源,**重跑 setup 不再打回旧的**:① `sentura/agents/cbe-*/config.json5`(×3)model 别名 → `qwen/qwen-plus`+`glm/glm-4.6`;② `scripts/sentura-setup.{sh,ps1}` 的 `cbeDomesticModelRefs` 同步改 + **新增声明 `models.providers.qwen`(`dashscope.aliyuncs.com/compatible-mode/v1`)+ `.glm`(`open.bigmodel.cn/api/paas/v4`),apiKey 用 `envRef('DASHSCOPE_API_KEY')`/`envRef('GLM_API_KEY')`**(env-ref,密钥留在 `.env`、不入 openclaw.json;实测 OpenClaw 运行时会解析 provider apiKey 里的 `${}`)+ 别名 Kimi→GLM;③ `scripts/test-cross-border-agents.ts` 断言同步。**关键工程发现**:OpenClaw `getEnvApiKey` 对**自定义 provider**(不在内置硬编码表)返 undefined、无 `<ID>_API_KEY` 大写兜底,所以 qwen/glm 必须显式给 `apiKey`(`env-api-keys.ts:getApiKeyEnvVars`)。
 
 ---
 

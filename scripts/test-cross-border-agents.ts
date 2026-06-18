@@ -163,7 +163,7 @@ check("config uses embedded OpenClaw runtime", config.includes('runtime: { type:
 check("config pins non-main sandbox", config.includes('mode: "non-main"'));
 check("config sets sandbox docker resource caps", config.includes('docker:') && config.includes('pidsLimit'));
 check("config includes OpenClaw agentRuntime pin", config.includes('agentRuntime: { id: "openclaw" }'));
-check("config lists domestic model options (DeepSeek/Qwen/Kimi)", ["deepseek/deepseek-chat", "qwen/qwen3.5-plus", "moonshot/kimi-k2.6"].every((modelRef) => config.includes(modelRef)));
+check("config lists domestic model options (DeepSeek/Qwen/GLM)", ["deepseek/deepseek-chat", "qwen/qwen-plus", "glm/glm-4.6"].every((modelRef) => config.includes(modelRef)));
 // Regression guard for the minimal-profile tool-strip bug: agent tool policy
 // must use alsoAllow (merges into the profile allowlist) not bare allow (an
 // intersecting filter the minimal profile strips to zero).
@@ -215,7 +215,7 @@ for (const setup of [
   check(`${setup[0]} setup registers webchat binding`, setup[1].includes("Added webchat binding for cbe-lead-discovery"));
   check(`${setup[0]} setup applies MCP sandbox glob`, setup[1].includes("cross-border-intel__*"));
   check(`${setup[0]} setup keeps cron for scheduled runs`, setup[1].includes("'web_search','web_fetch','cron','group:plugins'"));
-  check(`${setup[0]} setup exposes SENTURA_CBE_AGENT_MODEL domestic model switch`, setup[1].includes("SENTURA_CBE_AGENT_MODEL") && ["deepseek/deepseek-chat", "qwen/qwen3.5-plus", "moonshot/kimi-k2.6"].every((modelRef) => setup[1].includes(modelRef)));
+  check(`${setup[0]} setup exposes SENTURA_CBE_AGENT_MODEL domestic model switch`, setup[1].includes("SENTURA_CBE_AGENT_MODEL") && ["deepseek/deepseek-chat", "qwen/qwen-plus", "glm/glm-4.6"].every((modelRef) => setup[1].includes(modelRef)));
 }
 
 section("CE4 lead-discovery UI and diagnostic API route");
@@ -294,7 +294,7 @@ check("screening config uses embedded OpenClaw runtime", screeningConfig.include
 check("screening config pins non-main sandbox", screeningConfig.includes('mode: "non-main"'));
 check("screening config sets sandbox docker resource caps", screeningConfig.includes('docker:') && screeningConfig.includes('pidsLimit'));
 check("screening config includes OpenClaw agentRuntime pin", screeningConfig.includes('agentRuntime: { id: "openclaw" }'));
-check("screening config lists domestic model options (DeepSeek/Qwen/Kimi)", ["deepseek/deepseek-chat", "qwen/qwen3.5-plus", "moonshot/kimi-k2.6"].every((modelRef) => screeningConfig.includes(modelRef)));
+check("screening config lists domestic model options (DeepSeek/Qwen/GLM)", ["deepseek/deepseek-chat", "qwen/qwen-plus", "glm/glm-4.6"].every((modelRef) => screeningConfig.includes(modelRef)));
 check("screening config uses tools.alsoAllow not bare allow", screeningConfig.includes("alsoAllow:") && !/\n\s*allow:\s*\[/.test(screeningConfig));
 for (const tool of ['"web_search"', '"web_fetch"', '"memory_search"', '"memory_get"', '"group:plugins"']) {
   check(`screening allowlist includes ${tool}`, screeningConfig.includes(tool));
@@ -404,7 +404,7 @@ check("accio config uses embedded OpenClaw runtime", accioConfig.includes('runti
 check("accio config pins non-main sandbox", accioConfig.includes('mode: "non-main"'));
 check("accio config sets sandbox docker resource caps", accioConfig.includes('docker:') && accioConfig.includes('pidsLimit'));
 check("accio config includes OpenClaw agentRuntime pin", accioConfig.includes('agentRuntime: { id: "openclaw" }'));
-check("accio config lists domestic model options (DeepSeek/Qwen/Kimi)", ["deepseek/deepseek-chat", "qwen/qwen3.5-plus", "moonshot/kimi-k2.6"].every((modelRef) => accioConfig.includes(modelRef)));
+check("accio config lists domestic model options (DeepSeek/Qwen/GLM)", ["deepseek/deepseek-chat", "qwen/qwen-plus", "glm/glm-4.6"].every((modelRef) => accioConfig.includes(modelRef)));
 check("accio config uses tools.alsoAllow not bare allow", accioConfig.includes("alsoAllow:") && !/\n\s*allow:\s*\[/.test(accioConfig));
 for (const tool of ['"memory_search"', '"memory_get"', '"group:plugins"']) {
   check(`accio allowlist includes ${tool}`, accioConfig.includes(tool));
