@@ -281,7 +281,19 @@ Sweep 1/2/3 测的是**吞吐**(免费源 RDAP/DNS/SEC)。配齐 8 个真实 key
 - **但**:Qwen/Kimi 候选返回 **`model_not_found`** —— 不只是缺 key,是 **`models.providers` 里压根没声明 `qwen`/`moonshot` 这两个 provider 和它们的 model**(`.env` 也只有 `DEEPSEEK_API_KEY`)。错误信息直接给了修法:`Add { "id": "qwen3.5-plus" } to models.providers["qwen"].models[]` + 注册 moonshot + 配 key。
 
 ### 结论
-**P0-2 的核心保证成立**:DeepSeek 429 会在 ~8s 内逐级 fallback、不会自挂起冻平台(原审计最怕的就是这个)。**但 fallback 现在是"空网"**:真出 DeepSeek 故障,Qwen/Kimi 接不上(provider 未注册 + 无 key),任务还是会失败——只是"快速失败"而非"冻死"。**要真能用 Qwen/Kimi 顶上(Tier 1),需要:① 在 `models.providers` 注册 qwen + moonshot provider 和 model;② 配 DashScope + Moonshot 的 key;③ 再注入 429 验证 Qwen 真接上来出答案。** 已还原(`deepseek.baseUrl=https://api.deepseek.com`,重启后真任务 ok),平台无残留。
+**P0-2 的核心保证成立**:DeepSeek 429 会在 ~8s 内逐级 fallback、不会自挂起冻平台(原审计最怕的就是这个)。**Tier 0 时 fallback 还是"空网"**(provider 未注册 + 无 key),任务快速失败而非接住。
+
+### Tier 1 —— 把空网补成真网(已完成 ✅ 2026-06-17)
+用户改用 **GLM(智谱)+ 千问(DashScope)** 做两条 fallback(都是大陆同区、延迟低)。
+1. **连通性**:curl 实测 `qwen-plus` HTTP 200 / **0.42s**、`glm-4.6` HTTP 200(`/api/paas/v4` 路径正确,没踩 /v1 坑)。
+2. **接线**:在 `models.providers` 声明 `qwen`(`dashscope.aliyuncs.com/compatible-mode/v1`,model `qwen-plus`)+ `glm`(`open.bigmodel.cn/api/paas/v4`,model `glm-4.6`),key 用**显式 `apiKey` 字段**(OpenClaw 自定义 provider 无 env 约定,`getEnvApiKey` 对未知 provider 返 undefined,只能显式给;值从 `.env` 读、写进服务器 `openclaw.json`,不入仓库)。3 个 cbe 员工 fallback 链改为 `[qwen/qwen-plus, glm/glm-4.6]`。
+3. **端到端验证(再注入 429)**:
+   - DeepSeek 429 → `candidate_succeeded candidate=qwen/qwen-plus`,trajectory `answered by: provider=qwen model=qwen-plus`,**任务 ok** —— **Qwen 真接住了**。
+   - DeepSeek + Qwen 都 429 → `candidate_succeeded candidate=glm/glm-4.6`,**任务 ok** —— **GLM 兜底也真接住了**。
+   - 还原后真任务正常(DeepSeek 主、不 fallback)。
+
+**结论:P0-2 fallback 现在是真网。** DeepSeek 挂 → Qwen 顶;DeepSeek+Qwen 都挂 → GLM 顶;三层都验过真出答案、任务成功,且全程 429 不冻平台。已干净还原,平台无残留。
+> **durability 待办**:本次接线在服务器 `openclaw.json`(runtime)。repo 源(`sentura/agents/cbe-*/config.json5` 的 model 别名列表 + `scripts/sentura-setup.{sh,ps1}` 的 provider 声明/key 接线)仍是旧的 `[qwen3.5-plus, moonshot/kimi-k2.6]` —— **重跑 setup 会把 fallback 打回旧的**。要持久化需更新这几处源(model 别名 → `qwen/qwen-plus`+`glm/glm-4.6`;setup 声明 qwen/glm provider + 从 .env 接 apiKey)。
 
 ---
 
