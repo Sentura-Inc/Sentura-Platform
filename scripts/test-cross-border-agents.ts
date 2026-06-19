@@ -709,6 +709,8 @@ check("employee cost card syncs manager-updated quota from server budget", [
   "getActiveAllowanceForUserPeriod(context, context.userId, period)",
   "remainingUsd: limitEnabled ? moneyUsd(limitUsd - spendUsd) : null",
   "if (scopedEvents.length === 0) return null",
+  'const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]',
+  "period = any($3::text[])",
 ].every((needle) => cbeAdminStore.includes(needle)) && employeeApi.includes("/api/client-demos/cross-border/employee/cost-budget"));
 check("admin employee management supports soft deletion", [
   "deleteAdminOperator",

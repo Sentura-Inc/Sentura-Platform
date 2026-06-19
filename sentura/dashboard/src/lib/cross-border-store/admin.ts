@@ -20,6 +20,8 @@ import type {
 import { listEmployeeCustomers } from "./customers";
 
 const COST_EPSILON_USD = 0.005;
+// Manager and employee cost screens currently expose monthly controls only.
+const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"];
 
 export async function getAdminOverview(context: TenantContext) {
   const result = await queryCbe<{
@@ -1903,6 +1905,7 @@ export async function checkCbeCostBudgetBeforeRun(
       where tenant_id = $1
         and user_id = $2
         and enabled = true
+        and period = any($3::text[])
       order by
         case period
           when 'day' then 0
@@ -1911,7 +1914,7 @@ export async function checkCbeCostBudgetBeforeRun(
           else 3
         end
     `,
-    [context.tenantId, context.userId],
+    [context.tenantId, context.userId, ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS],
   );
   if (limits.rows.length === 0) return { allowed: true as const };
 
