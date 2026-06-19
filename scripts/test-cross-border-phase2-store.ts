@@ -920,6 +920,12 @@ check("employee API passes estimated task costs to server", ["estimateLeadTaskCo
 check("AppShell switches employee and manager titles/nav", managerAppShellTs.includes("跨境电商员工操作系统") && managerAppShellTs.includes("跨境电商管理者系统") && managerAppShellTs.includes("员工管理") && managerAppShellTs.includes("高分客户") && managerAppShellTs.includes("成本监控"));
 check("manager UI renders only the requested three pages", managerPageText.includes("员工管理") && managerPageText.includes("高分客户") && managerPageText.includes("成本监控") && managerPageText.includes("完整背调报告"));
 check("manager cost UI separates actual, estimated, and unpriced cost signals", managerPageText.includes("真实成本") && managerPageText.includes("estimated") && managerPageText.includes("未定价调用"));
+check("manager employee cost details moved from employee management to cost monitoring", [
+  "selectedCostUserId",
+  "fetchAdminOperator",
+  "员工成本明细",
+  "costDetail.costEvents.map",
+].every((needle) => read(path.join(DASHBOARD_ADMIN_DIR, "costs/page.tsx")).includes(needle)) && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("成本明细") && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("costEvents.map"));
 check("manager cost amounts are capped at two decimals in UI, schema, and overrun math", [
   "function money(value: unknown)",
   "moneyInput",

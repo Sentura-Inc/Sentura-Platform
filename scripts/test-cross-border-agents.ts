@@ -719,6 +719,13 @@ check("admin cost amounts are capped at two decimals across UI and store", [
   "function moneyUsdText(",
   "requestedAllowanceUsd = moneyUsd",
 ].every((needle) => cbeAdminStore.includes(needle)) && cbeStoreSchemas.includes("CbeMoneyUsdSchema") && !cbeAdminStore.includes("toFixed(6)"));
+check("admin employee cost details live under cost monitoring", [
+  "fetchAdminOperator",
+  "selectedCostUserId",
+  "员工成本明细",
+  "costDetail.costEvents.map",
+  "与成本监控汇总使用同一员工和账本范围",
+].every((needle) => adminCostsPage.includes(needle)) && !adminEmployeesPage.includes("成本明细") && !adminEmployeesPage.includes("costEvents.map"));
 check("employee cost card syncs manager-updated quota from server budget", [
   "fetchEmployeeCostBudget",
   "costBudget.limitUsd",

@@ -63,12 +63,6 @@ function usd(value: unknown) {
   return `US$${money(value).toFixed(2)}`;
 }
 
-function costAmount(value: unknown, status: unknown) {
-  const statusText = String(status ?? "").toLowerCase();
-  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "未折算";
-  return usd(value);
-}
-
 export default function AdminEmployeesPage() {
   const [range, setRange] = usePersistentUiState<RangeKey>(
     ADMIN_EMPLOYEE_RANGE_STORAGE_KEY,
@@ -87,7 +81,6 @@ export default function AdminEmployeesPage() {
     profile: AdminOperatorRow | null;
     customers: AdminCustomerRow[];
     workload: Record<string, unknown>[];
-    costEvents: Record<string, unknown>[];
   } | null>(null);
   const [form, setForm] = useState({
     displayName: "",
@@ -125,7 +118,8 @@ export default function AdminEmployeesPage() {
   }
 
   useEffect(() => {
-    void refresh();
+    const initialLoad = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, []);
 
   async function openDetail(id: string) {
@@ -423,7 +417,7 @@ export default function AdminEmployeesPage() {
         <DialogContent className="max-h-[88vh] w-[96vw] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[1280px]">
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{detail?.profile?.display_name ?? "员工详情"}</DialogTitle>
-            <DialogDescription>完整获客与背调列表、报告和成本事件。</DialogDescription>
+            <DialogDescription>完整获客与背调列表、报告和员工状态。</DialogDescription>
           </DialogHeader>
           <ScrollArea className="min-h-0 px-5 pb-5">
             {!detail ? (
@@ -437,25 +431,6 @@ export default function AdminEmployeesPage() {
                   <h3 className="text-sm font-semibold">获客与背调列表</h3>
                   <div className="mt-2">
                     <AdminCustomerListTable customers={detail.customers} />
-                  </div>
-                </section>
-
-                <section>
-                  <h3 className="text-sm font-semibold">成本明细</h3>
-                  <div className="mt-2 space-y-2">
-                    {detail.costEvents.map((event, index) => (
-                      <div key={`${String(event.agent_run_id)}-${index}`} className="rounded-md border p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">{String(event.task_kind ?? "-")}</Badge>
-                          <span className="font-medium">{String(event.provider ?? event.agent_id ?? "-")}</span>
-                          <span className="text-muted-foreground">{String(event.session_key ?? "")}</span>
-                        </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          真实成本 {costAmount(event.actual_cost_usd, event.ledger_status)} · 估算 {usd(event.cost_usd_estimate)} · {String(event.ledger_status ?? event.status ?? "-")}
-                        </div>
-                      </div>
-                    ))}
-                    {detail.costEvents.length === 0 ? <p className="text-sm text-muted-foreground">暂无成本明细。</p> : null}
                   </div>
                 </section>
               </div>

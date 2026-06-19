@@ -8,6 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
   Table,
   TableBody,
   TableCell,
@@ -17,11 +25,13 @@ import {
 } from "@/components/ui/table";
 import {
   decideCostApproval,
+  fetchAdminOperator,
   fetchAdminCosts,
   updateAdminCostAllowance,
   updateAdminCostLimit,
   type AdminApprovalRow,
   type AdminCostRow,
+  type AdminOperatorRow,
 } from "../_data/admin-api";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
@@ -57,6 +67,12 @@ function moneyInput(value: unknown) {
   return money(value).toFixed(2);
 }
 
+function costAmount(value: unknown, status: unknown) {
+  const statusText = String(status ?? "").toLowerCase();
+  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "未折算";
+  return usd(value);
+}
+
 function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -84,6 +100,11 @@ function AdminCostsContent() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dismissedHighlights, setDismissedHighlights] = useState<Set<string>>(() => new Set());
+  const [selectedCostUserId, setSelectedCostUserId] = useState<string | null>(null);
+  const [costDetail, setCostDetail] = useState<{
+    profile: AdminOperatorRow | null;
+    costEvents: Record<string, unknown>[];
+  } | null>(null);
 
   const highlightedApprovalId = searchParams.get("highlightApproval");
   const highlightedSection = searchParams.get("notify");
@@ -201,6 +222,23 @@ function AdminCostsContent() {
     }
   }
 
+  async function openCostDetail(item: AdminCostRow) {
+    setSelectedCostUserId(item.user_id);
+    setCostDetail(null);
+    setError(null);
+    try {
+      const detail = await fetchAdminOperator(item.user_id);
+      setCostDetail({
+        profile: detail.profile,
+        costEvents: detail.costEvents,
+      });
+    } catch (err) {
+      setSelectedCostUserId(null);
+      setCostDetail(null);
+      setError(err instanceof Error ? err.message : "员工成本明细加载失败。");
+    }
+  }
+
   function dismissHighlight(key: string) {
     setDismissedHighlights((current) => new Set(current).add(key));
   }
@@ -271,7 +309,13 @@ function AdminCostsContent() {
               {items.map((item) => (
                 <TableRow key={item.user_id}>
                   <TableCell>
-                    <div className="font-medium">{item.display_name}</div>
+                    <button
+                      type="button"
+                      className="text-left font-medium text-primary hover:underline"
+                      onClick={() => openCostDetail(item)}
+                    >
+                      {item.display_name}
+                    </button>
                     <div className="text-xs text-muted-foreground">{String(item.team_name ?? item.user_id)}</div>
                   </TableCell>
                   <TableCell>{usd(item.actual_cost_usd)}</TableCell>
@@ -335,6 +379,49 @@ function AdminCostsContent() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(selectedCostUserId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedCostUserId(null);
+            setCostDetail(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[84vh] w-[94vw] max-w-[960px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[960px]">
+          <DialogHeader className="border-b px-5 py-4">
+            <DialogTitle>{costDetail?.profile?.display_name ?? "员工成本明细"}</DialogTitle>
+            <DialogDescription>与成本监控汇总使用同一员工和账本范围，展示最近 100 条成本事件。</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="min-h-0 px-5 pb-5">
+            {!costDetail ? (
+              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在加载成本明细
+              </div>
+            ) : (
+              <div className="space-y-2 py-4">
+                {costDetail.costEvents.map((event, index) => (
+                  <div key={`${String(event.agent_run_id ?? event.id)}-${index}`} className="rounded-md border p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{String(event.task_kind ?? "-")}</Badge>
+                      <span className="font-medium">{String(event.provider ?? event.agent_id ?? "-")}</span>
+                      <span className="text-muted-foreground">{String(event.session_key ?? "")}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      真实成本 {costAmount(event.actual_cost_usd, event.ledger_status)} · 估算 {usd(event.cost_usd_estimate)} · {String(event.ledger_status ?? event.status ?? "-")}
+                    </div>
+                  </div>
+                ))}
+                {costDetail.costEvents.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">暂无成本明细。</p>
+                ) : null}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       <Card
         id="pending-approvals"
