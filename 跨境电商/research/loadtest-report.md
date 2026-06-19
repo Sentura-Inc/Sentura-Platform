@@ -363,3 +363,35 @@ tail -f /root/loadmon.log
 **DeepSeek 运维事件**:测试期同事额度耗尽→真实 `402`→**fallback 组织性触发、qwen 接住 40 次(史上首次非注入实证)**;用户充 $20+换新 key 后**网关仍 402**,抓包+`secrets audit` 定位根因=`agents/main/agent/auth-profiles.json` 明文旧 key 优先级压过 .env/apiKey(cbe 员工继承 main profile),改该文件 key→恢复(e2e 191s→64s、0 billing)。
 
 **修复**:F-handoff(`screening/page.tsx` unwrapTargets,commit `3665947f`);F-accio-2/F-lead-2 marker 非法 JSON → accio/lead 仪表盘解析器加 `parseJsonArrayTolerant` 逐元素抢救 + buildEmployeePrompt 严格 JSON 指令(commit `93288e7d`);auth-profiles key(服务器)。**建议**:调高 rssThreshold、大 accio 导出首选 glm-4.6(200K,规避 qwen context-overflow)、auth-profiles key 迁 SecretRef。CE14.1~CE14.x。
+
+---
+
+# 第十二章 — 10 项/任务压测(背调/获客各查 10 个,2026-06-19)
+
+**问题**:用户问"背调和获客分别要查 10 个公司/客户,耗时和压力会不会显著增加?"并要求设计一套 10-项压测方案。约定:**开付费路线、10 家=1 批、两员工提示词开局直接对 10 个**。
+
+**方法**:新驱动 [`scripts/cbe-batch10.mjs`](../../scripts/cbe-batch10.mjs)(复用 `cbe-lib.mjs` + 移植 fulltool 成本抽取),PHASE=A 真实工具 + 付费授权(`CBE_ENABLE_PAID_TRADE_DATA=true`/`$1`/家),低并发标定。先小样确认链路(铁律),再阈值扫描。采集磁盘轨迹 token/工具/回合 + sessions.json 富字段 + 真实美元成本。
+
+## Phase A 结果(单会话,真实+付费)
+
+| 任务 | 结果 | e2e | 回合/工具 | 产出 | token | 付费 |
+|---|---|---|---|---|---|---|
+| **获客 find-10** | ✅ | 107.8s(1.8min) | 6 / 33 | **10/10** | 27.6K | $0.009 |
+| **背调 batch-3** | ✅ 干净 | 92.8s | 5 / 26 | 3/3 | 45.8K | IY $0.27 |
+| **背调 batch-5** | ✅ 勉强 | 181.9s | **12 / 69** | 5/5 | 17.6K* | IY $0.90 |
+| **背调 batch-10** | ❌ **崩** | 81s(failed) | 7 / 45 | **0/10** | — | 白烧 H×10+A×10 |
+
+\* batch-5 末态 token 反而比 batch-3 低 = OpenClaw 中途触发**上下文压缩**(丢老工具结果)才撑过 5 家;`totalTokens` 是末态非累计。
+
+**batch-10 崩溃铁证**:session `status=failed`、轨迹 808KB、`"stopReason":"error"` + `"errorMessage":"Context overflow: estimated context size exceeds safe threshold during tool loop."` + DeepSeek **413 Payload Too Large** 连发。
+
+## 结论(两员工相反)
+
+1. **获客:5→10 几乎不增加。** find-10 单会话 1.8min/27.6K tok/10 个达标,与 5 个时相当——获客攒"公司名+URL"轻文本,翻倍无压力,**可开局直接对 10 个**。
+2. **背调:5→10 不是"变慢"是"做不了"。** 单家 ~42s、batch-3 ~31s/家(每家耗时基本线性),但**一个会话塞不下 10 家**:每家拉重型工具结果(SEC 单家 ~32KB+注册局+DNS+邮箱校验),单家 ~15K tok、3家 ~46K、10家外推 ~150K → 爆 DeepSeek 上下文 → **整单失败 0 产出,还白烧付费**(崩前已 Hunter×10+Abstract×10)。
+3. **背调单会话安全批量上限 ≈ 5 家(干净 ≤3,≥6 危险,10 必崩)**;**重工具员工的"多个"必须 fan-out**(拆 ≤3-5 家/会话的多会话,或 1家/会话并发);越接近上限成本/耗时越不成比例(batch-5 每家 ~14 工具、付费 2×)。
+4. **想 batch 更大** → 换大上下文窗模型(glm-4.6 200K / qwen-long / [1m] 类)或先做证据裁剪再喂。
+
+## Phase B(并发阶梯)— 待定
+
+batch-10 背调已证伪,Phase B 拟压**可行的重会话并发**(获客 find-10 + 背调 batch-3,各 ~27K/46K 上下文,比单家 ~15K 重),阶梯 C=2→4→8→12→16 找拐点,对比 5 项基线的 ~32(预期更低)。**待用户确认是否开火 + 背调并发段是否真烧付费。** CE15.1~CE15.x。
