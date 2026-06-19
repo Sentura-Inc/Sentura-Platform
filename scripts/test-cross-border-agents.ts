@@ -55,6 +55,10 @@ const EMPLOYEE_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts",
 );
+const EMPLOYEE_NOTIFICATION_TARGETS = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-notification-targets.ts",
+);
 const EMPLOYEE_DATA = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts",
@@ -239,6 +243,7 @@ const accioSampleRoute = read(ACCIO_SAMPLE_ROUTE);
 const employeeTaskRunner = read(EMPLOYEE_TASK_RUNNER);
 const employeeTaskCancellation = read(EMPLOYEE_TASK_CANCELLATION);
 const employeeApi = read(EMPLOYEE_API);
+const employeeNotificationTargets = read(EMPLOYEE_NOTIFICATION_TARGETS);
 const employeeData = read(EMPLOYEE_DATA);
 const employeeHomePage = read(EMPLOYEE_HOME_PAGE);
 const employeeCustomersPage = read(EMPLOYEE_CUSTOMERS_PAGE);
@@ -653,9 +658,9 @@ check("employee task status bar and API expose active task cancel action", [
   'record.status === "cancelled"',
 ].every((needle) => employeeApi.includes(needle)) && cbeStoreSchemas.includes("CancelEmployeeTaskRequestSchema"));
 check("AppShell renders global employee task status", appShell.includes("EmployeeTaskStatusBar") && appShell.includes("<EmployeeTaskStatusBar />"));
-check("AppShell keeps DB task refresh and task notification links", appShell.includes("fetchEmployeeTasks") && appShell.includes("markEmployeeNotificationsRead") && !appShell.includes("notificationRootRef") && appShell.includes("employee-messages"));
-check("AppShell notification menus show scrollable full employee and manager message lists", (appShell.match(/max-h-80 overflow-y-auto/g)?.length ?? 0) >= 2 && appShell.includes("messages.map((item)") && !appShell.includes("messages.slice(0, 4)") && appShell.includes("snapshot.approvals.map") && appShell.includes("snapshot.highValueItems.map") && appShell.includes("limit=100&range=all"));
-check("AppShell employee account area uses role-scoped session login and logout instead of personal dropdown", appShell.includes("/api/client-demos/cross-border/session?role=operator") && appShell.includes("/api/auth/logout?role=") && appShell.includes("router.replace(`/auth/login?next=") && appShell.includes("employee-messages"));
+check("AppShell keeps DB task refresh and task notification links", appShell.includes("fetchEmployeeTasks") && appShell.includes("markEmployeeNotificationsRead") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargets.includes("employee-messages") && !appShell.includes("notificationRootRef"));
+check("AppShell notification menus show scrollable targeted employee and manager message lists", appShell.includes("notificationListMaxHeight") && appShell.includes("overflow-y-auto") && appShell.includes("previewMessages.map((item)") && appShell.includes("employeeTaskNotificationHref(item)") && appShell.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShell.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargets.includes("highlightTask=") && employeeNotificationTargets.includes("employeeCostHighlightHref") && !appShell.includes("messages.slice(0, 4)") && appShell.includes("snapshot.approvals.map") && appShell.includes("snapshot.highValueItems.map") && appShell.includes("limit=100&range=all"));
+check("AppShell employee account area uses role-scoped session login and logout instead of personal dropdown", appShell.includes("/api/client-demos/cross-border/session?role=operator") && appShell.includes("/api/auth/logout?role=") && appShell.includes("router.replace(`/auth/login?next=") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF"));
 check("AppShell manager account area matches employee name and logout controls", appShell.includes('logoutTo("/client-demos/cross-border/admin/login")') && appShell.includes("AdminNotificationBell") && appShell.includes("<ConnectionStatus />") && !appShell.includes("ChevronDown") && !appShell.includes("管理者系统</div>") && !appShell.includes('href="/client-demos/cross-border/admin/employees" />'));
 check("AppShell keeps only the side logo in the header", appShell.includes("sentura-logo-side.svg") && !appShell.includes("sentura-logo-icon.svg"));
 check("AppShell exposes personal center as the first employee nav item", appShell.indexOf('label: "个人中心"') > 0 && appShell.indexOf('label: "个人中心"') < appShell.indexOf('label: "获客与背调"'));

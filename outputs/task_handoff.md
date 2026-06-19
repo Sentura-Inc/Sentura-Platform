@@ -12,6 +12,72 @@ Conversation language: answer the user in Chinese. Keep handoff updates concise 
 
 Current active product area: Sentura cross-border e-commerce Manager system implementation.
 
+## Current Turn — 2026-06-19 CBE Employee Notification Deep Links And Bell Preview Count
+
+### Task Introduction
+
+User asks to improve Employee-side notification behavior:
+
+- Clicking a concrete bell/message item should jump to the concrete task target and flash a light-blue frame.
+- Only clicking `查看全部消息` should go to the personal-center `消息提醒` section.
+- Lead discovery (`获客`), screening (`背调`), and Accio memory (`记忆整理`) task messages should jump to the relevant company list / company rows and flash light blue.
+- Cost quota / API budget related messages should jump to personal-center `我的 API 成本` and flash light blue.
+- Messages shown inside personal-center `消息提醒` need the same deep-link + flash behavior.
+- Bell dropdown should show up to 10 messages and have a vertical scroll area.
+
+Hard constraints:
+
+- Reuse existing `highlightTask` customer-list flash behavior where possible.
+- Preserve the current Employee page information architecture and current columns.
+- Do not turn every bell message into a personal-center link; only `查看全部消息` should do that.
+- Keep user-facing response in Chinese.
+- Update this handoff before broad edits and after verification.
+
+### Workspace And Environment
+
+- Repo: `/Users/purest./Documents/Sentura/Sentura-Platform`
+- Dashboard app: `sentura/dashboard`
+- Local services currently verified:
+  - Gateway: `http://localhost:18789`
+  - Dashboard: `http://localhost:3000`
+- Relevant files to inspect first:
+  - `sentura/dashboard/src/components/app-shell.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+  - `sentura/dashboard/src/components/cross-border/employee-cost.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+  - `sentura/dashboard/src/stores/use-cbe-employee-store.ts`
+
+### Task Flow
+
+1. Inspect current `EmployeeNotificationBell`, personal-center message list, task notification shape, and existing customer-list `highlightTask` behavior.
+2. Add a shared helper for task notification target URLs.
+3. Route lead/screening/memory concrete task messages to the relevant task/company-list target with existing `highlightTask` semantics when possible.
+4. Add a cost-card highlight target on Employee home for cost quota/API budget messages.
+5. Make personal-center message items use the same target URL behavior.
+6. Increase bell preview to 10 messages and keep the dropdown scrollable.
+7. Verify with typecheck/lint and local HTTP/browser smoke.
+
+### Progress So Far
+
+- Next.js skill read completely.
+- Memory quick pass found prior CBE notification work: `highlightTask` already maps task reminders to affected customer rows and flashes light-blue outlines for 3 seconds.
+- Current runtime status checked: Gateway and Dashboard are running on `18789` and `3000`.
+- Existing customer-list code already supports `/client-demos/cross-border/employee/customers?highlightTask=...`.
+- Existing bell code currently renders every concrete item as `messageCenterHref`, which explains why item clicks go to personal-center messages instead of the concrete task target.
+
+### Current State
+
+- Handoff updated before code edits.
+- No implementation edits for this notification request yet.
+
+### Next Steps
+
+1. Inspect all message rendering and task metadata shapes in the files listed above.
+2. Implement shared target URL helper and highlight behavior.
+3. Run `pnpm --dir sentura/dashboard exec tsc --noEmit`, focused lint, and browser smoke against `http://localhost:3000`.
+
 ## Current Turn — 2026-06-19 CBE Employee/Admin Login Kickout Bug
 
 ### Task Introduction
@@ -3386,3 +3452,95 @@ The user reports that after changing quota/limit values in the Manager system, t
   - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 394 passed / 0 failed.
   - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 176 passed / 0 failed.
+
+## Current Turn - 2026-06-19 CBE Employee Notification Deep Links And Bell Preview Count
+
+### Task Introduction
+
+The user wants Employee-side message reminders to behave as task deep links, not generic message-center links. Clicking a concrete bell or personal-center message should jump to the related task target and show a light-blue flashing frame. Only `查看全部消息` should go to the Employee personal-center `消息提醒` section. Lead discovery, buyer screening, and Accio memory organization messages should jump to the related company list/task rows. API cost/quota messages should jump to personal-center `我的 API 成本` and flash that card. The bell dropdown should contain 10 concrete messages total, with a scroll area that shows about 3 messages at once.
+
+### Workspace And Environment
+
+- Repository: `/Users/purest./Documents/Sentura/Sentura-Platform`
+- Branch: `wst1.0-ecommerce` tracking `origin/ecommerce`
+- Dashboard: `sentura/dashboard`, Next.js App Router.
+- Relevant files identified:
+  - `sentura/dashboard/src/components/app-shell.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+  - `sentura/dashboard/src/components/cross-border/employee-cost.tsx`
+
+### Task Flow
+
+1. Confirm current bell and personal-center message rendering.
+2. Create a shared Employee notification target helper so both surfaces use the same target decision.
+3. Route cost/quota notifications to the Employee API-cost card and task notifications to the customers page `highlightTask` flow.
+4. Ensure Accio memory supplement tasks expose affected customer ids from `metadata.supplement_target.customer_id`.
+5. Run TypeScript and relevant lightweight checks, then commit and push to `origin/ecommerce`.
+
+### Progress So Far
+
+- Memory quick pass found prior Sentura CBE message-center/highlight context.
+- Next.js App Router skill was read earlier in the turn.
+- Existing customer-list `highlightTask` support already flashes related customer rows with a light-blue outline.
+- Existing bell implementation currently routes every concrete message to `/client-demos/cross-border/employee#employee-messages`; this is the bug to fix.
+- Existing personal-center message rows are static blocks, so they need `Link` behavior plus read marking.
+- Cost-control notifications are persisted as task-like `agent_runs` with id prefix `cost_notice` and `metadata.notification_kind` values such as `cost_limit_updated`, `cost_allowance_updated`, and `cost_approval_approved/rejected`.
+
+### Current State
+
+- Superseded by implementation notes below; this section was the pre-edit state.
+- Dashboard and Gateway were already running successfully from the previous startup fix.
+
+### Next Steps
+
+1. Add shared helper under Employee `_data` for message-center href, API-cost highlight href, cost-notification detection, and notification target href.
+2. Patch `EmployeeNotificationBell` to show `messages.slice(0, 10)` in a scroll area; concrete message clicks mark only that message read and navigate to the helper href; `查看全部消息` marks all unread and keeps the personal-center anchor.
+3. Patch Employee home `消息提醒` rows to link to the same helper href and mark the clicked message read; wrap `EmployeeCostCard` in `#employee-api-cost` and flash it when `highlightCost=api` is present.
+4. Patch `employee-api.ts` task affected id extraction to include `metadata.supplement_target.customer_id/customerId`.
+5. Run `pnpm --dir sentura/dashboard exec tsc --noEmit`, `git diff --check`, and browser/curl smoke checks if possible.
+
+### Progress So Far
+
+- Implemented the current notification request.
+- Added `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-notification-targets.ts`:
+  - Shared `EMPLOYEE_MESSAGE_CENTER_HREF`.
+  - Shared `EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10` for the bell total preview count.
+  - Shared `EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3` for the bell scroll-window height.
+  - Shared `employeeTaskNotificationHref(task)`:
+    - Cost/quota notifications route to `/client-demos/cross-border/employee?highlightCost=api&highlightMessage=<taskId>#employee-api-cost`.
+    - All other task notifications route to `/client-demos/cross-border/employee/customers?highlightTask=<taskId>`.
+  - Shared light-blue flash class for the Employee API cost card.
+- Changed `sentura/dashboard/src/components/app-shell.tsx`:
+  - Concrete Employee bell messages now deep-link to the helper target instead of always going to `#employee-messages`.
+  - Concrete message clicks mark only that message read.
+  - `查看全部消息` still goes to the Employee personal-center message section and marks current unread messages read.
+  - The bell renders the newest 10 concrete messages in a scroll area sized for about 3 compact rows.
+- Changed `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`:
+  - Personal-center message rows are now clickable and use the same task/cost target helper.
+  - Cost notifications scroll to `#employee-api-cost` and flash the `我的 API 成本` card for 3 seconds.
+  - Clicking a personal-center message marks that one message read.
+- Changed `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`:
+  - `taskAffectedCustomerIds()` now includes `metadata.supplement_target.customer_id/customerId`, so Accio memory supplement tasks can locate their company row in the customer list.
+- Updated static regression scripts:
+  - `scripts/test-cross-border-agents.ts`
+  - `scripts/test-cross-border-phase2-store.ts`
+
+### Current State
+
+- Verification passed:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 394 passed / 0 failed.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 176 passed / 0 failed.
+  - `git diff --check`: PASS.
+- Runtime smoke:
+  - `curl -I http://localhost:3000/client-demos/cross-border/employee`: 200.
+  - `curl -I 'http://localhost:3000/client-demos/cross-border/employee/customers?highlightTask=smoke-task'`: 200.
+  - `curl -I 'http://localhost:3000/client-demos/cross-border/employee?highlightCost=api&highlightMessage=smoke-task#employee-api-cost'`: 200.
+  - `curl -s -H 'x-cbe-user-id: cbe-user-operator-001' 'http://localhost:3000/api/client-demos/cross-border/employee/tasks?limit=5'`: returned live cost notices and Accio task metadata including `notification_kind: cost_*` and `supplement_target.customer_id`.
+
+### Next Steps
+
+1. Stage, commit, and push to `origin/ecommerce`.
+2. Optional manual UI pass with a logged-in operator account can click the bell and watch the actual flashing rows/cards; no known implementation blocker remains.

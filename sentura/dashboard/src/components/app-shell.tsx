@@ -32,6 +32,12 @@ import { EmployeeTaskStatusBar } from "@/components/cross-border/employee-task-s
 import { cn } from "@/lib/utils";
 import { fetchEmployeeTasks, markEmployeeNotificationsRead } from "@/app/client-demos/cross-border/employee/_data/employee-api";
 import {
+  EMPLOYEE_MESSAGE_CENTER_HREF,
+  EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT,
+  EMPLOYEE_NOTIFICATION_VISIBLE_COUNT,
+  employeeTaskNotificationHref,
+} from "@/app/client-demos/cross-border/employee/_data/employee-notification-targets";
+import {
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
 } from "@/stores/use-cbe-employee-store";
@@ -319,11 +325,12 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
   const messages = tasks
     .filter((task) => !isCbeEmployeeTaskActive(task) && !task.dismissed)
     .sort((left, right) => (right.completedAt ?? right.updatedAt) - (left.completedAt ?? left.updatedAt));
+  const previewMessages = messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT);
+  const notificationListMaxHeight = EMPLOYEE_NOTIFICATION_VISIBLE_COUNT * 56;
   const unreadMessages = messages.filter((task) => !task.notificationRead);
-  const messageCenterHref = "/client-demos/cross-border/employee#employee-messages";
 
-  async function markPreviewRead() {
-    const ids = unreadMessages.map((task) => task.id);
+  async function markMessagesRead(messageIds: string[]) {
+    const ids = Array.from(new Set(messageIds)).filter(Boolean);
     if (ids.length === 0) return;
     markTaskNotificationsRead(ids);
     try {
@@ -334,6 +341,10 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
     } catch {
       // Keep local read state; the next refresh will reconcile with the server.
     }
+  }
+
+  async function markPreviewRead() {
+    await markMessagesRead(unreadMessages.map((task) => task.id));
   }
 
   if (!enabled) return null;
@@ -364,13 +375,18 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
           </div>
         </div>
         <DropdownMenuSeparator />
-        <div className="max-h-80 overflow-y-auto overscroll-contain pr-1">
+        <div className="overflow-y-auto overscroll-contain pr-1" style={{ maxHeight: notificationListMaxHeight }}>
           {messages.length > 0 ? (
-            messages.map((item) => (
+            previewMessages.map((item) => (
               <DropdownMenuItem
                 key={item.id}
                 className="items-start gap-2 py-2"
-                render={<Link href={messageCenterHref} onClick={() => void markPreviewRead()} />}
+                render={
+                  <Link
+                    href={employeeTaskNotificationHref(item)}
+                    onClick={() => void markMessagesRead([item.id])}
+                  />
+                }
               >
                 {item.status === "failed" ? (
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -379,7 +395,7 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
                 )}
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{item.title}</span>
-                  <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  <span className="mt-0.5 block truncate text-xs leading-5 text-muted-foreground">
                     {item.targetLabel ?? item.message}
                   </span>
                 </span>
@@ -390,7 +406,7 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
           )}
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem render={<Link href={messageCenterHref} onClick={() => void markPreviewRead()} />}>
+        <DropdownMenuItem render={<Link href={EMPLOYEE_MESSAGE_CENTER_HREF} onClick={() => void markPreviewRead()} />}>
           <Bell className="h-4 w-4" />
           查看全部消息
         </DropdownMenuItem>

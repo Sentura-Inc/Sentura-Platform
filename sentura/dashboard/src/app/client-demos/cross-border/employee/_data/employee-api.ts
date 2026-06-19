@@ -514,12 +514,15 @@ function taskEstimateMs(kind: string) {
 }
 
 function taskAffectedCustomerIds(metadata: JsonRecord) {
+  const supplementTarget = asRecord(metadata.supplement_target);
+  const supplementCustomerId = asString(supplementTarget.customer_id ?? supplementTarget.customerId);
   return Array.from(new Set([
     ...asStringArray(metadata.affected_customer_ids),
     ...asStringArray(metadata.saved_customer_ids),
     ...asStringArray(metadata.target_customer_ids),
     ...asStringArray(metadata.lead_candidate_ids),
     ...asStringArray(metadata.screening_target_ids),
+    ...(supplementCustomerId ? [supplementCustomerId] : []),
   ]));
 }
 

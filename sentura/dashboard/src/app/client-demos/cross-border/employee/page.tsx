@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -29,7 +30,14 @@ import {
   fetchEmployeeCustomers,
   fetchEmployeeMemoryRecords,
   fetchEmployeeTasks,
+  markEmployeeNotificationsRead,
 } from "./_data/employee-api";
+import {
+  EMPLOYEE_API_COST_ELEMENT_ID,
+  EMPLOYEE_API_COST_HIGHLIGHT_PARAM,
+  EMPLOYEE_NOTIFICATION_HIGHLIGHT_CLASS,
+  employeeTaskNotificationHref,
+} from "./_data/employee-notification-targets";
 import { cn } from "@/lib/utils";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
@@ -93,12 +101,14 @@ function isInHomeRange(foundAt: string, range: HomeRange, now = new Date()) {
 }
 
 export default function CrossBorderEmployeeHomePage() {
+  const searchParams = useSearchParams();
   const customerRows = useCbeEmployeeStore((store) => store.rows);
   const memoryRows = useCbeEmployeeStore((store) => store.memoryRows);
   const tasks = useCbeEmployeeStore((store) => store.tasks);
   const setRows = useCbeEmployeeStore((store) => store.setRows);
   const setMemoryRows = useCbeEmployeeStore((store) => store.setMemoryRows);
   const setTasks = useCbeEmployeeStore((store) => store.setTasks);
+  const markTaskNotificationsRead = useCbeEmployeeStore((store) => store.markTaskNotificationsRead);
   const deleteTaskNotifications = useCbeEmployeeStore((store) => store.deleteTaskNotifications);
   const [selectedRange, setSelectedRange] = usePersistentUiState<HomeRange>(
     HOME_RANGE_STORAGE_KEY,
@@ -109,6 +119,10 @@ export default function CrossBorderEmployeeHomePage() {
   const [sessionDisplayName, setSessionDisplayName] = useState<string | null>(null);
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<string>>(() => new Set());
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [costHighlightActive, setCostHighlightActive] = useState(false);
+  const handledCostHighlightRef = useRef<string | null>(null);
+  const shouldHighlightCost = searchParams.get(EMPLOYEE_API_COST_HIGHLIGHT_PARAM) === "api";
+  const costHighlightMessageId = searchParams.get("highlightMessage");
 
   useEffect(() => {
     let cancelled = false;
@@ -156,6 +170,21 @@ export default function CrossBorderEmployeeHomePage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const highlightKey = shouldHighlightCost ? `${costHighlightMessageId ?? ""}|api` : "";
+    if (!shouldHighlightCost || handledCostHighlightRef.current === highlightKey) return;
+    handledCostHighlightRef.current = highlightKey;
+    setCostHighlightActive(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById(EMPLOYEE_API_COST_ELEMENT_ID)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    const timer = window.setTimeout(() => setCostHighlightActive(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [costHighlightMessageId, shouldHighlightCost]);
 
   const visibleCustomers = useMemo(
     () => customerRows.filter((item) => isInHomeRange(item.foundAt, selectedRange)),
@@ -240,6 +269,20 @@ export default function CrossBorderEmployeeHomePage() {
         for (const id of uniqueIds) next.delete(id);
         return next;
       });
+    }
+  }
+
+  async function markMessagesRead(ids: string[]) {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    markTaskNotificationsRead(uniqueIds);
+    try {
+      const result = await markEmployeeNotificationsRead(uniqueIds);
+      if (result.readIds.length > 0) {
+        markTaskNotificationsRead(result.readIds);
+      }
+    } catch {
+      // Keep local read state; the next refresh reconciles with the server.
     }
   }
 
@@ -367,7 +410,12 @@ export default function CrossBorderEmployeeHomePage() {
         </div>
 
         <div className="space-y-4">
-          <EmployeeCostCard compact />
+          <div
+            id={EMPLOYEE_API_COST_ELEMENT_ID}
+            className={cn("scroll-mt-24 rounded-lg", costHighlightActive && EMPLOYEE_NOTIFICATION_HIGHLIGHT_CLASS)}
+          >
+            <EmployeeCostCard compact />
+          </div>
 
           <Card>
             <CardHeader className="pb-2">
@@ -422,7 +470,11 @@ export default function CrossBorderEmployeeHomePage() {
                         ) : (
                           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                         )}
-                        <div className="min-w-0 flex-1">
+                        <Link
+                          href={employeeTaskNotificationHref(item)}
+                          className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => void markMessagesRead([item.id])}
+                        >
                           <div className="leading-5">{item.title}</div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             {new Intl.DateTimeFormat("zh-CN", {
@@ -432,7 +484,7 @@ export default function CrossBorderEmployeeHomePage() {
                               minute: "2-digit",
                             }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.targetLabel ?? item.message}
                           </div>
-                        </div>
+                        </Link>
                         <Button
                           variant="ghost"
                           size="icon-sm"
