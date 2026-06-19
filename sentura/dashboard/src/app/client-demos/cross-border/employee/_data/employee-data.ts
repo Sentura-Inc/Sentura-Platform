@@ -343,10 +343,14 @@ export const monthlyCostBudget: CostBudget = {
 };
 
 export const costEstimateAssumptions = {
-  sourceLabel: "官方单价演算",
-  leadSourceLabel: "官方价格 + 近期真实用量",
+  sourceLabel: "近期真实成本 + 已定价调用",
+  leadSourceLabel: "近期真实成本 + 已定价调用",
   leadDiscovery: {
-    minimumUsd: 0.08,
+    minimumUsd: 0.12,
+    observedBaseUsd: 0.1,
+    observedSearchRequestUsd: 0.025,
+    observedRetainedCandidateUsd: 0.006,
+    observedSafetyMultiplier: 1.1,
     openAiGpt55InputPerMillionUsd: 5,
     openAiGpt55CachedInputPerMillionUsd: 0.5,
     openAiGpt55OutputPerMillionUsd: 30,
@@ -361,7 +365,10 @@ export const costEstimateAssumptions = {
     safetyMultiplier: 1.15,
   },
   screening: {
-    minimumUsd: 0.05,
+    minimumUsd: 0.18,
+    observedBaseUsd: 0.2,
+    observedTargetUsd: 0.1,
+    observedSafetyMultiplier: 1.15,
     openAiGpt55InputPerMillionUsd: 5,
     openAiGpt55CachedInputPerMillionUsd: 0.5,
     openAiGpt55OutputPerMillionUsd: 30,
@@ -373,6 +380,7 @@ export const costEstimateAssumptions = {
     publicSearchRequestsPerTarget: 2,
     abstractEmailReputationRequestUsd: 17 / 5000,
     hunterVerificationCreditUsd: 49 / 2000,
+    paidTradeDataExpectedUsd: 0,
   },
   memory: {
     minimumUsd: 0.12,
@@ -782,29 +790,28 @@ export function estimateLeadTaskCost({
     estimatedSearchRequestCount * assumptions.modelInputTokensPerSearch +
     estimatedFetchedPages * assumptions.modelInputTokensPerFetchedPage;
   const cachedInputTokens = Math.round(estimatedModelInputTokens * assumptions.promptCacheRatio);
-  const uncachedInputTokens = estimatedModelInputTokens - cachedInputTokens;
   const estimatedModelOutputTokens =
     assumptions.modelBaseOutputTokens + safeTargetCount * assumptions.modelOutputTokensPerCandidate;
-  const modelUsd =
-    (uncachedInputTokens / 1_000_000) * assumptions.openAiGpt55InputPerMillionUsd +
-    (cachedInputTokens / 1_000_000) * assumptions.openAiGpt55CachedInputPerMillionUsd +
-    (estimatedModelOutputTokens / 1_000_000) * assumptions.openAiGpt55OutputPerMillionUsd;
   const retainedCandidateUsd =
     Math.min(safeTargetCount, searchUnits) * assumptions.retainedCandidateReviewUsd;
+  const pricedExternalUsd = searchRequestUsd + retainedCandidateUsd;
+  const observedUsd =
+    (assumptions.observedBaseUsd +
+      estimatedSearchRequestCount * assumptions.observedSearchRequestUsd +
+      Math.min(safeTargetCount, searchUnits) * assumptions.observedRetainedCandidateUsd) *
+    assumptions.observedSafetyMultiplier;
   const estimatedUsd = Number(
     Math.max(
       assumptions.minimumUsd,
-      (modelUsd +
-        searchRequestUsd +
-        retainedCandidateUsd) *
-        assumptions.safetyMultiplier,
+      observedUsd,
+      pricedExternalUsd,
     ).toFixed(2),
   );
   return {
     label: "寻找客户",
     estimatedUsd,
     source: costEstimateAssumptions.leadSourceLabel,
-    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按 ${estimatedSearchRequestCount} 次 Tavily advanced web_search（US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}/次）、约 ${estimatedFetchedPages} 个公开页面、约 ${estimatedModelInputTokens.toLocaleString("zh-CN")} input tokens（其中 ${cachedInputTokens.toLocaleString("zh-CN")} cached）和 ${estimatedModelOutputTokens.toLocaleString("zh-CN")} output tokens 估算。模型单价按 OpenAI gpt-5.5 标准短上下文 input US$${assumptions.openAiGpt55InputPerMillionUsd}/1M、cached input US$${assumptions.openAiGpt55CachedInputPerMillionUsd}/1M、output US$${assumptions.openAiGpt55OutputPerMillionUsd}/1M；搜索按 Tavily Pay-as-you-go advanced 2 credits × US$0.008/credit。实际账单以完成后的 sentura-cost 记录为准。`,
+    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期 sentura-cost 获客记录校准：基础 US$${assumptions.observedBaseUsd.toFixed(2)} + ${estimatedSearchRequestCount} 次搜索 × US$${assumptions.observedSearchRequestUsd.toFixed(3)} + ${Math.min(safeTargetCount, searchUnits)} 个保留客户 × US$${assumptions.observedRetainedCandidateUsd.toFixed(3)}，并与已定价外部调用下限取较高值。参考负载约 ${estimatedModelInputTokens.toLocaleString("zh-CN")} input tokens（其中 ${cachedInputTokens.toLocaleString("zh-CN")} cached）、${estimatedModelOutputTokens.toLocaleString("zh-CN")} output tokens、${estimatedSearchRequestCount} 次 Tavily advanced web_search（US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}/次）和约 ${estimatedFetchedPages} 个公开页面；模型美元成本按 sentura-cost 真实回填校准，不再用理论最大 token 预算抬高。实际账单以完成后的 sentura-cost 记录为准。`,
   };
 }
 
@@ -836,22 +843,30 @@ export function estimateScreeningTaskCost({
   const emailValidationUsd = paidEmailValidation
     ? safeTargetCount * (assumptions.abstractEmailReputationRequestUsd + assumptions.hunterVerificationCreditUsd)
     : 0;
-  const tradeDataReservedUsd = paidTradeData ? Math.max(0, maxPaidSpendUsd) : 0;
+  const tradeDataBudgetCapUsd = paidTradeData ? Math.max(0, maxPaidSpendUsd) : 0;
+  const tradeDataExpectedUsd = paidTradeData
+    ? Math.min(tradeDataBudgetCapUsd, safeTargetCount * assumptions.paidTradeDataExpectedUsd)
+    : 0;
+  const itemizedUsd = modelUsd + publicSearchUsd + emailValidationUsd + tradeDataExpectedUsd;
+  const observedUsd =
+    (assumptions.observedBaseUsd + safeTargetCount * assumptions.observedTargetUsd) *
+    assumptions.observedSafetyMultiplier;
   const estimatedUsd = Number(
     Math.max(
       assumptions.minimumUsd,
-      modelUsd + publicSearchUsd + emailValidationUsd + tradeDataReservedUsd,
+      itemizedUsd,
+      observedUsd,
     ).toFixed(2),
   );
   const enabled = [
     paidEmailValidation ? "邮箱验证" : null,
-    paidTradeData ? `贸易数据最多预留 US$${tradeDataReservedUsd.toFixed(2)}` : null,
+    paidTradeData ? `贸易数据硬上限 US$${tradeDataBudgetCapUsd.toFixed(2)}（不当作预计支出）` : null,
   ].filter(Boolean);
   return {
     label: safeTargetCount > 1 ? "批量背调" : "单个背调",
     estimatedUsd,
     source: costEstimateAssumptions.sourceLabel,
-    details: `${safeTargetCount} 个客户：模型约 ${estimatedInputTokens.toLocaleString("zh-CN")} input tokens（${cachedInputTokens.toLocaleString("zh-CN")} cached）+ ${estimatedOutputTokens.toLocaleString("zh-CN")} output tokens；公开网页按 ${publicSearchCount} 次 Tavily advanced web_search × US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)} 估算。模型单价按 OpenAI gpt-5.5 input US$${assumptions.openAiGpt55InputPerMillionUsd}/1M、cached input US$${assumptions.openAiGpt55CachedInputPerMillionUsd}/1M、output US$${assumptions.openAiGpt55OutputPerMillionUsd}/1M。${paidEmailValidation ? `邮箱验证按 Abstract US$${assumptions.abstractEmailReputationRequestUsd.toFixed(4)}/次 + Hunter US$${assumptions.hunterVerificationCreditUsd.toFixed(4)}/credit，约 US$${emailValidationUsd.toFixed(2)}。` : "未启用邮箱付费验证。"}${enabled.length ? ` 已启用：${enabled.join("、")}。` : " 不预留外部付费数据。"}实际账单以任务完成后的 sentura-cost 真实记录为准；ImportYeti 返回 requestCost=0 时不会形成等额外部账单。`,
+    details: `${safeTargetCount} 个客户：按近期 sentura-cost 背调记录校准，基础 US$${assumptions.observedBaseUsd.toFixed(2)} + 每客户 US$${assumptions.observedTargetUsd.toFixed(2)}，并与模型/公开查询/邮箱验证的单价演算取较高值。单价演算包含约 ${estimatedInputTokens.toLocaleString("zh-CN")} input tokens（${cachedInputTokens.toLocaleString("zh-CN")} cached）、${estimatedOutputTokens.toLocaleString("zh-CN")} output tokens、${publicSearchCount} 次 Tavily advanced web_search × US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}。${paidEmailValidation ? `邮箱验证按 Abstract US$${assumptions.abstractEmailReputationRequestUsd.toFixed(4)}/次 + Hunter US$${assumptions.hunterVerificationCreditUsd.toFixed(4)}/credit，约 US$${emailValidationUsd.toFixed(2)}。` : "未启用邮箱付费验证。"}${enabled.length ? ` 已启用：${enabled.join("、")}。` : " 不预留外部付费数据。"}贸易数据预算只作为硬上限，ImportYeti requestCost=0 或 included 时预计成本为 US$0.00；实际账单以任务完成后的 sentura-cost 真实记录为准。`,
   };
 }
 
