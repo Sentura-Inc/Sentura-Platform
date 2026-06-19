@@ -49,6 +49,64 @@ stop_screen() {
   done < <(screen_ids "$session")
 }
 
+dashboard_dev_roots() {
+  local rel_dashboard_dir
+  rel_dashboard_dir="${DASHBOARD_DIR#$ROOT_DIR/}"
+  ps -axo pid=,command= | awk -v dir="$DASHBOARD_DIR" -v rel="$rel_dashboard_dir" '
+    {
+      pid = $1
+      command = $0
+      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command)
+      if ((index(command, dir) && command ~ /n[e]xt.* dev/) ||
+          (index(command, "--dir " rel) && command ~ /p[n]pm .* dev/)) {
+        print pid
+      }
+    }
+  '
+}
+
+process_tree() {
+  local pid="$1"
+  local child
+  [[ -z "$pid" ]] && return
+  echo "$pid"
+  while IFS= read -r child; do
+    process_tree "$child"
+  done < <(pgrep -P "$pid" 2>/dev/null || true)
+}
+
+stop_dashboard_dev_processes() {
+  local roots=()
+  local pids=()
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && roots+=("$pid")
+  done < <(dashboard_dev_roots)
+  [[ "${#roots[@]}" -eq 0 ]] && return
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && pids+=("$pid")
+  done < <(
+    for pid in "${roots[@]}"; do
+      process_tree "$pid"
+    done | awk '!seen[$0]++'
+  )
+
+  [[ "${#pids[@]}" -eq 0 ]] && return
+  echo "Stopping stale Dashboard dev process(es): ${pids[*]}"
+  for pid in "${pids[@]}"; do
+    [[ "$pid" == "$$" ]] && continue
+    kill "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in "${pids[@]}"; do
+    [[ "$pid" == "$$" ]] && continue
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+}
+
 wait_for_port() {
   local port="$1"
   local label="$2"
@@ -84,6 +142,7 @@ start_dashboard() {
     return
   fi
   stop_screen "$DASHBOARD_SESSION"
+  stop_dashboard_dev_processes
   mkdir -p "$LOG_DIR"
   : > "$DASHBOARD_LOG"
   screen -dmS "$DASHBOARD_SESSION" bash -lc "cd '$DASHBOARD_DIR' && exec pnpm exec next dev --port '$DASHBOARD_PORT' >> '$DASHBOARD_LOG' 2>&1"
@@ -109,6 +168,7 @@ status() {
 stop_all() {
   stop_screen "$DASHBOARD_SESSION"
   stop_screen "$GATEWAY_SESSION"
+  stop_dashboard_dev_processes
   local gateway_pid dashboard_pid
   gateway_pid="$(port_pid "$GATEWAY_PORT")"
   dashboard_pid="$(port_pid "$DASHBOARD_PORT")"
