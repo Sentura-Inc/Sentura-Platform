@@ -55,16 +55,47 @@ const COMPANIES = [
   { name: "The Home Depot Inc.", domain: "homedepot.com", email: "customercare@homedepot.com", country: "US" },
 ];
 
-function screenPrompt(nonce) {
-  const list = COMPANIES.slice(0, ITEMS).map((t, i) => `${i + 1}. ${t.country} 公司 ${t.name},域名 ${t.domain},待验邮箱 ${t.email}`).join("\n");
-  return `(压测标记 NONCE=${nonce}) 你是买家背调员工。operator 已明确授权"付费邮箱校验 + 付费贸易数据(单家预算上限 $1)"。请对以下 ${ITEMS} 家公司【逐家】各做一次尽量完整的买家背调:
+function screenPrompt(nonce, idx) {
+  if (ITEMS === 1) {
+    const t = COMPANIES[idx % COMPANIES.length];
+    const reg = t.country === "UK" ? "Companies House 查注册信息(注册号/状态/成立年/地址)" : "SEC 查公开披露摘要(只读 entity_name/cik/sic,丢弃 submissions 大块)";
+    return `(压测标记 NONCE=${nonce}) 你是买家背调员。operator 已授权付费(邮箱校验 + 贸易数据,预算上限 $1)。对【${t.country} 公司 ${t.name},域名 ${t.domain},待验邮箱 ${t.email}】做一次完整买家背调:
+① ${reg};② RDAP 查 ${t.domain} 域名注册;③ 检查 ${t.domain} 的 MX/SPF/DMARC;④ email_domain_check 校验 ${t.email}(enable_paid_validation=true,1 次);⑤ cbe_intel_trade_record_search 查海关贸易记录(source='importyeti',max_records=5,max_paid_spend_usd=1,1 次);⑥ web_search 补公开口碑(非 web_fetch wikipedia,失败不重试)。
+基于真实证据用中文写约 100 字可信度小结 + trusted_candidate/cautious/high_risk 之一的结论。最后用 marker 包一个含 1 个对象的 JSON 数组(每个对象含 company_name、country、trust_tier、confidence、evidence_sources 数组、summary):
+${S_START}
+[ {...} ]
+${S_END}`;
+  }
+  const co = COMPANIES.slice(0, ITEMS);
+  const list = co.map((t, i) => `${i + 1}. ${t.country} 公司 ${t.name},域名 ${t.domain},待验邮箱 ${t.email}`).join("\n");
+  const ledger = co.map((t, i) => `${i + 1}. ${t.name} | ☐ | ☐ | ☐ | ☐ | ☐ | ☐`).join("\n");
+  return `(压测标记 NONCE=${nonce}) # 任务:${ITEMS} 家买家背调(逐家一条龙,严禁横扫与回头)
+
+你是买家背调员。本次输入是 **${ITEMS} 家公司的固定清单**(operator 已逐家授权付费,每家预算上限 $1,enable_paid_validation=true、贸易数据已启用)。
 ${list}
 
-每家执行:① UK 公司用 Companies House 查注册信息(注册号/状态/地址)、US 公司用 SEC 查公开披露摘要;② RDAP 查该域名注册;③ 检查该域名 MX/SPF/DMARC;④ 对该邮箱做邮箱校验,enable_paid_validation=true(operator 已授权付费校验);⑤ 查海关进口贸易记录,operator 已启用付费贸易数据、max_paid_spend_usd=1、source=auto;⑥ 网页搜索补充公开口碑。
-每家给约 80 字中文可信度小结 + trusted_candidate/cautious/high_risk 之一的结论。
-最后用以下标记包一个 JSON 数组(正好 ${ITEMS} 个对象),供 Dashboard 解析,每个对象含 company_name、country、trust_tier、confidence、evidence_sources(数组)、summary:
+## 0. 最高优先级铁律(违反即失败)
+1. **逐家一条龙,绝不横扫**:做完第 1 家全部步骤、写出该家小结、再开始第 2 家。禁止"先给所有家跑 registry、再给所有家跑邮箱"这种按工具横扫。**每个回合只处理当前这一家**,不要一个回合并行塞多家工具。
+2. **完成即定稿,绝不回头**:一家写出小结即 final,不得再对该家重查/重搜/重评分/重校验。
+3. **每家每个付费工具最多 1 次**:email_domain_check 该家 1 次;cbe_intel_trade_record_search 该家 1 次、**source 固定 'importyeti'**、max_records=5、max_paid_spend_usd=1。调用前先查下面"已完成清单",✅ 的直接复用上次结果,**严禁二次付费调用**。
+4. **SEC 只读摘要字段**:sec_lookup 只读 entity_name/cik/sic/tickers/status 判断"是否美国上市 filer";**绝不**把 submissions(整段历史申报,可达 150KB)读进推理或写进小结/marker。
+5. **不要 web_fetch wikipedia.org**:沙箱 100% 屏蔽必失败;需要公开背景用 web_search 摘要,失败一次就停、不重试同一 URL。
+
+## 1. 单家一条龙顺序(SEC 放最后,拿到即出小结、清场进下一家)
+① company_registry_search(GB→Companies House,US→后续 SEC;一家只搜一次,号码可疑也不重搜)→ ② domain_rdap_lookup → ③ email_domain_check(付费,该家 1 次)→ ④ cbe_intel_trade_record_search(付费,该家 1 次,source='importyeti',max_records=5)→ ⑤(可选)web_search 补公开足迹摘要(非 web_fetch,失败不重试)→ ⑥ sec_lookup(只在此步、放最后、只读摘要、丢 submissions)→ ⑦ score_buyer → 立即 emit 该家小结并在清单打 ✅。
+任一工具 api_error/超时:只标该家该项 unavailable_api,继续这家剩余步骤,**绝不重跑或拖累其它家**。
+
+## 2. 已完成清单 scratchpad(每步对照,防压缩失忆)
+每次工具调用前后先复述并更新下表(列:registry | rdap | email付费✅ | trade付费✅ | sec | 小结已emit)。若上下文被压缩、不确定做没做过,**以此表为准、不要凭感觉重跑**;付费列一旦 ✅ **永久禁止**再调对应付费工具。进度 k/${ITEMS}:
+${ledger}
+
+## 3. 每家小结格式(逐家 flush,完成一家立刻输出一段)
+[k/${ITEMS} 已完成] <company_name> — registry(注册号/状态/成立年或 unavailable_api)/ domain+email(RDAP 归属 + 校验 pass/fail,付费1次)/ trade(记录条数 + 关键贸易方,付费1次或 unavailable_api)/ sec(是否美国 filer:entity_name/cik/sic,否则 not_a_filer)/ risk_tier / normalized_score / evidence_coverage / recommended_action
+
+## 4. 最终输出(全部 ${ITEMS} 家做完后)
+先打印批级汇总表(每家一行:company_name/risk_tier/normalized_score/evidence_coverage/recommended_action),再把 ${ITEMS} 个 ScreeningReport 对象组成 JSON 数组,用 marker 严格包裹(恰好 ${ITEMS} 个对象,顺序同清单,JSON 合法、无注释、无尾逗号),每个对象含 company_name、country、trust_tier、confidence、evidence_sources(数组)、summary:
 ${S_START}
-[...]
+[ {...} ]
 ${S_END}`;
 }
 const leadJsonTail = `请用简体中文输出操作员摘要,并在最后用 ${Lc_START} 和 ${Lc_END} 标记(不要放进代码块)包一段 leads JSON 数组,每个候选含 lead_id、company_name、country、buyer_type、matched_products、source_urls、discovery_evidence、dedupe_key、duplicate_status、created_at。`;
@@ -77,7 +108,7 @@ function taskFor(idx) {
   let isLead = KIND === "lead";
   if (KIND === "mixed") isLead = ((idx * 0.61803398875) % 1) < LEAD_FRACTION;
   if (isLead) return { agent: LEAD_AGENT, kind: "lead", nonce, message: leadPrompt(nonce), providerOf: leadProviderOf };
-  return { agent: SCREEN_AGENT, kind: "screen", nonce, message: screenPrompt(nonce), providerOf: screenProviderOf };
+  return { agent: SCREEN_AGENT, kind: "screen", nonce, message: screenPrompt(nonce, idx), providerOf: screenProviderOf };
 }
 
 // 移植 fulltool 的 provider/成本抽取(operates on cbe-lib parseTrajectory 的 calls)
@@ -114,18 +145,34 @@ function extractProviders(parsed) {
   return { fired, cost };
 }
 
+// 容错提取 marker 内 JSON 数组:容忍 END marker 被模型拼错(如 REPORMS≠REPORTS)/缺失/代码围栏
+// —— 从 START 后找首个 '[' 的平衡闭合,END 用精确→模糊(*_JSON_END)→平衡括号 三级兜底。
+function looseArray(full, startMarker) {
+  const i = full.indexOf(startMarker);
+  if (i < 0) return null;
+  let seg = full.slice(i + startMarker.length);
+  const m = seg.match(/[A-Z_]{3,}_JSON_END/); // 模糊结束标记(含拼错)
+  if (m) seg = seg.slice(0, m.index);
+  const a = seg.indexOf("[");
+  if (a < 0) return null;
+  let depth = 0, end = -1;
+  for (let k = a; k < seg.length; k++) { const c = seg[k]; if (c === "[") depth++; else if (c === "]") { depth--; if (depth === 0) { end = k + 1; break; } } }
+  if (end < 0) return null;
+  const raw = seg.slice(a, end).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
 function gradeTask(t, parsed) {
   const ans = parsed ? (parsed.fullAssistant || parsed.answer || "") : "";
   if (t.kind === "screen") {
-    const mk = L.extractMarker(ans, S_START, S_END);
-    const arr = Array.isArray(mk.json) ? mk.json : [];
+    const arr = looseArray(ans, S_START) || [];
     const withName = arr.filter((o) => o && typeof o.company_name === "string" && o.company_name.length).length;
-    return { marker_ok: mk.present && !mk.parseErr, marker_err: mk.parseErr || null, items_produced: arr.length, items_named: withName };
+    return { marker_ok: arr.length > 0, marker_start: ans.indexOf(S_START) >= 0, items_produced: arr.length, items_named: withName };
   }
-  const mk = L.extractMarker(ans, Lc_START, Lc_END);
-  const arr = Array.isArray(mk.json) ? mk.json : (mk.json && Array.isArray(mk.json.leads) ? mk.json.leads : []);
+  let arr = looseArray(ans, Lc_START) || [];
+  if (arr && !Array.isArray(arr) && Array.isArray(arr.leads)) arr = arr.leads;
   const validN = arr.filter((l) => L.validateLeadCandidate(l).valid).length;
-  return { marker_ok: mk.present && !mk.parseErr, marker_err: mk.parseErr || null, items_produced: arr.length, items_named: validN };
+  return { marker_ok: arr.length > 0, marker_start: ans.indexOf(Lc_START) >= 0, items_produced: arr.length, items_named: validN };
 }
 
 const results = [];
