@@ -34,8 +34,23 @@
 最后用 SCREEN_REPORTS_JSON_START / SCREEN_REPORTS_JSON_END 包 1 个对象数组(company_name、country、trust_tier、confidence、evidence_sources[]、summary)。
 ```
 
-### 2.4 背调 batch-5 优化提示词(为对比/可选批量场景设计;实测见 §4.3)
-针对旧 batch-5 的"上下文压缩→失忆→整批重跑→付费翻倍"病灶,设计**纯提示词**优化(零改代码):
+### 2.4 背调批量提示词(朴素版 → 优化版)
+
+**(A) 朴素批量提示词** —— **batch-3 / batch-5(旧) / batch-10 实际所用**;其中 **batch-3(3 家)是除单家外完整性最好的一档**(7 证据源 / 0 压缩,见 §四):
+```
+你是买家背调员工。operator 已明确授权"付费邮箱校验 + 付费贸易数据(单家预算上限 $1)"。请对以下 <N> 家公司【逐家】各做一次尽量完整的买家背调:
+{逐行列出 <N> 家:「序号. 国家 公司 <名>,域名 <域名>,待验邮箱 <邮箱>」}
+
+每家执行:① UK 公司用 Companies House 查注册信息(注册号/状态/地址)、US 公司用 SEC 查公开披露摘要;② RDAP 查该域名注册;③ 检查该域名 MX/SPF/DMARC;④ 对该邮箱做邮箱校验,enable_paid_validation=true(operator 已授权付费校验);⑤ 查海关进口贸易记录,operator 已启用付费贸易数据、max_paid_spend_usd=1、source=auto;⑥ 网页搜索补充公开口碑。
+每家给约 80 字中文可信度小结 + trusted_candidate/cautious/high_risk 之一的结论。
+最后用以下标记包一个 JSON 数组(正好 <N> 个对象),供 Dashboard 解析,每个对象含 company_name、country、trust_tier、confidence、evidence_sources(数组)、summary:
+SCREEN_REPORTS_JSON_START
+[...]
+SCREEN_REPORTS_JSON_END
+```
+> 朴素版在 **N=3 干净(0 压缩、7 源)**;但 N≥5 时"逐家"未被模型遵守(实际按工具横扫所有家)→ 触发压缩;N=10 直接上下文溢出崩。下面的(B)优化版即为修这个而设计——但实测(§四)优化版仍救不回完整性,所以背调的正解是**单家 fan-out 或 batch-3**,不是大批量。
+
+**(B) 优化批量提示词** —— **batch-5(优化)所用**。针对旧 batch-5 的"上下文压缩→失忆→整批重跑→付费翻倍"病灶,设计**纯提示词**优化(零改代码):
 - **逐家一条龙、禁横扫**:每回合只处理 1 家,做完写小结再下一家(避免一回合并行塞 15 个结果顶爆上下文)。
 - **完成即定稿、绝不回头**:一家出小结即 final。
 - **付费每家 1 次 + 内置"已完成清单(ledger)scratchpad"**:压缩失忆也以表为准,付费列 ✅ 后永久禁调。
@@ -111,7 +126,7 @@ SCREEN_REPORTS_JSON_END
 
 \* 压缩迹象 = 轨迹关键词计数(`compaction`/`Context for Suffix`/`prior history`),近似压缩事件次数。
 \*\* 单家 run 报告**内容完整**(轨迹含 6 个证据源,见 §四),但模型把结束 marker 拼成 `SCREEN_REPORMS_JSON_END`(≠REPORTS)→ driver 记 0/1;Phase B 单家 48/48 marker 正常,证明单家产出本身可靠。
-\*\*\* 旧 batch-5 = 早期 fulltool-stress 轮的朴素"N 家一起查"提示词(无 ledger/无串行铁律),非本驱动,作优化前基线引入。
+\*\*\* batch-3 / batch-5(旧) / batch-10 均用 §2.4(A)**朴素批量提示词**(source=auto、无 ledger/无串行铁律);batch-5(优化)用 §2.4(B)优化版;单家用 §2.3。
 
 **batch-10 崩溃铁证**:record status=`agent_error`、会话级 status=`failed`、轨迹 808KB、`errorMessage:"Context overflow: estimated context size exceeds safe threshold during tool loop"` + DeepSeek **413 Payload Too Large**。根因:背调每家拉重型工具结果(SEC 单家 ~32KB),单家 ~15K tok、10 家外推 ~150K → 爆 DeepSeek 上下文。
 
@@ -128,7 +143,7 @@ SCREEN_REPORTS_JSON_END
 
 † 单家证据源取自该 run **轨迹正文**(6 源:Companies House/RDAP/Abstract/Hunter/ImportYeti/DNS);该 run marker 拼错致 driver 记 0/1,但内容完整;单家产出可靠性另由 Phase B 单家 48/48 marker 正常佐证。
 
-**结论:批量越大、压缩越多、报告越薄。** 优化提示词把成本从 2× 压到 1.4×(付费 10→7 次)、工具 69→41,但**没根治完整性**:逐家串行把回合从 12 拉到 43、e2e 182s→330s,**压缩迹象仍 4 次未减**,早完成家的工具证据被压缩丢弃 → 证据源 5 < 单家/batch-3 的 6/7。ledger 只保住"付费不重复调用",保不住"已被丢弃的证据厚度"——这是纯提示词的天花板。背调"10 个"的正解是 **1 家/会话 fan-out**(零压缩、报告最厚、错误隔离),覆盖 10 家 = 10 个并发单家任务。
+**结论:批量越大、压缩越多、报告越薄。** 优化提示词把成本从 2× 压到 1.4×(付费 10→7 次)、工具 69→41,但**没根治完整性**:逐家串行把回合从 12 拉到 43、e2e 182s→330s,**压缩迹象仍 4 次未减**,早完成家的工具证据被压缩丢弃 → 证据源 5 < 单家/batch-3 的 6/7。ledger 只保住"付费不重复调用",保不住"已被丢弃的证据厚度"——这是纯提示词的天花板。背调"10 个"的正解是 **1 家/会话 fan-out**(零压缩、报告最厚、错误隔离),覆盖 10 家 = 10 个并发单家任务;**若想少开会话,batch-3 是次优**(0 压缩、每家 7 证据源,10 家 ≈ 4 个 batch-3 会话),但 batch-5 起就开始压缩、不建议。
 
 ## 五、Phase B — 并发阶梯(重会话压力,maxConcurrent=40)
 
@@ -155,7 +170,7 @@ SCREEN_REPORTS_JSON_END
 |---|---|
 | 获客 10 vs 5 | **几乎不增加**,一个会话 ~2min 出 10 个;并发到 C=32 线性扩到 **63.5 个/min** |
 | 背调 10 能不能一个会话 | **不能**,batch-10 必上下文溢出崩(0 产出还白烧付费);安全 batch≤5 |
-| 背调 10 的正解 | **1 家/会话 fan-out**(完整性最佳:6 证据源、0 压缩、~49s/家),10 家 = 10 个并发单家任务 |
+| 背调 10 的正解 | **1 家/会话 fan-out**(完整性最佳:6 证据源、0 压缩、~49s/家),10 家 = 10 个并发单家任务;**次优 batch-3**(7 源/0 压缩,10 家≈4 会话);batch-5 起压缩、batch-10 崩 |
 | 10-项会不会增加并发压力 | **不会显著增加**——C=32 重会话 0 rss_threshold、104/104 会话成功,容量不降(本轮未推到崩) |
 | 成本 | 背调 ~$0.09/家(**ImportYeti 1 次=唯一美元计费**;Hunter/Abstract 各 1 次走免费档)· 获客 ~$0.01/任务(Tavily,**不烧 IY/H/A**) |
 | batch 优化提示词有没有用 | 把成本 2×→1.4×、工具 69→41,但救不回完整性(压缩迹象仍 4 次、报告变薄、更慢 330s);**不如直接 1 家/会话** |
