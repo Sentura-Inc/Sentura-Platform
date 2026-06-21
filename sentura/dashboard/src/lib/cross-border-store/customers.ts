@@ -417,6 +417,10 @@ export async function deleteEmployeeCustomers(context: TenantContext, ids: strin
     }
     if (screeningReportIds.length > 0) {
       await client.query(
+        `delete from screening_address_locations where tenant_id = $1 and screening_report_id = any($2::text[])`,
+        [context.tenantId, screeningReportIds],
+      );
+      await client.query(
         `delete from screening_score_blocks where tenant_id = $1 and screening_report_id = any($2::text[])`,
         [context.tenantId, screeningReportIds],
       );

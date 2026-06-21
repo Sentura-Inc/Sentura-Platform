@@ -5,6 +5,9 @@ export const SOURCE_TYPES = [
   "official_registry_page",
   "public_web",
   "public_dns",
+  "google_maps_places",
+  "google_maps_geocoding",
+  "google_maps_address_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -125,6 +128,54 @@ export const OfficialContactEmailSearchInputShape = {
   domain: z.string().min(3),
   website: z.string().url().optional(),
   max_pages: z.number().int().min(1).max(8).default(5),
+};
+
+export const GoogleCircleShape = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  radius_meters: z.number().positive().max(50_000),
+});
+
+export const GooglePlacesSearchInputShape = {
+  mode: z.enum(["text", "nearby"]).default("text"),
+  text_query: z.string().min(2).optional(),
+  country: CountryCodeSchema.optional(),
+  city_or_region: z.string().min(1).optional(),
+  language_code: z.string().min(2).max(10).optional(),
+  region_code: CountryCodeSchema.optional(),
+  included_types: z.array(z.string().min(1)).max(10).default([]),
+  max_result_count: z.number().int().min(1).max(20).default(10),
+  location_bias: GoogleCircleShape.optional(),
+  location_restriction: GoogleCircleShape.optional(),
+  field_mask_profile: z.enum(["lead_discovery_list"]).default("lead_discovery_list"),
+};
+
+export const GooglePlaceDetailsInputShape = {
+  place_id: z.string().min(1),
+  field_mask_profile: z.enum([
+    "lead_discovery_basic",
+    "screening_local_presence",
+    "screening_address_footprint",
+  ]).default("lead_discovery_basic"),
+  purpose: z.enum(["lead_discovery", "screening"]).default("lead_discovery"),
+};
+
+export const GoogleGeocodeInputShape = {
+  address: z.string().min(2),
+  country: CountryCodeSchema.optional(),
+  language_code: z.string().min(2).max(10).optional(),
+  region_code: CountryCodeSchema.optional(),
+  max_results: z.number().int().min(1).max(5).default(1),
+};
+
+export const GoogleAddressValidateInputShape = {
+  address_lines: z.array(z.string().min(1)).min(1).max(5),
+  region_code: CountryCodeSchema.optional(),
+  locality: z.string().min(1).optional(),
+  administrative_area: z.string().min(1).optional(),
+  postal_code: z.string().min(1).optional(),
+  language_code: z.string().min(2).max(10).optional(),
+  enable_usps_cass: z.boolean().default(false),
 };
 
 export const SecLookupInputShape = {

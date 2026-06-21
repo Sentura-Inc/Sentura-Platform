@@ -8,13 +8,19 @@
 >
 > Chinese name: 跨境营销获客员工
 >
-> Last updated: 2026-06-13
+> Last updated: 2026-06-21
 
 This document owns all design, implementation details, current status, and forward plan for the Marketing Acquisition / Lead Discovery employee in the mobile-accessory cross-border e-commerce customer lane. Shared platform architecture, database-wide schema, cloud deployment, and cross-agent flow live in [`DESIGN.md`](DESIGN.md). Screening-specific background investigation design lives in [`SCREENING.md`](SCREENING.md). Accio ingestion and memory design lives in [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
 ## 1. Role And Current Status
 
-The Marketing Acquisition employee finds overseas downstream B2B buyer companies for mobile-phone accessories by using OpenClaw `web_search` / `web_fetch` through a real OpenClaw AgentChat session. It returns source-audited, deduplicated buyer leads for review and downstream Screening.
+The Marketing Acquisition employee finds overseas downstream B2B buyer companies for mobile-phone accessories. The target design is now **Google Maps Places API + OpenClaw web search as the primary acquisition route**:
+
+1. Google Maps Places discovers local retail/repair/electronics/wholesale storefront candidates by geography, business category, and product intent.
+2. OpenClaw `web_search` / `web_fetch` verifies whether each candidate is a real downstream buyer fit, finds the official website/contact page when available, and cross-checks public B2B/product evidence.
+3. Sentura's Lead coordinator and database reconciliation decide whether the candidate is new, duplicate, assignable, or top-up material.
+
+Current implementation uses a controlled read-only `cross-border-intel` MCP boundary for Google Maps Places, Geocoding, and server-side API key handling. Lead Discovery now treats Google Maps Places as the default candidate-discovery source and uses OpenClaw `web_search` / `web_fetch` for independent official-site and product-fit verification.
 
 Phase-1 requirement: all core Lead Discovery functionality is implemented.
 
@@ -33,6 +39,7 @@ Implementation status as of 2026-06-08:
 
 Known forward work:
 
+- Add Google Maps Places API integration for location-based candidate discovery, then combine it with web search enrichment as the default Lead route.
 - Implement production persistence for `lead_runs`, `lead_candidates`, `lead_sources`, shared lead identity pool, and run-scope dedupe tables.
 - Implement Dashboard/server-side run coordinator before AgentChat launch so duplicate concurrent user requests join or top up an active run instead of starting another identical employee run.
 - Add automated concurrency tests that simulate two start requests for the same `scope_hash` and assert only one AgentChat run is launched.
@@ -51,6 +58,14 @@ Canonical input:
   "languages": ["en", "de", "fr", "pt", "es"],
   "max_results_per_query": 10,
   "daily_candidate_target": 100,
+  "source_policy": ["google_maps_places", "public_web", "company_site_only"],
+  "google_maps": {
+    "enabled": true,
+    "mode": "text_search_then_details",
+    "city_or_region_seeds": ["Los Angeles", "Manchester", "Berlin", "Paris", "Sao Paulo", "Mexico City"],
+    "included_place_types": ["electronics_store", "cell_phone_store", "store", "wholesaler"],
+    "field_mask_profile": "lead_discovery_basic"
+  },
   "exclude_domains": ["amazon.com", "alibaba.com", "aliexpress.com", "temu.com", "ebay.com"]
 }
 ```
@@ -84,7 +99,78 @@ Phase-1 manual command example:
 
 ## 3. Search Strategy
 
-For each product keyword and target country, the employee generates query families.
+After Google Maps integration, Lead Discovery should use two complementary source families:
+
+1. **Google Maps Places** for location-first discovery of actual stores, repair shops, electronics retailers, wholesalers, and distributors with public business profiles.
+2. **OpenClaw web search/fetch** for official-site/product/category/contact verification and non-local B2B sources such as distributor websites, trade fair exhibitors, importer pages, and buyer directories.
+
+The Google Maps path is especially useful for this mobile-accessory customer because many downstream buyers are local or regional storefront businesses that do not rank well in generic web search: phone repair chains, mobile shops, electronics stores, accessory stores, and small distributors. It is less useful for pure importer databases, hidden wholesale buyers, marketplace-only sellers, or companies that have no public storefront profile.
+
+### 3.1 Google Maps Places Discovery
+
+Use Google Maps Places API (New), not Business Profile API, for prospect discovery. Business Profile APIs are for merchants to manage locations they own or administer, so they are not the correct third-party search/backcheck surface.
+
+Primary Google endpoints:
+
+| API | Use in Lead Discovery | Notes |
+|---|---|---|
+| Text Search (New) `places:searchText` | First pass for product/persona/city queries such as `phone accessories wholesaler Manchester` or `mobile phone repair parts Los Angeles`. | Best for natural-language business intent. Supports field masks and optional location bias/restriction. |
+| Nearby Search (New) `places:searchNearby` | Grid/metro sweep when a target city/lat-lng is known. | Requires a geographic `locationRestriction`; use only after geocoding city centers or predefined market grids. |
+| Place Details (New) `places/{place_id}` | Enrich shortlisted places with selected fields such as website, phone, address, business status, rating count, hours, Google Maps URI, and types. | Use narrow field masks to control cost and avoid pulling unneeded reviews/photos. |
+| Place Photos (New) | Optional visual support for human review only. | Not a Lead default; photos add cost and attribution/caching constraints. |
+| Geocoding API | Convert city/region seeds into map points for Nearby Search grids when needed. | Do not use Geocoding as a business verifier. |
+
+Recommended Text Search query families:
+
+| Persona | English query examples | Localized/query expansion examples |
+|---|---|---|
+| Phone repair chain / repair shop | `phone repair shop mobile accessories {city}`, `cell phone repair parts {city}` | `handy reparatur zubehor Berlin`, `reparation telephone accessoires Paris`, `assistencia celular acessorios Sao Paulo` |
+| Electronics retailer | `electronics store phone accessories {city}`, `mobile accessories retailer {city}` | `tienda electronica accesorios moviles Madrid`, `negozio elettronica accessori cellulari Milano` |
+| Mobile phone store | `cell phone store accessories {city}`, `mobile phone shop cases chargers {city}` | `loja celular capinha carregador Sao Paulo`, `tienda celulares fundas cargadores Mexico City` |
+| Distributor / wholesaler | `phone accessories distributor {city}`, `mobile accessories wholesaler {region}` | `grossiste accessoires telephone Paris`, `distribuidor accesorios celulares Mexico` |
+| Repair parts buyer | `LCD screen replacement supplier repair shop {city}`, `phone parts shop {city}` | Use only when the customer sells repair accessories or parts. |
+
+Place type use:
+
+- Use Google `includedType` / `includedTypes` only when it improves precision; keep text query as the main signal for phone-accessory intent.
+- Useful types include `electronics_store`, `cell_phone_store`, `store`, `shopping_mall`, and `wholesaler` where supported.
+- Do not assume there is a precise Google type for every buyer persona, especially `phone repair chain`, `accessory importer`, or `mobile accessories distributor`; use Text Search terms and downstream validation for those.
+
+Field-mask profiles:
+
+| Profile | Intended endpoint | Fields to request | Why |
+|---|---|---|---|
+| `lead_discovery_list` | Text/Nearby Search | `places.id`, `places.displayName`, `places.formattedAddress`, `places.location`, `places.types`, `places.businessStatus`, `places.googleMapsUri` | Cheap first-pass candidate list and provenance. |
+| `lead_discovery_basic` | Place Details | `id`, `displayName`, `formattedAddress`, `nationalPhoneNumber`, `internationalPhoneNumber`, `websiteUri`, `businessStatus`, `types`, `rating`, `userRatingCount`, `regularOpeningHours`, `googleMapsUri` | Enough to cross-check website, storefront status, phone, and local presence. |
+| `human_review_optional` | Place Details | Add `reviews`, `photos`, `editorialSummary` only when explicitly needed for operator review. | Reviews/photos have higher cost/policy burden and should not be default scoring evidence. |
+
+Candidate acceptance from Google Maps:
+
+- Accept a Maps candidate only as a **lead seed** until web search confirms a downstream buyer fit.
+- Prefer candidates with `websiteUri` pointing to a company-owned domain or with web-search evidence of mobile accessories, repair parts, electronics retail, accessory retail, or wholesale/distribution.
+- `businessStatus = OPERATIONAL` is a positive existence signal; `CLOSED_PERMANENTLY` should usually block the lead unless web search shows a relocation/rebrand.
+- Rating and review count are business-footprint signals only. Do not treat low ratings as fraud evidence, and do not use reviews as personal-data memory.
+- If Google returns only a map listing with no website and no public web evidence, mark the row as `needs_web_verification` or keep it out of the final actionable lead list.
+
+Google Maps + web search enrichment flow:
+
+1. Build market grid from country/city seeds and buyer persona.
+2. Run Text Search for each product/persona/city query with `maxResultCount` / page limits that fit the request budget.
+3. Deduplicate by Google `place_id`, normalized website domain, phone, and normalized company name + city/country.
+4. Call Place Details only for the top candidates needed to satisfy the user target plus over-collection buffer.
+5. For candidates with website/domain, run OpenClaw `web_fetch` against official home/contact/product/category pages.
+6. For candidates without a website, run `web_search` for exact business name + city + phone/accessory keywords.
+7. Reject marketplace pages, generic directory/list pages, factories/manufacturers/exporters, closed businesses, and candidates with no mobile-accessory/business-fit evidence.
+8. Save only DB-unique, unassigned candidates after tenant-level reconciliation.
+
+Budget defaults:
+
+- Use Text Search first; Place Details only for shortlisted candidates.
+- Do not request reviews/photos by default.
+- Cap Places calls per Lead run from server config, not prompt text.
+- Cache/store only what Google Maps Platform terms allow. Treat `place_id` and `googleMapsUri` as durable provenance; refresh volatile place fields when showing or scoring if policy requires.
+
+For each product keyword and target country, the employee also generates web-query families.
 
 Buyer type:
 
@@ -131,7 +217,10 @@ Allowed tools:
 - `web_fetch`
 - `cron`
 - `group:plugins`
-- `cross-border-intel__*` if later lead-side enrichment is needed
+- `cross-border-intel__cbe_intel_google_places_search`
+- `cross-border-intel__cbe_intel_google_place_details`
+- `cross-border-intel__cbe_intel_google_geocode`
+- `cross-border-intel__*` for narrowly allowed domain/email light enrichment only
 
 Sandbox tool allowlist:
 
@@ -159,8 +248,18 @@ Model route:
 Search provider policy:
 
 - Formal Lead Discovery uses OpenClaw `web_search` and `web_fetch`.
+- Target design makes Google Maps Places + OpenClaw web search the main Lead route after a read-only Google Maps adapter is implemented.
 - `TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw web-search provider auto-detection, not to the `cross-border-intel` MCP env block.
+- `GOOGLE_MAPS_API_KEY` must live in `~/.openclaw/.env` or secret injection and must never appear in prompts, workspace prose, logs, or client-side JavaScript. The adapter should call Google from the server/MCP side only.
 - The diagnostic Dashboard Tavily route may read `TAVILY_API_KEY` from `process.env` or `~/.openclaw/.env`, but it must be clearly treated as adapter diagnostics, not official lead generation.
+
+Google Maps adapter policy:
+
+- Use the Places API (New) Web Service with explicit field masks for every request.
+- Use server-side API keys restricted to required Maps APIs and deployment egress IPs where possible.
+- Write `api_call_ledger` rows for Text Search, Nearby Search, Place Details, and optional Photos calls.
+- Do not expose raw Google responses to the LLM. Return normalized, bounded candidate/evidence objects with `provider_status`, `field_mask`, `fetched_at`, `google_place_id`, `google_maps_uri`, source attribution fields, and cost/usage posture.
+- Treat Google Maps as discovery/existence evidence, not a legal registry or KYB source.
 
 ## 5. Output Schema
 
@@ -188,6 +287,16 @@ Canonical `LeadCandidate` shape:
     "https://example-mobile-distribution.co.uk",
     "https://www.linkedin.com/company/example-mobile-distribution"
   ],
+  "google_maps_evidence": {
+    "place_id": "ChIJREPLACE_ME",
+    "google_maps_uri": "https://maps.google.com/?cid=REPLACE_ME",
+    "business_status": "OPERATIONAL",
+    "formatted_address": "Example address, Manchester, UK",
+    "rating": 4.3,
+    "user_rating_count": 42,
+    "fetched_at": "2026-06-21T00:00:00Z",
+    "field_mask": "id,displayName,formattedAddress,websiteUri,businessStatus,types,rating,userRatingCount,googleMapsUri"
+  },
   "discovery_evidence": [
     {
       "signal": "website_mentions_mobile_accessories",
@@ -212,6 +321,7 @@ Required output fields:
 - source URLs
 - source excerpts/evidence
 - query strings and source timestamps in expandable details
+- Google Maps provenance when used: `place_id`, `google_maps_uri`, endpoint, field mask, fetched timestamp, business status, address/phone/website fields requested, and attribution handling
 - `dedupe_key`
 - `normalized_domain`
 - `dedupe_explanation`
@@ -314,6 +424,13 @@ lead_runs(id, tenant_id, user_id, agent_run_id, query_config_json, status, targe
 lead_candidates(id, tenant_id, lead_run_id, normalized_domain, company_name, country, buyer_type, confidence, dedupe_key, status, created_at)
 lead_sources(id, tenant_id, lead_candidate_id, source_type, source_url, query, excerpt, fetched_at, confidence)
 ```
+
+Google Maps source records:
+
+- `lead_sources.source_type` should support `google_maps_places_text_search`, `google_maps_places_nearby_search`, and `google_maps_place_details`.
+- The durable source URL should usually be `googleMapsUri` plus the Google `place_id`; do not store raw Google response bodies unless the implementation has a documented retention/attribution policy that satisfies Google Maps Platform terms.
+- `lead_run_results.source_snapshot_json` may carry bounded, policy-reviewed Maps metadata such as endpoint name, field mask, place id, Google Maps URI, business status, fetched timestamp, and non-sensitive normalized fields used for dedupe.
+- Official website/domain evidence derived from `websiteUri` should be confirmed through `web_fetch` / `web_search` before it becomes the primary business-fit source.
 
 Marketing reads:
 
@@ -631,6 +748,15 @@ Relevant source docs and APIs:
 
 - OpenClaw `web_search` / `web_fetch`: `https://docs.openclaw.ai/tools/web`
 - OpenClaw config/tools: `https://docs.openclaw.ai/gateway/config-tools`
+- Google Maps Platform Places API (New) Text Search: `https://developers.google.com/maps/documentation/places/web-service/text-search`
+- Google Maps Platform Places API (New) Nearby Search: `https://developers.google.com/maps/documentation/places/web-service/nearby-search`
+- Google Maps Platform Places API (New) Place Details: `https://developers.google.com/maps/documentation/places/web-service/place-details`
+- Google Maps Platform Places API place data fields: `https://developers.google.com/maps/documentation/places/web-service/data-fields`
+- Google Maps Platform place types: `https://developers.google.com/maps/documentation/places/web-service/place-types`
+- Google Maps Platform usage, billing, quotas, and field masks: `https://developers.google.com/maps/documentation/places/web-service/usage-and-billing`
+- Google Maps Platform policies: `https://developers.google.com/maps/documentation/places/web-service/policies`
+- Google Maps Platform API key and security best practices: `https://developers.google.com/maps/documentation/places/web-service/get-api-key`, `https://developers.google.com/maps/api-security-best-practices`
+- Google Business Profile APIs overview: `https://developers.google.com/my-business`
 - Brave Search API: `https://brave.com/search/api/`
 - Tavily search API: `https://docs.tavily.com/documentation/api-reference/endpoint/search`
 - Tavily credits: `https://docs.tavily.com/documentation/api-credits`
@@ -651,3 +777,5 @@ Safety defaults:
 - No automatic outreach.
 - No login-gated scraping.
 - Every candidate must carry source URL(s), query string, timestamp, confidence, and dedupe explanation.
+- Google Maps candidates are discovery seeds until web search/fetch or another independent public source confirms downstream buyer relevance.
+- Google Maps review text/photos are optional human-review evidence only; do not write review text into vector memory or treat ratings as authenticity/KYB proof.

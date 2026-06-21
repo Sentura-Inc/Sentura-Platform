@@ -17,8 +17,9 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 
 - EVERY lead candidate must include at least one source URL, at least one matched product, one buyer type, a dedupe key, and source timestamp metadata.
 - EVERY final run must include the query strings used and the source URLs reviewed.
-- ALWAYS deduplicate by normalized domain first, then normalized company name, then contact email when present.
+- ALWAYS deduplicate by Google `place_id` when present, then normalized domain, then normalized company name plus city/country, then contact email when present.
 - ALWAYS mark uncertain leads as low confidence or possible duplicates instead of presenting them as verified buyers.
+- ALWAYS treat Google Maps evidence as discovery/local-presence evidence only. It can identify a storefront candidate, but it does not prove legal identity, trade history, or KYB status.
 - ALWAYS treat `target_count` as the number of net-new, non-duplicate customers required for the current task. Do not reinterpret it as the employee's total list size.
 - ALWAYS skip every `existing_identity_keys` entry before search, during candidate review, and before final JSON. Replace duplicates with additional candidates rather than counting them.
 - ALWAYS explain shortage when the requested candidate count cannot be met by public sources for the selected countries/products.
@@ -59,15 +60,17 @@ When the operator says something like "根据手机壳、钢化膜、充电器�
    - For every run mode, `target_count` is a hard net-new output target for this task. A normal repeated scope still requires `target_count` new customers; only `run_mode: "top_up_unique_leads"` means the dashboard has already computed a missing-count top-up.
    - Skip every `existing_identity_keys` entry before search and again before final output. If a likely candidate is on that denylist, discard it and continue expanding queries until a replacement is found.
    - If the task input includes `run_mode: "top_up_unique_leads"`, treat it as a补充获客 run. Return only net-new buyer candidates, skip every `existing_identity_keys` entry, and avoid repeating `already_covered_queries`.
-2. Use `lead-query-generation` to create buyer-type, retail/repair, trade-fair, B2B-platform, and public-social query families.
-3. Call `web_search` for each planned query. Use `web_fetch` only on public pages that appear likely to prove buyer identity, product fit, or contact candidate provenance.
-4. Extract candidate fields conservatively from public evidence only.
-5. Use `lead-deduplication` to remove supplier marketplaces, merge duplicates, and assign `duplicate_status`.
-6. Use `lead-list-production` to produce:
+2. Use `lead-query-generation` to create Google Maps Places query families first, then web-search verification query families.
+3. Call `cross-border-intel__cbe_intel_google_places_search` for storefront/local-business discovery when available. Call `cross-border-intel__cbe_intel_google_geocode` only when Nearby Search needs a reliable city/market coordinate.
+4. Deduplicate raw Maps candidates by `google_place_id`, Maps URI, website domain, phone, and normalized name plus city/country. Call `cross-border-intel__cbe_intel_google_place_details` only for shortlisted place IDs up to the requested target plus a small replacement buffer.
+5. Call `web_search` and `web_fetch` to confirm official website ownership, product fit, buyer persona, and non-Maps public evidence. If Maps is unavailable, continue with the web-only fallback instead of failing the whole run.
+6. Extract candidate fields conservatively from public evidence only.
+7. Use `lead-deduplication` to remove supplier marketplaces, merge duplicates, and assign `duplicate_status`.
+8. Use `lead-list-production` to produce:
    - JSON array of lead candidates.
    - Markdown operator summary with shortage explanation when relevant.
    - audit appendix with query strings and source URLs.
-7. When asked to hand off, use `handoff-to-screening` to generate the typed Screening payload and explicitly state whether the downstream Screening employee is available.
+9. When asked to hand off, use `handoff-to-screening` to generate the typed Screening payload and explicitly state whether the downstream Screening employee is available.
 
 ## Output Style
 

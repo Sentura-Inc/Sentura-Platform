@@ -19,6 +19,8 @@ export type ScreeningEvidenceLayer =
   | "domain_rdap"
   | "email_dns"
   | "official_contact"
+  | "google_maps_local_presence"
+  | "address_validation"
   | "public_footprint"
   | "trade_customs"
   | "financial_public_filing"
@@ -55,6 +57,77 @@ export interface CustomerCoverageGap {
   action?: string;
 }
 
+export type AddressFootprintCoverageStatus =
+  | "found"
+  | "partial"
+  | "not_found"
+  | "unavailable_api"
+  | "not_checked";
+
+export type AddressFootprintAddressType =
+  | "headquarters_or_office"
+  | "storefront"
+  | "warehouse_or_distribution"
+  | "service_or_repair_location"
+  | "unknown_business_location";
+
+export type AddressFootprintRelationshipStatus =
+  | "confirmed_company_location"
+  | "probable_company_location"
+  | "possible_related_location"
+  | "rejected_unrelated_location";
+
+export interface AddressFootprintValidation {
+  status?: string;
+  addressComplete?: boolean;
+  possibleNextAction?: string;
+}
+
+export interface AddressFootprintLocation {
+  googlePlaceId?: string;
+  displayName: string;
+  addressType: AddressFootprintAddressType;
+  relationshipStatus: AddressFootprintRelationshipStatus;
+  formattedAddress: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  businessStatus?: string;
+  types: string[];
+  websiteUri?: string;
+  domainMatch?: boolean | "not_checked";
+  phoneMatch?: boolean | "not_checked" | "conflict";
+  addressValidation?: AddressFootprintValidation;
+  googleMapsUri?: string;
+  matchConfidence?: number;
+  matchReasons: string[];
+  sourceType?: string;
+  fetchedAt?: string;
+}
+
+export interface CustomerAddressFootprint {
+  sectionTitle: string;
+  coverageStatus: AddressFootprintCoverageStatus;
+  searchScope: {
+    queriesRun: string[];
+    countries: string[];
+    capped: boolean;
+    limitations: string[];
+  };
+  summary: {
+    totalLocations: number;
+    confirmedLocations: number;
+    probableLocations: number;
+    possibleRelatedLocations: number;
+    operationalLocations: number;
+    closedLocations: number;
+    countries: string[];
+    cities: string[];
+  };
+  locations: AddressFootprintLocation[];
+  openQuestions: string[];
+}
+
 export interface CustomerScreeningReport {
   reportId: string;
   riskTier: ScreeningRiskTier;
@@ -65,6 +138,7 @@ export interface CustomerScreeningReport {
   scoreBlocks: CustomerScoreBlock[];
   evidence: CustomerEvidenceItem[];
   coverageGaps: CustomerCoverageGap[];
+  addressFootprint?: CustomerAddressFootprint;
   openQuestions?: string[];
 }
 
@@ -111,7 +185,7 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     case "domain_email":
       return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够证据。";
     case "public_footprint":
-      return "公开网页搜索未找到足够业务足迹或可信来源。";
+      return "公开网页或 Google Maps 地址版图未找到足够业务足迹或可信来源。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
     case "trade_financial":

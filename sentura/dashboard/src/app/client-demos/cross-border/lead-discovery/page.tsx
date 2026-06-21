@@ -32,6 +32,8 @@ const LEADS_JSON_END = "LEAD_CANDIDATES_JSON_END";
 type SourceType =
   | "official_api"
   | "public_web"
+  | "google_maps_places"
+  | "google_maps_geocoding"
   | "paid_trade_data"
   | "self_reported"
   | "unverified";
@@ -103,6 +105,7 @@ interface EnvProviderStatus {
 interface LeadRunEnvStatus {
   tavily_search?: EnvProviderStatus;
   companies_house?: EnvProviderStatus;
+  google_maps?: EnvProviderStatus;
   abstract_email_validation?: EnvProviderStatus;
   hunter_enrichment?: EnvProviderStatus;
   importyeti_trade_data?: EnvProviderStatus;
@@ -161,6 +164,8 @@ const countryOptions: CountryOption[] = [
 const sourceTypeLabels: Record<SourceType, string> = {
   official_api: "官方 API",
   public_web: "公开网页",
+  google_maps_places: "Google Maps Places",
+  google_maps_geocoding: "Google Maps Geocoding",
   paid_trade_data: "付费贸易数据",
   self_reported: "自报信息",
   unverified: "未验证",
@@ -203,6 +208,8 @@ function normalizeSourceType(value: unknown): SourceType {
   if (
     value === "official_api" ||
     value === "public_web" ||
+    value === "google_maps_places" ||
+    value === "google_maps_geocoding" ||
     value === "paid_trade_data" ||
     value === "self_reported" ||
     value === "unverified"
@@ -526,12 +533,15 @@ export default function CrossBorderLeadDiscoveryPage() {
 你是 OpenClaw 员工 \`${LEAD_AGENT_ID}\`。请你真实执行跨境营销获客，不要使用 Dashboard route、mock 数据或固定候选名单。
 
 执行要求：
-1. 按你的 skills 生成查询计划，调用 OpenClaw web_search 做公开网页搜索；只在需要确认候选公司官网内容时调用 web_fetch。
-2. 只保留具体下游买家公司官网候选：维修连锁、电子零售商、配件零售商、手机门店、转售/进口采购商。
-3. 必须剔除社媒主页、目录、市场平台、供应商目录、generic top supplier list、制造商、OEM/ODM、出口商和中国供应侧页面。
-4. 每个候选都必须有 company_name、website、domain、country、buyer_type、matched_products、source_urls、discovery_evidence、dedupe_key、duplicate_status。
-5. 不允许自动外联，不允许登录抓取，不允许泄露 API key，不允许编造公司/邮箱/URL。
-6. 如果数量不足，简短说明 shortage，不要用低质量页面凑数。
+1. 按你的 skills 生成 Google Maps Places-first 查询计划：先调用 cross-border-intel__cbe_intel_google_places_search 做本地/门店/维修/电子零售/区域批发候选发现；只在 Nearby Search 需要城市坐标时调用 cross-border-intel__cbe_intel_google_geocode。
+2. 对短名单 place_id 才调用 cross-border-intel__cbe_intel_google_place_details，并使用 lead_discovery_basic 级别字段。不要请求或输出 Google reviews、photos、raw response 或 API key。
+3. 对 Maps 候选继续调用 OpenClaw web_search/web_fetch 确认公司官网、产品适配、买家画像和非 Maps 公开证据；Google Maps 单独只能作为 discovery seed。
+4. Google Maps 不可用、限流、缺 key 或无结果时，记录 coverage gap，然后使用 web_search fallback。
+5. 只保留具体下游买家公司官网候选：维修连锁、电子零售商、配件零售商、手机门店、转售/进口采购商。
+6. 必须剔除社媒主页、目录、市场平台、供应商目录、generic top supplier list、制造商、OEM/ODM、出口商和中国供应侧页面。
+7. 每个候选都必须有 company_name、website、domain、country、buyer_type、matched_products、source_urls、discovery_evidence、dedupe_key、duplicate_status。
+8. 不允许自动外联，不允许登录抓取，不允许泄露 API key，不允许编造公司/邮箱/URL。
+9. 如果数量不足，简短说明 shortage，不要用低质量页面凑数。
 
 获客输入 JSON：
 ${JSON.stringify(runInputs, null, 2)}
@@ -557,13 +567,16 @@ ${LEADS_JSON_START}
       "source_urls": ["https://..."],
       "discovery_evidence": [
         {
-          "signal": "website_mentions_mobile_accessory_business",
+          "signal": "google_maps_local_presence|website_mentions_mobile_accessory_business",
           "source_url": "https://...",
           "excerpt": "...",
           "confidence": 0.7,
           "query": "...",
           "fetched_at": "ISO timestamp",
-          "source_type": "public_web"
+          "source_type": "google_maps_places|public_web",
+          "google_place_id": "optional",
+          "google_maps_uri": "optional",
+          "field_mask_profile": "optional"
         }
       ],
       "dedupe_key": "...",
@@ -607,7 +620,7 @@ ${LEADS_JSON_END}`;
     }
 
     setRunStatus("running");
-    setRunMessage("已提交给 cbe-lead-discovery 员工，等待 web_search/web_fetch 工具结果。");
+    setRunMessage("已提交给 cbe-lead-discovery 员工，等待 Google Maps Places 和 web_search/web_fetch 工具结果。");
     setExpandedLeadId(undefined);
     setLeads([]);
 
@@ -642,7 +655,7 @@ ${LEADS_JSON_END}`;
       }
       setLeads(nextLeads);
       setRunStatus("ready");
-      setRunMessage(`获客员工已完成 ${nextLeads.length} 条去重候选买家，来源为员工 web_search/web_fetch 调查。`);
+      setRunMessage(`获客员工已完成 ${nextLeads.length} 条去重候选买家，来源为员工 Google Maps Places + web_search/web_fetch 调查。`);
     } catch (error) {
       setRunStatus("error");
       setRunMessage(error instanceof Error ? error.message : "无法解析获客员工返回的 LeadCandidate JSON");
@@ -695,6 +708,15 @@ ${LEADS_JSON_END}`;
           : "未配置"
         : "由背调员工执行时检测",
       icon: envStatus?.companies_house?.configured ? CheckCircle2 : Lock,
+    },
+    {
+      label: "Google Maps",
+      note: envStatus
+        ? envStatus.google_maps?.configured
+          ? "已配置，获客 Maps MCP 可用"
+          : "缺少 GOOGLE_MAPS_API_KEY"
+        : "由获客员工执行时检测",
+      icon: envStatus?.google_maps?.configured ? CheckCircle2 : Lock,
     },
     {
       label: "Abstract / Hunter",

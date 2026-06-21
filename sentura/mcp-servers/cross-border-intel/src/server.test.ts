@@ -61,6 +61,10 @@ describe("cross-border-intel MCP tool catalog", () => {
       "cbe_intel_domain_rdap_lookup",
       "cbe_intel_email_domain_check",
       "cbe_intel_official_contact_email_search",
+      "cbe_intel_google_places_search",
+      "cbe_intel_google_place_details",
+      "cbe_intel_google_geocode",
+      "cbe_intel_google_address_validate",
       "cbe_intel_sec_lookup",
       "cbe_intel_trade_record_search",
       "cbe_intel_score_buyer",
@@ -72,6 +76,314 @@ describe("cross-border-intel MCP tool catalog", () => {
       expect(tool.annotations?.destructiveHint).toBe(false);
       expect(tool._meta?.["sentura/sourceDoc"]).toBe("跨境电商/DESIGN.md Milestone 3");
     }
+  });
+});
+
+describe("Google Maps local-presence tools", () => {
+  it("returns unavailable_api without exposing Google Maps key state when no key is configured", async () => {
+    const { client } = await connect();
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_places_search",
+        arguments: { text_query: "phone accessories wholesaler Manchester", country: "GB" },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "unavailable_api",
+      provider: "google_maps",
+      endpoint: "places_search",
+      source_type: "google_maps_places",
+    });
+    expect(JSON.stringify(result)).not.toContain("GOOGLE_MAPS_API_KEY=");
+  });
+
+  it("calls Places Text Search with a narrow field mask and normalized lead candidates", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      expect(u.origin).toBe("https://places.googleapis.test");
+      expect(u.pathname).toBe("/v1/places:searchText");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-goog-api-key")).toBe("google-test-key");
+      expect(headers.get("x-goog-fieldmask")).toBe(
+        "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus,places.googleMapsUri",
+      );
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        textQuery: "phone accessories wholesaler Manchester GB",
+        maxResultCount: 3,
+        regionCode: "GB",
+        includedType: "electronics_store",
+      });
+      return new Response(
+        JSON.stringify({
+          places: [
+            {
+              id: "ChIJ123",
+              displayName: { text: "Example Phone Parts" },
+              formattedAddress: "1 Market Street, Manchester, UK",
+              location: { latitude: 53.4808, longitude: -2.2426 },
+              types: ["electronics_store", "point_of_interest"],
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=123",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        googleMapsApiKey: "google-test-key",
+        googleMapsPlacesBaseUrl: "https://places.googleapis.test/v1",
+        googleMapsMaxResultsPerSearch: 3,
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_places_search",
+        arguments: {
+          text_query: "phone accessories wholesaler",
+          country: "GB",
+          city_or_region: "Manchester",
+          included_types: ["electronics_store", "store"],
+          max_result_count: 10,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "found",
+      provider: "google_maps_places",
+      endpoint: "POST /places:searchText",
+      field_mask_profile: "lead_discovery_list",
+      source_type: "google_maps_places",
+    });
+    expect(result.max_result_count).toBe(3);
+    expect((result.api_call_ledger as Record<string, unknown>).field_mask_profile).toBe("lead_discovery_list");
+    const candidate = (result.candidates as Array<Record<string, unknown>>)[0];
+    expect(candidate).toMatchObject({
+      google_place_id: "ChIJ123",
+      display_name: "Example Phone Parts",
+      business_status: "OPERATIONAL",
+      google_maps_uri: "https://maps.google.com/?cid=123",
+      source_attribution_required: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("google-test-key");
+  });
+
+  it("calls Places Nearby Search only with locationRestriction", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      expect(u.pathname).toBe("/v1/places:searchNearby");
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        maxResultCount: 2,
+        includedTypes: ["electronics_store"],
+        locationRestriction: {
+          circle: {
+            center: { latitude: 40.7128, longitude: -74.006 },
+            radius: 5000,
+          },
+        },
+      });
+      return new Response(JSON.stringify({ places: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        googleMapsApiKey: "google-test-key",
+        googleMapsPlacesBaseUrl: "https://places.googleapis.test/v1",
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_places_search",
+        arguments: {
+          mode: "nearby",
+          location_restriction: { latitude: 40.7128, longitude: -74.006, radius_meters: 5000 },
+          included_types: ["electronics_store"],
+          max_result_count: 2,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "not_found",
+      endpoint: "POST /places:searchNearby",
+      source_type: "google_maps_places",
+    });
+  });
+
+  it("calls Place Details with lead and screening field-mask profiles", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      expect(u.pathname).toBe("/v1/places/ChIJ123");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-goog-api-key")).toBe("google-test-key");
+      expect(headers.get("x-goog-fieldmask")).toBe(
+        "id,displayName,formattedAddress,websiteUri,nationalPhoneNumber,internationalPhoneNumber,businessStatus,types,regularOpeningHours,googleMapsUri",
+      );
+      return new Response(
+        JSON.stringify({
+          id: "ChIJ123",
+          displayName: { text: "Example Phone Parts" },
+          formattedAddress: "1 Market Street, Manchester, UK",
+          websiteUri: "https://example-phone-parts.co.uk",
+          internationalPhoneNumber: "+44 161 555 0100",
+          businessStatus: "OPERATIONAL",
+          types: ["electronics_store"],
+          rating: 4.4,
+          userRatingCount: 87,
+          regularOpeningHours: { openNow: true, weekdayDescriptions: ["Monday: 9:00 AM - 6:00 PM"] },
+          googleMapsUri: "https://maps.google.com/?cid=123",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        googleMapsApiKey: "google-test-key",
+        googleMapsPlacesBaseUrl: "https://places.googleapis.test/v1",
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_place_details",
+        arguments: { place_id: "places/ChIJ123", field_mask_profile: "screening_address_footprint", purpose: "screening" },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "found",
+      endpoint: "GET /places/{place_id}",
+      purpose: "screening",
+      place_id: "ChIJ123",
+      source_type: "google_maps_places",
+    });
+    expect(result.field_mask).not.toContain("reviews");
+    expect(result.field_mask_profile).toBe("screening_address_footprint");
+    const details = result.details as Record<string, unknown>;
+    expect(details).toMatchObject({
+      display_name: "Example Phone Parts",
+      website_uri: "https://example-phone-parts.co.uk",
+      user_rating_count: 87,
+    });
+    expect(JSON.stringify(result)).not.toContain("google-test-key");
+  });
+
+  it("normalizes Geocoding and Address Validation outputs without leaking query API keys", async () => {
+    const fetchFn: FetchLike = vi.fn(async (url, init) => {
+      const u = new URL(String(url));
+      if (u.hostname === "maps.googleapis.test") {
+        expect(u.searchParams.get("key")).toBe("google-test-key");
+        expect(u.searchParams.get("address")).toBe("Manchester, GB");
+        return new Response(
+          JSON.stringify({
+            status: "OK",
+            results: [
+              {
+                formatted_address: "Manchester, UK",
+                place_id: "geo-place",
+                types: ["locality", "political"],
+                geometry: {
+                  location: { lat: 53.4808, lng: -2.2426 },
+                  location_type: "APPROXIMATE",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (u.hostname === "addressvalidation.googleapis.test") {
+        expect(u.searchParams.get("key")).toBe("google-test-key");
+        const body = JSON.parse(String(init?.body)) as Record<string, Record<string, unknown>>;
+        expect(body.address.addressLines).toEqual(["1 Market Street"]);
+        return new Response(
+          JSON.stringify({
+            result: {
+              verdict: { addressComplete: true, hasUnconfirmedComponents: false },
+              address: {
+                formattedAddress: "1 Market Street, Manchester, UK",
+                postalAddress: { regionCode: "GB", locality: "Manchester", addressLines: ["1 Market Street"] },
+                missingComponentTypes: [],
+                unconfirmedComponentTypes: [],
+              },
+              geocode: {
+                placeId: "validated-place",
+                location: { latitude: 53.4808, longitude: -2.2426 },
+              },
+              metadata: { business: true, residential: false },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        googleMapsApiKey: "google-test-key",
+        googleMapsGeocodingBaseUrl: "https://maps.googleapis.test/maps/api/geocode/json",
+        googleMapsAddressValidationBaseUrl: "https://addressvalidation.googleapis.test/v1:validateAddress",
+      },
+    });
+    const geocode = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_geocode",
+        arguments: { address: "Manchester", country: "GB" },
+      }),
+    );
+    expect(geocode).toMatchObject({
+      status: "found",
+      provider: "google_maps_geocoding",
+      source_type: "google_maps_geocoding",
+    });
+    expect(geocode.source_url).toContain("key=REDACTED");
+
+    const validation = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_address_validate",
+        arguments: { address_lines: ["1 Market Street"], region_code: "GB", locality: "Manchester" },
+      }),
+    );
+    expect(validation).toMatchObject({
+      status: "validated",
+      provider: "google_maps_address_validation",
+      source_type: "google_maps_address_validation",
+    });
+    expect((validation.validation as Record<string, unknown>).metadata).toMatchObject({ business: true, residential: false });
+    expect(JSON.stringify({ geocode, validation })).not.toContain("google-test-key");
+  });
+
+  it("maps Google provider quota errors to rate_limited coverage state", async () => {
+    const fetchFn: FetchLike = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const { client } = await connect({
+      fetchFn,
+      config: {
+        googleMapsApiKey: "google-test-key",
+        googleMapsPlacesBaseUrl: "https://places.googleapis.test/v1",
+      },
+    });
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_google_place_details",
+        arguments: { place_id: "ChIJ123" },
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "rate_limited",
+      http_status: 429,
+      source_type: "google_maps_places",
+    });
   });
 });
 

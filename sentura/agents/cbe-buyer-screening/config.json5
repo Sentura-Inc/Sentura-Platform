@@ -91,6 +91,8 @@
             "lead_batch_screening",
             "manual_input_screening",
             "public_web_research",
+            "google_maps_local_presence_check",
+            "google_maps_address_consistency_check",
             "official_registry_lookup",
             "domain_email_verification",
             "sec_public_filing_lookup",

@@ -26,6 +26,10 @@ Allowed MCP tools:
 - `cross-border-intel__cbe_intel_domain_rdap_lookup`
 - `cross-border-intel__cbe_intel_email_domain_check`
 - `cross-border-intel__cbe_intel_official_contact_email_search`
+- `cross-border-intel__cbe_intel_google_places_search`
+- `cross-border-intel__cbe_intel_google_place_details`
+- `cross-border-intel__cbe_intel_google_geocode`
+- `cross-border-intel__cbe_intel_google_address_validate`
 - `cross-border-intel__cbe_intel_sec_lookup`
 - `cross-border-intel__cbe_intel_trade_record_search`
 - `cross-border-intel__cbe_intel_score_buyer`
@@ -36,6 +40,10 @@ Paid-source constraints:
 
 - `cbe_intel_email_domain_check` may use Abstract/Hunter paid validation only when `enable_paid_validation=true` and the target email is supplied by the operator or discovered as a same-domain email on the official website.
 - `cbe_intel_trade_record_search` may use ImportYeti/Volza only when the run includes paid trade authorization and a per-target budget. Use at most one paid trade call per target.
+- Google Maps Places must be used for the dedicated `Google Maps 地址版图` address-footprint pass on every company investigation when the API is available. Build bounded query variants from company/legal/brand name, country/city/region, website/domain, phone when available, and official-site location/store/address pages found through web search/fetch.
+- Basic local-presence refresh is still capped separately: if a Marketing lead includes `google_place_id`, call `cbe_intel_google_place_details` at most once with `field_mask_profile="screening_local_presence"` and `purpose="screening"` for that basic check.
+- Address-footprint discovery may call `cbe_intel_google_places_search` for multiple query variants and `cbe_intel_google_place_details` with `field_mask_profile="screening_address_footprint"` for shortlisted unique places under the configured address-footprint cap. Deduplicate by place id, formatted address, phone, website domain, and display name.
+- `cbe_intel_google_address_validate` may validate unique public business addresses from Maps, registry, or the official website under the per-target validation cap. Address validation is supporting evidence only, not legal ownership proof.
 - Never call paid sources again during retry unless the Dashboard/store explicitly says a fresh paid lookup was approved.
 - Lead Discovery does not use Abstract, Hunter, ImportYeti, Volza, Companies House, or SEC directly; those are Screening evidence sources.
 

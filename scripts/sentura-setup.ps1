@@ -316,6 +316,7 @@ $patchScript = @"
 const fs = require('fs');
 const path = require('path');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const projectRoot = '$($ProjectRoot -replace '\\', '\\\\')';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
 const openClawState = process.env.OPENCLAW_STATE || '';
@@ -345,8 +346,9 @@ function readDotEnvFile(filePath) {
   return entries;
 }
 
-const setupDotEnv = openClawState ? readDotEnvFile(path.join(openClawState, '.env')) : {};
-const setupEnv = { ...setupDotEnv, ...process.env };
+const projectDotEnv = projectRoot ? readDotEnvFile(path.join(projectRoot, '.env')) : {};
+const openClawDotEnv = openClawState ? readDotEnvFile(path.join(openClawState, '.env')) : {};
+const setupEnv = { ...projectDotEnv, ...openClawDotEnv, ...process.env };
 function hasSetupEnv(name) {
   return typeof setupEnv[name] === 'string' && setupEnv[name].trim().length > 0;
 }
@@ -397,6 +399,7 @@ function buildCrossBorderIntelEnv() {
     'ABSTRACT_API_KEY',
     'HUNTER_API_KEY',
     'IMPORTYETI_API_KEY',
+    'GOOGLE_MAPS_API_KEY',
     // Optional adapters not required by the default Phase-1 customer setup.
     'OPENCORPORATES_API_KEY',
     'VOLZA_API_KEY',
@@ -412,6 +415,9 @@ function buildCrossBorderIntelEnv() {
   env.CBE_ENABLE_PAID_TRADE_DATA = setupEnvValue('CBE_ENABLE_PAID_TRADE_DATA', 'false');
   env.CBE_MAX_PAID_SPEND_USD = setupEnvValue('CBE_MAX_PAID_SPEND_USD', '0');
   env.CBE_INTEL_REQUEST_TIMEOUT_MS = setupEnvValue('CBE_INTEL_REQUEST_TIMEOUT_MS', '30000');
+  env.CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH = setupEnvValue('CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH', '10');
+  env.CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN = setupEnvValue('CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN', '20');
+  env.CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN = setupEnvValue('CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN', '5');
   return env;
 }
 

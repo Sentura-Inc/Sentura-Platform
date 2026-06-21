@@ -10,8 +10,8 @@ Phase 1 uses OpenClaw/Sentura as configured employee workspaces plus the read-on
 - `COMPANIES_HOUSE_API_KEY` for UK registry lookup.
 - `ABSTRACT_API_KEY` and `HUNTER_API_KEY` for optional email validation.
 - `IMPORTYETI_API_KEY` for optional US import-record evidence.
+- `GOOGLE_MAPS_API_KEY` for Google Maps Places, Geocoding, and Address Validation local-presence evidence.
 - `SEC_USER_AGENT` for SEC EDGAR public data.
 - `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` for cost and timeout control.
 
-Secrets are never printed. Missing or disabled sources are coverage gaps, not fraud evidence.
-
+Secrets are never printed. Missing or disabled sources are coverage gaps, not fraud evidence. Google Maps evidence is public-footprint/local-presence support only; it does not replace company registry, domain/email, trade, financial, or behavior evidence.

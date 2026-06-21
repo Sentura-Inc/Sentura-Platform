@@ -8,7 +8,7 @@
 >
 > Chinese name: 跨境筛选背调员工
 >
-> Last updated: 2026-06-21
+> Last updated: 2026-06-22
 
 This document owns all design, implementation details, current status, and forward plan for the Screening and Background Investigation employee in the mobile-accessory cross-border e-commerce customer lane. Shared platform architecture, database-wide schema, cloud deployment, and cross-agent flow live in [`DESIGN.md`](DESIGN.md). Marketing Acquisition details live in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md). Accio memory details live in [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
@@ -137,6 +137,7 @@ Primary layout:
 - Center evidence workspace:
   - legal registry
   - domain/email
+  - Google Maps 地址版图
   - website/social footprint
   - trade/customs
   - financial/public filing
@@ -163,16 +164,19 @@ The employee must use the following ladder in order:
 
 1. Registry and legal existence.
 2. Website/domain/email credibility.
-3. Public digital footprint.
-4. Trade behavior / customs evidence.
-5. Financial/public filing evidence where applicable.
-6. Conversation behavior signals only if Accio history or sales interaction exists.
+3. Google Maps/local business presence and address footprint where relevant.
+4. Public digital footprint.
+5. Trade behavior / customs evidence.
+6. Financial/public filing evidence where applicable.
+7. Conversation behavior signals only if Accio history or sales interaction exists.
 
 Evidence source tags:
 
 - `official_api`
 - `official_registry_page`
 - `public_web`
+- `google_maps_places`
+- `google_maps_address_validation`
 - `public_dns`
 - `paid_trade_data`
 - `demo_fixture`
@@ -275,6 +279,96 @@ Do not:
 - rely on official LinkedIn API as a low-cost route;
 - rely on Meta/Instagram Graph API before app review/business-asset approval.
 
+## 7.1 Google Maps / Places Checks
+
+Google Maps Places is useful for Screening when the target is a storefront, repair chain, electronics retailer, phone shop, local wholesaler, or distributor with public local presence. It is not a company registry, trade database, credit bureau, or proof of legal ownership.
+
+Target design after Google Maps integration:
+
+| Screening question | Google Maps field/source | How to interpret |
+|---|---|---|
+| Does the business appear to operate at a real public location? | Place Details `businessStatus`, `formattedAddress`, `googleMapsUri`, `regularOpeningHours`. | Positive public-footprint signal when `OPERATIONAL`; `CLOSED_PERMANENTLY` is a caution/blocker unless web evidence shows relocation/rebrand. |
+| Does the Maps profile connect to the same official website/domain? | Place Details `websiteUri`, then OpenClaw `web_fetch` of that website. | Stronger domain/business-fit evidence when website domain matches operator-supplied lead or official site. |
+| Does the phone/address align with other public sources? | Place Details `internationalPhoneNumber` / `nationalPhoneNumber`, `formattedAddress`; registry/website/footer search. | Supporting evidence only; conflicts require explanation or human clue. |
+| Is the company in the right business category? | Place types plus Text Search query intent. | Use as weak category evidence; confirm with official site/product pages. |
+| Is there enough public customer footprint for human confidence? | `rating`, `userRatingCount`, optional reviews only with attribution and policy compliance. | Business-footprint context, not fraud proof or sales quality score. |
+
+Implementation rules:
+
+- Use Google Maps Places API (New) through a read-only MCP/server-side adapter, not from browser/client JavaScript and not directly from employee prompt code.
+- Request narrow field masks. Default Screening details should not fetch reviews/photos.
+- Preserve source attribution and `googleMapsUri` whenever Google place data appears in UI/report evidence.
+- Store durable `place_id` and source metadata only according to Google Maps Platform policies. Avoid long-term storage of raw place responses, review text, or photos unless the implementation explicitly documents retention/attribution compliance.
+- Missing Maps result is neutral. Many legitimate importers/distributors have weak or no storefront listing.
+- Do not use Business Profile API for third-party backchecks; it is for managing merchant-owned locations.
+
+Recommended Screening evidence mapping:
+
+| Score block | Maps contribution |
+|---|---|
+| `legal_identity` | None by default. Maps can support name/address consistency, but official registry remains the legal source. |
+| `domain_email` | Positive support when `websiteUri` matches the official domain and the site has MX/SPF/DMARC or same-domain contact email. |
+| `public_footprint` | Positive support from `OPERATIONAL` status, stable address, opening hours, Maps URI, and non-trivial rating count. |
+| `business_fit` | Weak support from place types/search query; must be strengthened by official-site category/product evidence. |
+| `trade_financial` | None. |
+| `conversation_behavior` | None. |
+
+Recommended status language:
+
+- `google_maps_operational_match`: Maps profile is operational and website/name/city align with the target.
+- `google_maps_needs_cross_check`: Maps listing exists but website/domain/category is missing or ambiguous.
+- `google_maps_closed_or_moved`: Google business status indicates closed/permanently closed or web evidence suggests relocation.
+- `google_maps_not_found`: no matching place; coverage gap only.
+
+### 7.1.1 Google Maps Address Footprint Workflow
+
+New Screening requirement: when investigating one company, the employee must attempt to discover the full Google Maps address footprint for that company and render it as a dedicated report section that is visually and semantically separate from ordinary evidence cards.
+
+Definition of "full" for this workflow:
+
+- It means "all company-related Google Maps Places that can be discovered through bounded, source-attributed Places searches and confirmed by details/cross-checks."
+- It does not mean a legal guarantee of every registered branch, franchise, warehouse, or office worldwide. Google Maps is a public place directory, not a corporate branch registry.
+- If the search is capped, ambiguous, or likely incomplete, the report must show an explicit coverage note such as `Google Maps returned more candidate places than the configured cap` or `Only one likely place matched the supplied company/domain`.
+
+Search procedure:
+
+1. Build query variants from the target's legal name, brand/trade names, supplied country, city/region, website domain, phone when available, and official-site location/address pages discovered through `web_search` / `web_fetch`.
+2. Run bounded `cbe_intel_google_places_search` Text Search queries for exact company/brand name plus country, company/brand name plus city/region, company/brand name plus product/business category, and domain or website brand name plus country when an official website is known.
+3. Deduplicate candidate Places by `google_place_id`, normalized address, phone, website domain, and normalized display name.
+4. Call `cbe_intel_google_place_details` for every shortlisted unique place up to the configured per-target cap, using an address-footprint field-mask profile.
+5. For each unique formatted address, call `cbe_intel_google_address_validate` when the address is complete enough and within the per-target validation cap.
+6. Cross-check each place against official website/store-locator/footer pages, registry/public-page address where available, domain/website match, phone match, and product/category fit.
+7. Classify every discovered place as `confirmed_company_location`, `probable_company_location`, `possible_related_location`, or `rejected_unrelated_location`.
+
+Address types:
+
+| Type | When to use |
+|---|---|
+| `headquarters_or_office` | Official website, registry page, or Maps category suggests office/headquarters/corporate location. |
+| `storefront` | Place types/category/opening hours suggest retail shop, phone store, repair shop, electronics store, or public-facing branch. |
+| `warehouse_or_distribution` | Website/public text suggests warehouse, depot, wholesaler, distributor, or fulfillment location. |
+| `service_or_repair_location` | Place types/category indicate repair/service center. |
+| `unknown_business_location` | Address is likely related but business role is unclear. |
+
+Report-display requirement:
+
+- Add a top-level, standalone section named `Google Maps 地址版图` or `Google Maps Address Footprint`.
+- Place it after the executive conclusion / score summary and before the generic evidence timeline, so users see the company's physical footprint before reading individual evidence details.
+- Render it as a distinct panel, not as another generic evidence card:
+  - summary strip: total discovered locations, confirmed/probable/possible counts, operational/closed counts, countries/cities covered, and whether search was capped.
+  - grouped address table/cards by `confirmed`, `probable`, and `needs_review`.
+  - each row/card shows display name, inferred address type, formatted address, city/region/country, business status, website/domain, phone when allowed, Google Maps URI, Address Validation verdict, match confidence, and match reason.
+  - if more than 8 locations exist, show a compact table first and let the report drawer expand all rows.
+  - do not mix this section into score-block detail; score-block effects stay summarized separately.
+
+Scoring and safety:
+
+- Address footprint can support `public_footprint`, `domain_email`, and `business_fit` when there is domain/phone/category consistency.
+- Address footprint must not score `legal_identity` by itself.
+- Missing Google Maps addresses are neutral coverage gaps.
+- `CLOSED_PERMANENTLY` or many closed locations can create a caution flag, but the report must check official website/registry/web evidence for relocation or rebrand before treating it as a blocker.
+- Store/display only bounded normalized place metadata: place id, display name, formatted address, business status, types, website URI/domain, phone if already allowed, Maps URI, fetched timestamp, field mask, attribution, and validation verdict. Do not store raw Google responses, reviews, photos, or long user-generated text by default.
+
 ## 8. Customs And Trade-Record Checks
 
 | Source | API / route | Public price verified | Decision |
@@ -341,7 +435,7 @@ Default block library:
 |---|---:|---|---|
 | `legal_identity` | 25 | company name or registry number exists | Companies House/SEC where applicable, official registry web result, public official page |
 | `domain_email` | 25 | domain, website, or email exists/can be discovered | DNS MX/SPF/DMARC, RDAP, email syntax/free-provider/disposable checks, optional Abstract/Hunter |
-| `public_footprint` | 20 | website, social/profile URL, or public search result exists | `web_search`, `web_fetch`, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
+| `public_footprint` | 20 | website, Maps place, social/profile URL, or public search result exists | `web_search`, `web_fetch`, Google Maps Places local-presence evidence, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
 | `business_fit` | 20 | product interest or discovered category evidence exists | website categories, search snippets, Accio product requests, lead matched products |
 | `trade_financial` | 10 | country/source supports affordable check or paid data enabled | ImportYeti/Volza/SEC/annual report/registry filings |
 | `conversation_behavior` | 15 | Accio chat or sales interaction exists | Accio Memory summary, CRM/chat transcript, manual sales notes |
@@ -466,6 +560,59 @@ Cold lead scoring example:
       "summary": "Cold lead from Marketing; no Accio or sales conversation exists yet."
     }
   ],
+  "address_footprint": {
+    "section_title": "Google Maps 地址版图",
+    "coverage_status": "found",
+    "search_scope": {
+      "queries_run": [
+        "Example Mobile Distribution Ltd US",
+        "Example Mobile Distribution phone accessories New York"
+      ],
+      "countries": ["US"],
+      "capped": false,
+      "limitations": []
+    },
+    "summary": {
+      "total_locations": 2,
+      "confirmed_locations": 1,
+      "probable_locations": 1,
+      "possible_related_locations": 0,
+      "operational_locations": 2,
+      "closed_locations": 0,
+      "countries": ["US"],
+      "cities": ["New York", "Brooklyn"]
+    },
+    "locations": [
+      {
+        "google_place_id": "places/ChIJexample",
+        "display_name": "Example Mobile Distribution",
+        "address_type": "headquarters_or_office",
+        "relationship_status": "confirmed_company_location",
+        "formatted_address": "123 Example Ave, New York, NY 10001, USA",
+        "city": "New York",
+        "region": "NY",
+        "country": "US",
+        "business_status": "OPERATIONAL",
+        "types": ["electronics_store", "wholesaler"],
+        "website_uri": "https://example-mobile.example",
+        "domain_match": true,
+        "phone_match": "not_checked",
+        "address_validation": {
+          "status": "validated",
+          "address_complete": true,
+          "possible_next_action": "ACCEPT"
+        },
+        "google_maps_uri": "https://maps.google.com/?cid=example",
+        "match_confidence": 0.91,
+        "match_reasons": ["display name match", "website domain match", "category fit"],
+        "source_type": "google_maps_places",
+        "fetched_at": "2026-06-22T00:00:00Z"
+      }
+    ],
+    "open_questions": [
+      "未在官网找到完整 store locator；Google Maps 地址版图按公开 Maps 可发现地点生成。"
+    ]
+  },
   "evidence": [
     {
       "layer": "registry",
@@ -516,6 +663,10 @@ Default API allow scope for `cbe-buyer-screening`:
 
 - `web_search` for public footprint, official-page discovery, source fallback, and bounded adverse-media search.
 - `web_fetch` only for public pages returned by search or supplied by the operator.
+- `cross-border-intel__cbe_intel_google_places_search` for public local-business presence checks when a manual storefront target lacks a website or Maps place id, and for address-footprint discovery across likely company/brand/city/domain query variants.
+- `cross-border-intel__cbe_intel_google_place_details` for one bounded basic local-presence refresh per relevant target and bounded Details calls for shortlisted address-footprint candidates.
+- `cross-border-intel__cbe_intel_google_geocode` for coordinate support only.
+- `cross-border-intel__cbe_intel_google_address_validate` for public business address consistency and per-location validation verdicts only.
 - `cross-border-intel__cbe_intel_company_registry_search`
 - `cross-border-intel__cbe_intel_company_profile`
 - `cross-border-intel__cbe_intel_domain_rdap_lookup`
@@ -542,6 +693,11 @@ Configuration impact:
 | `CBE_SCREENING_PAID_EMAIL_MAX_CALLS_PER_TARGET=1` | Abstract/Hunter paid verifier pass is not repeated automatically. |
 | `CBE_SCREENING_TRADE_MAX_CALLS_PER_TARGET=1` | ImportYeti/Volza trade search is not repeated automatically. |
 | `CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET=0` by default, `1` for approved paid runs | Paid trade evidence stays budget-gated. |
+| `CBE_GOOGLE_MAPS_MAX_DETAILS_PER_SCREENING_TARGET=1` | At most one basic local-presence Place Details lookup per target outside address-footprint mode. |
+| `CBE_GOOGLE_MAPS_MAX_ADDRESS_SEARCH_QUERIES_PER_TARGET=6` | Planned address-footprint cap for query variants per target. |
+| `CBE_GOOGLE_MAPS_MAX_ADDRESS_PLACES_PER_SCREENING_TARGET=20` | Planned address-footprint cap for unique Google Places carried into the report. |
+| `CBE_GOOGLE_MAPS_ADDRESS_VALIDATE_MAX_PER_TARGET=10` | Planned cap for Address Validation calls across discovered locations. |
+| `CBE_GOOGLE_MAPS_ENABLE_REVIEWS=false` | Google review text/photos stay disabled unless there is an explicit human-review need and policy-compliant display. |
 | `CBE_ENABLE_PAID_TRADE_DATA=false` by default | Trade API adapters stay off until the customer enables paid trade data. |
 | `CBE_MAX_PAID_SPEND_USD=0` by default | Global paid-data ceiling remains safe for demo/unapproved runs. |
 | `SEC_USER_AGENT` | Required for reliable SEC access. |
@@ -549,6 +705,9 @@ Configuration impact:
 Cost and evidence handling:
 
 - Lead Discovery should not call Abstract, Hunter, ImportYeti, Volza, or registry APIs directly; those belong to Screening.
+- Lead Discovery may call Google Maps Places because Maps is a discovery source; Screening may reuse the place id/Maps URI and call at most one Details refresh per target when local-presence evidence is relevant.
+- For the new address-footprint report section, Screening may run multiple bounded Places searches and Place Details calls per target under the address-footprint caps; this is separate from the single local-presence refresh used by the current basic Screening path.
+- Geocoding and Address Validation support coordinates/address consistency only and do not replace legal identity, domain/email, trade, financial, or Accio evidence.
 - Screening may call paid sources only when the run request includes paid authorization and the server-side budget check passed.
 - `api_call_ledger` should store estimated cost, observed billing deltas when available, provider status, and whether the call was free/included/unpriced/paid.
 - Provider 401/403/429, disabled budget, missing key, or unsupported country should lower coverage only; it must not create negative buyer evidence.
@@ -721,6 +880,7 @@ Already implemented:
 - Official-site same-domain email discovery before paid validation.
 - Public adverse scoring gate.
 - CE5 and CE7 validation coverage.
+- Google Maps address-footprint workflow and the dedicated `Google Maps 地址版图` report section, including multi-query Places discovery, bounded Details/Address Validation, address classification, coverage notes, `screening_address_locations` row storage, source normalization, and distinct Dashboard UI rendering.
 
 Still to implement:
 
@@ -767,6 +927,18 @@ Key sources:
   - `https://data.importyeti.com/`
 - Volza APIs: `https://www.volza.com/trade-intelligence-apis/`
 - Panjiva API guide: `https://panjiva.com/api-guide/`
+- Google Maps Platform Places API (New):
+  - `https://developers.google.com/maps/documentation/places/web-service/text-search`
+  - `https://developers.google.com/maps/documentation/places/web-service/nearby-search`
+  - `https://developers.google.com/maps/documentation/places/web-service/place-details`
+  - `https://developers.google.com/maps/documentation/places/web-service/data-fields`
+  - `https://developers.google.com/maps/documentation/places/web-service/place-types`
+  - `https://developers.google.com/maps/documentation/places/web-service/usage-and-billing`
+  - `https://developers.google.com/maps/documentation/places/web-service/policies`
+  - `https://developers.google.com/maps/api-security-best-practices`
+- Google Geocoding API: `https://developers.google.com/maps/documentation/geocoding/overview`
+- Google Address Validation API: `https://developers.google.com/maps/documentation/address-validation/overview`
+- Google Business Profile APIs overview: `https://developers.google.com/my-business`
 - LinkedIn API access constraints: `https://www.linkedin.com/help/linkedin/answer/a526048/accessing-linkedin-apis`
 - LinkedIn marketing API access: `https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access`
 - X API docs: `https://docs.x.com/x-api`

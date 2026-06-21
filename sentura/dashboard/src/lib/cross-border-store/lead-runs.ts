@@ -466,6 +466,7 @@ function normalizeDomain(value?: string) {
 }
 
 function identityKeyForLead(lead: LeadCandidateMarker) {
+  if (lead.google_place_id) return `google_place:${lead.google_place_id}`;
   const domain = normalizeDomain(lead.domain ?? lead.website);
   if (domain) return `domain:${domain}`;
   return `name:${lead.company_name.trim().toLowerCase()}|country:${lead.country}`;

@@ -11,6 +11,7 @@ import {
   Globe2,
   Loader2,
   Lock,
+  MapPin,
   Play,
   SearchCheck,
   ShieldCheck,
@@ -32,6 +33,9 @@ type SourceType =
   | "official_registry_page"
   | "public_web"
   | "public_dns"
+  | "google_maps_places"
+  | "google_maps_geocoding"
+  | "google_maps_address_validation"
   | "paid_trade_data"
   | "demo_fixture"
   | "self_reported"
@@ -53,6 +57,7 @@ interface EnvProviderStatus {
 interface ScreeningEnvStatus {
   tavily_search?: EnvProviderStatus;
   companies_house?: EnvProviderStatus;
+  google_maps?: EnvProviderStatus;
   abstract_email_validation?: EnvProviderStatus;
   hunter_email_verifier?: EnvProviderStatus;
   importyeti_trade_data?: EnvProviderStatus;
@@ -88,6 +93,8 @@ interface EvidenceItem {
   layer:
     | "legal_registry"
     | "domain_email"
+    | "google_maps_local_presence"
+    | "address_validation"
     | "public_footprint"
     | "trade_customs"
     | "financial_public_filing"
@@ -126,6 +133,50 @@ interface MissingEvidence {
   recommended_next_step: string;
 }
 
+interface AddressFootprintLocation {
+  google_place_id?: string;
+  display_name: string;
+  address_type: string;
+  relationship_status: string;
+  formatted_address: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  business_status?: string;
+  website_uri?: string;
+  google_maps_uri?: string;
+  match_confidence?: number;
+  match_reasons: string[];
+  address_validation?: {
+    status?: string;
+    address_complete?: boolean;
+    possible_next_action?: string;
+  };
+}
+
+interface AddressFootprint {
+  section_title: string;
+  coverage_status: "found" | "partial" | "not_found" | "unavailable_api" | "not_checked";
+  search_scope: {
+    queries_run: string[];
+    countries: string[];
+    capped: boolean;
+    limitations: string[];
+  };
+  summary: {
+    total_locations: number;
+    confirmed_locations: number;
+    probable_locations: number;
+    possible_related_locations: number;
+    operational_locations: number;
+    closed_locations: number;
+    countries: string[];
+    cities: string[];
+  };
+  locations: AddressFootprintLocation[];
+  open_questions: string[];
+}
+
 interface ScreeningReport {
   report_id: string;
   lead_id: string | null;
@@ -138,6 +189,7 @@ interface ScreeningReport {
   recommended_action: string;
   score_blocks: ScoreBlock[];
   evidence: EvidenceItem[];
+  address_footprint?: AddressFootprint;
   open_questions: string[];
   missing_or_unavailable_evidence: MissingEvidence[];
   created_at: string;
@@ -175,6 +227,9 @@ const sourceTypeLabels: Record<SourceType, string> = {
   official_registry_page: "官方注册页",
   public_web: "公开网页",
   public_dns: "公开 DNS/RDAP",
+  google_maps_places: "Google Maps Places",
+  google_maps_geocoding: "Google Maps Geocoding",
+  google_maps_address_validation: "Google Address Validation",
   paid_trade_data: "付费贸易数据",
   demo_fixture: "演示数据",
   self_reported: "自报信息",
@@ -184,6 +239,8 @@ const sourceTypeLabels: Record<SourceType, string> = {
 const layerLabels: Record<EvidenceItem["layer"], string> = {
   legal_registry: "法律注册",
   domain_email: "域名/邮箱",
+  google_maps_local_presence: "Google 本地足迹",
+  address_validation: "地址一致性",
   public_footprint: "公开足迹",
   trade_customs: "贸易/海关",
   financial_public_filing: "财务/公开申报",
@@ -223,6 +280,11 @@ const sourceTypeAliases: Record<string, SourceType> = {
   public_review_profile: "public_web",
   public_business_profile: "public_web",
   public_dns: "public_dns",
+  google_maps_places: "google_maps_places",
+  google_maps_geocoding: "google_maps_geocoding",
+  google_maps_address_validation: "google_maps_address_validation",
+  google_maps_local_presence: "google_maps_places",
+  address_validation: "google_maps_address_validation",
   registry_tool: "official_registry_page",
   paid_trade_data: "paid_trade_data",
   demo_fixture: "demo_fixture",
@@ -258,6 +320,10 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item).trim()).filter(Boolean);
@@ -291,6 +357,8 @@ function normalizeEvidenceLayer(value: unknown, scoreBlock: string, sourceType: 
   if (
     value === "legal_registry" ||
     value === "domain_email" ||
+    value === "google_maps_local_presence" ||
+    value === "address_validation" ||
     value === "public_footprint" ||
     value === "trade_customs" ||
     value === "financial_public_filing" ||
@@ -299,6 +367,8 @@ function normalizeEvidenceLayer(value: unknown, scoreBlock: string, sourceType: 
     return value;
   }
   if (/(\bdata\.sec\.gov\b|\bsec\.gov\b)/i.test(url)) return "financial_public_filing";
+  if (sourceType === "google_maps_address_validation") return "address_validation";
+  if (sourceType === "google_maps_places" || sourceType === "google_maps_geocoding") return "google_maps_local_presence";
   if (sourceType === "paid_trade_data" || /(importyeti|customs|shipment|bill-of-lading)/i.test(url)) {
     return "trade_customs";
   }
@@ -368,6 +438,81 @@ function normalizeMissingEvidence(value: unknown): MissingEvidence {
   };
 }
 
+function normalizeAddressFootprint(value: unknown): AddressFootprint | undefined {
+  const raw = asRecord(value);
+  if (Object.keys(raw).length === 0) return undefined;
+  const locations = (Array.isArray(raw.locations) ? raw.locations : [])
+    .map((item, index): AddressFootprintLocation => {
+      const location = asRecord(item);
+      const validation = asRecord(location.address_validation ?? location.addressValidation);
+      return {
+        google_place_id: asString(location.google_place_id ?? location.googlePlaceId),
+        display_name:
+          asString(location.display_name ?? location.displayName) ??
+          `Google Maps location ${index + 1}`,
+        address_type: asString(location.address_type ?? location.addressType) ?? "unknown_business_location",
+        relationship_status:
+          asString(location.relationship_status ?? location.relationshipStatus) ?? "possible_related_location",
+        formatted_address:
+          asString(location.formatted_address ?? location.formattedAddress ?? location.address) ?? "",
+        city: asString(location.city),
+        region: asString(location.region),
+        country: asString(location.country),
+        business_status: asString(location.business_status ?? location.businessStatus),
+        website_uri: asString(location.website_uri ?? location.websiteUri),
+        google_maps_uri: asString(location.google_maps_uri ?? location.googleMapsUri),
+        match_confidence: typeof (location.match_confidence ?? location.matchConfidence) === "number"
+          ? (location.match_confidence ?? location.matchConfidence) as number
+          : undefined,
+        match_reasons: asStringArray(location.match_reasons ?? location.matchReasons),
+        address_validation: Object.keys(validation).length
+          ? {
+              status: asString(validation.status),
+              address_complete:
+                typeof validation.address_complete === "boolean"
+                  ? validation.address_complete
+                  : typeof validation.addressComplete === "boolean"
+                    ? validation.addressComplete
+                    : undefined,
+              possible_next_action: asString(validation.possible_next_action ?? validation.possibleNextAction),
+            }
+          : undefined,
+      };
+    })
+    .filter((location) => location.formatted_address || location.google_maps_uri || location.google_place_id);
+  const scope = asRecord(raw.search_scope ?? raw.searchScope);
+  const summary = asRecord(raw.summary);
+  return {
+    section_title: asString(raw.section_title ?? raw.sectionTitle) ?? "Google Maps 地址版图",
+    coverage_status:
+      raw.coverage_status === "found" ||
+      raw.coverage_status === "partial" ||
+      raw.coverage_status === "not_found" ||
+      raw.coverage_status === "unavailable_api" ||
+      raw.coverage_status === "not_checked"
+        ? raw.coverage_status
+        : "not_checked",
+    search_scope: {
+      queries_run: asStringArray(scope.queries_run ?? scope.queriesRun),
+      countries: asStringArray(scope.countries),
+      capped: asBoolean(scope.capped),
+      limitations: asStringArray(scope.limitations),
+    },
+    summary: {
+      total_locations: asNumber(summary.total_locations ?? summary.totalLocations, locations.length),
+      confirmed_locations: asNumber(summary.confirmed_locations ?? summary.confirmedLocations, locations.filter((item) => item.relationship_status === "confirmed_company_location").length),
+      probable_locations: asNumber(summary.probable_locations ?? summary.probableLocations, locations.filter((item) => item.relationship_status === "probable_company_location").length),
+      possible_related_locations: asNumber(summary.possible_related_locations ?? summary.possibleRelatedLocations, locations.filter((item) => item.relationship_status === "possible_related_location").length),
+      operational_locations: asNumber(summary.operational_locations ?? summary.operationalLocations, locations.filter((item) => item.business_status === "OPERATIONAL").length),
+      closed_locations: asNumber(summary.closed_locations ?? summary.closedLocations, locations.filter((item) => /CLOSED/i.test(item.business_status ?? "")).length),
+      countries: asStringArray(summary.countries),
+      cities: asStringArray(summary.cities),
+    },
+    locations,
+    open_questions: asStringArray(raw.open_questions ?? raw.openQuestions),
+  };
+}
+
 function normalizeInvestigationTarget(
   value: unknown,
   targetSource: ScreeningReport["target_source"],
@@ -421,6 +566,7 @@ function normalizeScreeningReport(value: unknown): ScreeningReport | undefined {
     recommended_action: asString(raw.recommended_action) ?? "",
     score_blocks: scoreBlocks,
     evidence,
+    address_footprint: normalizeAddressFootprint(raw.address_footprint ?? raw.addressFootprint),
     open_questions: Array.isArray(raw.open_questions) ? raw.open_questions.map((item) => String(item)) : [],
     missing_or_unavailable_evidence: missing,
     created_at: asString(raw.created_at) ?? new Date().toISOString(),
@@ -595,6 +741,15 @@ export default function CrossBorderScreeningPage() {
       icon: envStatus?.companies_house?.configured ? CheckCircle2 : Lock,
     },
     {
+      label: "Google Maps",
+      note: envStatus
+        ? envStatus.google_maps?.configured
+          ? "已配置，本地足迹/地址一致性可用"
+          : "缺少 GOOGLE_MAPS_API_KEY"
+        : "由背调员工执行时检测",
+      icon: envStatus?.google_maps?.configured ? CheckCircle2 : Lock,
+    },
+    {
       label: "Abstract / Hunter",
       note: envStatus
         ? envStatus.abstract_email_validation?.configured || envStatus.hunter_email_verifier?.configured
@@ -685,14 +840,17 @@ export default function CrossBorderScreeningPage() {
 你是 OpenClaw 员工 \`${SCREENING_AGENT_ID}\`。请你真实执行跨境买家背调，不要使用 Dashboard mock 数据，不要臆造证据。
 
 执行要求：
-1. 按你的 skills 走低成本证据阶梯：registry/legal identity -> domain/email -> public footprint -> trade/customs -> SEC/financial/public filing -> behavior only if supplied.
+1. 按你的 skills 走低成本证据阶梯：registry/legal identity -> domain/email -> Google Maps local presence/address consistency -> public footprint -> trade/customs -> SEC/financial/public filing -> behavior only if supplied.
 2. 对 GB 目标必须先调用 Companies House / cross-border-intel registry tools；无命中、401/403、歧义或公司不适用时，再用官方 Companies House public page / web_search/fetch 补证。
 3. 对 US 目标必须先调用 SEC no-key public data：有 CIK 传 CIK，没有 CIK 就把 company_name 传给 cross-border-intel SEC tool 解析 company_tickers.json；SEC not_found 只说明可能是私营/非申报主体，然后再查州 registry / 官方网页。
 4. 如果 enable_paid_email_validation=true 且输入没有 email，先从目标官网公开 contact/about/sales/wholesale/support 页面寻找同域邮箱，再用 cross-border-intel email_domain_check 对找到的同域邮箱做 Abstract/Hunter paid validation；如果官网没有同域邮箱，才做 domain-only DNS 并记录 direct_contact_validation 缺口。
-5. 可用时调用 cross-border-intel MCP 工具；工具或 API key 不可用时标记为 coverage gap，不要当成负面证据。
-6. 公开 scam/fraud/complaint 结果只有在命中目标公司名或目标域名时才可作为负面证据；通用消费者警示页只能作为 coverage_only。
-7. 最终 normalized_score 必须把证据覆盖率纳入分数：证据质量分 80% + 证据覆盖率分 20%；risk_tier 只按最终分判断，80-100 为 trusted_candidate，60-79 为 cautious，60 以下为 high_risk；完全无法计算时才用 insufficient_evidence。
-8. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
+5. 每个目标都必须尝试 Google Maps 地址版图：用 company/legal/brand、country、city/region、website domain、phone 和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询，调用 cross-border-intel__cbe_intel_google_places_search 找办公室/总部、门店、仓库/分销点、服务/维修点候选。
+6. 对地址候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"；对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate。Google Maps 只计入 public_footprint/domain consistency/business_fit，不要当作法律注册或 KYB 证明。
+7. address_footprint 是必填报告对象；即使 Google API 不可用、无结果或搜索触发上限，也要写 coverage_status、limitations 和 open_questions。
+8. 可用时调用 cross-border-intel MCP 工具；工具或 API key 不可用时标记为 coverage gap，不要当成负面证据。
+9. 公开 scam/fraud/complaint 结果只有在命中目标公司名或目标域名时才可作为负面证据；通用消费者警示页只能作为 coverage_only。
+10. 最终 normalized_score 必须把证据覆盖率纳入分数：证据质量分 80% + 证据覆盖率分 20%；risk_tier 只按最终分判断，80-100 为 trusted_candidate，60-79 为 cautious，60 以下为 high_risk；完全无法计算时才用 insufficient_evidence。
+11. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
 
 背调输入 JSON：
 ${JSON.stringify(payload, null, 2)}
@@ -714,6 +872,23 @@ ${REPORT_JSON_START}
     "recommended_action": "...",
     "score_blocks": [],
     "evidence": [],
+    "address_footprint": {
+      "section_title": "Google Maps 地址版图",
+      "coverage_status": "found|partial|not_found|unavailable_api|not_checked",
+      "search_scope": { "queries_run": [], "countries": [], "capped": false, "limitations": [] },
+      "summary": {
+        "total_locations": 0,
+        "confirmed_locations": 0,
+        "probable_locations": 0,
+        "possible_related_locations": 0,
+        "operational_locations": 0,
+        "closed_locations": 0,
+        "countries": [],
+        "cities": []
+      },
+      "locations": [],
+      "open_questions": []
+    },
     "open_questions": [],
     "missing_or_unavailable_evidence": [],
     "created_at": "ISO timestamp"
@@ -1050,6 +1225,50 @@ ${REPORT_JSON_END}`;
                     <div className="h-2 rounded-full bg-primary" style={{ width: percent(selectedReport.evidence_coverage) }} />
                   </div>
                 </div>
+
+                {selectedReport.address_footprint ? (
+                  <div className="rounded-md border-2 border-sky-200 bg-sky-50 px-3 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-sky-950">
+                        <MapPin className="h-4 w-4 text-sky-700" />
+                        {selectedReport.address_footprint.section_title}
+                      </div>
+                      <Badge variant="outline" className="bg-white">
+                        {selectedReport.address_footprint.coverage_status}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md border bg-white px-2 py-1.5">
+                        地址 {selectedReport.address_footprint.summary.total_locations}
+                      </div>
+                      <div className="rounded-md border bg-white px-2 py-1.5">
+                        营业 {selectedReport.address_footprint.summary.operational_locations}
+                      </div>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {selectedReport.address_footprint.locations.slice(0, 8).map((location, index) => (
+                        <div key={`${location.google_place_id ?? location.formatted_address}-${index}`} className="rounded-md border bg-white px-2 py-2 text-xs">
+                          <div className="font-medium text-slate-950">{location.display_name}</div>
+                          <div className="mt-1 leading-5 text-muted-foreground">{location.formatted_address}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <Badge variant="outline">{location.relationship_status}</Badge>
+                            <Badge variant="secondary">{location.address_type}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedReport.address_footprint.locations.length === 0 ? (
+                        <div className="rounded-md border bg-white px-2 py-2 text-xs text-muted-foreground">
+                          未发现可确认的 Google Maps 地址。
+                        </div>
+                      ) : null}
+                    </div>
+                    {selectedReport.address_footprint.search_scope.limitations.length ? (
+                      <div className="mt-2 text-xs leading-5 text-sky-900">
+                        {selectedReport.address_footprint.search_scope.limitations.join("；")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground">分块计分</div>

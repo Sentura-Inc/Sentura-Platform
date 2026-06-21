@@ -10,6 +10,10 @@ import {
   CompanyRegistrySearchInputShape,
   DomainRdapLookupInputShape,
   EmailDomainCheckInputShape,
+  GoogleAddressValidateInputShape,
+  GoogleGeocodeInputShape,
+  GooglePlaceDetailsInputShape,
+  GooglePlacesSearchInputShape,
   OfficialContactEmailSearchInputShape,
   ParseAccioChatInputShape,
   ScoreBuyerInputShape,
@@ -124,6 +128,424 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function firstString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+const GOOGLE_PLACES_SEARCH_FIELD_MASKS = {
+  lead_discovery_list:
+    "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus,places.googleMapsUri",
+} as const;
+
+const GOOGLE_PLACE_DETAILS_FIELD_MASKS = {
+  lead_discovery_basic:
+    "id,displayName,formattedAddress,nationalPhoneNumber,internationalPhoneNumber,websiteUri,businessStatus,types,rating,userRatingCount,regularOpeningHours,googleMapsUri",
+  screening_local_presence:
+    "id,displayName,formattedAddress,websiteUri,businessStatus,types,rating,userRatingCount,regularOpeningHours,googleMapsUri",
+  screening_address_footprint:
+    "id,displayName,formattedAddress,websiteUri,nationalPhoneNumber,internationalPhoneNumber,businessStatus,types,regularOpeningHours,googleMapsUri",
+} as const;
+
+function googleUnavailable(ctx: ToolContext, payload: Record<string, unknown>, sourceType = "google_maps_places") {
+  return source(
+    ctx,
+    {
+      status: "unavailable_api",
+      provider: "google_maps",
+      note: "GOOGLE_MAPS_API_KEY is not configured for the cross-border-intel MCP server.",
+      ...payload,
+    },
+    {
+      sourceUrl: "https://mapsplatform.google.com/",
+      sourceType,
+      confidence: 0.1,
+    },
+  );
+}
+
+function googleApiStatus(response: Response, providerStatus?: string): "found" | "validated" | "not_found" | "rate_limited" | "api_error" {
+  if (response.status === 429 || providerStatus === "OVER_QUERY_LIMIT" || providerStatus === "RESOURCE_EXHAUSTED") {
+    return "rate_limited";
+  }
+  if (!response.ok || providerStatus === "REQUEST_DENIED" || providerStatus === "INVALID_REQUEST") {
+    return "api_error";
+  }
+  if (providerStatus === "ZERO_RESULTS" || providerStatus === "NOT_FOUND") {
+    return "not_found";
+  }
+  return "found";
+}
+
+function googleDisplayName(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const record = asRecord(value);
+  return firstString(record.text);
+}
+
+function googlePlaceId(value: unknown): string | undefined {
+  const record = asRecord(value);
+  return firstString(record.id) ?? firstString(record.name)?.replace(/^places\//, "");
+}
+
+function googleMapsUri(placeId: string | undefined, value: unknown): string {
+  return firstString(value) ?? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId ?? "")}`;
+}
+
+function normalizeGoogleLocation(value: unknown) {
+  const record = asRecord(value);
+  const latitude =
+    typeof record.latitude === "number" ? record.latitude : typeof record.lat === "number" ? record.lat : undefined;
+  const longitude =
+    typeof record.longitude === "number" ? record.longitude : typeof record.lng === "number" ? record.lng : undefined;
+  return latitude !== undefined && longitude !== undefined ? { latitude, longitude } : undefined;
+}
+
+function normalizeGoogleOpeningHours(value: unknown) {
+  const record = asRecord(value);
+  if (Object.keys(record).length === 0) return undefined;
+  const weekdayDescriptions = Array.isArray(record.weekdayDescriptions)
+    ? record.weekdayDescriptions.filter((item): item is string => typeof item === "string").slice(0, 7)
+    : [];
+  return {
+    open_now: typeof record.openNow === "boolean" ? record.openNow : undefined,
+    weekday_descriptions: weekdayDescriptions,
+  };
+}
+
+function normalizeGooglePlace(raw: unknown) {
+  const record = asRecord(raw);
+  const placeId = googlePlaceId(record);
+  const mapsUri = googleMapsUri(placeId, record.googleMapsUri);
+  return {
+    google_place_id: placeId,
+    display_name: googleDisplayName(record.displayName),
+    formatted_address: firstString(record.formattedAddress),
+    location: normalizeGoogleLocation(record.location),
+    types: Array.isArray(record.types) ? record.types.filter((item): item is string => typeof item === "string").slice(0, 12) : [],
+    business_status: firstString(record.businessStatus),
+    google_maps_uri: mapsUri,
+    website_uri: firstString(record.websiteUri),
+    national_phone_number: firstString(record.nationalPhoneNumber),
+    international_phone_number: firstString(record.internationalPhoneNumber),
+    rating: typeof record.rating === "number" ? record.rating : undefined,
+    user_rating_count: typeof record.userRatingCount === "number" ? record.userRatingCount : undefined,
+    regular_opening_hours: normalizeGoogleOpeningHours(record.regularOpeningHours),
+    source_attribution_required: true,
+  };
+}
+
+function googleCircle(value: { latitude: number; longitude: number; radius_meters: number }) {
+  return {
+    circle: {
+      center: {
+        latitude: value.latitude,
+        longitude: value.longitude,
+      },
+      radius: value.radius_meters,
+    },
+  };
+}
+
+function cappedGoogleResultCount(ctx: ToolContext, requested: number) {
+  return Math.min(requested, ctx.config.googleMapsMaxResultsPerSearch, 20);
+}
+
+function sanitizedGoogleUrl(url: URL): string {
+  const clone = new URL(url.toString());
+  if (clone.searchParams.has("key")) clone.searchParams.set("key", "REDACTED");
+  return clone.toString();
+}
+
+async function googlePlacesSearch(ctx: ToolContext, rawArgs: unknown) {
+  const args = z.object(GooglePlacesSearchInputShape).parse(rawArgs);
+  if (!ctx.config.googleMapsApiKey) {
+    return googleUnavailable(ctx, { endpoint: "places_search", candidates: [] });
+  }
+  if (args.mode === "text" && !args.text_query) {
+    throw new Error("google_places_search text mode requires text_query.");
+  }
+  if (args.mode === "nearby" && !args.location_restriction) {
+    throw new Error("google_places_search nearby mode requires location_restriction.");
+  }
+
+  const maxResultCount = cappedGoogleResultCount(ctx, args.max_result_count);
+  const endpoint = args.mode === "nearby" ? "/places:searchNearby" : "/places:searchText";
+  const url = joinUrl(ctx.config.googleMapsPlacesBaseUrl, endpoint);
+  const fieldMask = GOOGLE_PLACES_SEARCH_FIELD_MASKS[args.field_mask_profile];
+  const effectiveQuery = [args.text_query, args.city_or_region, args.country].filter(Boolean).join(" ").trim();
+  const body: Record<string, unknown> = {
+    maxResultCount,
+    languageCode: args.language_code,
+    regionCode: args.region_code ?? args.country,
+  };
+
+  if (args.mode === "nearby") {
+    const restriction = args.location_restriction;
+    if (!restriction) throw new Error("google_places_search nearby mode requires location_restriction.");
+    body.locationRestriction = googleCircle(restriction);
+    if (args.included_types.length > 0) body.includedTypes = args.included_types;
+  } else {
+    body.textQuery = effectiveQuery;
+    if (args.included_types[0]) body.includedType = args.included_types[0];
+    if (args.location_bias) body.locationBias = googleCircle(args.location_bias);
+    if (args.location_restriction) body.locationRestriction = googleCircle(args.location_restriction);
+  }
+
+  const { response, body: responseBody } = await fetchJson(ctx, url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": ctx.config.googleMapsApiKey,
+      "X-Goog-FieldMask": fieldMask,
+    },
+    body: JSON.stringify(body),
+  });
+  const record = asRecord(responseBody);
+  const places = Array.isArray(record.places) ? record.places.slice(0, maxResultCount).map(normalizeGooglePlace) : [];
+  const status = response.ok ? (places.length > 0 ? "found" : "not_found") : googleApiStatus(response);
+  return source(
+    ctx,
+    {
+      status,
+      provider: "google_maps_places",
+      endpoint: args.mode === "nearby" ? "POST /places:searchNearby" : "POST /places:searchText",
+      http_status: response.status,
+      query: {
+        mode: args.mode,
+        text_query: args.text_query,
+        effective_text_query: effectiveQuery || undefined,
+        country: args.country,
+        city_or_region: args.city_or_region,
+        included_types: args.included_types,
+      },
+      field_mask_profile: args.field_mask_profile,
+      field_mask: fieldMask,
+      max_result_count: maxResultCount,
+      candidates: places,
+      attribution: {
+        google_maps_uri_required: true,
+        raw_reviews_or_photos_retained: false,
+      },
+      api_call_ledger: {
+        provider: "google_maps_places",
+        endpoint: args.mode === "nearby" ? "places:searchNearby" : "places:searchText",
+        field_mask_profile: args.field_mask_profile,
+        request_units: 1,
+        cost_posture: "google_maps_billed_or_included",
+        status,
+      },
+    },
+    {
+      sourceUrl: places[0]?.google_maps_uri ?? "https://developers.google.com/maps/documentation/places/web-service",
+      sourceType: "google_maps_places",
+      confidence: response.ok ? (places.length > 0 ? 0.72 : 0.35) : 0.18,
+    },
+  );
+}
+
+async function googlePlaceDetails(ctx: ToolContext, rawArgs: unknown) {
+  const args = z.object(GooglePlaceDetailsInputShape).parse(rawArgs);
+  if (!ctx.config.googleMapsApiKey) {
+    return googleUnavailable(ctx, { endpoint: "place_details", place_id: args.place_id, details: null });
+  }
+  const placeId = args.place_id.replace(/^places\//, "");
+  const url = joinUrl(ctx.config.googleMapsPlacesBaseUrl, `/places/${encodeURIComponent(placeId)}`);
+  const fieldMask = GOOGLE_PLACE_DETAILS_FIELD_MASKS[args.field_mask_profile];
+  const { response, body } = await fetchJson(ctx, url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "X-Goog-Api-Key": ctx.config.googleMapsApiKey,
+      "X-Goog-FieldMask": fieldMask,
+    },
+  });
+  const details = response.ok ? normalizeGooglePlace(body) : null;
+  const status = response.ok ? "found" : googleApiStatus(response);
+  return source(
+    ctx,
+    {
+      status,
+      provider: "google_maps_places",
+      endpoint: "GET /places/{place_id}",
+      purpose: args.purpose,
+      http_status: response.status,
+      place_id: placeId,
+      field_mask_profile: args.field_mask_profile,
+      field_mask: fieldMask,
+      details,
+      attribution: {
+        google_maps_uri_required: true,
+        raw_reviews_or_photos_retained: false,
+      },
+      api_call_ledger: {
+        provider: "google_maps_places",
+        endpoint: "places/{place_id}",
+        field_mask_profile: args.field_mask_profile,
+        request_units: 1,
+        cost_posture: "google_maps_billed_or_included",
+        status,
+      },
+    },
+    {
+      sourceUrl: details?.google_maps_uri ?? googleMapsUri(placeId, undefined),
+      sourceType: "google_maps_places",
+      confidence: response.ok ? 0.78 : 0.18,
+    },
+  );
+}
+
+async function googleGeocode(ctx: ToolContext, rawArgs: unknown) {
+  const args = z.object(GoogleGeocodeInputShape).parse(rawArgs);
+  if (!ctx.config.googleMapsApiKey) {
+    return googleUnavailable(ctx, { endpoint: "geocode", results: [] }, "google_maps_geocoding");
+  }
+  const url = new URL(ctx.config.googleMapsGeocodingBaseUrl);
+  url.searchParams.set("address", args.country ? `${args.address}, ${args.country}` : args.address);
+  url.searchParams.set("key", ctx.config.googleMapsApiKey);
+  if (args.language_code) url.searchParams.set("language", args.language_code);
+  if (args.region_code ?? args.country) url.searchParams.set("region", (args.region_code ?? args.country)?.toLowerCase() ?? "");
+
+  const { response, body } = await fetchJson(ctx, url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const record = asRecord(body);
+  const providerStatus = firstString(record.status);
+  const rawResults = Array.isArray(record.results) ? record.results.slice(0, args.max_results) : [];
+  const results = rawResults.map((result) => {
+    const resultRecord = asRecord(result);
+    const geometry = asRecord(resultRecord.geometry);
+    return {
+      formatted_address: firstString(resultRecord.formatted_address),
+      place_id: firstString(resultRecord.place_id),
+      types: Array.isArray(resultRecord.types) ? resultRecord.types.filter((item): item is string => typeof item === "string") : [],
+      location: normalizeGoogleLocation(asRecord(geometry.location)),
+      location_type: firstString(geometry.location_type),
+      partial_match: typeof resultRecord.partial_match === "boolean" ? resultRecord.partial_match : undefined,
+    };
+  });
+  const status = providerStatus === "OK" ? "found" : googleApiStatus(response, providerStatus);
+  return source(
+    ctx,
+    {
+      status,
+      provider: "google_maps_geocoding",
+      endpoint: "GET /maps/api/geocode/json",
+      http_status: response.status,
+      provider_status: providerStatus,
+      query: {
+        address: args.address,
+        country: args.country,
+        region_code: args.region_code,
+      },
+      results,
+      attribution: {
+        google_maps_uri_required: true,
+        raw_response_retained: false,
+      },
+      api_call_ledger: {
+        provider: "google_maps_geocoding",
+        endpoint: "geocode/json",
+        request_units: 1,
+        cost_posture: "google_maps_billed_or_included",
+        status,
+      },
+    },
+    {
+      sourceUrl: sanitizedGoogleUrl(url),
+      sourceType: "google_maps_geocoding",
+      confidence: status === "found" ? 0.7 : 0.2,
+    },
+  );
+}
+
+async function googleAddressValidate(ctx: ToolContext, rawArgs: unknown) {
+  const args = z.object(GoogleAddressValidateInputShape).parse(rawArgs);
+  if (!ctx.config.googleMapsApiKey) {
+    return googleUnavailable(
+      ctx,
+      { endpoint: "address_validation", address_lines: args.address_lines, validation: null },
+      "google_maps_address_validation",
+    );
+  }
+  const url = new URL(ctx.config.googleMapsAddressValidationBaseUrl);
+  url.searchParams.set("key", ctx.config.googleMapsApiKey);
+  const requestBody = {
+    address: {
+      regionCode: args.region_code,
+      languageCode: args.language_code,
+      locality: args.locality,
+      administrativeArea: args.administrative_area,
+      postalCode: args.postal_code,
+      addressLines: args.address_lines,
+    },
+    enableUspsCass: args.enable_usps_cass,
+  };
+  const { response, body } = await fetchJson(ctx, url.toString(), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+  const result = asRecord(asRecord(body).result);
+  const verdict = asRecord(result.verdict);
+  const address = asRecord(result.address);
+  const geocode = asRecord(result.geocode);
+  const metadata = asRecord(result.metadata);
+  const status = response.ok ? "validated" : googleApiStatus(response);
+  const addressComplete = verdict.addressComplete === true;
+  const hasUnconfirmed = verdict.hasUnconfirmedComponents === true;
+  return source(
+    ctx,
+    {
+      status,
+      provider: "google_maps_address_validation",
+      endpoint: "POST /v1:validateAddress",
+      http_status: response.status,
+      address_lines: args.address_lines,
+      validation: response.ok
+        ? {
+            address_complete: addressComplete,
+            has_unconfirmed_components: hasUnconfirmed,
+            has_inferred_components: verdict.hasInferredComponents === true,
+            has_replaced_components: verdict.hasReplacedComponents === true,
+            possible_next_action: firstString(verdict.possibleNextAction),
+            formatted_address: firstString(address.formattedAddress),
+            postal_address: asRecord(address.postalAddress),
+            missing_component_types: Array.isArray(address.missingComponentTypes) ? address.missingComponentTypes : [],
+            unconfirmed_component_types: Array.isArray(address.unconfirmedComponentTypes)
+              ? address.unconfirmedComponentTypes
+              : [],
+            unresolved_tokens: Array.isArray(address.unresolvedTokens) ? address.unresolvedTokens : [],
+            geocode: {
+              place_id: firstString(geocode.placeId),
+              location: normalizeGoogleLocation(geocode.location),
+              plus_code: asRecord(geocode.plusCode),
+            },
+            metadata: {
+              business: typeof metadata.business === "boolean" ? metadata.business : undefined,
+              residential: typeof metadata.residential === "boolean" ? metadata.residential : undefined,
+            },
+            usps_data_available: Boolean(result.uspsData),
+          }
+        : null,
+      attribution: {
+        raw_response_retained: false,
+      },
+      api_call_ledger: {
+        provider: "google_maps_address_validation",
+        endpoint: "v1:validateAddress",
+        request_units: 1,
+        cost_posture: "google_maps_billed_or_included",
+        status,
+      },
+    },
+    {
+      sourceUrl: sanitizedGoogleUrl(url),
+      sourceType: "google_maps_address_validation",
+      confidence: response.ok ? (addressComplete && !hasUnconfirmed ? 0.75 : 0.45) : 0.18,
+    },
+  );
 }
 
 async function companyRegistrySearch(ctx: ToolContext, rawArgs: unknown) {
@@ -1101,6 +1523,42 @@ export const TOOLS: ToolDefinition[] = [
     endpoint: "GET official website contact/about pages",
     inputShape: OfficialContactEmailSearchInputShape,
     handler: officialContactEmailSearch,
+  },
+  {
+    name: "cbe_intel_google_places_search",
+    title: "Google Maps Places Search",
+    description:
+      "Search Google Maps Places API (New) Text Search or Nearby Search for storefront/local-business lead seeds with narrow field masks, request caps, source attribution, and no raw review/photo retention.",
+    endpoint: "POST /places:searchText or POST /places:searchNearby",
+    inputShape: GooglePlacesSearchInputShape,
+    handler: googlePlacesSearch,
+  },
+  {
+    name: "cbe_intel_google_place_details",
+    title: "Google Maps Place Details",
+    description:
+      "Fetch bounded Google Maps Place Details for shortlisted place IDs only, using lead-discovery or screening local-presence field-mask profiles.",
+    endpoint: "GET /places/{place_id}",
+    inputShape: GooglePlaceDetailsInputShape,
+    handler: googlePlaceDetails,
+  },
+  {
+    name: "cbe_intel_google_geocode",
+    title: "Google Maps Geocode",
+    description:
+      "Geocode city or address seeds for Nearby Search preparation and address consistency checks. This is not buyer verification by itself.",
+    endpoint: "GET /maps/api/geocode/json",
+    inputShape: GoogleGeocodeInputShape,
+    handler: googleGeocode,
+  },
+  {
+    name: "cbe_intel_google_address_validate",
+    title: "Google Maps Address Validate",
+    description:
+      "Validate public business address evidence through Google Address Validation API for screening address-consistency support only.",
+    endpoint: "POST /v1:validateAddress",
+    inputShape: GoogleAddressValidateInputShape,
+    handler: googleAddressValidate,
   },
   {
     name: "cbe_intel_sec_lookup",

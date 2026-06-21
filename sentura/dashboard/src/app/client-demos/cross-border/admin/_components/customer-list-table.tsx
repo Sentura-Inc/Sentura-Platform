@@ -71,6 +71,8 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "domain_rdap",
   "email_dns",
   "official_contact",
+  "google_maps_local_presence",
+  "address_validation",
   "public_footprint",
   "trade_customs",
   "financial_public_filing",

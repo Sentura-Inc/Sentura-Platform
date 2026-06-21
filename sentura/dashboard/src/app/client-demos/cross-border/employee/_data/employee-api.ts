@@ -6,6 +6,10 @@ import type {
   CustomerScoreBlock,
   CustomerScreeningReport,
   MemoryRecordItem,
+  CustomerAddressFootprint,
+  AddressFootprintAddressType,
+  AddressFootprintCoverageStatus,
+  AddressFootprintRelationshipStatus,
   ScreeningRiskTier,
   ScoreTier,
 } from "./employee-data";
@@ -260,6 +264,9 @@ const ALLOWED_SOURCE_TYPES = new Set([
   "official_registry_page",
   "public_web",
   "public_dns",
+  "google_maps_places",
+  "google_maps_geocoding",
+  "google_maps_address_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -285,6 +292,10 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asBool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function asStringArray(value: unknown): string[] {
@@ -493,6 +504,197 @@ function normalizeEvidence(value: unknown): CustomerEvidenceItem {
   };
 }
 
+function uniqueStrings(values: Array<string | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function normalizeAddressCoverageStatus(value: unknown): AddressFootprintCoverageStatus {
+  if (
+    value === "found" ||
+    value === "partial" ||
+    value === "not_found" ||
+    value === "unavailable_api" ||
+    value === "not_checked"
+  ) {
+    return value;
+  }
+  return "not_checked";
+}
+
+function normalizeAddressType(value: unknown): AddressFootprintAddressType {
+  if (
+    value === "headquarters_or_office" ||
+    value === "storefront" ||
+    value === "warehouse_or_distribution" ||
+    value === "service_or_repair_location" ||
+    value === "unknown_business_location"
+  ) {
+    return value;
+  }
+  return "unknown_business_location";
+}
+
+function normalizeRelationshipStatus(value: unknown): AddressFootprintRelationshipStatus {
+  if (
+    value === "confirmed_company_location" ||
+    value === "probable_company_location" ||
+    value === "possible_related_location" ||
+    value === "rejected_unrelated_location"
+  ) {
+    return value;
+  }
+  return "possible_related_location";
+}
+
+function normalizeAddressValidation(value: unknown) {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  return {
+    status: asString(raw.status),
+    addressComplete: asBool(raw.address_complete) ?? asBool(raw.addressComplete),
+    possibleNextAction: asString(raw.possible_next_action) ?? asString(raw.possibleNextAction),
+  };
+}
+
+function normalizeDomainMatch(value: unknown): boolean | "not_checked" | undefined {
+  if (typeof value === "boolean") return value;
+  return asString(value) === "not_checked" ? "not_checked" : undefined;
+}
+
+function normalizePhoneMatch(value: unknown): boolean | "not_checked" | "conflict" | undefined {
+  if (typeof value === "boolean") return value;
+  const raw = asString(value);
+  return raw === "not_checked" || raw === "conflict" ? raw : undefined;
+}
+
+function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | undefined {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  const locations = (Array.isArray(raw.locations) ? raw.locations : [])
+    .map((item, index) => {
+      const location = asRecord(item);
+      const formattedAddress =
+        asString(location.formatted_address) ??
+        asString(location.formattedAddress) ??
+        asString(location.address) ??
+        "";
+      return {
+        googlePlaceId: asString(location.google_place_id) ?? asString(location.googlePlaceId),
+        displayName:
+          asString(location.display_name) ??
+          asString(location.displayName) ??
+          `Google Maps location ${index + 1}`,
+        addressType: normalizeAddressType(location.address_type ?? location.addressType),
+        relationshipStatus: normalizeRelationshipStatus(location.relationship_status ?? location.relationshipStatus),
+        formattedAddress,
+        city: asString(location.city),
+        region: asString(location.region),
+        country: asString(location.country),
+        businessStatus: asString(location.business_status) ?? asString(location.businessStatus),
+        types: asStringArray(location.types),
+        websiteUri: toUrl(location.website_uri ?? location.websiteUri),
+        domainMatch: normalizeDomainMatch(location.domain_match ?? location.domainMatch),
+        phoneMatch: normalizePhoneMatch(location.phone_match ?? location.phoneMatch),
+        addressValidation: normalizeAddressValidation(location.address_validation ?? location.addressValidation),
+        googleMapsUri: toUrl(location.google_maps_uri ?? location.googleMapsUri),
+        matchConfidence: asNumber(location.match_confidence ?? location.matchConfidence),
+        matchReasons: asStringArray(location.match_reasons ?? location.matchReasons),
+        sourceType: asString(location.source_type ?? location.sourceType)
+          ? sourceType(location.source_type ?? location.sourceType)
+          : "google_maps_places",
+        fetchedAt: asString(location.fetched_at ?? location.fetchedAt),
+      };
+    })
+    .filter((location) => location.formattedAddress || location.googleMapsUri || location.googlePlaceId);
+  const summary = asRecord(raw.summary);
+  const searchScope = asRecord(raw.search_scope ?? raw.searchScope);
+  const confirmed = locations.filter((item) => item.relationshipStatus === "confirmed_company_location").length;
+  const probable = locations.filter((item) => item.relationshipStatus === "probable_company_location").length;
+  const possible = locations.filter((item) => item.relationshipStatus === "possible_related_location").length;
+  const operational = locations.filter((item) => item.businessStatus === "OPERATIONAL").length;
+  const closed = locations.filter((item) => /CLOSED/i.test(item.businessStatus ?? "")).length;
+  return {
+    sectionTitle: asString(raw.section_title ?? raw.sectionTitle) ?? "Google Maps 地址版图",
+    coverageStatus: normalizeAddressCoverageStatus(raw.coverage_status ?? raw.coverageStatus),
+    searchScope: {
+      queriesRun: asStringArray(searchScope.queries_run ?? searchScope.queriesRun),
+      countries: asStringArray(searchScope.countries),
+      capped: asBool(searchScope.capped) ?? false,
+      limitations: asStringArray(searchScope.limitations),
+    },
+    summary: {
+      totalLocations: asNumber(summary.total_locations ?? summary.totalLocations) ?? locations.length,
+      confirmedLocations: asNumber(summary.confirmed_locations ?? summary.confirmedLocations) ?? confirmed,
+      probableLocations: asNumber(summary.probable_locations ?? summary.probableLocations) ?? probable,
+      possibleRelatedLocations:
+        asNumber(summary.possible_related_locations ?? summary.possibleRelatedLocations) ?? possible,
+      operationalLocations: asNumber(summary.operational_locations ?? summary.operationalLocations) ?? operational,
+      closedLocations: asNumber(summary.closed_locations ?? summary.closedLocations) ?? closed,
+      countries: asStringArray(summary.countries).length
+        ? asStringArray(summary.countries)
+        : uniqueStrings(locations.map((item) => item.country)),
+      cities: asStringArray(summary.cities).length
+        ? asStringArray(summary.cities)
+        : uniqueStrings(locations.map((item) => item.city)),
+    },
+    locations,
+    openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
+  };
+}
+
+function normalizeAddressFootprintPayload(value: unknown) {
+  const footprint = normalizeAddressFootprint(value);
+  if (!footprint) return undefined;
+  return {
+    section_title: footprint.sectionTitle,
+    coverage_status: footprint.coverageStatus,
+    search_scope: {
+      queries_run: footprint.searchScope.queriesRun,
+      countries: footprint.searchScope.countries,
+      capped: footprint.searchScope.capped,
+      limitations: footprint.searchScope.limitations,
+    },
+    summary: {
+      total_locations: footprint.summary.totalLocations,
+      confirmed_locations: footprint.summary.confirmedLocations,
+      probable_locations: footprint.summary.probableLocations,
+      possible_related_locations: footprint.summary.possibleRelatedLocations,
+      operational_locations: footprint.summary.operationalLocations,
+      closed_locations: footprint.summary.closedLocations,
+      countries: footprint.summary.countries,
+      cities: footprint.summary.cities,
+    },
+    locations: footprint.locations.map((location) => ({
+      google_place_id: location.googlePlaceId,
+      display_name: location.displayName,
+      address_type: location.addressType,
+      relationship_status: location.relationshipStatus,
+      formatted_address: location.formattedAddress,
+      city: location.city,
+      region: location.region,
+      country: location.country,
+      business_status: location.businessStatus,
+      types: location.types,
+      website_uri: location.websiteUri,
+      domain_match: location.domainMatch,
+      phone_match: location.phoneMatch,
+      address_validation: location.addressValidation
+        ? {
+            status: location.addressValidation.status,
+            address_complete: location.addressValidation.addressComplete,
+            possible_next_action: location.addressValidation.possibleNextAction,
+          }
+        : undefined,
+      google_maps_uri: location.googleMapsUri,
+      match_confidence: location.matchConfidence,
+      match_reasons: location.matchReasons,
+      source_type: location.sourceType,
+      fetched_at: location.fetchedAt,
+    })),
+    open_questions: footprint.openQuestions,
+  };
+}
+
 function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | undefined {
   const raw = asRecord(record.reportJson);
   if (!record.latestScreeningReportId && Object.keys(raw).length === 0) return undefined;
@@ -534,6 +736,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
         : coverageGapsFromScoreBlocks(scoreBlocks).length > 0
           ? coverageGapsFromScoreBlocks(scoreBlocks)
           : normalizedCoverageGaps,
+    addressFootprint: normalizeAddressFootprint(raw.address_footprint ?? raw.addressFootprint),
     openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
   };
 }
@@ -546,6 +749,7 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
   const sourceUrls = Array.from(new Set([
     ...(record.sourceUrls ?? []),
     ...(report?.evidence.map((item) => item.sourceUrl) ?? []),
+    ...(report?.addressFootprint?.locations.map((item) => item.googleMapsUri).filter(Boolean) ?? []),
     website,
   ].filter((url): url is string => Boolean(url))));
   return {
@@ -1057,6 +1261,7 @@ function normalizeScreeningPayload(payload: unknown) {
       const score = asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
       const evidenceRows = Array.isArray(report.evidence) ? report.evidence : [];
       const targetWebsite = toUrl(target.website);
+      const addressFootprint = normalizeAddressFootprintPayload(report.address_footprint ?? report.addressFootprint);
       let traceabilityGap = evidenceRows.length === 0;
       const evidence = (evidenceRows.length ? evidenceRows : [{ source_url: targetWebsite }])
         .map((evidenceItem, evidenceIndex) => {
@@ -1151,6 +1356,7 @@ function normalizeScreeningPayload(payload: unknown) {
               },
             ],
         evidence,
+        ...(addressFootprint ? { address_footprint: addressFootprint } : {}),
         coverage_gaps: coverageGaps,
         open_questions: asStringArray(report.open_questions),
         created_at: toIsoTimestamp(report.created_at, now),

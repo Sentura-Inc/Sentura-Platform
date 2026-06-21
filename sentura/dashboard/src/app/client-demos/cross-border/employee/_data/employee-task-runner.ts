@@ -6,11 +6,15 @@ import {
   coverageGapActionForBlock,
   coverageGapReasonForBlock,
   isGenericCoverageGapReason,
+  type CustomerAddressFootprint,
   type CustomerListItem,
   type CustomerCoverageGap,
   type CustomerEvidenceItem,
   type CustomerScoreBlock,
   type CustomerScreeningReport,
+  type AddressFootprintAddressType,
+  type AddressFootprintCoverageStatus,
+  type AddressFootprintRelationshipStatus,
   type ScreeningEvidenceLayer,
   type ScreeningEvidenceStatus,
   type ScreeningRiskTier,
@@ -110,6 +114,7 @@ const SUMMARY_JSON_START = "ACCIO_SUMMARIES_JSON_START";
 const SUMMARY_JSON_END = "ACCIO_SUMMARIES_JSON_END";
 const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
 const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 300_000;
+const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
 
 const COUNTRY_NAMES: Record<string, string> = {
   BR: "巴西",
@@ -250,9 +255,9 @@ export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
   const queryCount = productCount * buyerTypeCount * countryCount;
   const maxResults = input.maxResultsPerQuery ?? 10;
   return clamp(
-    45_000 + queryCount * 12_000 + Math.max(1, input.targetCount) * 2_000 + maxResults * 4_000,
-    120_000,
-    810_000,
+    150_000 + queryCount * 30_000 + Math.max(1, input.targetCount) * 45_000 + maxResults * 5_000,
+    300_000,
+    900_000,
   );
 }
 
@@ -336,6 +341,39 @@ function extractMarkerPayload(text: string, startMarker: string, endMarker: stri
   return JSON.parse(raw) as unknown;
 }
 
+function isGatewayTimeout(error: unknown) {
+  const record = asRecord(error);
+  const code = asString(record.code);
+  const message = unknownErrorMessage(error, "");
+  return code === "TIMEOUT" || /timed?\s*out|timeout/i.test(message);
+}
+
+async function readHiddenTaskPayload(options: {
+  client: GatewayClient;
+  sessionKey: string;
+  startMarker: string;
+  endMarker: string;
+}) {
+  const messages = await options.client.getTranscript(
+    options.sessionKey,
+    HIDDEN_TASK_TRANSCRIPT_LIMIT,
+    HIDDEN_TASK_TRANSCRIPT_MAX_CHARS,
+  );
+  const texts = assistantTexts(messages);
+  let lastAssistantText = "";
+  let parseError: Error | null = null;
+  for (const text of texts.reverse()) {
+    lastAssistantText = text;
+    try {
+      const payload = extractMarkerPayload(text, options.startMarker, options.endMarker);
+      if (payload !== null) return { messages, lastAssistantText, payload, parseError: null };
+    } catch (error) {
+      parseError = error instanceof Error ? error : new Error("JSON parse failed");
+    }
+  }
+  return { messages, lastAssistantText, payload: null, parseError };
+}
+
 async function runHiddenEmployeeTask(options: {
   client: GatewayClient;
   agentId: string;
@@ -409,7 +447,16 @@ async function runHiddenEmployeeTask(options: {
       }
       emitProgress("running", "后台 AI 员工已创建，正在提交任务。", sessionKey);
       throwIfTaskCancelled(signal, sessionKey);
-      await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs });
+      try {
+        await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs });
+      } catch (error) {
+        if (!isGatewayTimeout(error)) throw error;
+        emitProgress(
+          "running",
+          "提交请求已超过前端等待窗口，后台 AI 员工可能仍在运行，正在改为读取任务记录。",
+          sessionKey,
+        );
+      }
       throwIfTaskCancelled(signal, sessionKey);
     } catch (error) {
       if (error instanceof EmployeeTaskError) throw error;
@@ -440,26 +487,15 @@ async function runHiddenEmployeeTask(options: {
         message: progressMessage("正在读取后台任务状态。", startedAt, timeoutMs, pollCount),
       });
 
-      const messages = await client.getTranscript(
-        sessionKey,
-        HIDDEN_TASK_TRANSCRIPT_LIMIT,
-        HIDDEN_TASK_TRANSCRIPT_MAX_CHARS,
-      );
+      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
       throwIfTaskCancelled(signal, sessionKey);
-      const texts = assistantTexts(messages);
-      for (const text of texts.reverse()) {
-        lastAssistantText = text;
-        try {
-          const payload = extractMarkerPayload(text, startMarker, endMarker);
-          if (payload !== null) {
-            emitProgress("completed", "后台 AI 员工已返回结构化结果。", sessionKey);
-            throwIfTaskCancelled(signal, sessionKey);
-            return { sessionKey, assistantText: text, payload };
-          }
-        } catch (error) {
-          parseError = error instanceof Error ? error : new Error("JSON parse failed");
-        }
+      if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+      if (payloadRead.payload !== null) {
+        emitProgress("completed", "后台 AI 员工已返回结构化结果。", sessionKey);
+        throwIfTaskCancelled(signal, sessionKey);
+        return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
       }
+      parseError = payloadRead.parseError;
 
       if (parseError) {
         emitProgress("failed", `员工已返回结果，但系统无法解析结构化数据：${parseError.message}`, sessionKey);
@@ -470,12 +506,29 @@ async function runHiddenEmployeeTask(options: {
         );
       }
 
-      const failure = transcriptFailureMessage(messages);
+      const failure = transcriptFailureMessage(payloadRead.messages);
       if (failure) {
         if (failure.recoverable) {
           lastRecoverableFailureMessage = failure.message;
           continue;
         }
+        emitProgress("failed", failure.message, sessionKey);
+        throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
+      }
+    }
+
+    const finalDeadline = Date.now() + HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS;
+    while (Date.now() < finalDeadline) {
+      await sleep(pollMs);
+      throwIfTaskCancelled(signal, sessionKey);
+      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+      if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+      if (payloadRead.payload !== null) {
+        emitProgress("completed", "后台 AI 员工已返回结构化结果。", sessionKey);
+        return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+      }
+      const failure = transcriptFailureMessage(payloadRead.messages);
+      if (failure && !failure.recoverable) {
         emitProgress("failed", failure.message, sessionKey);
         throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
       }
@@ -590,6 +643,8 @@ function evidenceLayer(entry: Record<string, unknown>, scoreBlock: string, sourc
     raw === "domain_rdap" ||
     raw === "email_dns" ||
     raw === "official_contact" ||
+    raw === "google_maps_local_presence" ||
+    raw === "address_validation" ||
     raw === "public_footprint" ||
     raw === "trade_customs" ||
     raw === "financial_public_filing" ||
@@ -599,6 +654,10 @@ function evidenceLayer(entry: Record<string, unknown>, scoreBlock: string, sourc
   }
   const url = sourceUrl?.toLowerCase() ?? "";
   if (url.includes("rdap")) return "domain_rdap";
+  if (url.includes("addressvalidation.googleapis") || raw === "address_validation") return "address_validation";
+  if (url.includes("google.com/maps") || url.includes("maps.googleapis") || url.includes("places.googleapis")) {
+    return "google_maps_local_presence";
+  }
   if (url.includes("company-information.service.gov.uk") || url.includes("opencorporates")) return "legal_registry";
   if (url.includes("sec.gov")) return "financial_public_filing";
   if (url.includes("importyeti") || url.includes("volza") || url.includes("shipment")) return "trade_customs";
@@ -716,6 +775,137 @@ function normalizeCoverageGap(item: unknown, index: number): CustomerCoverageGap
   };
 }
 
+function normalizeAddressCoverageStatus(value: unknown): AddressFootprintCoverageStatus {
+  if (
+    value === "found" ||
+    value === "partial" ||
+    value === "not_found" ||
+    value === "unavailable_api" ||
+    value === "not_checked"
+  ) {
+    return value;
+  }
+  return "not_checked";
+}
+
+function normalizeAddressType(value: unknown): AddressFootprintAddressType {
+  if (
+    value === "headquarters_or_office" ||
+    value === "storefront" ||
+    value === "warehouse_or_distribution" ||
+    value === "service_or_repair_location" ||
+    value === "unknown_business_location"
+  ) {
+    return value;
+  }
+  return "unknown_business_location";
+}
+
+function normalizeRelationshipStatus(value: unknown): AddressFootprintRelationshipStatus {
+  if (
+    value === "confirmed_company_location" ||
+    value === "probable_company_location" ||
+    value === "possible_related_location" ||
+    value === "rejected_unrelated_location"
+  ) {
+    return value;
+  }
+  return "possible_related_location";
+}
+
+function normalizeAddressValidation(value: unknown) {
+  const raw = asRecord(value);
+  if (Object.keys(raw).length === 0) return undefined;
+  return {
+    status: asString(raw.status),
+    addressComplete: asBool(raw.address_complete) ?? asBool(raw.addressComplete),
+    possibleNextAction: asString(raw.possible_next_action) ?? asString(raw.possibleNextAction),
+  };
+}
+
+function normalizeDomainMatch(value: unknown): boolean | "not_checked" | undefined {
+  if (typeof value === "boolean") return value;
+  return asString(value) === "not_checked" ? "not_checked" : undefined;
+}
+
+function normalizePhoneMatch(value: unknown): boolean | "not_checked" | "conflict" | undefined {
+  if (typeof value === "boolean") return value;
+  const raw = asString(value);
+  return raw === "not_checked" || raw === "conflict" ? raw : undefined;
+}
+
+function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | undefined {
+  const raw = asRecord(value);
+  if (Object.keys(raw).length === 0) return undefined;
+  const rawLocations = Array.isArray(raw.locations) ? raw.locations : [];
+  const locations = rawLocations
+    .map((item, index) => {
+      const location = asRecord(item);
+      const displayName = asString(location.display_name) ?? asString(location.displayName) ?? `Google Maps location ${index + 1}`;
+      const formattedAddress =
+        asString(location.formatted_address) ??
+        asString(location.formattedAddress) ??
+        asString(location.address) ??
+        "";
+      return {
+        googlePlaceId: asString(location.google_place_id) ?? asString(location.googlePlaceId),
+        displayName,
+        addressType: normalizeAddressType(location.address_type ?? location.addressType),
+        relationshipStatus: normalizeRelationshipStatus(location.relationship_status ?? location.relationshipStatus),
+        formattedAddress,
+        city: asString(location.city),
+        region: asString(location.region),
+        country: asString(location.country),
+        businessStatus: asString(location.business_status) ?? asString(location.businessStatus),
+        types: asStringArray(location.types),
+        websiteUri: asString(location.website_uri) ?? asString(location.websiteUri),
+        domainMatch: normalizeDomainMatch(location.domain_match ?? location.domainMatch),
+        phoneMatch: normalizePhoneMatch(location.phone_match ?? location.phoneMatch),
+        addressValidation: normalizeAddressValidation(location.address_validation ?? location.addressValidation),
+        googleMapsUri: asString(location.google_maps_uri) ?? asString(location.googleMapsUri),
+        matchConfidence: asNumber(location.match_confidence) ?? asNumber(location.matchConfidence),
+        matchReasons: asStringArray(location.match_reasons ?? location.matchReasons),
+        sourceType: asString(location.source_type) ?? asString(location.sourceType),
+        fetchedAt: asString(location.fetched_at) ?? asString(location.fetchedAt),
+      };
+    })
+    .filter((location) => location.formattedAddress || location.googleMapsUri || location.googlePlaceId);
+  const summary = asRecord(raw.summary);
+  const searchScope = asRecord(raw.search_scope ?? raw.searchScope);
+  const confirmed = locations.filter((item) => item.relationshipStatus === "confirmed_company_location").length;
+  const probable = locations.filter((item) => item.relationshipStatus === "probable_company_location").length;
+  const possible = locations.filter((item) => item.relationshipStatus === "possible_related_location").length;
+  const operational = locations.filter((item) => item.businessStatus === "OPERATIONAL").length;
+  const closed = locations.filter((item) => /CLOSED/i.test(item.businessStatus ?? "")).length;
+  return {
+    sectionTitle: asString(raw.section_title) ?? asString(raw.sectionTitle) ?? "Google Maps 地址版图",
+    coverageStatus: normalizeAddressCoverageStatus(raw.coverage_status ?? raw.coverageStatus),
+    searchScope: {
+      queriesRun: asStringArray(searchScope.queries_run ?? searchScope.queriesRun),
+      countries: asStringArray(searchScope.countries),
+      capped: asBool(searchScope.capped) ?? false,
+      limitations: asStringArray(searchScope.limitations),
+    },
+    summary: {
+      totalLocations: asNumber(summary.total_locations ?? summary.totalLocations) ?? locations.length,
+      confirmedLocations: asNumber(summary.confirmed_locations ?? summary.confirmedLocations) ?? confirmed,
+      probableLocations: asNumber(summary.probable_locations ?? summary.probableLocations) ?? probable,
+      possibleRelatedLocations:
+        asNumber(summary.possible_related_locations ?? summary.possibleRelatedLocations) ?? possible,
+      operationalLocations: asNumber(summary.operational_locations ?? summary.operationalLocations) ?? operational,
+      closedLocations: asNumber(summary.closed_locations ?? summary.closedLocations) ?? closed,
+      countries: asStringArray(summary.countries).length
+        ? asStringArray(summary.countries)
+        : uniqueStrings(locations.map((item) => item.country)),
+      cities: asStringArray(summary.cities).length
+        ? asStringArray(summary.cities)
+        : uniqueStrings(locations.map((item) => item.city)),
+    },
+    locations,
+    openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
+  };
+}
+
 function screeningReportFromRaw(
   raw: Record<string, unknown>,
   sessionKey: string,
@@ -748,6 +938,7 @@ function screeningReportFromRaw(
     scoreBlocks,
     evidence,
     coverageGaps,
+    addressFootprint: normalizeAddressFootprint(raw.address_footprint ?? raw.addressFootprint),
     openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
   };
 }
@@ -835,7 +1026,12 @@ function screeningRowsFromPayload(
         asNumber(raw.normalizedScore) ??
         asNumber(raw.score);
       const evidence = Array.isArray(raw.evidence) ? raw.evidence.map(normalizeEvidenceItem) : [];
-      const sourceUrls = evidence.map((item) => item.sourceUrl).filter(Boolean);
+      const addressFootprint = normalizeAddressFootprint(raw.address_footprint ?? raw.addressFootprint);
+      const addressUrls =
+        addressFootprint?.locations
+          .map((item) => item.googleMapsUri)
+          .filter((url): url is string => Boolean(url)) ?? [];
+      const sourceUrls = [...evidence.map((item) => item.sourceUrl), ...addressUrls].filter((url): url is string => Boolean(url));
       const status = typeof score !== "number" ? "insufficient_evidence" : "screened";
       const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, score);
 
@@ -937,15 +1133,17 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 执行契约：
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 不调用 Dashboard 预计算 API，不伪造工具结果。
-- 允许并优先使用工具：web_search、web_fetch。找到候选后可按需使用 cross-border-intel__cbe_intel_domain_rdap_lookup 或 cross-border-intel__cbe_intel_email_domain_check 做轻量验证。
+- 允许并优先使用工具：cross-border-intel__cbe_intel_google_places_search、cross-border-intel__cbe_intel_google_place_details、web_search、web_fetch。需要 Nearby 坐标时才用 cross-border-intel__cbe_intel_google_geocode。找到候选后可按需使用 cross-border-intel__cbe_intel_domain_rdap_lookup 或 cross-border-intel__cbe_intel_email_domain_check 做轻量验证。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
-- 最终答案前必须至少调用一个公开证据工具（web_search 或 web_fetch）。只有在工具失败或没有具体下游买家时，才可以返回空 leads，并写 shortage_reason。
+- 默认先用 Google Maps Places Text Search 为每个产品/国家/买家画像组合寻找本地/门店/维修/电子零售/区域批发候选；Google Maps 不可用、限流、缺 key 或无结果时，记录 coverage gap 并转入 web_search fallback。
+- 只对短名单 place_id 调用 Place Details，使用 lead_discovery_basic 级别信息；不要请求或输出 Google review text、photos、raw response 或 API key。
+- 最终答案前必须至少调用一个公开证据工具（Google Maps Places、web_search 或 web_fetch）。最终接受 lead 前必须用 web_search/web_fetch 或公司官网证据确认产品/买家适配；Google Maps 单独只能作为 discovery seed。
 - 只返回具体下游买家公司，排除 marketplace、目录页、供应商页和社交主页。
 - target_count 是本次任务必须新增的净新客户硬目标；普通 new_scope 不能把它理解成“员工列表总数”，top_up_unique_leads 则表示本次必须补齐的缺口数。
 - existing_identity_keys 是数据库中已分配或本 scope 已尝试过的客户 identity；无论 run_mode 是什么都必须避开这些客户。命中 denylist 时要丢弃并继续找替代客户，不能把重复客户计入 target_count。
 - run_mode 为 top_up_unique_leads 时，本次只补充缺口客户；不要重复 already_covered_queries 中的搜索字符串。
 - max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限。最终必须围绕 target_count 继续扩展查询，直到得到 target_count 个去重合规候选或公开搜索确实耗尽。
-- 在最终输出前，先跨产品、国家、buyer_type 和 query family 收集至少 target_count * 3 个原始候选（target_count 小于 5 时至少 12 个），再做排除、去重、排序和截断。
+- 在最终输出前，先跨产品、国家、buyer_type、Google Maps query family 和 web query family 收集至少 target_count * 3 个原始候选（target_count 小于 5 时至少 12 个），再做排除、去重、排序和截断。
 - 不要因为“高质量优先”、web_fetch 被安全策略拦截、部分官网无法抓取或前几条结果重复而主动限制在 5 个以下；web_fetch 被拦截时，使用 web_search 返回的公司官网 URL、标题和摘要作为 public_web 证据，并继续搜索替代客户。
 - 如果候选超过 target_count，只保留证据最强且不在 existing_identity_keys 中的 target_count 个。
 - 只有在覆盖所有产品/国家组合、至少使用 company-owned website、retail/repair buyer、store/location/contact proof、reseller/import buyer 四类查询，并完成 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的查询范围。
@@ -955,6 +1153,7 @@ JSON 字段要求：
 - 顶层：run_id、leads；可选 shortage_reason。
 - leads 每项：company_name、website、country、buyer_type、matched_products、source_urls、discovery_evidence、duplicate_status、dedupe_explanation、recommended_action。
 - discovery_evidence 使用数组，每项包含 source_url、fetched_at 和 finding 或 excerpt；fetched_at 使用 ISO 8601 时间。
+- Google Maps evidence 可包含 google_place_id、google_maps_uri、field_mask_profile、business_status、formatted_address、types，但不能包含原始 Google response、review text、photos 或 API key。
 
 最终格式：
 ${LEADS_JSON_START}
@@ -974,8 +1173,14 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司注册信息、域名/RDAP、邮箱/DNS、官网公开联系信息、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
-- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司注册信息、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 本地经营足迹/地址一致性、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
+- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
+- 对地址版图候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单逐个调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"，不请求 review text、photos 或原始 Google response。
+- 对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate，并把 verdict 写入 address_footprint.locations[].address_validation。
+- 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google API 缺 key、限流或无结果，address_footprint 仍必须返回 coverage_status="unavailable_api" 或 "not_found" 以及 coverage note。
+- 每个地址候选要分类 relationship_status：confirmed_company_location、probable_company_location、possible_related_location、rejected_unrelated_location；地址角色 address_type：headquarters_or_office、storefront、warehouse_or_distribution、service_or_repair_location、unknown_business_location。
+- Google Maps / Address Validation 只计入 public_footprint、domain_email 或 business_fit 的支持证据，不要当作法律注册、KYB、贸易、财务或 Accio 行为证明。
 - SEC/财务公开文件不能留空：即使目标不是美国上市申报主体，也要调用 SEC 查询或写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
 - 如果调用了 cross-border-intel 工具，必须把工具返回的关键结果摘要写入 evidence，不要只写最终结论。
 - 使用最低成本证据阶梯，缺失 API/付费证据只能标记 coverage gap，不能当作欺诈证据。
@@ -984,10 +1189,17 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 
 JSON 字段要求：
 - 顶层：reports。
-- reports 每项：report_id、lead_id、company_name、target、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、coverage_gaps、recommended_action、open_questions。
+- reports 每项：report_id、lead_id、company_name、target、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
 - evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
-- layer 用 legal_registry、domain_rdap、email_dns、official_contact、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
+- layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
+- address_footprint 必须包含：
+  - section_title="Google Maps 地址版图"
+  - coverage_status="found|partial|not_found|unavailable_api|not_checked"
+  - search_scope.queries_run、countries、capped、limitations
+  - summary.total_locations、confirmed_locations、probable_locations、possible_related_locations、operational_locations、closed_locations、countries、cities
+  - locations[]：google_place_id、display_name、address_type、relationship_status、formatted_address、city、region、country、business_status、types、website_uri、domain_match、phone_match、address_validation、google_maps_uri、match_confidence、match_reasons、source_type、fetched_at
+  - open_questions
 - coverage_gaps 写清楚没查到、没启用、没提供还是 API 不可用。
 
 最终格式：

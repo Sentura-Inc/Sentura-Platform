@@ -8,7 +8,7 @@ Detailed test cases for Phase 2 of the mobile-accessory Cross-border e-commerce 
 
 ## CE17 — Cross-Border Phase 2 Execution Plan
 
-Status: PASS (2026-06-16; rechecked 2026-06-17; report-driven concurrency/API-scope design updated 2026-06-21)
+Status: PASS (2026-06-16; rechecked 2026-06-17; report-driven concurrency/API-scope design updated 2026-06-21; Google Maps + web-search source route implemented 2026-06-21; Dashboard Lead timeout/runtime env fix verified 2026-06-21; Screening Google Maps address-footprint report path and dedicated address table implemented 2026-06-22)
 
 Scope:
 
@@ -76,6 +76,8 @@ Latest recheck, 2026-06-17:
 | CE17.24 | Screening employee config alignment | Static review | `sentura/agents/cbe-buyer-screening/config.json5`, `TOOLS.md`, and related skills state `single_target_fanout`, `maxTargetsPerSession=1`, batch-5+ block, batch-3 feature flag, and per-target paid call caps without granting mutation tools. |
 | CE17.25 | P2.6 load-smoke recalibration | Manual review | `PHASE-2.md` updates load smoke to 50 sessions, 10 Lead `find-10` requests, Screening batches split into child runs, 3 Accio imports, and a controlled C=40/48 queue validation rather than unbounded active-session starts. |
 | CE17.26 | Country-aware API runbook | Static/manual review | `API_KEYS_OPENCLAW_SETUP.md`, `SCREENING.md`, `registry-verification/SKILL.md`, and `cross-border-intel/README.md` distinguish implemented GB/US/RDAP/email/trade/OpenCorporates routes from planned France/Japan/Korea/Brazil/Italy adapters and Germany/Spain/Mexico official-page/manual routes; registration steps are documented without adding unimplemented env vars to MCP setup. |
+| CE17.27 | Google Maps + web-search source route | Static/manual review + mocked MCP tests | `MARKET_ACQUISITION.md`, `SCREENING.md`, `DESIGN.md`, `PHASE-2.md`, `API_KEYS_OPENCLAW_SETUP.md`, and `cross-border-intel/README.md` make Google Maps Places + OpenClaw web search the implemented primary acquisition/backcheck route while preserving OpenClaw runtime boundaries; Google Maps is documented as discovery/local-presence/address-consistency evidence, not registry/KYB proof; `GOOGLE_MAPS_API_KEY` remains server-side/secret-only current MCP capability with setup env references; field-mask profiles, attribution/caching guardrails, request caps, ledger-ready metadata, mocked adapter tests, and no browser-side key exposure are covered. |
+| CE17.28 | Screening Google Maps address-footprint report path | Static/manual review + regression tests | `SCREENING.md`, `PHASE-2.md`, `DESIGN.md`, `cbe-buyer-screening` skills, `cross-border-intel`, Dashboard marker normalization, store schemas, completion writes, `screening_address_locations`, and shared report UI require Screening to run bounded multi-query Google Places discovery for company-related offices/stores/warehouses/service locations, dedupe and classify address candidates, validate addresses where possible, persist normalized address rows, and render a dedicated `Google Maps 地址版图` / `address_footprint` report section that is visually separate from ordinary evidence and does not act as legal/KYB proof. |
 
 ## CE18 — Phase 2 P2.1 Business Database Foundation
 
@@ -118,11 +120,11 @@ git diff --check
 | CE18.3 | Agent-run monitoring schema | Static/live DB check | `agent_runs` stores tenant/user/owner, visibility, agent id, session key, status, task kind, target summary, stage, timestamps, model/cost, and error fields. |
 | CE18.4 | Activity-event monitoring schema | Static/live DB check | `agent_run_activity_events` records operator, Agent, task kind, target record/summary, stage, event type, tool/source, status, timestamp, and metadata for Admin live-task monitoring. |
 | CE18.5 | Lead persistence schema | Static/live DB check | Lead tables cover `lead_runs`, `lead_candidates`, `lead_sources`, owner/team/visibility fields, matched products JSON, dedupe keys, and source metadata. |
-| CE18.6 | Screening persistence schema | Static/live DB check | Screening tables cover targets, reports, evidence, score blocks, risk tier, normalized score, evidence coverage, recommended action, and report JSON. |
+| CE18.6 | Screening persistence schema | Static/live DB check | Screening tables cover targets, reports, evidence, score blocks, dedicated Google Maps address locations, risk tier, normalized score, evidence coverage, recommended action, and report JSON. |
 | CE18.7 | Accio persistence schema | Static/live DB check | Accio tables cover imports, conversations, redacted/hash-only messages, summaries, source file hash, storage key, validation status, and behavior summary JSON. |
 | CE18.8 | Handoff/memory/cost/audit schema | Static/live DB check | `handoff_events`, `memory_facts`, `api_call_ledger`, and `audit_events` exist with tenant scope and structured JSON payload fields. |
 | CE18.9 | Lead coordinator schema | Static/live DB check | `lead_discovery_scopes`, `lead_run_memberships`, `lead_identities`, `lead_run_results`, and `lead_allocations` exist with scope hash, lease, identity, membership, result, and allocation fields. |
-| CE18.10 | Index coverage | Static/live DB check | Required indexes exist for lead domain uniqueness, Screening lookups/latest report, Accio lookup, cost/audit rollups, run status, active scopes, profile role, owner scopes, and activity monitoring. |
+| CE18.10 | Index coverage | Static/live DB check | Required indexes exist for lead domain uniqueness, Screening lookups/latest report, Screening address report/target/place/country/domain lookup, Accio lookup, cost/audit rollups, run status, active scopes, profile role, owner scopes, and activity monitoring. |
 | CE18.11 | Projection views | Static/live DB check | `cbe_customer_work_items`, `cbe_operator_workload_daily`, and `cbe_agent_usage_daily` exist for Employee/Admin read projections. |
 | CE18.12 | Config boundary | Static check | `db.ts` requires `CBE_DATABASE_URL` and tells callers to use environment/secret injection rather than committed credentials. |
 | CE18.13 | Migration runner | Static/live DB check | Runner creates migration history, uses a transaction, records checksums, rejects changed applied migrations, and re-runs as no-op. |
@@ -332,7 +334,7 @@ Assertions:
 | CE21.15 | Screening batch block | Static check | Production `createScreeningRun` calls `assertScreeningSessionShape` before `insertAgentRun`, blocking multi-target single-session runs unless explicitly feature-flagged. |
 | CE21.16 | Employee start gating and auto top-up | Static/typecheck | Employee Lead/Screening/Accio UI does not call hidden OpenClaw runner for queued, joined, or near-duplicate responses; executable Lead runs pass DB pre-search denylist into the hidden prompt, and Lead completion uses DB reconciliation to automatically launch bounded top-up rounds when unique saved customers are below the current request target. |
 | CE21.17 | Lead strict-target prompt | Static review | Hidden Lead prompt and Lead workspace skills support `run_mode = "top_up_unique_leads"`, `existing_identity_keys`, `already_covered_queries`, pre-search exclusion of tenant DB identities in every run mode, strict `target_count` net-new output semantics, over-collection before dedupe, and search-result evidence fallback when `web_fetch` is blocked. |
-| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 184/184; live store checks are 204/204; CBE agent checks are 394/394; Dashboard typecheck/build and repo hygiene pass. |
+| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 192/192; live store checks are 213/213; CBE agent checks are 406/406; Dashboard typecheck/build and repo hygiene pass. |
 
 Latest verification, 2026-06-21:
 
@@ -340,15 +342,18 @@ Latest verification, 2026-06-21:
 - `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 38/38 static + live PostgreSQL checks after the strict new-customer target update.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 184/184.
 - `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 204/204.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 394/394.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 403/403.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
 - `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm --dir sentura/dashboard build`: PASS. Build still prints the existing Next workspace-root warning caused by multiple lockfiles.
 - `git diff --check`: PASS.
 - Forbidden workspace file scan for `RULES.md`/`CONTEXT.md`: PASS, no output.
+- Dashboard Lead timeout recovery recheck: PASS. Static checks cover Gateway client `timeoutMs` propagation, recoverable `sendChatMessage` timeout transcript polling, final transcript grace, and setup reading project `.env` plus `~/.openclaw/.env` before writing MCP env references.
+- Real Google Places smoke against the configured API key: PASS, HTTP 200 with `status="found"`, one candidate, `place_id`, and `google_maps_uri`; no raw key or full provider response was printed.
+- Dashboard Lead target-count submit recheck: PASS. The inspected live run called Google Maps successfully but carried `target_count=3` in both prompt and `lead_runs`, so the UI now snapshots the current numeric input ref at submit time and displays the target in the summary/button.
 
-## CE22 — Lead Reconciliation, Screening Fan-Out/API Scope, And Accio Durable Workflow
+## CE22 — Lead Reconciliation, Google Maps Source Redesign, Screening Fan-Out/API Scope, And Accio Durable Workflow
 
-Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Screening fan-out/API-scope and durable Accio workflow remain PEND.
+Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; Screening fan-out/API-scope and durable Accio workflow remain PEND.
 
 Implemented Lead scope:
 
@@ -358,6 +363,28 @@ Implemented Lead scope:
 - Duplicate candidates are recorded in `lead_run_results` with reason metadata for audit/provenance.
 - Before every executable Lead search, the coordinator retrieves tenant DB identity keys and passes them into the hidden employee as `existing_identity_keys`; a normal repeated request still asks for the full requested new-customer count, and if reconciliation still produces fewer unique new customers than requested, the Employee UI starts bounded top-up rounds for the missing count using the expanded database-derived denylist.
 - Employee task completion summaries show returned candidates, new unique customers, duplicates skipped, missing count, and top-up status.
+
+Implemented Google Maps source route:
+
+- `cross-border-intel` implements Google Maps Places Text Search, Nearby Search, Place Details, Geocoding, and Address Validation with field-mask profiles, request caps, attribution/caching guardrails, provider-status handling, key redaction, and ledger-ready `api_call_ledger` metadata without exposing `GOOGLE_MAPS_API_KEY` to browser/client/prompt code.
+- Lead Discovery defaults to Google Maps Places candidate discovery plus OpenClaw `web_search` / `web_fetch` official-site/product-fit validation; web-only search remains fallback when Maps is unavailable.
+- Screening can refresh one Place Details lookup per target, run one Text Search for manual storefront targets lacking a website, and validate public addresses for local-presence evidence, while Maps remains public-footprint/domain/address-consistency support rather than registry/KYB proof.
+- Screening now discovers all bounded Google Maps address-footprint candidates for a company, classifies office/store/warehouse/service locations, validates unique addresses where possible, normalizes/persists `address_footprint`, writes every location to `screening_address_locations`, and renders a dedicated `Google Maps 地址版图` report section with summary counts, capped-search limitations, Maps URIs, validation verdicts, confidence, and match reasons.
+
+Latest verification, 2026-06-22:
+
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 23/23.
+- `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 406/406.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 194/194.
+- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216 static + live PostgreSQL checks, including true `saveScreeningReports` write/read of `screening_address_locations` and typed `listScreeningAddressLocations` retrieval.
+- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS, applied `006_screening_address_locations.sql`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 21/21.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `bash -n scripts/sentura-setup.sh`: PASS.
+- `git diff --check`: PASS.
+- Live `~/.openclaw/workspace/cbe-buyer-screening` sync check: `TOOLS.md`, `evidence-collection`, `report-writing`, and `buyer-scoring` match source; top-level markdown files remain exactly the 8 OpenClaw-native files; no `RULES.md` / `CONTEXT.md`.
+- Browser smoke: started Dashboard dev server, logged into Manager as `孙总/1234`, opened 吴思彤's employee detail, and opened the KIKO shared report dialog with no browser console errors. The historical KIKO report predates this implementation and therefore did not contain `address_footprint`; the next live Screening run should verify populated `Google Maps 地址版图` rows.
 
 Remaining scope:
 

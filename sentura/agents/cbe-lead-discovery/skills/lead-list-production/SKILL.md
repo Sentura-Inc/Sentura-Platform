@@ -17,6 +17,8 @@ Each candidate must match the `LeadCandidate` schema:
   "domain": "example-mobile-distribution.co.uk",
   "country": "GB",
   "city": "Manchester",
+  "google_place_id": "ChIJexample",
+  "google_maps_uri": "https://maps.google.com/?cid=123",
   "buyer_type": "distributor",
   "matched_products": ["phone case", "screen protector"],
   "contact_candidates": [
@@ -29,6 +31,17 @@ Each candidate must match the `LeadCandidate` schema:
   ],
   "source_urls": ["https://example-mobile-distribution.co.uk"],
   "discovery_evidence": [
+    {
+      "signal": "google_maps_local_presence",
+      "source_url": "https://maps.google.com/?cid=123",
+      "finding": "Google Maps Places returned an OPERATIONAL electronics-store profile with public address and Maps URI.",
+      "confidence": 0.72,
+      "query": "phone accessories wholesaler Manchester",
+      "fetched_at": "2026-06-08T00:00:00Z",
+      "source_type": "google_maps_places",
+      "google_place_id": "ChIJexample",
+      "field_mask_profile": "lead_discovery_list"
+    },
     {
       "signal": "website_mentions_mobile_accessories",
       "source_url": "https://example-mobile-distribution.co.uk/products",
@@ -51,7 +64,7 @@ Each candidate must match the `LeadCandidate` schema:
    - company name;
    - country;
    - buyer type;
-   - a company-owned website or company website page, not a social profile, directory, marketplace, generic wholesale article, or public database page;
+   - a company-owned website or company website page confirmed by web search/fetch when possible. A Google Maps profile alone is not enough for final acceptance unless the run is explicitly a local-presence-only seed list;
    - at least one matched product;
    - at least one source URL;
    - at least one discovery evidence item;
@@ -61,6 +74,7 @@ Each candidate must match the `LeadCandidate` schema:
    - business content mentions mobile accessories, phone repair, screen protectors, phone cases, chargers, repair parts, electronics retail, or phone-store operations;
    - buyer profile is retail store, repair shop/chain, electronics retailer, accessory retailer, reseller, importer buyer, or phone store;
    - reject factories, manufacturers, OEM/ODM sellers, exporters, marketplace listings, supplier directories, and generic "top wholesale suppliers" pages.
+   - Google Maps `business_status=OPERATIONAL`, place types, address, phone, rating count, or opening hours are local-presence support only; do not present them as legal/KYB proof.
 3. Enforce the run target before final output:
    - `target_count` means the required count of net-new, non-duplicate customers for the current task.
    - Do not include candidates whose normalized domain or company/country key appears in `existing_identity_keys`.
@@ -78,11 +92,20 @@ Each candidate must match the `LeadCandidate` schema:
 6. Mark source provenance visibly:
    - `official_api`
    - `public_web`
+   - `google_maps_places`
+   - `google_maps_geocoding`
    - `paid_trade_data`
    - `demo_fixture`
    - `self_reported`
    - `unverified`
 7. Keep email/contact candidates source-bound. If a contact cannot be sourced, omit it or mark it as unverified evidence, not as a confirmed contact.
+8. Preserve Google Maps provenance when used:
+   - `google_place_id`;
+   - `google_maps_uri`;
+   - endpoint and field mask profile;
+   - fetched timestamp;
+   - bounded normalized fields used for dedupe such as business status, address, website URI, phone, and types.
+   Do not include raw Google responses, review text, photos, or API keys.
 
 ## Markdown Summary
 

@@ -9,6 +9,8 @@ The customer is a cross-border B2B exporter of mobile-phone accessories. Phase 1
 - parse Accio/Alibaba-style chat memory in a separate employee;
 - keep all actions inside normal OpenClaw/Sentura employee workspaces and MCP/config wiring.
 
+Google Maps Places is now the primary discovery surface for local/storefront buyer seeds when `GOOGLE_MAPS_API_KEY` is configured in OpenClaw env. Use it through the read-only `cross-border-intel` MCP tools only, then confirm final buyer fit with public web evidence.
+
 ## Product Scope
 
 Priority categories:
@@ -50,4 +52,4 @@ The operator may add more exclusions.
 
 ## Current Milestone Boundary
 
-Milestone 4 implements this Marketing Acquisition employee and the lead-discovery demo route. Screening and Accio Memory employees are separate milestones. In this milestone, handoff means creating a typed payload for the future Screening employee or dashboard route.
+Milestone 4 implements this Marketing Acquisition employee and the lead-discovery demo route. Screening and Accio Memory employees are separate milestones. In this milestone, Google Maps is discovery/local-presence evidence, not legal/KYB proof; handoff means creating a typed payload for Screening.

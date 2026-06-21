@@ -82,14 +82,14 @@ Scope:
 Validation command:
 
 ```bash
-pnpm --filter @sentura/mcp-cross-border-intel test   # 17/17
+pnpm --filter @sentura/mcp-cross-border-intel test   # 23/23
 pnpm --filter @sentura/mcp-cross-border-intel build
 ```
 
 | # | Check | Expected |
 |---|---|---|
 | CE3.1 | Package/build contract | `package.json`, `tsconfig.json`, `vitest.config.ts`, and README follow existing Sentura MCP patterns; `pnpm --filter @sentura/mcp-cross-border-intel build` passes. |
-| CE3.2 | Tool catalog | MCP `listTools()` exposes exactly 10 designed read-only tools: registry search, company profile, RDAP, email/domain check, official contact email search, SEC lookup, trade-record search, contextual score, Accio parse, Accio summarize. |
+| CE3.2 | Tool catalog | MCP `listTools()` exposes exactly 14 designed read-only tools: registry search, company profile, RDAP, email/domain check, official contact email search, Google Places search/details, Google Geocoding, Google Address Validation, SEC lookup, trade-record search, contextual score, Accio parse, Accio summarize. |
 | CE3.3 | Tool annotations and source metadata | Every tool has `readOnlyHint: true`, `destructiveHint: false`, and source doc metadata pointing to `跨境电商/DESIGN.md Milestone 3`. |
 | CE3.4 | Companies House routes | `cbe_intel_company_registry_search` builds `GET /search/companies?q=...&items_per_page=...`; `cbe_intel_company_profile` builds `GET /company/{companyNumber}` and uses API-key Basic auth. |
 | CE3.5 | SEC adapter | `cbe_intel_sec_lookup` pads numeric CIKs to 10 digits, sends the configured SEC-compliant `User-Agent`, resolves company names through SEC `company_tickers.json`, and returns `not_found` as not-applicable/coverage gap for private/non-filer targets. |
@@ -103,6 +103,7 @@ pnpm --filter @sentura/mcp-cross-border-intel build
 | CE3.13 | Abstract + Hunter paid email validation | When `enable_paid_validation=true` and keys exist, `cbe_intel_email_domain_check` calls Abstract Email Reputation at `GET https://emailreputation.abstractapi.com/v1/?api_key=...&email=...` and Hunter at `GET https://api.hunter.io/v2/email-verifier`, returning provider metadata without echoing API keys. |
 | CE3.14 | Current ImportYeti endpoint | Paid ImportYeti route uses `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with the `IYApiKey` header, budget controls, and source type `paid_trade_data`. |
 | CE3.15 | Official-site contact email discovery | `cbe_intel_official_contact_email_search` fetches a bounded set of official website pages and extracts same-domain public emails while ignoring third-party/free-provider addresses. |
+| CE3.16 | Google Maps adapter | Mocked tests cover missing key behavior, Places Text Search with field mask, Nearby Search with location restriction, Place Details screening field mask, Geocoding key redaction, Address Validation normalization, quota/rate-limit mapping, source attribution, and no API key leakage. |
 
 ## CE4 — Marketing Acquisition Employee Workspace
 
@@ -324,7 +325,7 @@ rg -n 'cross-border-intel|buildCrossBorderIntelEnv|COMPANIES_HOUSE_API_KEY|CBE_E
 | CE9.1 | Bash syntax | `bash -n scripts/sentura-setup.sh` | Bash setup parses successfully. |
 | CE9.2 | Bash MCP registration | Static review / `rg` | Bash setup writes `config.mcp.servers['cross-border-intel']` with `command: "node"`, absolute compiled `dist/index.js`, project-root `cwd`, env block, and `requestTimeoutMs`. |
 | CE9.3 | PowerShell parity | Static review / `rg` | PowerShell setup mirrors the Bash `cross-border-intel` MCP registration behavior. |
-| CE9.4 | Env source handling | Static review | Setup reads both current process env and OpenClaw state `.env`, so operators can configure keys before running setup without exposing them in repo files. |
+| CE9.4 | Env source handling | Static review | Setup reads project `.env`, OpenClaw state `~/.openclaw/.env`, and current process env, so operators can configure keys before running setup without exposing them in committed files. |
 | CE9.5 | Secret handling | Static review | API keys are stored as `${ENV_VAR}` config references when present; missing optional keys are omitted; setup never writes raw API key values into `openclaw.json`. |
 | CE9.6 | Budget/default handling | Static review | `SEC_USER_AGENT`, `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` use configured non-secret values or safe defaults. |
 | CE9.7 | Web-search boundary | Static review | `TAVILY_API_KEY` is noted for OpenClaw `web_search` and CE4 Dashboard live-search usage, but is not placed into the `cross-border-intel` MCP env block. |
@@ -577,6 +578,7 @@ Browser validation:
 | CE16.35 | External tool-log cost backfill | Static/cost test | OpenClaw session `toolResult` logs for CBE tools are backfilled into cost rows for Companies House, RDAP, DNS, Abstract Email Reputation, Hunter, SEC EDGAR, ImportYeti, Tavily/web_search, public web fetches, and local scoring; free/included/unpriced rows are visible without fabricating USD spend. |
 | CE16.36 | Backend model failure surfacing | Static review + live-session evidence | Hidden task polling inspects transcript `errorMessage` / `stopReason` fields and raises `backend_error` with a specific Chinese message for `LLM idle timeout`, instead of waiting until the generic marker timeout path. |
 | CE16.37 | Compact SEC lookup payload | MCP unit test + static review | `cross-border-intel` `cbe_intel_sec_lookup` returns `submissions_summary` with bounded recent filings instead of full SEC submissions JSON, keeping the tool payload under the regression threshold while preserving official filing evidence. |
+| CE16.38 | Lead target submit snapshot | Static review + live-session evidence | After a 2026-06-21 live run showed Google Maps succeeded but the submitted prompt/database `target_count` was 3, the `寻找客户` submit button now reads the current target input ref at click time, rebuilds the lead payload from that snapshot, and visibly echoes `目标 N 个客户` in the sheet summary and submit button. |
 
 ## CE17 — Cross-Border Phase 2 Execution Plan
 

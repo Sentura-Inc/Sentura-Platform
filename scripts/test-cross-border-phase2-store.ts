@@ -235,6 +235,16 @@ async function cleanupP2DashboardProbe(agentRunIds: string[], leadDomain: string
     ]);
     await client.query(
       `
+        delete from screening_address_locations
+        where tenant_id = $1
+          and screening_report_id in (
+            select id from screening_reports where tenant_id = $1 and agent_run_id = any($2::text[])
+          )
+      `,
+      [CBE_TENANT_ID, agentRunIds],
+    );
+    await client.query(
+      `
         delete from screening_score_blocks
         where tenant_id = $1
           and screening_report_id in (
@@ -459,6 +469,53 @@ async function runLiveDashboardStoreChecks() {
                 score_impact: "positive",
               },
             ],
+            address_footprint: {
+              section_title: "Google Maps 地址版图",
+              coverage_status: "found",
+              search_scope: {
+                queries_run: [`CE19 Probe Buyer ${stamp} GB office`],
+                countries: ["GB"],
+                capped: false,
+                limitations: [],
+              },
+              summary: {
+                total_locations: 1,
+                confirmed_locations: 1,
+                probable_locations: 0,
+                possible_related_locations: 0,
+                operational_locations: 1,
+                closed_locations: 0,
+                countries: ["GB"],
+                cities: ["London"],
+              },
+              locations: [
+                {
+                  google_place_id: `places/ce19-${stamp}`,
+                  display_name: `CE19 Probe Buyer ${stamp}`,
+                  address_type: "headquarters_or_office",
+                  relationship_status: "confirmed_company_location",
+                  formatted_address: "1 Probe Street, London, UK",
+                  city: "London",
+                  country: "GB",
+                  business_status: "OPERATIONAL",
+                  types: ["electronics_store"],
+                  website_uri: `https://${leadDomain}`,
+                  domain_match: true,
+                  phone_match: "not_checked",
+                  address_validation: {
+                    status: "validated",
+                    address_complete: true,
+                    possible_next_action: "ACCEPT",
+                  },
+                  google_maps_uri: "https://maps.google.com/?cid=ce19",
+                  match_confidence: 0.9,
+                  match_reasons: ["Domain and company name match probe target."],
+                  source_type: "google_maps_places",
+                  fetched_at: fetchedAt,
+                },
+              ],
+              open_questions: [],
+            },
             coverage_gaps: [],
             open_questions: [],
           },
@@ -466,6 +523,32 @@ async function runLiveDashboardStoreChecks() {
       },
     });
     check("dashboard store saves Screening report payload", screeningResult.reports.length === 1);
+    const addressRows = await store.getCbePool().query(
+      `
+        select google_place_id, formatted_address, relationship_status, address_type
+        from screening_address_locations
+        where tenant_id = $1
+          and screening_report_id = $2
+      `,
+      [CBE_TENANT_ID, screeningResult.reports[0].id],
+    );
+    check(
+      "dashboard store saves Screening address-footprint rows",
+      addressRows.rows.length === 1 &&
+      addressRows.rows[0].google_place_id === `places/ce19-${stamp}` &&
+      addressRows.rows[0].relationship_status === "confirmed_company_location" &&
+      addressRows.rows[0].address_type === "headquarters_or_office",
+    );
+    const listedAddressRows = await store.listScreeningAddressLocations(context, {
+      screeningReportId: screeningResult.reports[0].id,
+      limit: 5,
+    });
+    check(
+      "dashboard store lists Screening address-footprint rows through typed store",
+      listedAddressRows.items.length === 1 &&
+      listedAddressRows.items[0].googlePlaceId === `places/ce19-${stamp}` &&
+      listedAddressRows.items[0].formattedAddress === "1 Probe Street, London, UK",
+    );
 
     const accioStart = await store.saveAccioImport(context, {
       source_file_name: `ce19-${stamp}.json`,
@@ -579,6 +662,7 @@ const requiredTables = [
   "lead_sources",
   "screening_targets",
   "screening_reports",
+  "screening_address_locations",
   "screening_evidence",
   "screening_score_blocks",
   "accio_imports",
@@ -613,6 +697,11 @@ const requiredIndexes = [
   "lead_candidates_tenant_domain_uidx",
   "screening_targets_identity_idx",
   "screening_reports_latest_idx",
+  "screening_address_locations_report_idx",
+  "screening_address_locations_target_idx",
+  "screening_address_locations_place_idx",
+  "screening_address_locations_country_city_idx",
+  "screening_address_locations_domain_idx",
   "accio_conversations_lookup_idx",
   "api_call_ledger_rollup_idx",
   "audit_events_rollup_idx",
@@ -709,6 +798,7 @@ check("migration directory exists", exists(MIGRATIONS_DIR));
 check("001 initial schema migration exists", migrationFiles.includes("001_initial_schema.sql"));
 check("002 lead scope coordinator migration exists", migrationFiles.includes("002_lead_scope_coordinator.sql"));
 check("005 workload queue and Screening fan-out migration exists", migrationFiles.includes("005_workload_queue_and_screening_batches.sql"));
+check("006 Screening address locations migration exists", migrationFiles.includes("006_screening_address_locations.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -728,6 +818,7 @@ check("schema defines cost approval lifecycle", ["cbe_cost_limits", "cbe_cost_al
 check("schema defines owner/team/visibility fields", ["owner_user_id", "team_name", "visibility_scope"].every((needle) => migrationSql.includes(needle)));
 check("schema defines task activity monitoring events", migrationSql.includes("agent_run_activity_events") && migrationSql.includes("target_summary"));
 check("schema defines migration history table", migrationSql.includes("cbe_schema_migrations"));
+check("schema backfills Screening address-footprint JSON rows", migrationSql.includes("screening_address_backfill_") && migrationSql.includes("address_footprint,locations"));
 check(
   "migration SQL does not embed obvious connection secrets",
   !/(postgres:\/\/|password\s*=|api_key|app_secret|bearer\s+)/i.test(migrationSql),
@@ -798,6 +889,8 @@ check("P2.2 tenant context resolves seeded CBE profiles", read(path.join(DASHBOA
 check("P2.2 schemas require source URLs and fetched timestamps", p22AllStoreText.includes("source_url: z.string().url()") && p22AllStoreText.includes("fetched_at: IsoTimestampSchema"));
 check("P2.2 completion routes fail agent_runs on validation errors", completionRouteText.includes("safeParse") && completionRouteText.includes("failLeadCompletion") && completionRouteText.includes("failScreeningCompletion") && completionRouteText.includes("failAccioCompletion"));
 check("P2.2 writes audit events for major store actions", p22AllStoreText.includes("createAuditEvent") && p22AllStoreText.includes("lead_run_completed") && p22AllStoreText.includes("screening_reports_saved") && p22AllStoreText.includes("accio_summaries_saved"));
+check("P2.2 store writes Screening address-footprint rows", p22AllStoreText.includes("insert into screening_address_locations") && p22AllStoreText.includes("address_footprint") && p22AllStoreText.includes("saved_address_footprint_locations"));
+check("P2.2 store exposes typed Screening address-footprint lookup", p22AllStoreText.includes("listScreeningAddressLocations") && p22AllStoreText.includes("from screening_address_locations sal"));
 check("P2.2 store writes task activity events for admin monitoring", p22AllStoreText.includes("agent_run_activity_events") && p22AllStoreText.includes("createAgentRunActivityEvent"));
 check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreText.includes("scopedOwnerClause") && p22AllStoreText.includes("owner_user_id") && p22AllStoreText.includes("tenant_shared"));
 check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)"));

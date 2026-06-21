@@ -33,6 +33,7 @@ type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecti
 const PROTOCOL_VERSION = 4;
 const SENTURA_VERSION = "0.1.0";
 const REQUEST_TIMEOUT_MS = 30_000;
+const LONG_RUNNING_RPC_GRACE_MS = 15_000;
 
 function generateIdempotencyKey(): string {
   const g = globalThis as { crypto?: { randomUUID?: () => string } };
@@ -314,6 +315,12 @@ export class GatewayClient {
 
     const id = this.nextId();
     const frame: RequestFrame = { type: "req", id, method, params };
+    const requestedTimeoutMs = typeof params?.timeoutMs === "number" && Number.isFinite(params.timeoutMs)
+      ? params.timeoutMs
+      : undefined;
+    const clientTimeoutMs = requestedTimeoutMs
+      ? Math.max(REQUEST_TIMEOUT_MS, requestedTimeoutMs + LONG_RUNNING_RPC_GRACE_MS)
+      : REQUEST_TIMEOUT_MS;
 
     return new Promise<T>((resolve, reject) => {
       this.pendingCalls.set(id, {
@@ -327,7 +334,7 @@ export class GatewayClient {
           this.pendingCalls.delete(id);
           reject({ code: "TIMEOUT", message: "RPC call timed out" } satisfies RpcError);
         }
-      }, REQUEST_TIMEOUT_MS);
+      }, clientTimeoutMs);
     });
   }
 

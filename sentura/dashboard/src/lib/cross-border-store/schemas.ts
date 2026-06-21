@@ -68,6 +68,9 @@ export const SourceTypeSchema = z.enum([
   "official_registry_page",
   "public_web",
   "public_dns",
+  "google_maps_places",
+  "google_maps_geocoding",
+  "google_maps_address_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -151,6 +154,12 @@ export const LeadDiscoveryEvidenceSchema = z.object({
   query: z.string().min(1).optional(),
   fetched_at: IsoTimestampSchema,
   source_type: SourceTypeSchema.default("public_web"),
+  google_place_id: z.string().min(1).optional(),
+  google_maps_uri: z.string().url().optional(),
+  field_mask_profile: z.string().min(1).optional(),
+  business_status: z.string().min(1).optional(),
+  formatted_address: z.string().min(1).optional(),
+  endpoint: z.string().min(1).optional(),
 }).superRefine((item, ctx) => {
   if (!item.signal && !item.excerpt && !item.finding) {
     ctx.addIssue({
@@ -170,6 +179,8 @@ export const LeadCandidateMarkerSchema = z.object({
   domain: z.string().min(1).optional(),
   country: CountryCodeSchema,
   city: z.string().min(1).optional(),
+  google_place_id: z.string().min(1).optional(),
+  google_maps_uri: z.string().url().optional(),
   buyer_type: z.string().min(1),
   matched_products: z.array(z.string().min(1)).min(1),
   source_urls: z.array(z.string().url()).min(1),
@@ -256,6 +267,91 @@ export const ScreeningScoreBlockMarkerSchema = z.object({
 });
 export type ScreeningScoreBlockMarker = z.infer<typeof ScreeningScoreBlockMarkerSchema>;
 
+export const AddressFootprintCoverageStatusSchema = z.enum([
+  "found",
+  "partial",
+  "not_found",
+  "unavailable_api",
+  "not_checked",
+]);
+
+export const AddressFootprintAddressTypeSchema = z.enum([
+  "headquarters_or_office",
+  "storefront",
+  "warehouse_or_distribution",
+  "service_or_repair_location",
+  "unknown_business_location",
+]);
+
+export const AddressFootprintRelationshipStatusSchema = z.enum([
+  "confirmed_company_location",
+  "probable_company_location",
+  "possible_related_location",
+  "rejected_unrelated_location",
+]);
+
+export const ScreeningAddressFootprintSchema = z.object({
+  section_title: z.string().min(1).default("Google Maps 地址版图"),
+  coverage_status: AddressFootprintCoverageStatusSchema,
+  search_scope: z.object({
+    queries_run: z.array(z.string().min(1)).default([]),
+    countries: z.array(z.string().min(1)).default([]),
+    capped: z.boolean().default(false),
+    limitations: z.array(z.string().min(1)).default([]),
+  }).default({
+    queries_run: [],
+    countries: [],
+    capped: false,
+    limitations: [],
+  }),
+  summary: z.object({
+    total_locations: z.number().int().min(0).default(0),
+    confirmed_locations: z.number().int().min(0).default(0),
+    probable_locations: z.number().int().min(0).default(0),
+    possible_related_locations: z.number().int().min(0).default(0),
+    operational_locations: z.number().int().min(0).default(0),
+    closed_locations: z.number().int().min(0).default(0),
+    countries: z.array(z.string().min(1)).default([]),
+    cities: z.array(z.string().min(1)).default([]),
+  }).default({
+    total_locations: 0,
+    confirmed_locations: 0,
+    probable_locations: 0,
+    possible_related_locations: 0,
+    operational_locations: 0,
+    closed_locations: 0,
+    countries: [],
+    cities: [],
+  }),
+  locations: z.array(z.object({
+    google_place_id: z.string().min(1).optional(),
+    display_name: z.string().min(1),
+    address_type: AddressFootprintAddressTypeSchema.default("unknown_business_location"),
+    relationship_status: AddressFootprintRelationshipStatusSchema.default("possible_related_location"),
+    formatted_address: z.string().min(1),
+    city: z.string().min(1).optional(),
+    region: z.string().min(1).optional(),
+    country: z.string().min(1).optional(),
+    business_status: z.string().min(1).optional(),
+    types: z.array(z.string().min(1)).default([]),
+    website_uri: z.string().url().optional(),
+    domain_match: z.union([z.boolean(), z.literal("not_checked")]).optional(),
+    phone_match: z.union([z.boolean(), z.literal("not_checked"), z.literal("conflict")]).optional(),
+    address_validation: z.object({
+      status: z.string().min(1).optional(),
+      address_complete: z.boolean().optional(),
+      possible_next_action: z.string().min(1).optional(),
+    }).optional(),
+    google_maps_uri: z.string().url().optional(),
+    match_confidence: ConfidenceSchema.optional(),
+    match_reasons: z.array(z.string().min(1)).default([]),
+    source_type: SourceTypeSchema.default("google_maps_places"),
+    fetched_at: IsoTimestampSchema.optional(),
+  })).default([]),
+  open_questions: z.array(z.string().min(1)).default([]),
+});
+export type ScreeningAddressFootprint = z.infer<typeof ScreeningAddressFootprintSchema>;
+
 export const ScreeningReportMarkerSchema = z.object({
   report_id: z.string().min(1).optional(),
   lead_id: z.string().min(1).nullable().optional(),
@@ -268,6 +364,7 @@ export const ScreeningReportMarkerSchema = z.object({
   recommended_action: z.string().min(1),
   score_blocks: z.array(ScreeningScoreBlockMarkerSchema).min(1),
   evidence: z.array(ScreeningEvidenceMarkerSchema).min(1),
+  address_footprint: ScreeningAddressFootprintSchema.optional(),
   coverage_gaps: z.array(JsonRecordSchema).default([]),
   open_questions: z.array(z.string().min(1)).default([]),
   created_at: IsoTimestampSchema.optional(),

@@ -13,6 +13,10 @@ All tools are registered with `readOnlyHint: true` and return `source_url`, `sou
 | `cbe_intel_domain_rdap_lookup` | RDAP.org domain lookup with 200/302/404/429 handling. |
 | `cbe_intel_email_domain_check` | Syntax, free/disposable provider, role-email, MX, SPF, DMARC, and optional Abstract + Hunter paid validation. |
 | `cbe_intel_official_contact_email_search` | Fetch a small set of public official website pages and extract same-domain contact emails for optional paid validation. |
+| `cbe_intel_google_places_search` | Google Maps Places API (New) Text Search and Nearby Search for local/storefront lead seeds with field-mask profiles, request caps, normalized source metadata, attribution flags, and ledger-ready call metadata. |
+| `cbe_intel_google_place_details` | Google Maps Place Details for shortlisted place IDs only, returning bounded local-presence evidence such as website, address, phone, business status, types, rating count, opening hours, and Maps URI. |
+| `cbe_intel_google_geocode` | Google Geocoding API helper for city/address coordinates used by Nearby Search preparation and address consistency checks. It is not buyer verification by itself. |
+| `cbe_intel_google_address_validate` | Google Address Validation API helper for public business address consistency in Screening. It is supporting public-footprint evidence only. |
 | `cbe_intel_sec_lookup` | SEC EDGAR company-name-to-CIK resolution through `company_tickers.json`, then submissions lookup by ten-digit CIK. |
 | `cbe_intel_trade_record_search` | Volza/ImportYeti paid search only when keys and spend caps are enabled; otherwise weak public-web fallback. |
 | `cbe_intel_score_buyer` | Deterministic contextual score with normalized score and evidence coverage separated. |
@@ -30,8 +34,11 @@ Current implemented registry/identity coverage is intentionally narrow:
 | Global fallback | OpenCorporates search only when `OPENCORPORATES_API_KEY` is configured. | Automatic jurisdiction selection beyond current search fallback. |
 | Domain/email | RDAP.org, DNS MX/SPF/DMARC, official-site same-domain email discovery, optional Abstract/Hunter verifier. | Paid WHOIS/RDAP provider adapters. |
 | Trade evidence | ImportYeti/Volza only when paid trade data and budget are enabled. | Panjiva, ImportGenius, enterprise customs APIs. |
+| Google Maps | Places Text/Nearby Search, Place Details, Geocoding, and Address Validation are implemented as read-only server-side MCP tools. | Google Maps is discovery/local-presence/address-consistency evidence only, not registry/KYB/trade proof. Reviews/photos/raw responses are not retained by default. |
 
 The 2026-06-21 API research runbook in `跨境电商/API_KEYS_OPENCLAW_SETUP.md` identifies France API Recherche/API Entreprise, Japan Corporate Number Web-API, Korea OpenDART, Brazil Serpro CNPJ, Italy InfoCamere, and official web/manual routes for Germany/Spain/Mexico. These are planned country adapters or manual routes, not current MCP tools. Do not add their env vars to setup or employee prompts until the TypeScript adapter, schema, mocked tests, missing-key behavior, rate-limit policy, and evidence tags are implemented.
+
+Google Maps is the current exception to the "planned adapter" warning above: the TypeScript tools, mocked tests, field-mask profiles, missing-key behavior, provider/quota handling, source metadata, and server-side env wiring are implemented. Keep `GOOGLE_MAPS_API_KEY` restricted and server-side.
 
 ## Environment
 
@@ -46,9 +53,24 @@ Secrets must live in OpenClaw's `.env` / secret store, not in config prose or co
 | `HUNTER_API_KEY` | No | Optional Hunter Email Verifier call when `enable_paid_validation` is requested. |
 | `VOLZA_API_KEY` | No | Optional paid trade-data search. |
 | `IMPORTYETI_API_KEY` | No | Optional paid trade-data search. |
+| `GOOGLE_MAPS_API_KEY` | Recommended for Maps route | Enables Google Maps Places, Geocoding, and Address Validation tools. Keep server-side and API/IP restricted. |
+| `CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH` | No | Search result cap. Default `10`, max `20`. |
+| `CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN` | No | Details-call cap used by orchestration policy. Default `20`. |
+| `CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN` | No | Address Validation cap used by orchestration policy. Default `5`. |
 | `CBE_ENABLE_PAID_TRADE_DATA` | No | Must be `true`/`1` before paid trade calls run. |
 | `CBE_MAX_PAID_SPEND_USD` | No | Global per-call paid-data budget ceiling. Default `0`. |
 | `CBE_INTEL_REQUEST_TIMEOUT_MS` | No | HTTP timeout. Default `30000`. |
+
+## Google Maps Field Masks
+
+The MCP server uses narrow field-mask profiles so agents receive only the bounded public fields needed for lead discovery or screening.
+
+| Profile | Tool | Fields |
+|---|---|---|
+| `lead_discovery_list` | `cbe_intel_google_places_search` | `places.id`, `places.displayName`, `places.formattedAddress`, `places.location`, `places.types`, `places.businessStatus`, `places.googleMapsUri` |
+| `lead_discovery_basic` | `cbe_intel_google_place_details` | id/name/address, national and international phone, website, business status, types, rating count, opening hours, Maps URI |
+| `screening_local_presence` | `cbe_intel_google_place_details` | id/name/address, website, business status, types, rating count, opening hours, Maps URI |
+| `screening_address_footprint` | `cbe_intel_google_place_details` | id/name/address, website, national and international phone, business status, types, opening hours, Maps URI |
 
 ## OpenClaw MCP Config
 
@@ -75,9 +97,13 @@ secrets and not `$secret:` markers:
           ABSTRACT_API_KEY: "${ABSTRACT_API_KEY}",
           HUNTER_API_KEY: "${HUNTER_API_KEY}",
           IMPORTYETI_API_KEY: "${IMPORTYETI_API_KEY}",
+          GOOGLE_MAPS_API_KEY: "${GOOGLE_MAPS_API_KEY}",
           CBE_ENABLE_PAID_TRADE_DATA: "false",
           CBE_MAX_PAID_SPEND_USD: "0",
-          CBE_INTEL_REQUEST_TIMEOUT_MS: "30000"
+          CBE_INTEL_REQUEST_TIMEOUT_MS: "30000",
+          CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH: "10",
+          CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN: "20",
+          CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN: "5"
         }
       }
     }
@@ -88,7 +114,9 @@ secrets and not `$secret:` markers:
 The script omits optional API-key env references when the corresponding env var
 is not configured, so a missing paid provider does not break OpenClaw config
 load. `TAVILY_API_KEY` is for OpenClaw `web_search` auto-detection, not for this
-MCP server's `env` block.
+MCP server's `env` block. `GOOGLE_MAPS_API_KEY` should also stay out of the
+browser/client environment; setup writes it to the MCP env block only as a
+`${GOOGLE_MAPS_API_KEY}` reference when the env var exists.
 
 Sandboxed employees also need MCP/plugin tools allowlisted at the sandbox layer:
 
@@ -117,6 +145,8 @@ The Phase-1 default is low-cost and public:
 - ImportYeti uses `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with the documented `IYApiKey` header when paid trade data and budget are enabled.
 - `cbe_intel_trade_record_search` will not call paid trade providers unless `CBE_ENABLE_PAID_TRADE_DATA=true` and the request budget is within `CBE_MAX_PAID_SPEND_USD`.
 - Disabled paid evidence is reported as coverage gap, not as a buyer fraud penalty.
+- Google Maps tools use field masks, per-search caps, source attribution, and no default reviews/photos/raw-response retention. Tool outputs include `api_call_ledger` metadata that downstream OpenClaw/Sentura run handling can persist with tenant/run context.
+- Google Maps evidence must be reported as discovery/local-presence/address-consistency evidence only, with Google Maps URI/source attribution and no raw review/photo retention unless policy-reviewed.
 
 ## Development
 
@@ -125,4 +155,4 @@ pnpm --filter @sentura/mcp-cross-border-intel test
 pnpm --filter @sentura/mcp-cross-border-intel build
 ```
 
-Tests use `InMemoryTransport`, mocked HTTP, and injected DNS resolvers. No real Companies House, SEC, RDAP, email, or trade-data calls are made during Vitest.
+Tests use `InMemoryTransport`, mocked HTTP, and injected DNS resolvers. No real Companies House, SEC, RDAP, email, Google Maps, or trade-data calls are made during Vitest.

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, MapPin, ShieldCheck, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,9 @@ import type {
   CustomerListItem,
   CustomerScoreBlock,
   CustomerScreeningReport,
+  AddressFootprintAddressType,
+  AddressFootprintRelationshipStatus,
+  CustomerAddressFootprint,
   ScreeningEvidenceLayer,
 } from "@/app/client-demos/cross-border/employee/_data/employee-data";
 
@@ -32,6 +35,8 @@ const riskTierLabels: Record<string, string> = {
 const scoreBlockLabels: Record<string, string> = {
   legal_identity: "公司注册信息",
   domain_email: "域名 / 邮箱",
+  google_maps_local_presence: "Google 本地足迹",
+  address_validation: "地址一致性",
   public_footprint: "公开网页足迹",
   business_fit: "业务匹配",
   trade_financial: "贸易 / 财务",
@@ -43,6 +48,8 @@ const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   domain_rdap: "域名 / RDAP",
   email_dns: "邮箱 / DNS",
   official_contact: "官网公开联系信息",
+  google_maps_local_presence: "Google 本地足迹",
+  address_validation: "地址一致性",
   public_footprint: "公开网页足迹",
   trade_customs: "贸易 / 海关记录",
   financial_public_filing: "SEC / 财务公开文件",
@@ -54,6 +61,8 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "domain_rdap",
   "email_dns",
   "official_contact",
+  "google_maps_local_presence",
+  "address_validation",
   "public_footprint",
   "trade_customs",
   "financial_public_filing",
@@ -82,6 +91,21 @@ const productDisplayLabels: Record<string, string> = {
   "repair-parts": "维修配件",
   cable: "数据线",
   "oled-screen": "OLED 屏幕",
+};
+
+const addressTypeLabels: Record<AddressFootprintAddressType, string> = {
+  headquarters_or_office: "总部 / 办公",
+  storefront: "门店",
+  warehouse_or_distribution: "仓库 / 分销",
+  service_or_repair_location: "服务 / 维修",
+  unknown_business_location: "业务地址",
+};
+
+const relationshipLabels: Record<AddressFootprintRelationshipStatus, string> = {
+  confirmed_company_location: "已确认",
+  probable_company_location: "高可能",
+  possible_related_location: "待复核",
+  rejected_unrelated_location: "已排除",
 };
 
 function normalizeFilterValue(value: string) {
@@ -389,6 +413,179 @@ function ReportPanel({
   );
 }
 
+function addressFootprintStatusText(status: CustomerAddressFootprint["coverageStatus"]) {
+  const labels: Record<CustomerAddressFootprint["coverageStatus"], string> = {
+    found: "已发现",
+    partial: "部分发现",
+    not_found: "未发现",
+    unavailable_api: "接口不可用",
+    not_checked: "未查询",
+  };
+  return labels[status];
+}
+
+function relationshipClass(status: AddressFootprintRelationshipStatus) {
+  if (status === "confirmed_company_location") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "probable_company_location") return "border-sky-200 bg-sky-50 text-sky-800";
+  if (status === "possible_related_location") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+}
+
+function addressValidationText(location: CustomerAddressFootprint["locations"][number]) {
+  const validation = location.addressValidation;
+  if (!validation?.status && typeof validation?.addressComplete !== "boolean") return "未验证";
+  const complete = typeof validation.addressComplete === "boolean"
+    ? validation.addressComplete ? "完整" : "不完整"
+    : "完整性未返回";
+  return [validation.status, complete, validation.possibleNextAction].filter(Boolean).join(" / ");
+}
+
+function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootprint }) {
+  if (!footprint) return null;
+  const groups: Array<{
+    id: string;
+    label: string;
+    locations: CustomerAddressFootprint["locations"];
+  }> = [
+    {
+      id: "confirmed",
+      label: "确认地址",
+      locations: footprint.locations.filter((item) => item.relationshipStatus === "confirmed_company_location"),
+    },
+    {
+      id: "probable",
+      label: "高可能地址",
+      locations: footprint.locations.filter((item) => item.relationshipStatus === "probable_company_location"),
+    },
+    {
+      id: "needs_review",
+      label: "待复核地址",
+      locations: footprint.locations.filter((item) => item.relationshipStatus === "possible_related_location"),
+    },
+  ];
+  const rejectedCount = footprint.locations.filter((item) => item.relationshipStatus === "rejected_unrelated_location").length;
+  const cappedNote = footprint.searchScope.capped ? "搜索已触发上限" : "搜索未触发上限";
+
+  return (
+    <section className="rounded-md border-2 border-sky-200 bg-sky-50/50 p-3">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-sky-950">
+            <MapPin className="h-4 w-4 text-sky-700" />
+            <span>{footprint.sectionTitle || "Google Maps 地址版图"}</span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-sky-900/75">
+            Google Maps 公开地址发现结果，仅用于实体足迹、官网/地址一致性和业务匹配辅助，不作为注册或 KYB 证明。
+          </p>
+        </div>
+        <Badge variant="outline" className="border-sky-300 bg-white text-sky-800">
+          {addressFootprintStatusText(footprint.coverageStatus)}
+        </Badge>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ReportMetric label="发现地址" value={`${footprint.summary.totalLocations} 个`} />
+        <ReportMetric
+          label="确认 / 高可能 / 待复核"
+          value={`${footprint.summary.confirmedLocations} / ${footprint.summary.probableLocations} / ${footprint.summary.possibleRelatedLocations}`}
+        />
+        <ReportMetric
+          label="营业 / 关闭"
+          value={`${footprint.summary.operationalLocations} / ${footprint.summary.closedLocations}`}
+        />
+        <ReportMetric
+          label="覆盖城市"
+          value={footprint.summary.cities.length ? footprint.summary.cities.join(", ") : "未确认"}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-sky-900/75">
+        <Badge variant="outline" className="bg-white">{cappedNote}</Badge>
+        {footprint.summary.countries.length ? <Badge variant="outline" className="bg-white">{footprint.summary.countries.join(", ")}</Badge> : null}
+        {rejectedCount > 0 ? <Badge variant="outline" className="bg-white">已排除 {rejectedCount} 个疑似无关地点</Badge> : null}
+      </div>
+
+      {footprint.searchScope.limitations.length || footprint.openQuestions.length ? (
+        <div className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs leading-5 text-sky-950">
+          {[...footprint.searchScope.limitations, ...footprint.openQuestions].map((item, index) => (
+            <div key={`${item}-${index}`}>{item}</div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-3 space-y-3">
+        {groups.map((group) => (
+          <div key={group.id} className="rounded-md border border-sky-200 bg-white">
+            <div className="flex items-center justify-between gap-2 border-b border-sky-100 px-3 py-2">
+              <div className="text-sm font-medium text-sky-950">{group.label}</div>
+              <Badge variant="outline">{group.locations.length} 个</Badge>
+            </div>
+            {group.locations.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">暂无{group.label}。</div>
+            ) : (
+              <div className="divide-y divide-sky-100">
+                {group.locations.map((location, index) => (
+                  <div key={`${location.googlePlaceId ?? location.googleMapsUri ?? location.formattedAddress}-${index}`} className="px-3 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words text-sm font-medium text-slate-950">{location.displayName}</span>
+                      <Badge variant="outline" className={relationshipClass(location.relationshipStatus)}>
+                        {relationshipLabels[location.relationshipStatus]}
+                      </Badge>
+                      <Badge variant="secondary">{addressTypeLabels[location.addressType]}</Badge>
+                      {location.businessStatus ? <Badge variant="outline">{location.businessStatus}</Badge> : null}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-800">{location.formattedAddress}</div>
+                    <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <div>地址验证：{addressValidationText(location)}</div>
+                      <div>
+                        匹配置信度：
+                        {typeof location.matchConfidence === "number" ? `${Math.round(location.matchConfidence * 100)}%` : "未返回"}
+                      </div>
+                      <div>官网匹配：{typeof location.domainMatch === "boolean" ? (location.domainMatch ? "是" : "否") : location.domainMatch ?? "未检查"}</div>
+                      <div>电话匹配：{typeof location.phoneMatch === "boolean" ? (location.phoneMatch ? "是" : "否") : location.phoneMatch ?? "未检查"}</div>
+                    </div>
+                    {location.matchReasons.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {location.matchReasons.map((reason) => (
+                          <Badge key={reason} variant="outline" className="bg-slate-50 text-[11px]">
+                            {reason}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                    {location.googleMapsUri ? (
+                      <a
+                        href={location.googleMapsUri}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 break-all text-xs font-medium text-primary hover:underline"
+                      >
+                        打开 Google Maps
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {footprint.searchScope.queriesRun.length ? (
+        <details className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-sky-900">查询范围</summary>
+          <div className="mt-2 space-y-1">
+            {footprint.searchScope.queriesRun.map((query) => (
+              <div key={query} className="break-words font-mono">{query}</div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 export function CustomerReportDialog({
   customer,
   onClose,
@@ -470,6 +667,8 @@ export function CustomerReportDialog({
 
               {report ? (
                 <>
+                  <AddressFootprintPanel footprint={report.addressFootprint} />
+
                   <ReportPanel
                     title="评分维度拆解"
                     icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}

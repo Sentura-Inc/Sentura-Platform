@@ -195,6 +195,8 @@ const riskTierLabels: Record<string, string> = {
 const scoreBlockLabels: Record<string, string> = {
   legal_identity: "公司注册信息",
   domain_email: "域名 / 邮箱",
+  google_maps_local_presence: "Google 本地足迹",
+  address_validation: "地址一致性",
   public_footprint: "公开网页足迹",
   business_fit: "业务匹配",
   trade_financial: "贸易 / 财务",
@@ -206,6 +208,8 @@ const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   domain_rdap: "域名 / RDAP",
   email_dns: "邮箱 / DNS",
   official_contact: "官网公开联系信息",
+  google_maps_local_presence: "Google 本地足迹",
+  address_validation: "地址一致性",
   public_footprint: "公开网页足迹",
   trade_customs: "贸易 / 海关记录",
   financial_public_filing: "SEC / 财务公开文件",
@@ -217,6 +221,8 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "domain_rdap",
   "email_dns",
   "official_contact",
+  "google_maps_local_presence",
+  "address_validation",
   "public_footprint",
   "trade_customs",
   "financial_public_filing",
@@ -2367,6 +2373,7 @@ function TaskSheet({
 }) {
   const open = mode !== null;
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const leadTargetInputRef = useRef<HTMLInputElement | null>(null);
   const [leadSelection, setLeadSelection] = useState<LeadSelectionState>(defaultLeadSelection);
   const [leadTargetCountText, setLeadTargetCountText] = useState(String(defaultLeadSelection.targetCount));
   const [screeningOptions, setScreeningOptions] = useState<ScreeningOptionState>(defaultScreeningOptions);
@@ -2381,13 +2388,6 @@ function TaskSheet({
     operatorNotes: "",
   });
   const effectiveLeadTargetCount = normalizeLeadTargetCount(Number(leadTargetCountText));
-  const leadTaskInput = useMemo(
-    () => ({
-      ...leadInputFromSelection(leadSelection),
-      targetCount: effectiveLeadTargetCount,
-    }),
-    [effectiveLeadTargetCount, leadSelection],
-  );
   const leadEstimate = useMemo(
     () =>
       estimateLeadTaskCost({
@@ -2427,6 +2427,19 @@ function TaskSheet({
     leadSelection.productIds.length > 0 &&
     leadSelection.buyerTypeIds.length > 0 &&
     leadSelection.countryCodes.length > 0;
+  const buildLeadSubmitInput = () => {
+    const submittedTargetCount = normalizeLeadTargetCount(Number(leadTargetInputRef.current?.value ?? leadTargetCountText));
+    const submittedSelection = {
+      ...leadSelection,
+      targetCount: submittedTargetCount,
+    };
+    setLeadTargetCountText(String(submittedTargetCount));
+    setLeadSelection(submittedSelection);
+    onLeadSubmit({
+      ...leadInputFromSelection(submittedSelection),
+      targetCount: submittedTargetCount,
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -2691,6 +2704,7 @@ function TaskSheet({
                   <span className="text-xs text-muted-foreground">客户数（最多 {MAX_LEAD_TARGET_COUNT}）</span>
                   <div className="flex items-center gap-2">
                     <Input
+                      ref={leadTargetInputRef}
                       type="number"
                       min={1}
                       max={MAX_LEAD_TARGET_COUNT}
@@ -2774,7 +2788,7 @@ function TaskSheet({
 
               <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
                 将搜索 {leadSelection.productIds.length} 类产品、{leadSelection.buyerTypeIds.length} 类买家、
-                {leadSelection.countryCodes.length} 个国家。结果只保留具体买家公司，默认排除平台页、社媒主页、目录页和供应商目录。
+                {leadSelection.countryCodes.length} 个国家，目标 {effectiveLeadTargetCount} 个客户。结果只保留具体买家公司，默认排除平台页、社媒主页、目录页和供应商目录。
               </div>
 
               <TaskCostNotice {...leadEstimate} />
@@ -2785,9 +2799,9 @@ function TaskSheet({
               {leadRunning ? <SystemNotice text="已有获客任务正在运行；背调可以同时继续执行。" /> : null}
             </div>
             <SheetFooter>
-              <Button disabled={!canRunLead || !leadReady || leadRunning} onClick={() => onLeadSubmit(leadTaskInput)}>
+              <Button disabled={!canRunLead || !leadReady || leadRunning} onClick={buildLeadSubmitInput}>
                 {leadRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                提交获客任务
+                提交获客任务（{effectiveLeadTargetCount} 个）
               </Button>
             </SheetFooter>
           </>

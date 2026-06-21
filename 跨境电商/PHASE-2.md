@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-21
+> Last updated: 2026-06-22
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -26,6 +26,7 @@ This plan is derived from the current project documents and should be read with 
 | `final-test-report(1).docx` | 2026-06-20 10-task pressure test: Lead Discovery should keep one `find-10` session; Screening must not run 10 companies in one AgentChat session and should fan out one company per child run. |
 | `测试结论总报告.docx` | 2026-06-19 cloud test summary: on the tested 4C/16G mainland ECS with DeepSeek as primary model, current safe active-task envelope is about 32; 48 hits a Gateway RSS soft threshold rather than hardware exhaustion. |
 | `Sentura - API Pricing.pdf` | API source scope and cost posture: official registry sources first, RDAP/DNS low-cost checks, paid email/trade data behind explicit budget, and sales/enrichment APIs outside the default Screening path. |
+| Google Maps Platform Places API docs | Places Text Search/Nearby Search/Details are suitable for local-business lead discovery and local-presence evidence when used with explicit field masks, API-key restrictions, source attribution, and caching/retention guardrails. |
 
 External implementation references checked for this plan:
 
@@ -39,6 +40,16 @@ External implementation references checked for this plan:
 - OpenClaw Gateway protocol: `https://docs.openclaw.ai/gateway/protocol`
 - OpenClaw MCP docs: `https://docs.openclaw.ai/cli/mcp`
 - OpenClaw sandbox MCP/plugin tool policy: `https://docs.openclaw.ai/gateway/config-tools`
+- Google Maps Platform Places Text Search: `https://developers.google.com/maps/documentation/places/web-service/text-search`
+- Google Maps Platform Places Nearby Search: `https://developers.google.com/maps/documentation/places/web-service/nearby-search`
+- Google Maps Platform Place Details: `https://developers.google.com/maps/documentation/places/web-service/place-details`
+- Google Maps Platform Geocoding API: `https://developers.google.com/maps/documentation/geocoding/overview`
+- Google Maps Platform Address Validation API: `https://developers.google.com/maps/documentation/address-validation/overview`
+- Google Maps Platform place data fields, usage/billing, policies, and API security:
+  - `https://developers.google.com/maps/documentation/places/web-service/data-fields`
+  - `https://developers.google.com/maps/documentation/places/web-service/usage-and-billing`
+  - `https://developers.google.com/maps/documentation/places/web-service/policies`
+  - `https://developers.google.com/maps/api-security-best-practices`
 
 ## 2. Phase 2 Goals
 
@@ -53,6 +64,7 @@ Phase 2 must deliver:
 7. Automated tests for persistence, multi-user duplicate-run behavior, task recovery, and load-smoke readiness.
 8. Customer-specific user levels for admins and ordinary business users, focused on monitoring, scoped work execution, and reporting rather than Sentura platform administration.
 9. Report-calibrated workload control: Lead `find-10` stays a single session, Screening batches are split into bounded single-target child runs, and all three CBE employees share one queue/backpressure policy.
+10. Google Maps Places + OpenClaw web search becomes the target primary acquisition/backcheck source combination: Maps discovers local/storefront buyer seeds; web search/fetch verifies official-site product fit and non-local B2B evidence.
 
 Phase 2 must not:
 
@@ -202,7 +214,7 @@ Use this order. Later phases depend on durable database IDs and store contracts 
 | P2.2 | 2-3 days | Typed CBE store API and Next.js route handlers for customer/task/memory/report reads and validated writes. | Dashboard `app/api/client-demos/cross-border/employee/**/route.ts`, shared schemas, store tests. |
 | P2.3 | 3-4 days | Employee UI reads from DB and uses `localStorage` only for drafts/cache. | Employee pages, `use-cbe-employee-store`, task runner, notification center, cost card. |
 | P2.4 | 4-5 days | Global CBE workload coordinator, queue/backpressure limits, Lead Discovery run-scope coordinator, leases, memberships, shared progress, identity dedupe, and top-up mode. | Queue/coordinator library, Lead run route/store, `agent_runs` queue metadata, `cbe-lead-discovery` prompt/skill updates, concurrency tests. |
-| P2.5 | 3-4 days | Lead result-level DB reconciliation/top-up correction, Screening single-target fan-out, report-driven API source scope, durable Screening/Accio persistence, report/evidence/handoff tables, approval-to-memory workflow. | Lead reconciliation store/UI, Screening/Memory route/store, `cross-border-intel`, `cbe-buyer-screening`, `cbe-accio-memory` skills, fan-out/budget tests. |
+| P2.5 | 3-4 days | Lead result-level DB reconciliation/top-up correction, Google Maps + web-search source redesign, Screening single-target fan-out, report-driven API source scope, durable Screening/Accio persistence, report/evidence/handoff tables, approval-to-memory workflow. | Lead reconciliation store/UI, Google Maps Places adapter plan, Screening/Memory route/store, `cross-border-intel`, `cbe-buyer-screening`, `cbe-accio-memory` skills, fan-out/budget tests. |
 | P2.6 | 2-3 days | Multi-user/load smoke against the calibrated 24/32/48 active-task envelope, backup/restore drill, production-readiness report. | Test scripts, runbook, go-live checklist updates. |
 
 Recommended work rule: finish each phase with tests and doc sync before starting the next phase. Do not start P2.4 concurrency work until P2.1/P2.2 store writes are real.
@@ -375,6 +387,42 @@ screening_reports(
   recommended_action text,
   created_at timestamptz not null default now(),
   report_json jsonb not null default '{}'::jsonb
+);
+
+screening_address_locations(
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  screening_report_id text not null references screening_reports(id) on delete cascade,
+  screening_target_id text not null references screening_targets(id) on delete cascade,
+  lead_candidate_id text references lead_candidates(id) on delete set null,
+  agent_run_id text references agent_runs(id) on delete set null,
+  created_by_user_id text references sentura_users(id),
+  owner_user_id text references sentura_users(id),
+  department_id text,
+  team_name text,
+  visibility_scope text not null default 'private',
+  company_name text not null,
+  normalized_domain text,
+  google_place_id text,
+  display_name text not null,
+  formatted_address text not null,
+  address_type text not null,
+  relationship_status text not null,
+  city text,
+  region text,
+  country text,
+  business_status text,
+  types_json jsonb not null default '[]'::jsonb,
+  website_uri text,
+  domain_match text not null default 'not_checked',
+  phone_match text not null default 'not_checked',
+  address_validation_json jsonb not null default '{}'::jsonb,
+  google_maps_uri text,
+  match_confidence numeric(5, 4),
+  match_reasons_json jsonb not null default '[]'::jsonb,
+  source_type text not null default 'google_maps_places',
+  fetched_at timestamptz,
+  created_at timestamptz not null default now()
 );
 
 screening_evidence(
@@ -1131,6 +1179,90 @@ Required behavior:
 
 The recommended first implementation can keep `lead_allocations` simple: a candidate becomes allocated when it is written into an employee's actionable customer list. A later manager workflow can add explicit transfer/share semantics, but the default path must keep ownership unique.
 
+### 8.0.1 Google Maps + Web Search Source Redesign
+
+Status: Implemented on 2026-06-21 as a read-only `cross-border-intel` MCP adapter plus Lead/Screening employee prompt and tool-policy updates. Google Maps calls remain server-side only and are not made from browser/client code.
+
+Business reason:
+
+- The current Lead route can find company websites through generic web search, but it misses many local downstream buyers whose public footprint is primarily a Google Maps profile: phone repair shops, mobile phone stores, electronics retailers, accessory stores, regional wholesalers, and small distributors.
+- For this mobile-accessory exporter, those local businesses are valid sales targets if web evidence confirms they buy/sell phone cases, screen protectors, chargers, cables, holders, repair parts, or related products.
+- Google Maps should therefore become a primary candidate-discovery source, paired with OpenClaw web search/fetch for independent verification.
+
+Source responsibility split:
+
+| Source | Primary job | Not allowed to decide alone |
+|---|---|---|
+| Google Maps Places Text/Nearby Search | Find candidate local/storefront businesses by query, geography, and place type. | Buyer authenticity, legal registration, import history, or final customer assignment. |
+| Google Maps Place Details | Enrich shortlisted place IDs with website, address, phone, business status, type, rating count, opening hours, and Maps URI using narrow field masks. | Fraud/risk tier, official registry status, or long-term memory facts. |
+| Google Geocoding / Address Validation | Support Nearby Search coordinates and public address consistency checks. | Buyer verification, legal ownership, trade evidence, or risk tier by itself. |
+| OpenClaw `web_search` / `web_fetch` | Confirm company-owned website, product/category fit, contact page, B2B/wholesale/import/distribution language, and non-Maps public sources. | Login-gated/social/private data. |
+| CBE database reconciliation | Decide whether a candidate is tenant-new, same-owner duplicate, other-operator duplicate, possible duplicate, or needs top-up. | External discovery. |
+
+Target Google Maps adapter:
+
+| Tool | Endpoint | Required input | Normalized output |
+|---|---|---|---|
+| `cbe_intel_google_places_search` | Places API (New) Text Search and optional Nearby Search | `text_query`, `country`, `city_or_region`, optional `location_bias`/`location_restriction`, `included_types`, `max_result_count`, `field_mask_profile` | Bounded candidate list with `google_place_id`, display name, formatted address, location, types, business status, Maps URI, query, field mask, fetched timestamp, provider status, attribution metadata, and ledger-ready call metadata. |
+| `cbe_intel_google_place_details` | Places API (New) Place Details | `place_id`, `field_mask_profile`, `purpose=lead_discovery|screening` | Bounded details object with website URI, phones, address, business status, types, rating/user rating count, opening hours, Maps URI, fetched timestamp, provider status, field mask, attribution metadata, and ledger-ready call metadata. |
+| `cbe_intel_google_geocode` | Geocoding API | `address`, optional `country`, `language_code`, `region_code`, `max_results` | Bounded geocode results for coordinate support, with redacted source URL and no raw response retention. |
+| `cbe_intel_google_address_validate` | Address Validation API | `address_lines`, optional locality/region/postal fields | Bounded address-completeness, unresolved component, geocode, and business/residential metadata for public address consistency only. |
+
+Default field-mask profiles:
+
+| Profile | Endpoint | Fields |
+|---|---|---|
+| `lead_discovery_list` | Text/Nearby Search | `places.id`, `places.displayName`, `places.formattedAddress`, `places.location`, `places.types`, `places.businessStatus`, `places.googleMapsUri` |
+| `lead_discovery_basic` | Place Details | `id`, `displayName`, `formattedAddress`, `nationalPhoneNumber`, `internationalPhoneNumber`, `websiteUri`, `businessStatus`, `types`, `rating`, `userRatingCount`, `regularOpeningHours`, `googleMapsUri` |
+| `screening_local_presence` | Place Details | `id`, `displayName`, `formattedAddress`, `websiteUri`, `businessStatus`, `types`, `rating`, `userRatingCount`, `googleMapsUri`, `regularOpeningHours` |
+| `screening_address_footprint` | Text Search + Place Details | Search fields from `lead_discovery_list`, then Details fields from `screening_local_presence` plus `nationalPhoneNumber` / `internationalPhoneNumber` for bounded phone-consistency matching. |
+| `human_review_optional` | Place Details | Add `reviews`, `photos`, or `editorialSummary` only after explicit human-review need and policy-compliant display/storage review. |
+
+Implemented Lead workflow:
+
+1. Server computes the existing Lead `scope_hash` and tenant DB denylist before any external call.
+2. Server builds Google Maps query families from products/personas/countries/city seeds.
+3. Adapter runs Text Search first. Nearby Search is used only when the server has a reliable lat/lng city/market grid.
+4. Server deduplicates by `google_place_id`, website domain, phone, and normalized company name + city/country.
+5. Server calls Place Details only for shortlisted candidates up to request target + over-collection buffer.
+6. Employee receives normalized Maps candidates plus denylist and web-search instructions.
+7. Employee uses `web_search` / `web_fetch` to confirm official-site and product/category buyer fit.
+8. Completion still runs the existing DB reconciliation/top-up path before visible customer writes.
+
+Implemented Screening workflow:
+
+1. If a Lead has `google_place_id`, Screening may refresh Place Details once per target using `screening_local_presence`.
+2. If a manual target has only name/city/country and no website, Screening may run one Text Search to find a likely place match.
+3. Maps evidence contributes to `public_footprint` and domain/website consistency only. It does not replace registry, domain/email, trade, financial, or Accio behavior evidence.
+4. `CLOSED_PERMANENTLY` is a caution/blocker for active outreach unless web evidence shows relocation/rebrand.
+5. No Maps result is neutral and should be shown as coverage gap, not risk.
+
+Implemented Screening address-footprint enhancement:
+
+1. For each target, Screening builds a company-address search plan from legal/brand names, country, city/region, website/domain, phone when available, and official-site location pages found through web search/fetch.
+2. It runs bounded Google Places Text Search variants, deduplicates by place id/address/phone/domain/display name, and calls Place Details for shortlisted unique places under the configured Google Maps Details cap using `field_mask_profile="screening_address_footprint"`.
+3. It calls Address Validation for unique formatted addresses under the configured address-validation cap.
+4. It classifies every discovered place as `confirmed_company_location`, `probable_company_location`, `possible_related_location`, or `rejected_unrelated_location`; classifies address role as office/headquarters, storefront, warehouse/distribution, service/repair, or unknown business location.
+5. The final Screening report includes a dedicated `address_footprint` object and a visually separate `Google Maps 地址版图` report section. This section shows summary counts, operational/closed counts, country/city coverage, capped-search limitations, and grouped address rows with Maps URI, formatted address, business status, website/domain, validation verdict, confidence, and match reason.
+6. Every `address_footprint.locations[]` row is also written to `screening_address_locations`, linked to the report, target, optional Lead candidate, and agent run. `report_json` remains the full report snapshot, while the dedicated table supports later company-address management, filtering, dedupe review, and Admin/Employee lookup without JSON traversal.
+7. Migration `006_screening_address_locations.sql` creates the dedicated table and backfills any existing `screening_reports.report_json.address_footprint.locations[]` rows so historical reports with this object are not stranded inside JSON only.
+8. Address-footprint findings may support public footprint/domain/business-fit evidence, but never replace legal registry/KYB, trade, financial, or Accio behavior proof.
+
+Database and policy impact:
+
+- `lead_sources.source_type` and marker schemas support `google_maps_places`, `google_maps_geocoding`, and `google_maps_address_validation`.
+- `source_snapshot_json` stores bounded metadata such as endpoint, field mask profile, place id, Maps URI, business status, fetched timestamp, and normalized fields used for dedupe.
+- `screening_address_locations` stores normalized address rows from `address_footprint.locations[]` with `google_place_id`, formatted address, address type, relationship status, city/country, business status, Maps URI, validation JSON, confidence, and match reasons. It links to `screening_reports`, `screening_targets`, optional `lead_candidates`, and `agent_runs`; report/target deletion cascades address rows, while Lead/run deletion keeps the address history with null references.
+- Do not store raw Google responses, review text, or photos long-term unless the implementation includes an explicit Google Maps Platform policy/attribution retention decision.
+- MCP tool outputs include ledger-ready `api_call_ledger` metadata with endpoint, field-mask profile where applicable, request units, provider status, and cost posture. A downstream run with tenant/run context can persist those rows.
+- `GOOGLE_MAPS_API_KEY` belongs in `~/.openclaw/.env` or secret injection only. It must be restricted to needed Maps APIs and server egress/IPs where possible.
+
+Acceptance now covered:
+
+- User approved Google Maps as the primary Lead acquisition source combined with web search.
+- Docs and skills remain clear that Google Maps is not a registry/KYB authority.
+- Adapter tests cover mocked Google responses, missing-key behavior, Text/Nearby/Details request shapes, quota/provider errors, field masks, source attribution, redacted query keys, and no browser-side key exposure.
+
 ### 8.1 Screening Execution Shape And API Scope
 
 The 2026-06-20 final pressure report supersedes the earlier idea that Screening could safely accept a large batch in one AgentChat session. The production shape is:
@@ -1151,6 +1283,7 @@ The API source scope for each Screening child run is:
 | Domain / email foundation | RDAP, MX, SPF, DMARC, free/disposable/role-inbox flags, and official-site same-domain contact-email discovery. | Always low-cost first. RDAP.org is low-volume only; high-volume production should move to IANA bootstrap RDAP or a budgeted WHOIS/RDAP provider. |
 | Paid email validation | Abstract and Hunter email verifier only. | Call at most once per target, only when the operator enables paid validation and a supplied or official-site same-domain email exists. Do not paid-validate random third-party or free-provider emails discovered by search. |
 | Public footprint | OpenClaw `web_search` and bounded `web_fetch` of public official pages returned by search or supplied by the operator. | Do not fetch protected/login-gated pages. Do not `web_fetch` Wikipedia for this workflow because the pressure report found it to be a reliable failure source in the sandbox. |
+| Google Maps/local presence and address footprint | Google Maps Places Text Search/Place Details, Geocoding, and Address Validation through read-only MCP. | Use for storefront/local-business existence, office/store/warehouse/service-location discovery, website/address/phone consistency, category support, Nearby coordinates, and address consistency only. Missing Maps evidence is neutral; Maps does not replace official registry or KYB evidence. |
 | Trade/customs evidence | ImportYeti for current paid US import evidence profile; Volza only after the customer enables a paid plan and budget; public-web fallback when paid data is off. | Paid trade search is at most once per target with `max_records <= 5` and `max_paid_spend_usd <= CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET`. |
 | Financial/public filings | SEC summary fields, official annual reports found through public search, and registry filing history where available. | Do not load raw SEC `submissions` history into prompts or final markers; keep bounded summaries only. |
 | Behavior evidence | Accio summaries, approved memory facts, or supplied sales notes. | Only applies when conversation/history exists. Cold leads keep this block `not_applicable`. |
@@ -1164,6 +1297,7 @@ Per-target prompt/tool contract:
 - SEC lookup reads only identity/listing/summary fields and must drop or summarize large filing history.
 - Provider errors, 401/403/429, missing keys, disabled budgets, and unsupported countries are coverage states, not negative evidence.
 - Every evidence-bearing result must carry `source_type`, `source_url`, `fetched_at`, confidence, provider/status, and cost/price posture where known.
+- Every report should carry the dedicated `address_footprint` section when Google Maps is configured or a Maps lookup was attempted. If no address is found, the section should still show `coverage_status = "not_found"` or `unavailable_api` with a neutral coverage note.
 - The child run should emit one `SCREEN_REPORTS_JSON_START` / `SCREEN_REPORTS_JSON_END` array containing exactly one report object. Marker recovery remains useful, but the child run should be treated as failed if no traceable source URL/timestamp can be recovered for evidence-bearing claims.
 
 ### 8.2 Screening Persistence
@@ -1407,6 +1541,9 @@ Phase 2 is complete when:
 | Coordinator starts AgentChat before acquiring lease | Enforce transaction-first start order and test exact duplicate submissions. |
 | DB writes leak raw Accio chats into vector memory | Store raw files separately; persist redacted text/hash rows; require memory-fact approval before vector write. |
 | External provider costs are incomplete | Keep observed calls visible; mark free/included/unpriced accurately; do not invent USD for account-plan services. |
+| Google Maps API usage grows faster than expected | Use field masks, Text/Nearby Search before Details, per-run caps, no default reviews/photos, and `api_call_ledger` cost attribution before customer-wide rollout. |
+| Google Maps data is treated as official KYB evidence | Keep Maps evidence in public-footprint/local-presence scoring only; official registry, domain/email, trade, financial, and Accio sources remain separate evidence blocks. |
+| Google Maps caching/attribution policy is violated | Store only policy-reviewed bounded metadata, preserve Maps URI/source attribution, and avoid raw review/photo/response retention unless implementation documents compliance. |
 | Long Screening context causes model timeout again | Default to one target per Screening session, block batch-5/batch-10 in production, keep MCP outputs bounded, store partial evidence, and surface backend errors directly in `agent_runs`. |
 | Retry accidentally repeats paid email/trade calls | Store per-target paid-call state and require explicit re-approval before a retry can call Abstract/Hunter/ImportYeti/Volza again. |
 | 48-style pressure trips Gateway RSS threshold | Queue above the 24 soft cap and do not exceed the 32 hard cap until a C=40/48 pressure profile and soak test pass on the target deployment. |
@@ -1414,7 +1551,7 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1, P2.2, P2.3, P2.4, and P2.5 Lead result-level DB reconciliation are complete. Continue P2.5 with:
+P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, and the Screening Google Maps address-footprint report path are complete. Continue P2.5 with:
 
 1. Implement Screening parent task + single-target child-run fan-out using `screening_batches` and `screening_batch_targets`.
 2. Add queue draining/claim behavior around queued `agent_runs` so queued work can start outside the original browser request path.

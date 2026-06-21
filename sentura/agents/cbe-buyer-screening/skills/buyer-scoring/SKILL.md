@@ -17,6 +17,8 @@ Use after evidence collection or when recalculating a report after the operator 
    - `scored` only when evidence was actually checked.
    - `not_applicable` when the block does not apply, such as behavior for a cold lead.
    - `unavailable_api`, `disabled_by_budget`, or `pending_human_input` for relevant but missing checks.
+   - Google Maps address-footprint, local-presence Place Details, Geocoding, and Address Validation can contribute only to `public_footprint`, `domain_email` website/address consistency, or `business_fit` category/location context. Do not use Maps rating count, address validation, address count, or business status as legal-identity, trade, financial, KYB, fraud, or ownership proof.
+   - `businessStatus=CLOSED_PERMANENTLY` is a public-footprint caution or forced-downgrade candidate for active outreach unless web evidence shows relocation or rebrand. No Maps result is coverage-only.
 3. Call `cross-border-intel__cbe_intel_score_buyer` with blocks and forced downgrade flags.
 4. Explain:
    - `normalized_score`
@@ -35,4 +37,3 @@ Use after evidence collection or when recalculating a report after the operator 
 ## Safety
 
 Do not use a fixed 100-point denominator. The denominator must adapt to applicable and actually checked evidence.
-

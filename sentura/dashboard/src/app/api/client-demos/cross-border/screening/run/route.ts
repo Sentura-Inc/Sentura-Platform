@@ -250,6 +250,11 @@ function envStatus() {
       source: envSource("COMPANIES_HOUSE_API_KEY"),
       provider: "Companies House API",
     },
+    google_maps: {
+      configured: configured("GOOGLE_MAPS_API_KEY"),
+      source: envSource("GOOGLE_MAPS_API_KEY"),
+      provider: "Google Maps Places/Geocoding/Address Validation via cross-border-intel MCP",
+    },
     abstract_email_validation: {
       configured: configured("ABSTRACT_API_KEY"),
       source: envSource("ABSTRACT_API_KEY"),

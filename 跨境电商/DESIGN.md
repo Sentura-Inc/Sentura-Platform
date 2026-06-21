@@ -8,14 +8,14 @@
 >
 > Reorganized: 2026-06-13.
 >
-> Status: Phase-1 employee workspaces and demo routes are implemented for the three-agent MVP; production persistence, cloud deployment, Alibaba API integration, and concurrent lead-run coordinator remain planned implementation work.
+> Status: Phase-1 employee workspaces and demo routes are implemented for the three-agent MVP; Phase-2 persistence/Lead coordination is partially implemented; Google Maps Places + web search is now implemented as the primary acquisition/backcheck source route through the read-only `cross-border-intel` MCP boundary; the Screening Google Maps address-footprint workflow and dedicated report section are implemented in prompt/tool guidance, marker schema, dedicated `screening_address_locations` storage, persistence normalization, and Dashboard report UI; cloud deployment, Alibaba API integration, full Screening fan-out, and durable Accio workflow polish remain planned implementation work.
 
 This file is now the shared platform and cross-agent design for the mobile-accessory cross-border e-commerce client lane. Agent-specific design, implementation status, and future work live in:
 
 | Agent | File | Owns |
 |---|---|---|
 | Marketing Acquisition / Lead Discovery | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) | `cbe-lead-discovery`, lead search strategy, lead UI, output schema, copy-to-Screening, concurrent lead-run dedupe. |
-| Screening and Background | [`SCREENING.md`](SCREENING.md) | `cbe-buyer-screening`, evidence ladder, registry/domain/email/trade checks, contextual scoring, Alibaba International Station API enhancement. |
+| Screening and Background | [`SCREENING.md`](SCREENING.md) | `cbe-buyer-screening`, evidence ladder, Google Maps address-footprint report section, registry/domain/email/trade checks, contextual scoring, Alibaba International Station API enhancement. |
 | Accio Memory Processing | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) | `cbe-accio-memory`, Accio JSON fixture/upload, chat summarization, memory-write preview, Screening handoff. |
 
 Role-level UI design lives in [`UI.md`](UI.md). It defines the target ordinary-user/Admin monitoring split, the ordinary-user navigation, personal center, unified customer list for Lead Discovery + Screening, memory-record list, status colors, Admin monitoring console, and the hidden Agent task connection contract.
@@ -216,8 +216,10 @@ flowchart LR
   DB -->|"behavior summary"| S
   S -->|"ScreeningReport JSON markers"| DB
 
+  L --> MAPS["Google Maps Places API via read-only MCP"]
   L --> WS["OpenClaw web_search / web_fetch"]
   S --> INTEL["cross-border-intel MCP"]
+  S --> MAPS
   M --> INTEL
   DB --> MEM["Per-agent LanceDB memory namespaces"]
 ```
@@ -226,7 +228,7 @@ Formal Phase-1 execution remains UI-driven:
 
 1. User starts Lead Discovery from `/client-demos/cross-border/lead-discovery`.
 2. Dashboard sends a structured task through the real `cbe-lead-discovery` AgentChat session.
-3. Lead employee calls `web_search` / `web_fetch` and returns `LEAD_CANDIDATES_JSON_START/END`.
+3. Current implementation: Lead employee calls the read-only Google Maps MCP tools for Places candidates, then calls `web_search` / `web_fetch` for official-site and product-fit verification before returning `LEAD_CANDIDATES_JSON_START/END`. If Maps is unavailable, the employee records the coverage gap and falls back to web-only search.
 4. Dashboard validates JSON, persists the lead run, and lets the user copy or submit selected records to Screening.
 5. Screening page sends batch/manual tasks through `cbe-buyer-screening`; the employee calls `cross-border-intel__*` tools and returns `SCREENING_REPORTS_JSON_START/END`.
 6. Accio page sends uploaded JSON through `cbe-accio-memory`; the employee calls parser/summarizer tools and returns `ACCIO_SUMMARIES_JSON_START/END`.
@@ -285,6 +287,10 @@ Tool catalog:
 | `cbe_intel_official_contact_email_search` | Screening | Fetch bounded official-site pages and extract same-domain contact emails before paid validation. |
 | `cbe_intel_sec_lookup` | Screening | SEC EDGAR lookup for US public-company candidates; resolves company name through `company_tickers.json` when CIK is absent. |
 | `cbe_intel_trade_record_search` | Screening | ImportYeti if key exists; Volza if key exists; otherwise web evidence query marked weak. |
+| `cbe_intel_google_places_search` | Marketing, Screening | Implemented. Google Maps Places Text/Nearby Search with server-side key, field-mask profiles, location/persona controls, request caps, attribution metadata, normalized lead seeds, and Screening address-footprint query variants. |
+| `cbe_intel_google_place_details` | Marketing, Screening | Implemented. Google Maps Place Details for shortlisted place IDs only, returning bounded local-presence/address-footprint evidence such as website URI, address, phone, business status, types, rating count, Maps URI, attribution, and fetched timestamp. |
+| `cbe_intel_google_geocode` | Marketing, Screening | Implemented auxiliary tool. Geocoding converts city/address seeds into coordinates for Nearby Search and address consistency support; it is not buyer verification by itself. |
+| `cbe_intel_google_address_validate` | Screening | Implemented auxiliary tool. Address Validation checks public business address consistency for local-presence evidence only, not legal ownership or KYB proof. |
 | `cbe_intel_score_buyer` | Screening | Deterministic contextual scoring from normalized evidence. |
 | `cbe_intel_parse_accio_chat` | Memory | Validate and normalize uploaded Accio JSON fixture. |
 | `cbe_intel_summarize_accio_chat` | Memory | Produce structured summary fields for Memory employee. |
@@ -326,6 +332,7 @@ Config shape:
 Notes:
 
 - `TAVILY_API_KEY` and `BRAVE_API_KEY` belong to OpenClaw `web_search` provider auto-detection, not this MCP env block.
+- `GOOGLE_MAPS_API_KEY` belongs to the implemented Google Maps adapter. It must be server-side only, passed through MCP env references, and restricted to the minimum Maps APIs/egress origin; do not expose it to browser code or employee prompt text.
 - All tools are read-only in Phase 1.
 - Every tool returns source URL/type, fetched timestamp, confidence, and provider status.
 - Non-2xx provider responses are coverage gaps unless they are target-specific adverse evidence.
@@ -556,6 +563,8 @@ Data tiers:
 | Data | Tier | Handling |
 |---|---|---|
 | Public company websites, public registry URLs, search snippets | T0/T1 | Store as evidence with source URL and timestamp. |
+| Google Maps place IDs, Maps URI, public business status/address/category fields | T1/T2 depending on field | Keep source attribution, respect Google Maps Platform caching/display policies, and avoid raw-response retention unless policy-reviewed. |
+| Google Maps address-footprint summaries | T1/T2 depending on phone/address detail | Store only normalized place metadata, validation verdicts, match reasons, and Maps URIs; do not store raw Google responses, reviews, photos, or long user-generated content by default. |
 | Buyer contact names, work emails, phone numbers, lead lists | T2 | Mask in demo/export where possible; CBE-authenticated internal view with owner/team/visibility scope. |
 | Raw Accio chats, negotiated prices, payment terms, customer notes | T3 | Store encrypted; never send to external channels; summarize before memory write. |
 | API keys, model keys, provider credentials | T4 | Secret store / `.env`; never in DB, workspace prose, logs, or chat. |
@@ -580,6 +589,7 @@ Cost defaults:
 | Category | Default cap |
 |---|---:|
 | Search API | $0-$30/month during development |
+| Google Maps Places | Start capped per run; Text/Nearby Search first, Details only for shortlisted candidates, reviews/photos disabled by default |
 | Email validation | $0-$17/month unless production deliverability matters |
 | Trade records | $0 for demo; optional Volza pilot capped at $50-$100 |
 | Company registry | $0 unless OpenCorporates is approved |
@@ -599,7 +609,7 @@ Security controls before production:
 |---|---|---|---|
 | 1 | Design and source tracking | Complete | Initial design, independent memory/test lane. |
 | 2 | Shared fixtures, ontology, schemas, contextual scoring | Complete | Accio fixture, mobile-accessory ontology, Zod schemas, 39-check validation. |
-| 3 | `cross-border-intel` MCP server | Complete | 10 read-only tools, 17/17 tests plus build. |
+| 3 | `cross-border-intel` MCP server | Complete | 14 read-only tools, 23/23 tests plus build. |
 | 4 | Marketing Acquisition employee | Complete after execution-path correction | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) |
 | 5 | Screening and Background employee | Complete after execution-path, visual mapping, official-source ordering fixes | [`SCREENING.md`](SCREENING.md) |
 | 6 | Accio Memory Processing employee | Complete after execution-path correction | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) |
@@ -608,6 +618,7 @@ Security controls before production:
 | 9 | Production cloud/database/multi-agent deployment | Designed, not implemented | China cloud, managed DB, model routes, go-live checklist. |
 | 10 | Alibaba International Station API enhancement | Designed, access proof pending | Screening-specific. |
 | 11 | Concurrent Lead Discovery dedupe | Designed, implementation pending | Marketing-specific. |
+| 12 | Google Maps + web search primary acquisition/backcheck route | Implemented in MCP and employee prompts | Maps Places supplies local-business discovery/existence signals; Geocoding/Address Validation support coordinates/address consistency; web search/fetch confirms downstream buyer fit and official-site evidence. |
 
 End-to-end MVP smoke scenario:
 

@@ -118,6 +118,7 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | `OLLAMA_BASE_URL` | 本地模型 provider | 自托管时需要 | 本机运行 Ollama 后填 `http://localhost:11434`。 |
 | `BRAVE_API_KEY` | OpenClaw `web_search`，主要给 Marketing 获客和 Screening web fallback | 推荐其一 | Brave Search API dashboard 订阅 Search plan 后复制 subscription token。 |
 | `TAVILY_API_KEY` | OpenClaw `web_search` provider + CE4 Dashboard live search route | 推荐其一 | Tavily Platform 创建 key。不写入 `cross-border-intel` MCP env；Dashboard route 会从进程 env 或 `~/.openclaw/.env` 读取。 |
+| `GOOGLE_MAPS_API_KEY` | `cross-border-intel` Google Maps Places/Geocoding/Address Validation 获客和本地经营足迹 adapter | 强烈建议 | Google Cloud 项目启用 Billing、Places API (New)、Geocoding API、Address Validation API；创建服务端 API key 并按 API/IP/来源限制。setup 会以 `${GOOGLE_MAPS_API_KEY}` 引用写入 MCP env，不写明文。 |
 | `COMPANIES_HOUSE_API_KEY` | `cross-border-intel` 英国公司注册查询 | 可选但强烈建议 | Companies House Developer Hub 创建 app/key。 |
 | `OPENCORPORATES_API_KEY` | `cross-border-intel` 全球公司注册付费 fallback | 可选，付费 | OpenCorporates API 账号/计划获取。Phase-1 默认不用。 |
 | `ABSTRACT_API_KEY` | `cross-border-intel` 可选邮箱验证 | 可选 | Abstract Email Validation API 控制台创建。 |
@@ -147,6 +148,40 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | 意大利 IT | Registro Imprese / InfoCamere 查企业基础资料、PEC、REA、visura/annual accounts；深度报告通常是 Telemaco/API 合同。 | InfoCamere 官方 API 需下载样例并联系专家/签约，后续 adapter 可用 `IT_REGISTRO_IMPRESE_API_KEY` 类 env。 | Planned adapter。当前只走官方网页/人工路径。 |
 | 墨西哥 MX | SIGER/RPC 确认商业登记；SAT RFC 只在 operator 提供 RFC 时做税号有效性验证，不能替代公司注册证明。 | RPC 是官方 web/窗口/在线流程；SAT RFC 有官方验证入口但不是公开公司库。商业自动 API 需单独采购。 | 当前只走官方网页/人工路径；RFC 缺失是 `pending_human_input`。 |
 | 多国 fallback | OpenCorporates 用于没有低成本官方 API、官方页面难解析或需要跨国统一检索时；必须保留 jurisdiction/source provenance。 | 申请 `OPENCORPORATES_API_KEY` 或商业计划；按套餐节流，最高不要超过服务条款的 QPS 限制。 | 已有 fallback adapter，但默认不买、不启用。 |
+
+### 4.2 Google Maps + 网络搜索获客路线
+
+Google Maps Platform 的 Places API 适合解决跨境手机配件客户的一个现实问题：很多下游买家不是大型进口商网站，而是区域性的手机维修店、手机店、电子产品零售店、配件店、小批发商和分销商。这类公司经常有 Google Maps 商户资料，但官网 SEO 很弱。
+
+目标主路径：
+
+1. Google Maps Places Text Search / Nearby Search 找候选商户。
+2. Place Details 只对短名单补充官网、电话、地址、营业状态、类型、评分数量、营业时间和 Google Maps URI。
+3. OpenClaw `web_search` / `web_fetch` 再确认官网、产品类别、配件/维修/批发/分销语义和联系页面。
+4. CBE 数据库继续做 tenant 级去重、分配和 top-up；Google Maps 不绕过现有 Lead coordinator。
+
+重要限制：
+
+- Google Maps 是发现/存在性信号，不是企业注册、贸易、财务或 KYB 结论。
+- `businessStatus=OPERATIONAL` 是积极经营足迹；`CLOSED_PERMANENTLY` 通常应阻止获客，除非 web 证据显示搬迁或更名。
+- rating/review count 只能做公开足迹背景，不能当真实性评分或销售质量评分。
+- reviews/photos 默认不请求；如后续做人工查看，必须遵守 Google Maps Platform 展示、归因、缓存和保留政策。
+- Business Profile API 不用于第三方获客/背调，它是商家管理自己地点资料的 API。
+
+计划中的 MCP 工具：
+
+| Tool | 用途 |
+|---|---|
+| `cbe_intel_google_places_search` | 封装 Places Text Search / Nearby Search，返回规范化候选商户和 source metadata。 |
+| `cbe_intel_google_place_details` | 封装 Place Details，只用受控 field mask 返回短名单详情。 |
+| `cbe_intel_google_geocode` | 封装 Geocoding，给 Nearby Search 坐标和地址一致性提供辅助。 |
+| `cbe_intel_google_address_validate` | 封装 Address Validation，给背调 public address consistency 提供辅助证据。 |
+
+已满足的实现条件：
+
+- 用户已确认 Google Maps + web search 作为主要获客方式。
+- `cross-border-intel` MCP adapter 已有 mocked tests、缺 key 行为、field mask 校验、quota/provider error 行为、ledger-ready `api_call_ledger` metadata、source attribution、缓存/保留策略。
+- `scripts/sentura-setup.*` 会在检测到 env 后把 `GOOGLE_MAPS_API_KEY` 以 `${GOOGLE_MAPS_API_KEY}` 写入 `mcp.servers.cross-border-intel.env` 引用，不写明文。
 
 ## 5. 每个 API Key 的获取流程
 
@@ -231,6 +266,49 @@ TAVILY_API_KEY=tvly-REPLACE_ME
 6. 如果只启动 Dashboard 而不启动 OpenClaw Gateway，CE4 live search route 仍会从 `~/.openclaw/.env` fallback 读取 `TAVILY_API_KEY`。
 
 注意：`cross-border-intel` MCP server 不直接调用 Tavily，也不应把 `TAVILY_API_KEY` 放进 MCP env。Tavily 用于 OpenClaw `web_search` 和 CE4 Dashboard live search route。
+
+### 5.3.1 `GOOGLE_MAPS_API_KEY`
+
+用途：已实现的 Google Maps 获客和背调本地经营足迹 adapter。它用于 Places API (New) Text Search、Nearby Search、Place Details，辅助使用 Geocoding 生成城市/区域搜索网格，并用 Address Validation 做公开地址一致性补证。
+
+当前状态：`cross-border-intel` MCP server 已实现只读工具 `cbe_intel_google_places_search`、`cbe_intel_google_place_details`、`cbe_intel_google_geocode`、`cbe_intel_google_address_validate`，并有 mocked tests/build 验证。不要从浏览器或 prompt 中直接调用 Google HTTP API。
+
+获取流程：
+
+1. 打开 Google Cloud Console。
+2. 创建或选择项目。
+3. 启用 Billing。
+4. 启用 `Places API (New)`、`Geocoding API`、`Address Validation API`。
+5. 进入 Credentials，创建 API key。
+6. 给 key 设置限制：
+   - Application restriction：服务端部署优先使用 IP address restriction 或企业允许的 server-side restriction；不要给浏览器公开使用。
+   - API restriction：只允许 `Places API (New)`、`Geocoding API`、`Address Validation API`。
+7. 设置 Google Cloud budget/alerts，并在 Sentura 侧设置每次 Lead run 的 Text Search、Nearby Search、Place Details 上限。
+8. 写入运行机 `~/.openclaw/.env`，不要提交：
+
+```bash
+GOOGLE_MAPS_API_KEY=REPLACE_ME
+```
+
+请求设计：
+
+- 每次 Places API 请求都必须带 field mask。
+- Lead first pass 只请求候选列表字段：place id、名称、地址、坐标、类型、营业状态、Maps URI。
+- 只对短名单请求 Details；默认不请求 reviews/photos。
+- MCP 输出包含 ledger-ready `api_call_ledger` 元数据，记录 endpoint、field-mask profile、provider status、fetched_at、预算/成本状态；有 tenant/run context 的下游流程可持久化。
+
+验证方式：
+
+```bash
+pnpm --filter @sentura/mcp-cross-border-intel test
+pnpm --filter @sentura/mcp-cross-border-intel build
+```
+
+安全边界：
+
+- 不把 key 放进 Next.js `NEXT_PUBLIC_*` 变量。
+- 不把 raw Google response 直接交给 LLM；MCP 返回规范化、截断、带 source metadata 的对象。
+- 不长期保存 reviews/photos/raw place response，除非实现文档明确写出符合 Google Maps Platform 政策的缓存、归因、删除策略。
 
 ### 5.4 `COMPANIES_HOUSE_API_KEY`
 
@@ -576,10 +654,14 @@ powershell -ExecutionPolicy Bypass -File scripts\sentura-setup.ps1
           ABSTRACT_API_KEY: "${ABSTRACT_API_KEY}",
           HUNTER_API_KEY: "${HUNTER_API_KEY}",
           IMPORTYETI_API_KEY: "${IMPORTYETI_API_KEY}",
+          GOOGLE_MAPS_API_KEY: "${GOOGLE_MAPS_API_KEY}",
           SEC_USER_AGENT: "SenturaCrossBorderIntel/0.1 contact=ops@example.invalid",
           CBE_ENABLE_PAID_TRADE_DATA: "false",
           CBE_MAX_PAID_SPEND_USD: "0",
-          CBE_INTEL_REQUEST_TIMEOUT_MS: "30000"
+          CBE_INTEL_REQUEST_TIMEOUT_MS: "30000",
+          CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH: "10",
+          CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN: "20",
+          CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN: "5"
         },
         requestTimeoutMs: 30000
       }

@@ -139,6 +139,10 @@ const EMPLOYEE_COST = path.join(
   ROOT,
   "sentura/dashboard/src/components/cross-border/employee-cost.tsx",
 );
+const CUSTOMER_REPORT_DIALOG = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx",
+);
 const EMPLOYEE_COST_BUDGET_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-budget/route.ts",
@@ -262,6 +266,7 @@ const leadRunsStore = read(CBE_LEAD_RUNS_STORE);
 const screeningStore = read(CBE_SCREENING_STORE);
 const cbeAdminStore = read(CBE_ADMIN_STORE);
 const employeeTaskStatus = read(EMPLOYEE_TASK_STATUS);
+const customerReportDialog = read(CUSTOMER_REPORT_DIALOG);
 const employeeTaskCancelApi = read(EMPLOYEE_TASK_CANCEL_API);
 const employeeCost = read(EMPLOYEE_COST);
 const employeeCostBudgetApi = read(EMPLOYEE_COST_BUDGET_API);
@@ -339,6 +344,7 @@ check("handoff skill outputs typed Screening payload", handoffSkill.includes('"t
 check("handoff skill does not claim Screening has started", handoffSkill.includes("Do not claim an investigation has started"));
 check("Hard Rules forbid automatic outreach", agents.includes("NEVER send cold email") && agents.includes("NEVER imply that outreach"));
 check("TOOLS.md restricts cross-border-intel usage to light enrichment", tools.includes("light enrichment") && tools.includes("Do not call registry"));
+check("lead workspace uses Google Maps Places before web enrichment", tools.includes("cbe_intel_google_places_search") && querySkill.includes("Google Maps Places") && agents.includes("google_place_id"));
 
 section("CE4 setup integration");
 for (const setup of [
@@ -352,6 +358,7 @@ for (const setup of [
   check(`${setup[0]} setup keeps cron for scheduled runs`, setup[1].includes("'web_search','web_fetch','cron','group:plugins'"));
   check(`${setup[0]} setup raises default agent timeout for long CBE tasks`, setup[1].includes("agents.defaults.timeoutSeconds") && setup[1].includes("SENTURA_AGENT_TIMEOUT_SECONDS"));
   check(`${setup[0]} setup raises OpenAI provider idle timeout for long CBE tasks`, setup[1].includes("ensureModelProviderTimeout") && setup[1].includes("models.providers") && setup[1].includes("timeoutSeconds: senturaLongAgentTimeoutSeconds"));
+  check(`${setup[0]} setup reads project and OpenClaw env files for MCP keys`, setup[1].includes("projectDotEnv") && setup[1].includes("openClawDotEnv") && setup[1].includes("GOOGLE_MAPS_API_KEY"));
 }
 
 section("CE4 lead-discovery UI and diagnostic API route");
@@ -373,6 +380,7 @@ check("live route uses TAVILY_API_KEY bearer auth", apiRoute.includes("TAVILY_AP
 check("live route can read OpenClaw env fallback", apiRoute.includes(".openclaw") && apiRoute.includes("envValue("));
 check("live route returns redacted env status", [
   "COMPANIES_HOUSE_API_KEY",
+  "GOOGLE_MAPS_API_KEY",
   "ABSTRACT_API_KEY",
   "HUNTER_API_KEY",
   "IMPORTYETI_API_KEY",
@@ -403,6 +411,7 @@ check("page marks table as employee execution", page.includes("表格: 员工执
 check("page starts with empty company-lead table", page.includes("useState<LeadCandidate[]>([])") && page.includes("具体公司官网候选"));
 check("page has no baked-in sample lead fixture", !page.includes("sampleLeads") && !page.includes(".example") && !page.includes("demo_fixture") && !page.includes("表格: 演示数据"));
 check("page preserves source types and timestamps", page.includes("source_type") && page.includes("fetched_at") && page.includes("sourceTypeLabels"));
+check("lead page prompt prioritizes Google Maps MCP tools", page.includes("cbe_intel_google_places_search") && page.includes("cbe_intel_google_place_details") && page.includes("Google Maps 单独只能作为 discovery seed"));
 check("lead table expands source and dedupe details inline", page.includes("expandedLeadId") && page.includes("colSpan={9}") && page.includes("来源与去重") && page.includes("evidence.query") && page.includes("dedupe_explanation"));
 check("lead page persists search state and employee session", page.includes("LEAD_DISCOVERY_STORAGE_KEY") && page.includes("sentura:cbe:lead-discovery:v1") && page.includes("localStorage.setItem") && page.includes("localStorage.getItem") && page.includes("leadSessionKey"));
 check("lead page has one-click and per-result Screening copy", page.includes("一键复制到背调") && page.includes("复制 ${lead.company_name} 到背调输入格式") && page.includes("navigator.clipboard.writeText"));
@@ -458,6 +467,14 @@ check("scoring skill uses contextual score blocks and forced downgrades", scorin
 check("report skill defines ScreeningReport JSON output", reportSkill.includes("ScreeningReport") && reportSkill.includes("missing_or_unavailable_evidence") && reportSkill.includes("evidence_coverage"));
 check("screening Hard Rules forbid invented evidence and missing-data fraud claims", screeningAgents.includes("NEVER invent registry records") && screeningAgents.includes("NEVER treat missing paid/API evidence as proof of fraud"));
 check("screening TOOLS.md lists read-only MCP tools", screeningTools.includes("cross-border-intel__cbe_intel_company_registry_search") && screeningTools.includes("cross-border-intel__cbe_intel_official_contact_email_search") && screeningTools.includes("cross-border-intel__cbe_intel_score_buyer"));
+check("screening workspace uses Google Maps as local-presence evidence only", screeningTools.includes("cbe_intel_google_place_details") && evidenceSkill.includes("google_place_id") && scoringSkill.includes("local-presence"));
+check("screening workspace requires Google Maps address footprint", [
+  "Google Maps 地址版图",
+  "address-footprint",
+  "confirmed_company_location",
+  "warehouse_or_distribution",
+  "cbe_intel_google_address_validate",
+].every((needle) => screeningTools.includes(needle) || evidenceSkill.includes(needle) || reportSkill.includes(needle)));
 
 section("CE5 setup integration");
 for (const setup of [
@@ -487,6 +504,7 @@ check("screening UI shows unavailable sources as gaps", screeningPage.includes("
 check("screening UI triggers real cbe-buyer-screening AgentChat", screeningPage.includes('const SCREENING_AGENT_ID = "cbe-buyer-screening"') && screeningPage.includes("<AgentChat") && screeningPage.includes("agentId={SCREENING_AGENT_ID}") && screeningPage.includes("useAgent(SCREENING_AGENT_ID)") && screeningPage.includes("onMessage={handleEmployeeMessage}"));
 check("screening employee prompt enforces official API and paid-email order", screeningPage.includes("GB 目标必须先调用 Companies House") && screeningPage.includes("US 目标必须先调用 SEC") && screeningPage.includes("从目标官网公开 contact/about/sales/wholesale/support 页面寻找同域邮箱") && screeningPage.includes("Abstract/Hunter paid validation"));
 check("screening employee prompt defines weighted final score rule", ["证据质量分 80% + 证据覆盖率分 20%", "risk_tier 只按最终分判断", "80-100", "60-79", "完全无法计算时才用 insufficient_evidence"].every((needle) => screeningPage.includes(needle)));
+check("screening employee prompt requires address footprint marker", ["Google Maps 地址版图", "address_footprint", "coverage_status", "locations", "office"].some((needle) => screeningPage.includes(needle)) && ["address_footprint", "confirmed_locations", "possible_related_locations"].every((needle) => employeeTaskRunner.includes(needle)));
 check("screening UI supports JSON report export", screeningPage.includes("导出报告 JSON") && screeningPage.includes("Blob([JSON.stringify(selectedReport"));
 check("screening page persists investigation state", screeningPage.includes("SCREENING_STORAGE_KEY") && screeningPage.includes("sentura:cbe:screening:v1") && screeningPage.includes("localStorage.setItem") && screeningPage.includes("localStorage.getItem") && screeningPage.includes("reports"));
 check("screening UI maps employee report JSON into visual panels", ["normalizeScreeningReport", "normalizeEvidenceItem", "normalizeMissingEvidence", "normalizeScreeningReports(stored.reports)", "source_url", "summary", "detail", "scoreBlockToLayer", "official_web", "registry_tool"].every((needle) => screeningPage.includes(needle)));
@@ -509,6 +527,7 @@ check("screening route weights coverage into final score", ["SCORE_QUALITY_WEIGH
 check("screening route returns redacted env status only", [
   "TAVILY_API_KEY",
   "COMPANIES_HOUSE_API_KEY",
+  "GOOGLE_MAPS_API_KEY",
   "ABSTRACT_API_KEY",
   "HUNTER_API_KEY",
   "IMPORTYETI_API_KEY",
@@ -615,9 +634,11 @@ check("employee hidden runner exists", exists(EMPLOYEE_TASK_RUNNER));
 check("employee runner creates session before long task send", employeeTaskRunner.includes("client.createSession(agentId, undefined, {"));
 check("employee runner creates user-attributed/planned session keys", employeeTaskRunner.includes("createPlannedEmployeeSessionKey") && employeeTaskRunner.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
 check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs })"));
+check("gateway client honors long task timeoutMs locally", gatewayClient.includes("LONG_RUNNING_RPC_GRACE_MS") && gatewayClient.includes("requestedTimeoutMs") && gatewayClient.includes("params?.timeoutMs"));
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee Accio prompt requires concrete deal facts", ["purchase_intent", "negotiated_prices", "behavior_signals", "source=\"accio_memory\"", "memory_write_preview"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
+check("employee runner recovers marker after gateway send timeout", ["isGatewayTimeout", "readHiddenTaskPayload", "提交请求已超过前端等待窗口", "HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner continues after recoverable LLM idle timeout retries", ["transcriptFailureMessage", "LLM idle timeout", "recoverable", "lastRecoverableFailureMessage", "continue"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
 check("employee runner still surfaces terminal backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "backend_error", "后台 AI 员工执行失败"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
 check("employee lead prompt follows requested target count instead of 1-5 cap", [
@@ -730,6 +751,14 @@ check("admin employee management supports soft deletion", [
 ].every((needle) => cbeAdminStore.includes(needle)));
 check("employee customers page uses DB API for rows and task lifecycle", ["fetchEmployeeCustomers", "fetchEmployeeTasks", "createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("upsertRows(result.records)"));
 check("employee API normalizes marker payloads before completion writes", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references"].every((needle) => employeeApi.includes(needle)));
+check("employee screening address footprint is saved and restored", [
+  "ScreeningAddressFootprintSchema",
+  "address_footprint",
+  "normalizeAddressFootprintPayload",
+  "saved_address_footprint_locations",
+  "AddressFootprintPanel",
+  "Google Maps 地址版图",
+].every((needle) => cbeStoreSchemas.includes(needle) || employeeApi.includes(needle) || screeningStore.includes(needle) || customerReportDialog.includes(needle)));
 check("employee screening missing evidence is saved as insufficient evidence", ["missingEvidenceUrl", "traceabilityGap", '"insufficient_evidence"', "外部可追溯证据 URL"].every((needle) => employeeApi.includes(needle)) && !employeeApi.includes("背调报告缺少可追溯证据 URL"));
 check("employee Accio normalization accepts preview aliases and derives report facts", ["memory_write_preview", "derivedIntent", "derivedPrice", "behavior_signals", "screening_handoff_target"].every((needle) => employeeApi.includes(needle)));
 check("employee memory task notifications keep highlighted rows until click", ["highlightTaskId", "item.latestAgentRunId === highlightTaskId", "outline-sky-300", "setHighlightedRecordIds", "clearMemoryHighlight", "onMouseDown"].every((needle) => employeeMemoryPage.includes(needle)) && !employeeMemoryPage.includes("3000"));
@@ -752,6 +781,8 @@ check("employee customer company-name badge hides insufficient evidence", employ
 check("employee manual and Accio insufficient evidence route back to memory supplement", ["needsChatRecordSupplement", 'item.source === "manual_screening"', 'item.source === "accio_handoff"', "补充聊天记录", "supplementCustomer", "supplementCompany", "selectedScreeningCustomers", "runnableTargets"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list does not show unknown city fallback", !employeeCustomersPage.includes("城市未确认"));
 check("employee lead target count is manual numeric input capped at 20", ["normalizeLeadTargetCount", "MAX_LEAD_TARGET_COUNT", "目标数量手动输入", "type=\"number\"", "min={1}", "max={MAX_LEAD_TARGET_COUNT}", "leadTargetCountText"].every((needle) => employeeCustomersPage.includes(needle)) && employeeData.includes("export const MAX_LEAD_TARGET_COUNT = 20") && employeeTaskRunner.includes("Math.min(MAX_LEAD_TARGET_COUNT") && employeeApi.includes("Math.min(MAX_LEAD_TARGET_COUNT") && cbeStoreSchemas.includes("target_count: z.number().int().positive().max(20)") && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
+check("employee lead submit reads target count from current input ref", ["leadTargetInputRef", "buildLeadSubmitInput", "leadTargetInputRef.current?.value", "leadInputFromSelection(submittedSelection)", "targetCount: submittedTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("onClick={() => onLeadSubmit(leadTaskInput)}"));
+check("employee lead sheet echoes submitted target count", ["目标 {effectiveLeadTargetCount} 个客户", "提交获客任务（{effectiveLeadTargetCount} 个）"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list highlights task-linked rows without new-found badges", ["newlyAddedCustomerIds", "flashNewCustomers", "highlightTaskId", "taskAffectedCustomerIds", "animate-pulse", "outline-sky-300", "workflowBadge", "icon: \"check\"", "clearCustomerHighlight", "onMouseDown"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("新找到") && !employeeCustomersPage.includes("label: \"✅\""));
 check("employee customer product overflow expands in place", ["CustomerProductBadges", "expandedProductRows", "toggleProductsExpanded", "aria-expanded={expanded}", "`+${hiddenCount}`", "收起"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer found time uses Beijing display format", ["formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts", "YYYY"].every((needle) => employeeCustomersPage.includes(needle)) || (employeeCustomersPage.includes("formatBeijingDateTime") && employeeCustomersPage.includes("Asia/Shanghai") && employeeCustomersPage.includes("formatToParts") && employeeCustomersPage.includes("font-mono text-xs")));

@@ -78,6 +78,7 @@
           tenant: "cross-border-ecommerce",
           operationScope: "Public-search lead discovery with typed Screening handoff preview",
           allowedActions: [
+            "google_maps_places_lead_seed_search",
             "public_web_lead_search",
             "public_web_fetch",
             "lead_deduplication",
