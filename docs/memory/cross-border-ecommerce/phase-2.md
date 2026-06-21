@@ -40,6 +40,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-22 | Phase 2 Screening Google Maps address-footprint report design | Documented a new Screening workflow and report section that uses bounded Google Maps Places searches, Place Details, and Address Validation to discover company-related public offices/stores/warehouse/service locations, with implementation pending user review. |
 | 2026-06-22 | Phase 2 Screening Google Maps address-footprint implementation | Implemented the approved address-footprint path across Screening prompts/skills, `cross-border-intel`, typed marker/store schemas, Dashboard report rendering, static tests, docs, and live OpenClaw workspace files. |
 | 2026-06-22 | Phase 2 Screening dedicated address table | Added `screening_address_locations`, wired `saveScreeningReports` to persist every `address_footprint.locations[]` row, added cleanup/backfill/test coverage, and applied the migration to the local CBE dev database. |
+| 2026-06-22 | Phase 2 Google Maps integration final audit | Rechecked the Google Maps integration across MCP tools, Lead Discovery, Screening, Dashboard UI/reporting, address persistence, setup env wiring, scoring boundaries, documentation, and regression suites; no blocking Google Maps gaps remain. |
 
 ## Current Phase 2 Ground Truth
 
@@ -69,6 +70,38 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
 - Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
+
+## 2026-06-22 — Phase 2 Google Maps integration final audit
+
+### Scope
+
+The user asked to verify that all Google Maps API updates and integrations are complete and that related documentation is updated. This was an audit-only pass; no business-code changes were needed.
+
+### Findings
+
+- Google Maps MCP support is present in `cross-border-intel` for Places search, Place Details, Geocoding, and Address Validation, with conservative field-mask profiles, request caps, source attribution, and key redaction.
+- Lead Discovery is Maps-first plus web-search/web-fetch verification; Dashboard timeout recovery and target-count submission fixes are documented and implemented.
+- Screening uses Maps for public local presence, address consistency, and the mandatory `address_footprint`/`Google Maps 地址版图` section, while keeping Maps evidence out of legal/KYB/trade/financial/Accio proof lanes.
+- `screening_address_locations` exists as the normalized company-address table linked to reports, targets, optional Lead candidates, optional runs, tenant/user/team scope, and Google place identity; `report_json.address_footprint` remains the full report snapshot.
+- Documentation is synchronized across `跨境电商/API_KEYS_OPENCLAW_SETUP.md`, `MARKET_ACQUISITION.md`, `SCREENING.md`, `PHASE-2.md`, `DESIGN.md`, `sentura/mcp-servers/cross-border-intel/README.md`, agent workspace files, Dashboard behavior, tests, memory, and handoff docs.
+- Historical rows that say "implementation pending" are append-only audit records from the docs-first design step and are superseded by later implementation, address-table, and final-audit rows.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 23/23.
+- `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 406/406.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 194/194 static checks.
+- `CBE_DATABASE_URL=$CBE_DATABASE_URL CBE_REQUIRE_DB=1 pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216 static + live PostgreSQL checks, including `screening_address_locations` write/read through the typed store.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 21/21.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `bash -n scripts/sentura-setup.sh`: PASS.
+- Minimal live Google Maps API smoke with the configured `GOOGLE_MAPS_API_KEY`: PASS for Places API (New) Text Search, Geocoding API, and Address Validation API; output redacted and did not print the key.
+- `git diff --check`: PASS before this memory update.
+
+### Boundary
+
+This audit clears the Google Maps integration itself. Remaining CBE Phase 2 work such as queue draining/claim behavior, Screening parent/child fan-out, and durable Screening/Accio workflow polish remains P2.5 scope, not an unfinished Google Maps API integration gap.
 
 ## 2026-06-22 — Phase 2 Screening dedicated address table
 
