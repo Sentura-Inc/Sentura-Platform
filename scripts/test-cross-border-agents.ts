@@ -620,7 +620,11 @@ check("employee Accio prompt requires concrete deal facts", ["purchase_intent", 
 check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
 check("employee runner continues after recoverable LLM idle timeout retries", ["transcriptFailureMessage", "LLM idle timeout", "recoverable", "lastRecoverableFailureMessage", "continue"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
 check("employee runner still surfaces terminal backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "backend_error", "后台 AI 员工执行失败"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
-check("employee lead prompt follows requested target count instead of 1-5 cap", employeeTaskRunner.includes("target_count 是本次任务的硬目标") && employeeTaskRunner.includes("不要因为“高质量优先”而主动限制在 5 个") && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选"));
+check("employee lead prompt follows requested target count instead of 1-5 cap", [
+  "target_count 是本次任务必须新增的净新客户硬目标",
+  "max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限",
+  "web_fetch 被安全策略拦截",
+].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选"));
 check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
 check("employee runner emits measured wait progress without max-wait copy", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "已轮询", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("预计剩余") && !employeeTaskRunner.includes("最长等待剩余"));
 check("employee lead and screening tasks support realtime cancellation", [

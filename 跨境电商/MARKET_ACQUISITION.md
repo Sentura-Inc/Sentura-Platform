@@ -388,9 +388,10 @@ Compute:
 
 Policy:
 
-- `scope_hash` match: exact duplicate. User B joins the active run by default.
-- `scope_similarity >= 0.75`: likely overlap. User B sees an overlap warning and chooses shared results, unassigned-only top-up, or narrower search.
+- `scope_hash` match: exact duplicate task shape. User B may join the same coordination scope, but must not receive the same customer rows as User A. The coordinator allocates only unique, unassigned customers to each human employee and top-ups any missing count.
+- `scope_similarity >= 0.75`: likely overlap. User B sees an overlap warning and chooses unassigned-only top-up or narrower search; shared progress is allowed, shared duplicate customers are not.
 - `scope_similarity < 0.75`: independent run, still candidate-deduped on save.
+- Scope prediction is only a pre-run cost/backpressure hint. It is not the source of truth for business dedupe. The database identity/allocation tables are the source of truth before any candidate enters an employee's customer list.
 
 ### 9.2 Required Tables
 
@@ -482,8 +483,10 @@ Exact duplicate:
 3. Coordinator starts one `cbe-lead-discovery` AgentChat run.
 4. B requests 20 leads for the same scope at minute 2.5.
 5. Coordinator finds active scope lease and adds B to `lead_run_memberships`.
-6. B sees shared progress and final deduped pool.
-7. No second AgentChat session starts.
+6. B sees shared progress, but B is not assigned A's customer rows.
+7. When candidates return, the store reconciles them against `lead_identities`, `lead_candidates`, and active allocations before writing to any employee list.
+8. If the active run yields fewer than 40 unique, unassigned customers for A+B combined, the coordinator starts a top-up run for the missing count with a database-derived `existing_identity_keys` denylist.
+9. No duplicate customer appears in either employee's list.
 
 Near duplicate:
 
@@ -491,21 +494,46 @@ Near duplicate:
 2. Coordinator computes `scope_similarity`.
 3. If similarity is high, UI shows:
    - `已有相似获客任务正在运行，预计还需 2 分钟。`
-   - `加入共享结果池`
+   - `只看当前任务进度`
    - `只要未分配的新客户`
    - `缩小条件并重新搜索`
-4. If B chooses shared results, no new employee run starts.
-5. If B chooses unassigned-only results, coordinator waits for or consumes the shared pool, counts unallocated unique leads, and starts only a missing-count top-up run.
+4. If B chooses unassigned-only results, coordinator waits for or consumes the active pool, counts unallocated unique leads, and starts only a missing-count top-up run.
+5. If B narrows the search, it can start an independent run, but completion still must reconcile against the tenant database before writing results.
 
 Example:
 
 - A asks for 20.
 - B asks for the same 20 at minute 2.5.
-- A's active run is allowed to finish with at least 20 unique leads.
-- B attaches to the same pool by default.
-- If B needs 20 not allocated to A and only 8 unallocated remain, top-up asks the employee for 12 additional unique leads with an `existing_identity_keys` denylist.
+- A's active run may finish with 20 unique leads, but those 20 are assigned to A and are not reused as B's customer list.
+- If B needs 20 not allocated to A and only 8 unallocated remain, top-up asks the employee for 12 additional unique leads with a database-derived `existing_identity_keys` denylist.
 
-### 9.4 Top-Up Employee Task Contract
+### 9.4 Result Reconciliation Contract
+
+Pre-run scope prediction is intentionally conservative and can miss subset overlaps such as:
+
+- User A: `phone case + tempered glass screen protector / GB + US`
+- User B: `phone case / GB`
+
+Therefore every Lead Discovery completion must run database reconciliation before writing visible customer rows:
+
+1. Parse the employee marker into candidate objects.
+2. Normalize domain, business email domain, company name, and country.
+3. Query tenant-level `lead_identities`, `lead_candidates`, `lead_run_results`, and active/claimed allocations for each candidate.
+4. Classify each candidate as:
+   - `new_unique`: no existing tenant identity or allocation.
+   - `duplicate_same_owner`: already in the same employee's list.
+   - `duplicate_other_operator`: already assigned to another employee.
+   - `duplicate_team_or_tenant`: already present in a team/tenant-shared pool.
+   - `possible_duplicate`: fuzzy company-name/country match without a confirmed domain.
+5. Only `new_unique` candidates may create visible employee customer rows by default.
+6. Duplicate candidates are recorded in `lead_run_results` for audit/provenance but are not added to the employee's actionable customer list.
+7. If `new_unique_count < requested_target_count`, the coordinator must immediately create a top-up run for `requested_target_count - new_unique_count`.
+8. The top-up prompt must include all known tenant identity keys and already-used queries as denylist context.
+9. The user-facing completion message must report returned, new unique, duplicate, possible duplicate, and top-up counts separately.
+
+The business invariant is strict: no two human employees should be assigned the same buyer/customer unless a manager explicitly transfers or shares ownership through a separate workflow.
+
+### 9.5 Top-Up Employee Task Contract
 
 ```json
 {
@@ -523,25 +551,25 @@ Example:
 }
 ```
 
-### 9.5 UI Behavior For Concurrency
+### 9.6 UI Behavior For Concurrency
 
 | Situation | UI behavior |
 |---|---|
-| Exact active duplicate | Show existing run progress and default to `加入当前任务`; do not start another AgentChat session. |
-| High-overlap active run | Show overlap warning with choices: shared results, unassigned-only top-up, or narrow search. |
-| Finished same scope within TTL | Reuse cached lead pool and top up only if unique available count is below requested count. |
-| User wants exclusive leads | Use allocation mode. Leads are reserved only when copied to Screening or explicitly claimed, not merely displayed. |
+| Exact active duplicate | Show existing coordination progress, but explain that each employee will receive different unique customers. Do not assign the same customer rows to both employees. |
+| High-overlap active run | Show overlap warning with choices: unassigned-only top-up or narrow search. |
+| Finished same scope within TTL | Allocate only unassigned unique customers. Do not duplicate another employee's customer list. |
+| User wants exclusive leads | Use allocation mode. Leads are reserved when written to the employee customer list, not merely when displayed in a shared pool. |
 | Active run crashed | Lease expires, partial results remain; next user can resume/top-up rather than restart from zero. |
 
 Recommended Chinese labels:
 
 - `已有相同获客任务正在运行`
-- `加入共享结果池`
+- `只看当前任务进度`
 - `只补充未分配客户`
 - `当前已发现 9/20 个唯一客户`
-- `为了避免重复消耗搜索额度，本次不会启动第二个相同搜索`
+- `为避免重复客户，本次只会写入未分配的新客户`
 
-### 9.6 Race-Condition Handling
+### 9.7 Race-Condition Handling
 
 Start-run transaction:
 

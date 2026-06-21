@@ -9,6 +9,8 @@ Use first for every Screening request.
 1. Identify intake mode:
    - `marketing_lead_batch` for `LeadCandidate[]`.
    - `manual_input` for operator-entered company, country, website/domain, email, contact person/title, profile URL, product interest, and notes.
+   - In Phase 2 production, this agent should normally receive one target per session. If the prompt contains 5 or more targets, stop and ask the Dashboard/store to split it into single-target child runs.
+   - Process 2-3 targets in one session only when the run is explicitly labeled `batch3_experiment`.
 2. Normalize every item into `InvestigationTarget`:
    - `target_id`
    - `source`
@@ -39,4 +41,3 @@ Use first for every Screening request.
 ## Safety
 
 Never invent missing fields. If the operator supplies only an email or domain, report exactly that and ask for company/legal name when needed.
-

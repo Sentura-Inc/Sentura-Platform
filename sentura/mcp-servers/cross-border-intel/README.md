@@ -19,6 +19,20 @@ All tools are registered with `readOnlyHint: true` and return `source_url`, `sou
 | `cbe_intel_parse_accio_chat` | Validate and normalize an Accio JSON export fixture. |
 | `cbe_intel_summarize_accio_chat` | Extract company profile, requested goods, negotiated prices, behavior signals, and follow-up tasks. |
 
+## Country Coverage Boundary
+
+Current implemented registry/identity coverage is intentionally narrow:
+
+| Country/source | Current behavior | Not yet implemented |
+|---|---|---|
+| GB | Companies House search/profile when `COMPANIES_HOUSE_API_KEY` exists; public-web registry fallback when unavailable. | None for basic GB registry lookup. |
+| US | SEC EDGAR lookup for public companies/SEC filers with bounded summary fields. | State registry API adapters. |
+| Global fallback | OpenCorporates search only when `OPENCORPORATES_API_KEY` is configured. | Automatic jurisdiction selection beyond current search fallback. |
+| Domain/email | RDAP.org, DNS MX/SPF/DMARC, official-site same-domain email discovery, optional Abstract/Hunter verifier. | Paid WHOIS/RDAP provider adapters. |
+| Trade evidence | ImportYeti/Volza only when paid trade data and budget are enabled. | Panjiva, ImportGenius, enterprise customs APIs. |
+
+The 2026-06-21 API research runbook in `跨境电商/API_KEYS_OPENCLAW_SETUP.md` identifies France API Recherche/API Entreprise, Japan Corporate Number Web-API, Korea OpenDART, Brazil Serpro CNPJ, Italy InfoCamere, and official web/manual routes for Germany/Spain/Mexico. These are planned country adapters or manual routes, not current MCP tools. Do not add their env vars to setup or employee prompts until the TypeScript adapter, schema, mocked tests, missing-key behavior, rate-limit policy, and evidence tags are implemented.
+
 ## Environment
 
 Secrets must live in OpenClaw's `.env` / secret store, not in config prose or code.

@@ -8,7 +8,7 @@
 >
 > Chinese name: 跨境筛选背调员工
 >
-> Last updated: 2026-06-13
+> Last updated: 2026-06-21
 
 This document owns all design, implementation details, current status, and forward plan for the Screening and Background Investigation employee in the mobile-accessory cross-border e-commerce customer lane. Shared platform architecture, database-wide schema, cloud deployment, and cross-agent flow live in [`DESIGN.md`](DESIGN.md). Marketing Acquisition details live in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md). Accio memory details live in [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
@@ -50,6 +50,14 @@ Live provider status from the 2026-06-08 audit:
 - ImportYeti: successful live response after current request format correction.
 - Companies House: `401 Invalid Authorization` despite official Basic-auth formatting; handled as `unavailable_api` coverage gap with official public-page fallback.
 - Hunter: `429 restricted_account`; handled as provider-side coverage gap.
+
+Report-driven production decision from the 2026-06-19/20 cloud pressure tests:
+
+- The production Screening path must default to one company per `cbe-buyer-screening` AgentChat session.
+- A user batch of 10 companies is valid as a UI/business request, but the server must split it into a parent batch task plus single-target child runs.
+- Batch-3 is the only optional packed mode that remained clean in the reports, and it should stay behind a feature flag.
+- Batch-5 and batch-10 must not be used in the normal production path: batch-5 produced compaction/thinner evidence and repeated paid calls; batch-10 failed with context overflow.
+- Paid email and paid trade checks are allowed only as explicit, budgeted per-target calls and must be capped to one call per provider class per target unless the operator re-approves a fresh paid lookup.
 
 ## 2. Intake Schemas
 
@@ -171,20 +179,55 @@ Evidence source tags:
 - `self_reported`
 - `unverified`
 
+Execution granularity:
+
+- Default: one target per session.
+- Optional experiment: up to 3 targets per session only when `CBE_SCREENING_ALLOW_BATCH3=true`, load is low, and paid checks are disabled or already budgeted.
+- Forbidden production path: 5 or 10 targets in one Screening session.
+- Batch UI submissions should be represented as parent/child tasks in the CBE store so one failed target can be retried without rerunning completed siblings.
+
 ## 5. Registry Checks
 
-| Country / source | Route | Cost posture | Decision |
+| Country / source | Route | Cost / rate posture | Decision |
 |---|---|---|---|
-| UK Companies House | REST API `GET https://api.company-information.service.gov.uk/search/companies?q=...`, then `GET /company/{companyNumber}`. Auth is HTTP Basic with API key as username and blank password: `Authorization: Basic base64(API_KEY + ":")` / `curl -u API_KEY:`. No-key fallback: official public HTML search at `https://find-and-update.company-information.service.gov.uk/search/companies?q=...`. | No public fee found; REST requires API key; public HTML is free but not JSON API. | Use API first for GB. If missing/401/403, fall back to official public page and mark `official_registry_page`. |
-| US SEC EDGAR | Resolve company name/ticker through `https://www.sec.gov/files/company_tickers.json`, then `GET https://data.sec.gov/submissions/CIK##########.json`; use descriptive `User-Agent` and respect 10 requests/sec fair access. | Free; no auth/API key. | Automatically call for US candidates copied into Screening. Useful for public companies/SEC filers, not small private importers. |
-| OpenCorporates | `GET https://api.opencorporates.com/v0.4/companies/search?q=...`. | Paid commercial plans: Essentials £225/month for 500 calls/month; Starter £660/month for 2,500 calls/month; Basic £1,200/month for 5,000 calls/month. | Not default MVP; add paid adapter behind feature flag only if client buys a plan. |
-| Other countries | Web-search official registry page + manual link capture. | Search API cost only. | Brazil, Mexico, Germany, France, Spain, Italy adapters can be added incrementally. |
+| UK Companies House | REST API `GET https://api.company-information.service.gov.uk/search/companies?q=...`, then `GET /company/{companyNumber}`. Auth is HTTP Basic with API key as username and blank password: `Authorization: Basic base64(API_KEY + ":")` / `curl -u API_KEY:`. No-key fallback: official public HTML search at `https://find-and-update.company-information.service.gov.uk/search/companies?q=...`. | Free public data; REST requires API key. Official limit is 600 requests per 5 minutes per application. | Current default for GB. Use API first when key works; if missing/401/403/429, fall back to official public page and mark `official_registry_page` or `unavailable_api`. |
+| US SEC EDGAR | Resolve company name/ticker through `https://www.sec.gov/files/company_tickers.json`, then bounded `GET https://data.sec.gov/submissions/CIK##########.json`; use descriptive `User-Agent`. | Free; no auth/API key. SEC fair access limit is 10 requests/sec. | Current default for US public companies/SEC filers only. Do not treat `not_found` as negative for private importers. Only keep summary fields such as entity name, CIK, SIC, ticker/status, and recent filing summary; do not carry raw submissions history into prompts. |
+| France official registry | API Recherche d'Entreprises for SIREN/SIRET/name/address/status; API Entreprise only after customer habilitation/token approval. | Public search is low-cost but rate-limited; API Entreprise has per-habilitation limits and 429/Retry-After behavior. | Planned adapter, not current default. When added, use response headers for throttling and store unsupported/denied access as coverage gap. |
+| Japan official registry | National Tax Agency Corporate Number Publication Site / Web-API for 13-digit corporate number, name, address, and changes. | Free application ID required for Web-API; official site also has searchable public pages and downloadable data. | Planned adapter. Do not confuse Corporate Number basic identity data with full legal/financial due diligence. |
+| Korea official disclosures | OpenDART for listed/disclosing companies; public web/registry clues for small private importers. | Free authentication key (`crtfc_key`) required; request-limit errors are explicit provider statuses. | Planned adapter. DART `not_found` is neutral for private importers. |
+| Brazil CNPJ | Receita Federal / Redesim official CNPJ page for manual/free checks; Serpro Consulta CNPJ/CNPJ API for automated official access; BrasilAPI only as public aggregation if used. | Serpro is contracted/paid official API; public pages may have human verification; aggregation sources are not official_api. | Planned adapter. Do not mark BrasilAPI-only evidence as official registry evidence. |
+| OpenCorporates | `GET https://api.opencorporates.com/v0.4/companies/search?q=...`. | Paid commercial fallback. | Not default. Add only behind paid-source configuration when the customer buys a plan or when a country has no usable official API/page path. |
+| Germany / Spain / Italy / Mexico official records | Official registry pages/manual portals; Spain/Italy often paid report flows; Mexico registry data is distributed by state and SAT RFC validation is separate. | No stable self-serve REST API assumed from the supplied pricing report. | Use web search to find official registry pages and capture source URLs; do not claim API-backed verification unless a concrete adapter/access proof exists. |
 
 Ordering corrections already implemented:
 
 - GB targets must call Companies House before web fallback.
 - US targets must resolve company name/CIK through SEC before state-registry web fallback.
 - Non-2xx provider responses are coverage gaps, not fraud evidence.
+
+### 5.1 Country-Aware Verification Playbooks
+
+These country routes are the operational instructions for the Screening employee and the future adapter backlog. They intentionally distinguish current MCP tools from future API/account preparation.
+
+| Country | Best first evidence | When to escalate | Agent report wording |
+|---|---|---|---|
+| GB | Companies House API/profile; if the key fails, official public Companies House page. | Escalate to OpenCorporates only if Companies House is unavailable and the user approved paid fallback. | `official_api` for Companies House API; `official_registry_page` for public Companies House HTML; missing key is `unavailable_api`. |
+| US | SEC only for public-company/filer checks; state registry/official website/public footprint for private importers; ImportYeti/Volza only after paid trade approval. | Escalate to paid trade data when the buyer claims importer/distributor scale or when trade evidence materially improves confidence. | SEC `not_found` for private companies is `not_applicable`; missing import data is coverage gap. |
+| FR | Search API Recherche d'Entreprises for SIREN/SIRET and basic identity after adapter exists; otherwise official French registry/search result URLs. | Use API Entreprise only after customer habilitation and legal-use approval. | If only public search evidence exists, say "官方公开检索/页面证据", not API-backed verification. |
+| JP | Corporate Number Publication Site/Web-API for corporate number/name/address; public website/domain checks for business fit. | Ask operator for corporate number when name matching is ambiguous; legal registry extracts remain human/manual. | Corporate Number confirms basic identity only; it is not a trade-credit or financial-risk score. |
+| KR | OpenDART for listed/disclosure entities; public footprint and domain/email for ordinary private buyers. | Ask for Korean corporate registration number or official profile URL if DART does not match. | DART no result should not lower score unless the buyer claims public/listed status. |
+| BR | Receita Federal/Redesim CNPJ official proof when CNPJ is available; Serpro for automated official scale; website/domain/public footprint otherwise. | Ask for CNPJ when missing; use Serpro only after customer contract/key exists. | BrasilAPI or other aggregators, if used later, are `public_api`/supporting evidence, not `official_api`. |
+| DE | Unternehmensregister/Handelsregister official page, registration number, city, legal form, and website footer consistency. | Escalate to OpenCorporates or a paid KYB provider for scale or director/shareholder data. | No self-serve REST route is assumed; evidence is official-page/manual unless a signed provider adapter exists. |
+| ES | Registro Mercantil Central/provincial registry and BORME notices; collect CIF/NIF and official company extract when available. | Paid RMC/registradores extract when high-value or ambiguous. | Signed/purchased extract is stronger than search snippet; no API-backed claim without adapter. |
+| IT | Registro Imprese/InfoCamere pages, PEC, REA, visura, annual accounts when available. | InfoCamere API/Telemaco contract for automated official reports. | Official-page or uploaded visura evidence should stay source-linked and timestamped. |
+| MX | SIGER/RPC official registry and SAT RFC validation only when RFC is provided. | Ask operator for RFC/folio/official state registry clue before drawing conclusions. | RFC validity is tax-id evidence, not full company-register verification. |
+
+Implementation backlog:
+
+- Add one adapter at a time, starting with France/Japan/Korea/Brazil only after schema, source tags, fixtures, and rate-limit tests exist.
+- Do not add country-specific API env vars to `scripts/sentura-setup.*` until the adapter is implemented and the MCP server tests prove missing-key behavior.
+- Every new country adapter must return provider status, source URL, fetched timestamp, rate-limit metadata when available, and a confidence value that the scoring tool can consume.
+- Unsupported country or denied provider access must be `unavailable_api` / `pending_human_input`, never fraud evidence.
 
 ## 6. Domain And Email Checks
 
@@ -200,12 +243,19 @@ Free checks:
 - For scale, use IANA RDAP bootstrap registries instead of RDAP.org because RDAP.org documents a 10 requests / 10 seconds Cloudflare limit.
 - Official-site contact email search before paid validation: fetch bounded official website pages and extract same-domain public emails while ignoring third-party/free-provider addresses.
 
+Production rate/cost rules:
+
+- RDAP.org is acceptable for low-volume demo and pilot checks, but it is limited to 10 requests / 10 seconds. For sustained production volume, move to an IANA bootstrap RDAP client or a budgeted WHOIS/RDAP provider rather than retrying through RDAP.org.
+- Paid email validation may call Abstract and Hunter only when `enable_paid_validation=true`, the operator/request budget allows it, and the email is either operator-supplied or discovered as a same-domain email on the target's official website.
+- Do not paid-validate third-party directory emails, public social-page emails, or free-provider addresses discovered by search unless the operator explicitly supplied that address as the investigation target.
+- Per target, paid email validation is capped to one Abstract/Hunter validation pass unless the user explicitly re-approves another paid lookup after a retry.
+
 Optional paid checks:
 
 | Provider | API route / behavior | Public price verified | Decision |
 |---|---|---|---|
 | Abstract Email Reputation | `GET https://emailreputation.abstractapi.com/v1/?api_key=...&email=...`; response includes `email_deliverability`, `email_quality`, `email_domain`, risk, and breach signals. | Free 100 requests/month. Starter $17/month paid annually for 60,000 requests/year. Standard $37/month paid annually. Professional $39/month paid annually. | Best low-cost optional add-on after free DNS checks. |
-| Hunter | Email Verifier API; verifier costs 0.5 credit/call, Domain Search costs 1 credit for 1-10 emails, Email Count is free. | Free 50 credits; Starter $49/month or $34/month yearly; Growth $149/month or $104/month yearly; Scale $299/month or $209/month yearly. | Useful if customer wants email discovery, not only validation. |
+| Hunter | Email Verifier API; verifier costs 0.5 credit/call, Domain Search costs 1 credit for 1-10 emails, Email Count is free. | Free 50 credits; Starter $49/month or $34/month yearly; Growth $149/month or $104/month yearly; Scale $299/month or $209/month yearly. | Use only for verifier in the default Screening path. Domain Search/Finder is a sales-enrichment expansion and needs separate approval/budget. |
 | ZeroBounce | Email verification API. | Minimum PAYG purchase 2,000 credits for $39; free account includes 100 monthly credits. | More expensive for MVP; fallback for deliverability-sensitive production. |
 
 ## 7. Social And Digital-Footprint Checks
@@ -229,7 +279,7 @@ Do not:
 
 | Source | API / route | Public price verified | Decision |
 |---|---|---|---|
-| ImportYeti | `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with `IYApiKey`; other company/BOL routes need API key. | Public API price not confirmed from captured docs; public site emphasizes free search. | Use public web evidence or API only if key/pricing confirmed and budget enabled. Evidence is US-import focused. |
+| ImportYeti | `GET https://data.importyeti.com/v1.0/company/search?name=...&page_size=...` with `IYApiKey`; other company/BOL routes need API key. | The 2026-06-20 pressure report used it as the paid trade-data path and observed about `$0.09` per target in its cost ledger, while an earlier tool-connectivity report saw credits remain unchanged for the tested company-search calls. Treat cost as configured/observed, not guaranteed free. | Current preferred paid trade source for US import evidence when the customer enables paid trade data. Use at most once per target with `max_records <= 5` and `max_paid_spend_usd <= 1` unless a different approved budget is configured. |
 | Volza | Global Trade API, Buyer Insights API, Supplier Insights API, Decision Maker Contact API. | Global search $0.10/search; data from $0.02/record; Buyer/Supplier Insights $5/report; decision-maker contact $1.50/record. | Best paid Phase-1 add-on with capped budget. |
 | Panjiva | REST API with Bearer Token; shipment, company, contact data. | Public pricing not exposed; enterprise sales. | Post-MVP only. |
 | ImportGenius | Global trade data platform; account/sales-oriented API and pricing. | Public API price not reliably captured. | Post-MVP or manual human research source. |
@@ -238,6 +288,8 @@ Trade-data rule:
 
 - Missing customs/trade data does not mean the company is fake.
 - Missing trade data lowers evidence coverage and therefore affects the final score through the 20% coverage component, but it must not be treated as fraud evidence.
+- Paid trade data is never called by Lead Discovery. It is Screening-only and only after the operator has enabled paid trade data for the target/run.
+- Retrying a Screening child run must not repeat ImportYeti/Volza unless prior paid-call state is missing or the user explicitly approves another paid check.
 
 ## 9. Financial Checks
 
@@ -446,6 +498,60 @@ Cold lead scoring example:
   "created_at": "2026-06-07T00:00:00Z"
 }
 ```
+
+## 11.1 Production Execution And API Contract
+
+This section is the Screening-specific contract that Phase 2 implementation should follow after the 2026-06-19/20 reports.
+
+Execution mode:
+
+| User request | Server behavior | Agent prompt behavior |
+|---|---|---|
+| Manual single target | One `cbe-buyer-screening` session for that target. | Complete one company, emit one report object. |
+| Batch of 2-10 targets | Create one parent task and one child run per target by default. | Each child sees one target only. |
+| Batch-3 experiment | Allowed only when `CBE_SCREENING_ALLOW_BATCH3=true`, load is low, and paid calls are disabled or already budgeted. | Process strictly one target at a time, max 3 reports. |
+| Batch-5 or batch-10 session | Block in production. | Do not generate prompts that ask one session to investigate 5 or 10 companies. |
+
+Default API allow scope for `cbe-buyer-screening`:
+
+- `web_search` for public footprint, official-page discovery, source fallback, and bounded adverse-media search.
+- `web_fetch` only for public pages returned by search or supplied by the operator.
+- `cross-border-intel__cbe_intel_company_registry_search`
+- `cross-border-intel__cbe_intel_company_profile`
+- `cross-border-intel__cbe_intel_domain_rdap_lookup`
+- `cross-border-intel__cbe_intel_email_domain_check`
+- `cross-border-intel__cbe_intel_official_contact_email_search`
+- `cross-border-intel__cbe_intel_sec_lookup`
+- `cross-border-intel__cbe_intel_trade_record_search`
+- `cross-border-intel__cbe_intel_score_buyer`
+
+Default API deny/defer scope:
+
+- Do not call mutation APIs, outreach APIs, CRM writes, product posting APIs, protected social APIs, or login-gated scraping.
+- Do not add Apollo, Hunter Domain Search/Finder, ImportGenius, Panjiva, D&B, Creditsafe, Experian, Surepass, Karza, or Alibaba/ICBU APIs to the default path without a separate adapter, budget, and access-proof decision.
+- Do not give the agent raw SQL or direct database credentials.
+- Do not expose API keys, tokens, signed request strings, or raw paid-provider responses in prompts, memory, reports, or audit text.
+
+Configuration impact:
+
+| Config | Required behavior |
+|---|---|
+| `CBE_SCREENING_EXECUTION_MODE=single_target_fanout` | Dashboard/store splits batches into child runs. |
+| `CBE_SCREENING_MAX_TARGETS_PER_SESSION=1` | Normal production prompts contain one target. |
+| `CBE_SCREENING_ALLOW_BATCH3=false` | Batch-3 remains disabled unless explicitly enabled for a controlled run. |
+| `CBE_SCREENING_PAID_EMAIL_MAX_CALLS_PER_TARGET=1` | Abstract/Hunter paid verifier pass is not repeated automatically. |
+| `CBE_SCREENING_TRADE_MAX_CALLS_PER_TARGET=1` | ImportYeti/Volza trade search is not repeated automatically. |
+| `CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET=0` by default, `1` for approved paid runs | Paid trade evidence stays budget-gated. |
+| `CBE_ENABLE_PAID_TRADE_DATA=false` by default | Trade API adapters stay off until the customer enables paid trade data. |
+| `CBE_MAX_PAID_SPEND_USD=0` by default | Global paid-data ceiling remains safe for demo/unapproved runs. |
+| `SEC_USER_AGENT` | Required for reliable SEC access. |
+
+Cost and evidence handling:
+
+- Lead Discovery should not call Abstract, Hunter, ImportYeti, Volza, or registry APIs directly; those belong to Screening.
+- Screening may call paid sources only when the run request includes paid authorization and the server-side budget check passed.
+- `api_call_ledger` should store estimated cost, observed billing deltas when available, provider status, and whether the call was free/included/unpriced/paid.
+- Provider 401/403/429, disabled budget, missing key, or unsupported country should lower coverage only; it must not create negative buyer evidence.
 
 ## 12. Alibaba International Station API Enhancement
 

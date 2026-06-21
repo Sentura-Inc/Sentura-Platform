@@ -10,6 +10,9 @@ Use this skill when the operator asks for new overseas buyer discovery, a schedu
    - Translate Chinese product terms into English search keywords while preserving the Chinese meaning in the operator summary.
    - Normalize countries to ISO alpha-2 codes and map them to country names/languages.
    - Use defaults from `BOOTSTRAP.md` only when the operator omitted a field.
+   - For every run mode, treat `target_count` as the number of net-new customers required for the current task, not as the employee's desired total list size.
+   - For every run mode, treat `existing_identity_keys` as a database-derived pre-search denylist. Do not intentionally search for or return those domains/company-country keys; when a search result matches the denylist, replace it with another candidate.
+   - If `run_mode` is `top_up_unique_leads`, keep the original scope but generate fresh query variants, still exclude every `existing_identity_keys` domain/name, and do not repeat `already_covered_queries`.
 2. Build query families for each product/country pair:
    - Company-owned website: `phone case phone accessories retailer United Kingdom contact us`.
    - Retail and repair buyer: `mobile phone repair screen protector United Kingdom locations`.
@@ -18,10 +21,15 @@ Use this skill when the operator asks for new overseas buyer discovery, a schedu
    - Domain exclusions: use tool/API exclude-domain controls for social, directory, marketplace, and generic supplier domains. Avoid stuffing many negative operators into the query when they reduce result relevance.
 3. Apply exclusions before and after search:
    - Exclude Amazon, Alibaba, AliExpress, Temu, eBay, and operator-supplied domains.
+   - Exclude every domain/name key present in `existing_identity_keys` before writing search queries and again when reviewing search results.
    - Exclude Facebook, LinkedIn, Instagram, YouTube, TikTok, X/Twitter, Reddit, Pinterest, business directories, marketplace pages, public company-info pages, review sites, supplier directories, and generic wholesale-list pages.
    - Exclude supplier pages that are clearly factories, manufacturers, OEM/ODM sellers, exporters, or China-based marketplace sellers rather than downstream overseas buyers.
-4. Call `web_search` with the generated queries.
-5. Use `web_fetch` only for public pages on a candidate company's own website that appear likely to prove company identity, product fit, contact candidate provenance, or buyer persona.
+4. Call `web_search` with enough generated queries to over-collect raw candidates before final dedupe.
+   - Cover every selected country and product where possible.
+   - Use at least the company-owned website, retail/repair buyer, store/location/contact proof, and reseller/import buyer families before declaring a shortage.
+   - Aim for at least `target_count * 3` raw candidate domains before final filtering; for targets under 5, aim for at least 12 raw candidates.
+   - `max_results_per_query` is only a per-query result hint. It is not a cap on total queries, total raw candidates, or final net-new leads.
+5. Use `web_fetch` only for public pages on a candidate company's own website that appear likely to prove company identity, product fit, contact candidate provenance, or buyer persona. If `web_fetch` is blocked by security policy, private-IP protection, timeout, or site access failure, keep the company as a candidate only when `web_search` provided a company-owned URL plus a relevant title/snippet, record that source as `public_web`, and continue searching for replacements.
 6. Record every query string with:
    - query text;
    - target country/language;

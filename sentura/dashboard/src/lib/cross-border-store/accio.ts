@@ -7,6 +7,7 @@ import { createAuditEvent } from "./audit";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
 import { insertHandoffEvent } from "./handoffs";
 import { scopedOwnerClause } from "./tenant-context";
+import { admitCbeWorkload, workloadMetadata } from "./workload-coordinator";
 import type {
   AccioConversationImport,
   AccioSupplementTarget,
@@ -469,6 +470,13 @@ export async function saveAccioImport(
   });
   if (supplementInputTarget) {
     const merged = await withCbeTransaction(async (client) => {
+      const admission = await admitCbeWorkload(client, context, {
+        agentId: "cbe-accio-memory",
+        taskKind: "accio_memory",
+        requestedSessionKey: input.session_key,
+        currentStageWhenRunning: "submitted_to_employee",
+        currentStageWhenQueued: "uploaded",
+      });
       const existing = await client.query<{
         import_id: string;
         conversation_id: string | null;
@@ -552,12 +560,14 @@ export async function saveAccioImport(
       const agentRun = await insertAgentRun(client, context, {
         agent_id: "cbe-accio-memory",
         task_kind: "accio_memory",
-        status: input.session_key ? "running" : "queued",
-        session_key: input.session_key,
+        status: admission.status,
+        session_key: admission.sessionKey,
         target_record_type: "accio_import",
         target_record_id: target.import_id,
         target_summary: input.source_file_name,
-        current_stage: input.session_key ? "submitted_to_employee" : "uploaded",
+        current_stage: admission.currentStage,
+        queue_priority: admission.queuePriority,
+        queued_at: admission.queuedAt,
         cost_usd_estimate: input.estimated_cost_usd,
         visibility_scope: input.visibility_scope,
         metadata_json: {
@@ -565,6 +575,7 @@ export async function saveAccioImport(
           supplement_target: supplementTarget,
           supplement_mode: "merge_existing_accio_summary",
           ...(target.summary_id ? { reused_summary_id: target.summary_id } : {}),
+          ...workloadMetadata(admission),
         },
       });
 
@@ -688,18 +699,28 @@ export async function saveAccioImport(
     if (merged) return merged;
   }
   return withCbeTransaction(async (client) => {
+    const admission = await admitCbeWorkload(client, context, {
+      agentId: "cbe-accio-memory",
+      taskKind: "accio_memory",
+      requestedSessionKey: input.session_key,
+      currentStageWhenRunning: "submitted_to_employee",
+      currentStageWhenQueued: "uploaded",
+    });
     const agentRun = await insertAgentRun(client, context, {
       agent_id: "cbe-accio-memory",
       task_kind: "accio_memory",
-      status: input.session_key ? "running" : "queued",
-      session_key: input.session_key,
+      status: admission.status,
+      session_key: admission.sessionKey,
       target_summary: input.source_file_name,
-      current_stage: input.session_key ? "submitted_to_employee" : "uploaded",
+      current_stage: admission.currentStage,
+      queue_priority: admission.queuePriority,
+      queued_at: admission.queuedAt,
       cost_usd_estimate: input.estimated_cost_usd,
       visibility_scope: input.visibility_scope,
       metadata_json: {
         source_file_name: input.source_file_name,
         ...(supplementTarget ? { supplement_target: supplementTarget } : {}),
+        ...workloadMetadata(admission),
       },
     });
     const importId = createCbeId("accio_import");

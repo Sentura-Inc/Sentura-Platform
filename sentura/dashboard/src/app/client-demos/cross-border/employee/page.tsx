@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -100,7 +100,7 @@ function isInHomeRange(foundAt: string, range: HomeRange, now = new Date()) {
   return foundDate.getFullYear() === now.getFullYear() && foundDate.getMonth() === now.getMonth();
 }
 
-export default function CrossBorderEmployeeHomePage() {
+function CrossBorderEmployeeHomeContent() {
   const searchParams = useSearchParams();
   const customerRows = useCbeEmployeeStore((store) => store.rows);
   const memoryRows = useCbeEmployeeStore((store) => store.memoryRows);
@@ -514,5 +514,13 @@ export default function CrossBorderEmployeeHomePage() {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function CrossBorderEmployeeHomePage() {
+  return (
+    <Suspense fallback={null}>
+      <CrossBorderEmployeeHomeContent />
+    </Suspense>
   );
 }

@@ -25,6 +25,7 @@ Use at the end of every Screening run.
    - `open_questions`
    - `missing_or_unavailable_evidence`
    - `created_at`
+   In Phase 2 production child runs, this normally means exactly one object in the marker array.
 3. Evidence items must include:
    - `layer`
    - `source_type`
@@ -42,4 +43,3 @@ Use at the end of every Screening run.
 ## Safety
 
 Reports may be exported as JSON/Markdown. They must not send outreach or write external systems.
-

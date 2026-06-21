@@ -46,6 +46,9 @@ export interface EmployeeLeadTaskInput {
   targetCount: number;
   maxResultsPerQuery?: number;
   excludeDomains: string;
+  runMode?: "new_scope" | "top_up_unique_leads";
+  existingIdentityKeys?: string[];
+  alreadyCoveredQueries?: string[];
 }
 
 export interface EmployeeScreeningTaskOptions {
@@ -917,12 +920,15 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
 function buildLeadPrompt(input: EmployeeLeadTaskInput) {
   const payload = {
     task_type: "lead_discovery",
+    run_mode: input.runMode ?? "new_scope",
     product_keywords: csv(input.productKeywords),
     countries: csv(input.countries).map((item) => item.toUpperCase()),
     buyer_types: csv(input.buyerTypes),
     target_count: input.targetCount,
     max_results_per_query: input.maxResultsPerQuery ?? 10,
     exclude_domains: csv(input.excludeDomains),
+    existing_identity_keys: input.existingIdentityKeys ?? [],
+    already_covered_queries: input.alreadyCoveredQueries ?? [],
   };
   return `[CBE Employee Lead Discovery Task]
 
@@ -935,9 +941,14 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 最终答案前必须至少调用一个公开证据工具（web_search 或 web_fetch）。只有在工具失败或没有具体下游买家时，才可以返回空 leads，并写 shortage_reason。
 - 只返回具体下游买家公司，排除 marketplace、目录页、供应商页和社交主页。
-- target_count 是本次任务的硬目标：必须围绕 target_count 扩展查询并尽量返回正好 target_count 个合规候选。
-- 不要因为“高质量优先”而主动限制在 5 个；如果候选超过 target_count，只保留证据最强的 target_count 个。
-- 只有在公开来源、工具调用和排除规则执行后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的查询范围。
+- target_count 是本次任务必须新增的净新客户硬目标；普通 new_scope 不能把它理解成“员工列表总数”，top_up_unique_leads 则表示本次必须补齐的缺口数。
+- existing_identity_keys 是数据库中已分配或本 scope 已尝试过的客户 identity；无论 run_mode 是什么都必须避开这些客户。命中 denylist 时要丢弃并继续找替代客户，不能把重复客户计入 target_count。
+- run_mode 为 top_up_unique_leads 时，本次只补充缺口客户；不要重复 already_covered_queries 中的搜索字符串。
+- max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限。最终必须围绕 target_count 继续扩展查询，直到得到 target_count 个去重合规候选或公开搜索确实耗尽。
+- 在最终输出前，先跨产品、国家、buyer_type 和 query family 收集至少 target_count * 3 个原始候选（target_count 小于 5 时至少 12 个），再做排除、去重、排序和截断。
+- 不要因为“高质量优先”、web_fetch 被安全策略拦截、部分官网无法抓取或前几条结果重复而主动限制在 5 个以下；web_fetch 被拦截时，使用 web_search 返回的公司官网 URL、标题和摘要作为 public_web 证据，并继续搜索替代客户。
+- 如果候选超过 target_count，只保留证据最强且不在 existing_identity_keys 中的 target_count 个。
+- 只有在覆盖所有产品/国家组合、至少使用 company-owned website、retail/repair buyer、store/location/contact proof、reseller/import buyer 四类查询，并完成 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的查询范围。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：

@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-17
+> Last updated: 2026-06-21
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -23,12 +23,19 @@ This plan is derived from the current project documents and should be read with 
 | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) | Accio Memory still needs production persistence, upload storage, redaction, memory-fact preview/approval, and durable Screening handoff records. |
 | [`docs/TESTS.md`](../docs/TESTS.md) | CE4-CE16 are green for Phase-1 workspaces, MCP tools, Employee UI, hidden tasks, progress/cost/notification UX, and compact Screening evidence. Phase 2 adds CE17 and later implementation tests. |
 | [`docs/MEMORY.md`](../docs/MEMORY.md) | Latest ground truth: CBE sandbox is `non-main`; live E2E on the current Mac needs Docker/compatible sandbox runtime or an explicit unsafe sandbox-off override; recent UI fixes are complete. |
+| `final-test-report(1).docx` | 2026-06-20 10-task pressure test: Lead Discovery should keep one `find-10` session; Screening must not run 10 companies in one AgentChat session and should fan out one company per child run. |
+| `测试结论总报告.docx` | 2026-06-19 cloud test summary: on the tested 4C/16G mainland ECS with DeepSeek as primary model, current safe active-task envelope is about 32; 48 hits a Gateway RSS soft threshold rather than hardware exhaustion. |
+| `Sentura - API Pricing.pdf` | API source scope and cost posture: official registry sources first, RDAP/DNS low-cost checks, paid email/trade data behind explicit budget, and sales/enrichment APIs outside the default Screening path. |
 
 External implementation references checked for this plan:
 
 - Next.js App Router Route Handlers: `https://nextjs.org/docs/app/getting-started/route-handlers`
 - Next.js route file convention and supported HTTP methods: `https://nextjs.org/docs/app/api-reference/file-conventions/route`
 - PostgreSQL `SELECT ... FOR UPDATE`, `NOWAIT`, and `SKIP LOCKED`: `https://www.postgresql.org/docs/current/sql-select.html`
+- Companies House API rate limit: `https://developer.company-information.service.gov.uk/developer-guidelines`
+- SEC EDGAR fair access: `https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data`
+- RDAP.org rate limits: `https://about.rdap.org/`
+- French API Entreprise rate-limit headers and 429 behavior: `https://entreprise.api.gouv.fr/developpeurs`
 - OpenClaw Gateway protocol: `https://docs.openclaw.ai/gateway/protocol`
 - OpenClaw MCP docs: `https://docs.openclaw.ai/cli/mcp`
 - OpenClaw sandbox MCP/plugin tool policy: `https://docs.openclaw.ai/gateway/config-tools`
@@ -45,6 +52,7 @@ Phase 2 must deliver:
 6. Agent prompt/skill optimizations that rely on durable contracts instead of frontend-only state.
 7. Automated tests for persistence, multi-user duplicate-run behavior, task recovery, and load-smoke readiness.
 8. Customer-specific user levels for admins and ordinary business users, focused on monitoring, scoped work execution, and reporting rather than Sentura platform administration.
+9. Report-calibrated workload control: Lead `find-10` stays a single session, Screening batches are split into bounded single-target child runs, and all three CBE employees share one queue/backpressure policy.
 
 Phase 2 must not:
 
@@ -193,9 +201,9 @@ Use this order. Later phases depend on durable database IDs and store contracts 
 | P2.1 | 2-3 days | Database schema, migration runner, local dev DB config, seed tenant/user records. | `sentura/lib/cross-border-store/*`, `sentura/dashboard/src/lib/cross-border-store/*`, migration files, setup docs. |
 | P2.2 | 2-3 days | Typed CBE store API and Next.js route handlers for customer/task/memory/report reads and validated writes. | Dashboard `app/api/client-demos/cross-border/employee/**/route.ts`, shared schemas, store tests. |
 | P2.3 | 3-4 days | Employee UI reads from DB and uses `localStorage` only for drafts/cache. | Employee pages, `use-cbe-employee-store`, task runner, notification center, cost card. |
-| P2.4 | 4-5 days | Lead Discovery run-scope coordinator, leases, memberships, shared progress, identity dedupe, top-up mode. | Lead run route/store, coordinator library, `cbe-lead-discovery` prompt/skill updates, concurrency tests. |
-| P2.5 | 3-4 days | Screening and Accio durable persistence, report/evidence/handoff tables, approval-to-memory workflow. | Screening/Memory route/store, `cross-border-intel`, `cbe-buyer-screening`, `cbe-accio-memory` skills. |
-| P2.6 | 2-3 days | Multi-user/load smoke, backup/restore drill, production-readiness report. | Test scripts, runbook, go-live checklist updates. |
+| P2.4 | 4-5 days | Global CBE workload coordinator, queue/backpressure limits, Lead Discovery run-scope coordinator, leases, memberships, shared progress, identity dedupe, and top-up mode. | Queue/coordinator library, Lead run route/store, `agent_runs` queue metadata, `cbe-lead-discovery` prompt/skill updates, concurrency tests. |
+| P2.5 | 3-4 days | Lead result-level DB reconciliation/top-up correction, Screening single-target fan-out, report-driven API source scope, durable Screening/Accio persistence, report/evidence/handoff tables, approval-to-memory workflow. | Lead reconciliation store/UI, Screening/Memory route/store, `cross-border-intel`, `cbe-buyer-screening`, `cbe-accio-memory` skills, fan-out/budget tests. |
+| P2.6 | 2-3 days | Multi-user/load smoke against the calibrated 24/32/48 active-task envelope, backup/restore drill, production-readiness report. | Test scripts, runbook, go-live checklist updates. |
 
 Recommended work rule: finish each phase with tests and doc sync before starting the next phase. Do not start P2.4 concurrency work until P2.1/P2.2 store writes are real.
 
@@ -881,7 +889,98 @@ Important physical-schema notes:
 - `screening_reports` does not duplicate `company_name`; join through `screening_targets` on `screening_target_id`.
 - `lead_candidates` does not have `agent_run_id`; join `lead_candidates -> lead_runs -> agent_runs`.
 
-## 7. P2.4 — Lead Discovery Coordinator
+## 7. P2.4 — Workload Coordinator And Lead Discovery Coordinator
+
+Status: Implemented and verified on 2026-06-21. P2.4 now has the global CBE workload queue/admission layer, Lead scope coordinator, queue metadata migration, Employee launch gating, Lead pre-search/top-up prompt support, and CE21 static/live PostgreSQL coverage. P2.4 scope prediction is a cost/backpressure optimization, not the final customer-dedupe source of truth. Lead result-level DB reconciliation/top-up was implemented immediately after P2.4. Every executable Lead run now retrieves tenant DB identity keys before hidden search starts, completed scopes provide denylist context only, and the runtime never reuses assigned customer rows.
+
+The 2026-06-19/20 pressure reports change P2.4 from a Lead-only dedupe feature into the first global workload-control slice. Lead Discovery still needs scope coordination, but Screening now also needs a scheduler because "10 companies" must be split into child AgentChat sessions instead of one large batch.
+
+### 7.0 Report-Calibrated Workload Baseline
+
+Use these measurements as the initial production-sizing contract for the current single-box pilot profile:
+
+| Workload | Measured result | Phase 2 execution decision |
+|---|---|---|
+| Lead Discovery `find-10` | One session produced 10/10 leads in about 2 minutes; higher concurrency kept near-linear item throughput, but high-concurrency runs sometimes completed with fewer than 10 parsed leads. | Keep one `cbe-lead-discovery` session per request, default `targetCount <= 10`, then top up through the Lead coordinator when `items_produced < targetCount`. |
+| Screening single target | Single-company sessions produced the thickest reports, zero compaction, about 6 evidence sources, and 100% marker survival in the 16/32 concurrency steps. | Default Screening execution is one company per `cbe-buyer-screening` child run. |
+| Screening batch-3 | Clean in the report: 0 compaction and about 7 evidence sources per company. | Keep only as an explicit low-pressure optimization behind a feature flag. Do not make it the default. |
+| Screening batch-5 | Produced thinner reports, repeated context compaction, slower wall time, and paid-call duplication even after prompt optimization. | Disable by default; allow only for controlled experiments. |
+| Screening batch-10 | Failed with context overflow / payload-too-large and 0 usable reports while still burning some paid checks. | Block at the Dashboard/store boundary; split into child runs. |
+| Total active CBE tasks | 32 active tasks were healthy in the tested 4C/16G ECS profile; 48 hit a Gateway RSS soft threshold, not hardware exhaustion. | Use a conservative soft cap of 24 active OpenClaw sessions and a hard cap of 32 until a C=40/48 knee test and soak test pass. Queue above the soft cap. |
+
+Important interpretation:
+
+- `success` at the OpenClaw session level is not enough. For Lead runs, store `items_produced`, marker parse status, and top-up need; a completed session with 0 parsed leads must be recoverable rather than counted as business success.
+- All three CBE employees share one Gateway/main-lane capacity pool. Per-agent limits must add up under the global active-task cap.
+- Increasing single-box concurrency past the knee mostly adds queueing because the bottleneck is model turn latency, not network API latency. Higher sustained throughput requires horizontal workers or a faster/provider-local model path.
+- Model fallback is production-relevant: record DeepSeek -> Qwen -> GLM fallback events in `agent_runs.metadata_json` and cost/audit surfaces, but do not treat fallback as a reason to bypass queue limits.
+
+### 7.0.1 Coordinator Configuration Contract
+
+These are target runtime/config fields for P2.4/P2.5. They may live in environment, tenant settings, or a typed CBE settings table, but they must not be hardcoded in client components.
+
+| Setting | Pilot default | Meaning |
+|---|---:|---|
+| `CBE_TASK_MAX_ACTIVE_TOTAL` | `24` | Soft active OpenClaw-session cap across Lead, Screening, and Accio. New work becomes `queued` when this is reached. |
+| `CBE_TASK_MAX_ACTIVE_TOTAL_HARD` | `32` | Hard cap for the current single-box profile. Do not start new sessions above this cap unless an operator has explicitly switched to a pressure-test profile. |
+| `CBE_LEAD_MAX_ACTIVE_RUNS` | `12` | Max active `cbe-lead-discovery` sessions. Each session may request up to 10 leads by default. |
+| `CBE_LEAD_DEFAULT_TARGET_COUNT` | `10` | Default Lead request size. Larger requests must be chunked or approved. |
+| `CBE_SCREENING_EXECUTION_MODE` | `single_target_fanout` | Default Screening batch behavior. A user batch creates a parent task plus child runs, one target per child. |
+| `CBE_SCREENING_MAX_TARGETS_PER_SESSION` | `1` | Default child-run target count. This prevents batch-10 context overflow. |
+| `CBE_SCREENING_ALLOW_BATCH3` | `false` | Optional controlled optimization; when true, the scheduler may pack up to 3 low-risk targets into one session under low load. |
+| `CBE_SCREENING_MAX_ACTIVE_TARGETS` | `12` | Active Screening child-run cap under normal production load. Can be raised toward 16/32 only after API/provider budgets and queue behavior are verified. |
+| `CBE_SCREENING_PAID_EMAIL_MAX_CALLS_PER_TARGET` | `1` | Abstract/Hunter paid validation cap per target. |
+| `CBE_SCREENING_TRADE_MAX_CALLS_PER_TARGET` | `1` | ImportYeti/Volza paid trade-data cap per target. |
+| `CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET` | `1` when paid mode is enabled; otherwise `0` | Per-target paid trade-data request cap. This complements global `CBE_MAX_PAID_SPEND_USD`. |
+| `CBE_ACCIO_MAX_ACTIVE_IMPORTS` | `3` | Active `cbe-accio-memory` import/analyze cap. |
+| `CBE_PROVIDER_HEADROOM_RATIO` | `0.2` | Reserve at least 20% capacity under provider or Gateway quotas. |
+| `CBE_QUEUE_LEASE_SECONDS` | `90` | Initial queue/active lease window; long-running sessions heartbeat to extend it. |
+
+### 7.0.2 Queue And Fan-Out Data Model Additions
+
+P2.1/P2.2 tables are enough for current task persistence, but P2.4/P2.5 should add explicit queue/fan-out metadata before implementing the scheduler:
+
+```sql
+alter table agent_runs
+  add column parent_agent_run_id text references agent_runs(id),
+  add column queue_priority integer not null default 0,
+  add column queued_at timestamptz,
+  add column lease_owner text,
+  add column lease_until timestamptz;
+
+create index agent_runs_queue_claim_idx
+  on agent_runs(tenant_id, status, queue_priority desc, queued_at)
+  where status = 'queued';
+
+create table screening_batches(
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  created_by_user_id text references sentura_users(id),
+  parent_agent_run_id text references agent_runs(id),
+  requested_target_count integer not null,
+  execution_mode text not null, -- single_target_fanout | batch3_experiment
+  paid_email_enabled boolean not null default false,
+  paid_trade_enabled boolean not null default false,
+  per_target_trade_budget_usd numeric(12, 6) not null default 0,
+  status text not null,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+create table screening_batch_targets(
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  screening_batch_id text not null references screening_batches(id),
+  screening_target_id text not null references screening_targets(id),
+  child_agent_run_id text references agent_runs(id),
+  target_order integer not null,
+  status text not null,
+  error_code text,
+  created_at timestamptz not null default now()
+);
+```
+
+Queue claiming should use `SELECT ... FOR UPDATE SKIP LOCKED` when multiple Dashboard/server processes or workers exist. The first implementation can drain queued rows from route-triggered workers, but it must preserve the same lease columns so the worker can later move out of the request path.
 
 ### 7.1 Problem
 
@@ -920,9 +1019,10 @@ type LeadCoordinatorDecision =
   | { action: "start_new_run"; scopeId: string; leadRunId: string; agentRunId: string }
   | { action: "join_existing"; scopeId: string; leadRunId: string; activeAgentRunId: string }
   | { action: "offer_near_duplicate_choices"; similarScopes: SimilarScope[] }
-  | { action: "reuse_completed_pool"; scopeId: string; availableCount: number }
   | { action: "queue_top_up"; scopeId: string; missingCount: number; denylist: string[] };
 ```
+
+Lead requests define the final number of unique new customers required for the current request, not a hard limit on how many web-search rows may be inspected. A normal repeated same-scope request for 10 means "add 10 more database-unique customers now", not "bring this employee's visible list up to 10 total". Only the internal `run_mode = "top_up_unique_leads"` path treats `target_count` as the missing-count remainder from a previous attempt. The employee may search enough public results to satisfy the target, subject to workload/cost budgets. Before every executable Lead search, the coordinator must retrieve existing tenant/customer identity keys from the database and pass them to the employee as `existing_identity_keys` so known customers are excluded during query generation and candidate filtering. Lead requests that ask for 10 or fewer final unique customers should still be one OpenClaw session. If the marker parser recovers fewer than the requested count, or DB reconciliation finds duplicates, the coordinator should create a top-up run with database-derived `existing_identity_keys` and `already_covered_queries` instead of treating the run as fully successful.
 
 ### 7.3 Transaction Method
 
@@ -936,7 +1036,11 @@ For PostgreSQL:
 6. Commit.
 7. Start OpenClaw `sessions.create` / `chat.send` only after the lease is acquired.
 8. Heartbeat the lease every 30-60 seconds.
-9. On completion, upsert `lead_identities`, create `lead_run_results`, update `produced_unique_count`, set `status = completed`, and clear active lease.
+9. On completion, reconcile every candidate against `lead_identities`, `lead_candidates`, `lead_run_results`, and active allocations before writing visible customer rows.
+10. Only new, unassigned identities may enter an employee's actionable customer list by default.
+11. Duplicate or possible-duplicate candidates are recorded in `lead_run_results` for audit/provenance, but do not count toward the requested target count.
+12. If unique new customers are below target, start a missing-count top-up run using a database-derived denylist.
+13. Update `produced_unique_count`, set `status = completed` only after the required unique customer count is satisfied or a terminal shortage reason is recorded, and clear active lease.
 
 Use `SKIP LOCKED` for queue workers if multiple server processes are later added. For the first single-dashboard-process implementation, row-level locks plus lease expiry are enough.
 
@@ -945,22 +1049,29 @@ Use `SKIP LOCKED` for queue workers if multiple server processes are later added
 Exact duplicate:
 
 - Show `已有相同获客任务正在运行`.
-- Default button: `加入共享结果池`.
-- Secondary copy: `为了避免重复消耗搜索额度，本次不会启动第二个相同搜索`.
-- B sees the same progress and receives deduped final results.
+- Default button: `只补充未分配客户`.
+- Secondary copy: `为避免重复客户，本次只会写入未分配的新客户`.
+- B may see the same coordination progress but receives only database-unique, unassigned customer rows.
 
 Near duplicate:
 
 - Show `已有相似获客任务正在运行，预计还需 N 分钟`.
 - Choices:
-  - `加入共享结果池`
+  - `只看当前任务进度`
   - `只补充未分配客户`
   - `缩小条件并重新搜索`
 
 Finished same scope within TTL:
 
-- Reuse cached lead pool.
-- If unique available count is below requested count, offer top-up.
+- Do not reuse another employee's assigned customer rows.
+- For a normal operator request, start a new executable run with the database denylist and the full requested new-customer count.
+- For an internal auto top-up request, start a `top_up_unique_leads` run for exactly the missing count.
+
+Queued due to global load:
+
+- Show `排队中`.
+- Display the number of active CBE tasks and an estimated start window when available.
+- Do not start a second OpenClaw session to "beat the queue"; this must be enforced server-side.
 
 ### 7.5 Agent Contract Updates
 
@@ -976,9 +1087,86 @@ Update `cbe-lead-discovery` skills and prompt builder to support:
 
 Do not require incremental markers for the first coordinator implementation. Add them once DB result writing and joined-user progress are stable.
 
-## 8. P2.5 — Screening And Accio Durable Workflows
+### 7.6 Lead Result Reconciliation Correction
 
-### 8.1 Screening Persistence
+Live testing with two real operators exposed a product requirement that must override the earlier "reuse result pool" phrasing: the database is the final source of truth for customer uniqueness, and no two human employees should receive the same buyer/customer in their actionable lists. Pre-run `scope_similarity` is useful for avoiding obviously duplicated work, but it cannot predict subset overlaps such as:
+
+- Zhang Haoxiang: `phone case + tempered glass screen protector / GB + US`
+- Wu Sitong: `phone case / GB`
+
+P2.5 must add a server-side pre-search denylist step before launching the employee and a reconciliation step between employee marker parsing and visible customer writes:
+
+1. Before launching an executable Lead session, query existing tenant identity keys from the database and pass them into the prompt as `existing_identity_keys`.
+2. The employee must avoid those identities in query generation, search-result review, and candidate dedupe before spending additional fetch work on known customers.
+3. Normalize every returned lead by domain, email domain, company name, and country.
+4. Query tenant-level `lead_identities`, `lead_candidates`, prior `lead_run_results`, and active/claimed allocations.
+5. Classify each returned candidate as `new_unique`, `duplicate_same_owner`, `duplicate_other_operator`, `duplicate_team_or_tenant`, or `possible_duplicate`.
+6. Write only `new_unique` candidates to the employee customer list by default.
+7. Record duplicate and possible-duplicate candidates in `lead_run_results` with reason metadata for audit and debugging.
+8. Compute `requested_target_count - new_unique_count` after reconciliation.
+9. If the result is positive, create a top-up run for exactly the missing final unique customer count.
+10. Pass all existing tenant identity keys plus the just-rejected duplicate identities into the top-up prompt as `existing_identity_keys`.
+11. Show the operator a completion summary with returned, new unique, duplicate, possible duplicate, and top-up counts.
+
+This correction means a completed Lead run is successful only when it has produced the requested number of database-unique, unassigned customers, or when it records a clear terminal shortage reason after top-up attempts. The old "reuse completed pool" action is removed from the runtime decision contract: completed scopes can provide denylist context only, not assigned customer rows.
+
+## 8. P2.5 — Lead Reconciliation, Screening, And Accio Durable Workflows
+
+### 8.0 Lead Result-Level DB Reconciliation
+
+Status: Implemented and verified on 2026-06-21. This was the first P2.5 task before Screening fan-out. It closes the gap found during real two-operator testing: partially overlapping search scopes can return overlapping buyers even when pre-run `scope_similarity` does not trigger. It now performs two database-backed protections: pre-search tenant denylist context to reduce wasted search/fetch work, then completion-time reconciliation before visible customer writes.
+
+Required behavior:
+
+1. Treat `targetCount` as the number of database-unique, unassigned customers required for the current request. A normal repeated same-scope request keeps the full requested count; only internal auto top-up requests pass a missing-count remainder.
+2. Do not expose or assign duplicate customers in the employee list, even when the duplicate belongs to the same employee.
+3. Do not expose or assign another employee's existing customer to the current employee by "reusing" a completed pool.
+4. Query the CBE database before hidden search starts and pass existing tenant identity keys to the employee as `existing_identity_keys`, using tenant-level `lead_identities`/`lead_candidates` as the pre-search exclusion source.
+5. The employee must avoid those identities while generating queries, reviewing search results, and deduplicating candidates.
+6. Query the CBE database again before candidate writes, using tenant-level `lead_identities`, `lead_candidates`, `lead_run_results`, and `lead_allocations` as the authoritative dedupe reference.
+7. Record duplicate candidates in run result/audit tables, but do not count them as successful customer output.
+8. If reconciliation leaves fewer unique new customers than requested for the current request, automatically create a top-up run for the missing count.
+9. Use database-derived denylist context for top-up: domains, business email domains, normalized company-name/country keys, and already-covered search queries when available.
+10. Update Employee task completion copy and Admin monitoring so they show returned candidates, newly assigned unique customers, duplicates skipped, possible duplicates, and top-up status.
+
+The recommended first implementation can keep `lead_allocations` simple: a candidate becomes allocated when it is written into an employee's actionable customer list. A later manager workflow can add explicit transfer/share semantics, but the default path must keep ownership unique.
+
+### 8.1 Screening Execution Shape And API Scope
+
+The 2026-06-20 final pressure report supersedes the earlier idea that Screening could safely accept a large batch in one AgentChat session. The production shape is:
+
+1. A user may submit a batch of up to 10 targets from the UI.
+2. The server creates one parent `agent_runs` row plus a `screening_batches` row.
+3. The scheduler creates one child `agent_runs` row per target by default.
+4. Each child run calls `cbe-buyer-screening` with exactly one company/domain/email target.
+5. Parent progress is the aggregate of child runs; a failed child does not fail or rerun the entire batch.
+6. Optional `batch3_experiment` may pack up to 3 targets only when `CBE_SCREENING_ALLOW_BATCH3=true`, paid checks are disabled or already budgeted, and global active load is low.
+7. Batch sizes of 5 or 10 must not be sent as one Screening prompt in the production path.
+
+The API source scope for each Screening child run is:
+
+| Layer | Default API/source scope | Call rule |
+|---|---|---|
+| Registry / legal identity | GB Companies House API or official public page; US SEC only for public-company/SEC-filer checks; France/Japan/Korea/Brazil official APIs only after adapter/access proof; Germany/Spain/Italy/Mexico official web/manual routes or OpenCorporates fallback. | Use country-aware routing. Missing unsupported registry APIs are `unavailable_api` or `pending_human_input`, not fraud evidence. |
+| Domain / email foundation | RDAP, MX, SPF, DMARC, free/disposable/role-inbox flags, and official-site same-domain contact-email discovery. | Always low-cost first. RDAP.org is low-volume only; high-volume production should move to IANA bootstrap RDAP or a budgeted WHOIS/RDAP provider. |
+| Paid email validation | Abstract and Hunter email verifier only. | Call at most once per target, only when the operator enables paid validation and a supplied or official-site same-domain email exists. Do not paid-validate random third-party or free-provider emails discovered by search. |
+| Public footprint | OpenClaw `web_search` and bounded `web_fetch` of public official pages returned by search or supplied by the operator. | Do not fetch protected/login-gated pages. Do not `web_fetch` Wikipedia for this workflow because the pressure report found it to be a reliable failure source in the sandbox. |
+| Trade/customs evidence | ImportYeti for current paid US import evidence profile; Volza only after the customer enables a paid plan and budget; public-web fallback when paid data is off. | Paid trade search is at most once per target with `max_records <= 5` and `max_paid_spend_usd <= CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET`. |
+| Financial/public filings | SEC summary fields, official annual reports found through public search, and registry filing history where available. | Do not load raw SEC `submissions` history into prompts or final markers; keep bounded summaries only. |
+| Behavior evidence | Accio summaries, approved memory facts, or supplied sales notes. | Only applies when conversation/history exists. Cold leads keep this block `not_applicable`. |
+| Alibaba/ICBU seller-owned data | `icbu-openapi` future read-only MCP after seller authorization/access proof. | Not part of the default P2.5 Screening path. Missing ICBU access is neutral. |
+| Sales/enrichment/contact databases | Apollo, broad Hunter Domain Search/Finder, ImportGenius/Panjiva enterprise APIs, Surepass/Karza, and similar paid enrichment. | Out of default scope. Add only through a separate paid-source approval and budgeted adapter. |
+
+Per-target prompt/tool contract:
+
+- Registry and domain/email checks run before paid checks.
+- Paid email validation and paid trade search each have a maximum of one call per target.
+- SEC lookup reads only identity/listing/summary fields and must drop or summarize large filing history.
+- Provider errors, 401/403/429, missing keys, disabled budgets, and unsupported countries are coverage states, not negative evidence.
+- Every evidence-bearing result must carry `source_type`, `source_url`, `fetched_at`, confidence, provider/status, and cost/price posture where known.
+- The child run should emit one `SCREEN_REPORTS_JSON_START` / `SCREEN_REPORTS_JSON_END` array containing exactly one report object. Marker recovery remains useful, but the child run should be treated as failed if no traceable source URL/timestamp can be recovered for evidence-bearing claims.
+
+### 8.2 Screening Persistence
 
 When Screening completes:
 
@@ -989,6 +1177,13 @@ When Screening completes:
 5. Update linked customer row status through the projection.
 6. Add `api_call_ledger` rows for observed external calls where not already backfilled by `sentura-cost`.
 7. Add an `audit_events` row with source count, data tier, and session key reference.
+
+For fan-out batches:
+
+- Each child run writes its own target/report/evidence/score blocks.
+- The parent batch run stores aggregate counts: total, queued, running, completed, failed, retryable, paid calls used, and estimated/observed spend.
+- Retrying a failed child must not rerun completed siblings.
+- Parent notifications should link to the customer list with affected child target IDs, while detail drawers can show per-child evidence and failure reasons.
 
 Screening failures:
 
@@ -1008,10 +1203,12 @@ Agent optimization after persistence:
 
 - Keep MCP outputs bounded.
 - Prefer official-source-first order for GB/US.
+- Keep one target per Screening session by default; do not use batch-5 or batch-10 prompts in the production path.
+- Keep paid email and paid trade calls idempotent per target. The scheduler/store should prevent repeated paid calls after a child run is retried unless the user explicitly approves a fresh paid lookup.
 - Add more country registry adapters only after DB evidence model is stable.
 - Add Alibaba internal-data evidence only after signed-seller API access is proven.
 
-### 8.2 Accio Persistence And Memory Approval
+### 8.3 Accio Persistence And Memory Approval
 
 When a user uploads or imports Accio JSON:
 
@@ -1034,39 +1231,47 @@ Memory approval:
 
 ## 9. P2.6 — Multi-User, Backpressure, And Load Smoke
 
-Initial limits from `DESIGN.md §9`:
+Initial limits from `DESIGN.md §9`, recalibrated by the 2026-06-19/20 cloud pressure reports:
 
 | Workload | Initial limit |
 |---|---:|
 | Concurrent user web sessions | 50-80 |
-| Active Lead Discovery runs | 8-12 |
-| Active Screening runs | 8-12 targets or 3-5 batches |
-| Active Accio imports | 3-5 files |
+| Active OpenClaw CBE sessions across all three employees | 24 soft / 32 hard on the current single-box pilot profile |
+| Active Lead Discovery runs | 8-12 `find-10` sessions |
+| Active Screening runs | 12 single-target child runs by default; batch-3 only behind feature flag; no batch-5/batch-10 production sessions |
+| Active Accio imports | 3 files by default, 5 only after soak validation |
 | Browser/Playwright tasks | 0 normally; max 1-2 for self-provisioning |
 | Model calls | Provider quota minus 20% headroom |
 
 Backpressure method:
 
 - Add a small queue layer backed by `agent_runs.status = queued`.
-- If active count exceeds the per-kind limit, create queued run and show `排队中`.
+- If active count exceeds the global or per-kind soft limit, create queued run and show `排队中`.
+- Never exceed the hard active cap for normal customer traffic. A pressure-test profile may raise the cap only with explicit operator approval and a separate result label.
 - Use a worker loop or route-triggered drain for first implementation.
 - If multiple server processes are introduced, use PostgreSQL row locks and `SKIP LOCKED` for queue claiming.
+- Respect provider/source rate limits separately from OpenClaw session slots. For example, throttle Companies House near 600 requests / 5 minutes, SEC under 10 requests / second with a valid User-Agent, and RDAP.org under 10 requests / 10 seconds or move to an IANA-bootstrap/paid RDAP provider for production volume.
 
 Load smoke:
 
 1. Seed 50 users under tenant `cross-border-ecommerce`.
 2. Open or simulate 50 dashboard sessions.
-3. Start 10 Lead requests with 3 duplicate scopes and 2 near-duplicate scopes.
-4. Start 5 Screening batches with mixed completed/failed provider fixtures.
+3. Start 10 Lead `find-10` requests with 3 duplicate scopes and 2 near-duplicate scopes.
+4. Start 5 Screening batches totaling at least 25 targets; verify they split into single-target child runs and queue above active limits.
 5. Start 3 Accio imports with fixture payloads.
-6. Assert:
+6. Run one controlled C=40/48 pressure profile after the queue is implemented; verify excess tasks queue instead of causing Gateway RSS threshold failures.
+7. Assert:
    - exact duplicate Lead scopes launch one OpenClaw session only;
    - joined users receive shared progress;
    - same lead identity is not duplicated in the tenant pool;
+   - no production Screening path sends 5 or 10 targets to one `cbe-buyer-screening` session;
+   - a 10-target Screening request creates one parent task and 10 child target runs;
+   - child failures are retryable without rerunning successful siblings;
    - task notifications appear for the correct user;
    - API cost ledger rows are tenant/user/agent-run attributable;
+   - paid email and trade calls are capped to one each per target unless explicitly re-approved;
    - p95 dashboard API latency is recorded;
-   - provider throttling produces coverage gaps or queued status, not crashes.
+   - provider throttling produces coverage gaps, retryable child failures, or queued status, not crashes.
 
 ## 10. Implementation File Plan
 
@@ -1076,6 +1281,7 @@ Expected new or changed files:
 sentura/lib/cross-border-store/
   migrations/001_initial_schema.sql
   migrations/002_lead_scope_coordinator.sql
+  migrations/004_workload_queue_and_screening_fanout.sql
   migrate.ts
   db.ts
   schemas.ts
@@ -1087,7 +1293,9 @@ sentura/dashboard/src/lib/cross-border-store/
   customers.ts
   lead-runs.ts
   lead-coordinator.ts
+  workload-queue.ts
   screening.ts
+  screening-batches.ts
   accio.ts
   tasks.ts
   notifications.ts
@@ -1130,7 +1338,7 @@ scripts/test-cross-border-phase2-store.ts
 scripts/test-cross-border-phase2-concurrency.ts
 scripts/test-cross-border-agents.ts
 docs/TESTS.md
-docs/tests/tests-cross-border-ecommerce.md
+docs/tests/tests-cross-border-phase2.md
 ```
 
 Do not create new top-level agent workspace markdown files beyond the 8 native OpenClaw files.
@@ -1146,9 +1354,9 @@ Phase 2 implementation tests:
 | CE18 — DB migrations/store | `scripts/test-cross-border-phase2-store.ts` | Migrations run idempotently; seed tenant/users created; store writes/reads all major record families; no secrets in output. |
 | CE19 — P2.2 typed Dashboard store/API routes | `scripts/test-cross-border-phase2-store.ts` + type/lint/build | Store modules and Employee/Admin route handlers exist; Zod marker validation gates writes; Lead/Screening/Accio live PostgreSQL round-trip succeeds; parse failures mark failed `agent_runs`. |
 | CE20 — P2.3 Employee DB-backed UI migration | `scripts/test-cross-border-phase2-store.ts` + `scripts/inspect-cross-border-live-db.sql` + type/lint/build + Browser | Employee home/customers/memory render from DB; `localStorage` persists drafts/cache only; hidden Lead/Screening/Accio runs create/complete/fail DB task projections; notifications read terminal `agent_runs`; manual DB inspection queries match the physical schema. |
-| CE21 — P2.4 Lead coordinator concurrency | `scripts/test-cross-border-phase2-concurrency.ts` | Two exact same-scope requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed pool reuse and top-up denylist work. |
-| CE22 — P2.5 Screening/Accio durable workflow | Store tests + Browser | Screening report/evidence detail UX, retry/recovery, Accio approval-to-memory promotion, and durable Screening handoff consumption work. |
-| CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead runs, 5 Screening batches, 3 Accio imports; limits/backpressure/cost/audit recorded. |
+| CE21 — P2.4 workload coordinator and Lead dedupe | `scripts/test-cross-border-phase2-concurrency.ts` | PASS 2026-06-21: global active-task soft/hard caps queue excess work; two exact same-scope Lead requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed scopes no longer reuse assigned rows; normal repeated same-scope requests keep the full current-request new-customer target; every executable Lead run carries tenant DB pre-search denylist; explicit top-up denylist and completion-time DB duplicate skipping work. |
+| CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; a 10-target Screening request creates one parent task and single-target child runs; no production batch-5/batch-10 Screening session starts; paid email/trade calls are capped once per target; Screening report/evidence detail UX, retry/recovery, Accio approval-to-memory promotion, and durable Screening handoff consumption work. |
+| CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead `find-10` requests, 5 Screening batches split into child runs, and 3 Accio imports; 24/32/48 active-task behavior, limits/backpressure/cost/audit recorded. |
 
 Minimum verification after each implementation slice:
 
@@ -1181,12 +1389,15 @@ Phase 2 is complete when:
 2. Two users submitting the same Lead Discovery scope join one shared run instead of launching duplicate `cbe-lead-discovery` sessions.
 3. Lead identity dedupe prevents the same company/domain from appearing as separate active buyer identities in the same tenant.
 4. Top-up mode asks the employee only for missing unique leads and passes an `existing_identity_keys` denylist.
-5. Screening reports persist all evidence and score blocks with source URLs/timestamps.
-6. Accio raw uploads are stored outside vector memory; only approved concise memory facts can be promoted.
-7. Every employee run has `tenant_id`, `user_id`, `agent_id`, `session_key`, `status`, timestamps, cost references, and audit references.
-8. Failed runs are visible and retryable with real backend errors where available.
-9. API calls are visible through `sentura-cost` and/or `api_call_ledger` without fabricating spend.
-10. Typecheck, build, CBE static checks, store tests, coordinator tests, and MCP tests pass.
+5. A 10-target Screening submission never becomes one batch-10 AgentChat session; it creates a parent task and single-target child runs, with optional batch-3 only behind an explicit feature flag.
+6. Screening reports persist all evidence and score blocks with source URLs/timestamps.
+7. Paid Screening email and trade checks are capped per target, visible in cost/audit records, and not repeated on retry unless the user explicitly approves a fresh paid lookup.
+8. Active CBE tasks above the soft limit become queued, and normal traffic never exceeds the hard active cap for the current deployment profile.
+9. Accio raw uploads are stored outside vector memory; only approved concise memory facts can be promoted.
+10. Every employee run has `tenant_id`, `user_id`, `agent_id`, `session_key`, `status`, timestamps, cost references, and audit references.
+11. Failed runs are visible and retryable with real backend errors where available.
+12. API calls are visible through `sentura-cost` and/or `api_call_ledger` without fabricating spend.
+13. Typecheck, build, CBE static checks, store tests, coordinator tests, and MCP tests pass.
 
 ## 13. Risks And Mitigations
 
@@ -1196,15 +1407,17 @@ Phase 2 is complete when:
 | Coordinator starts AgentChat before acquiring lease | Enforce transaction-first start order and test exact duplicate submissions. |
 | DB writes leak raw Accio chats into vector memory | Store raw files separately; persist redacted text/hash rows; require memory-fact approval before vector write. |
 | External provider costs are incomplete | Keep observed calls visible; mark free/included/unpriced accurately; do not invent USD for account-plan services. |
-| Long Screening context causes model timeout again | Keep MCP outputs bounded, store partial evidence, and surface backend errors directly in `agent_runs`. |
+| Long Screening context causes model timeout again | Default to one target per Screening session, block batch-5/batch-10 in production, keep MCP outputs bounded, store partial evidence, and surface backend errors directly in `agent_runs`. |
+| Retry accidentally repeats paid email/trade calls | Store per-target paid-call state and require explicit re-approval before a retry can call Abstract/Hunter/ImportYeti/Volza again. |
+| 48-style pressure trips Gateway RSS threshold | Queue above the 24 soft cap and do not exceed the 32 hard cap until a C=40/48 pressure profile and soak test pass on the target deployment. |
 | UI becomes too technical for sales users | Keep technical IDs in detail drawers; visible labels remain Simplified Chinese business wording. |
 
 ## 14. Immediate Next Task
 
-P2.1, P2.2, and P2.3 are complete. Next start P2.4:
+P2.1, P2.2, P2.3, P2.4, and P2.5 Lead result-level DB reconciliation are complete. Continue P2.5 with:
 
-1. Add the Lead Discovery run-scope coordinator before a new `cbe-lead-discovery` OpenClaw session starts.
-2. Enforce exact-scope reuse with one active run and multiple memberships.
-3. Add near-duplicate detection and user choice handling.
-4. Implement completed-pool reuse and top-up denylist behavior.
-5. Extend CE21 concurrency coverage before starting P2.5 durable Screening/Accio workflow polish.
+1. Implement Screening parent task + single-target child-run fan-out using `screening_batches` and `screening_batch_targets`.
+2. Add queue draining/claim behavior around queued `agent_runs` so queued work can start outside the original browser request path.
+3. Keep production Screening batch-5 and batch-10 blocked; allow batch-3 only behind `CBE_SCREENING_ALLOW_BATCH3=true`.
+4. Persist per-target paid email/trade call state and require explicit re-approval before paid retry repeats a lookup.
+5. Finish durable Screening/Accio workflow polish: report/evidence detail UX, retry/recovery, approval-to-memory promotion, and durable Screening handoff consumption.

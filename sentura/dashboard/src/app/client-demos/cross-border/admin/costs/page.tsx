@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, Loader2, RefreshCw, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +67,7 @@ function highlightFrameClass(active: boolean) {
     : "";
 }
 
-export default function AdminCostsPage() {
+function AdminCostsContent() {
   const searchParams = useSearchParams();
   const [range, setRange] = usePersistentUiState<RangeKey>(
     ADMIN_COST_RANGE_STORAGE_KEY,
@@ -412,5 +412,13 @@ export default function AdminCostsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function AdminCostsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminCostsContent />
+    </Suspense>
   );
 }

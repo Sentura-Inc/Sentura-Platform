@@ -1,6 +1,6 @@
 # 跨境电商 API Key 获取与 OpenClaw 接入流程
 
-> 适用范围：Cross-border e-commerce / 跨境电商 Phase-1，特别是 `cross-border-intel` MCP server、Marketing 的 `web_search`、Screening 的背调工具，以及后续三个员工工作区接入。
+> 适用范围：Cross-border e-commerce / 跨境电商 Phase-1/Phase-2，特别是 `cross-border-intel` MCP server、Marketing 的 `web_search`、Screening 的背调工具，以及后续三个员工工作区接入。
 >
 > 重要边界：不要把真实 API key 写进本仓库、聊天记录、员工 workspace 文件或 `openclaw.json` 明文。真实 key 只放在 OpenClaw 运行机的 `~/.openclaw/.env`，或 OpenClaw/Sentura secret store 中。本文只写占位符。
 
@@ -121,7 +121,7 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | `COMPANIES_HOUSE_API_KEY` | `cross-border-intel` 英国公司注册查询 | 可选但强烈建议 | Companies House Developer Hub 创建 app/key。 |
 | `OPENCORPORATES_API_KEY` | `cross-border-intel` 全球公司注册付费 fallback | 可选，付费 | OpenCorporates API 账号/计划获取。Phase-1 默认不用。 |
 | `ABSTRACT_API_KEY` | `cross-border-intel` 可选邮箱验证 | 可选 | Abstract Email Validation API 控制台创建。 |
-| `HUNTER_API_KEY` | 预留邮箱/公司 enrichment | 可选 | Hunter API overview/API keys 页面创建。当前 MCP server 保留变量，后续扩展使用。 |
+| `HUNTER_API_KEY` | `cross-border-intel` 可选邮箱验证 | 可选 | Hunter API overview/API keys 页面创建。当前 MCP server 会在 `enable_paid_validation=true` 且有 key/邮箱时调用 Hunter Email Verifier；Domain Search/Finder 不属于默认背调路径。 |
 | `VOLZA_API_KEY` | `cross-border-intel` 付费贸易数据 | 可选，付费 | Volza API 需要销售/控制台开通。必须配合预算开关。 |
 | `IMPORTYETI_API_KEY` | `cross-border-intel` 付费/授权 US import 数据 | 可选，付费或授权 | ImportYeti API/pricing 获取。必须配合预算开关。 |
 | `SEC_USER_AGENT` | `cross-border-intel` SEC EDGAR 查询 | 推荐，不是 key | 写一个可识别的产品/组织/联系方式字符串。SEC public data API 不需要 key。 |
@@ -129,6 +129,24 @@ setup 是幂等的。新增或修改跨境电商 env 后可以重跑；脚本会
 | `CBE_ENABLE_PAID_TRADE_DATA` | 付费贸易数据总开关 | 付费数据时需要 | `true`/`1` 才会尝试 Volza/ImportYeti。 |
 | `CBE_MAX_PAID_SPEND_USD` | 付费贸易数据预算上限 | 付费数据时需要 | 默认 `0`，建议演示期保持 `0`。 |
 | `CBE_INTEL_REQUEST_TIMEOUT_MS` | MCP HTTP 超时 | 可选 | 默认 `30000`。 |
+
+### 4.1 国家/地区背调路线和 API 优先级
+
+这张表把用户提供的 API 价格/压力测试结论与 2026-06-21 网络检索后的官方资料合并，作为 Screening 背调 Agent 的国家路由基线。当前 `cross-border-intel` 已实现 GB Companies House、US SEC、RDAP/DNS、Abstract/Hunter 邮箱验证、ImportYeti/Volza 付费贸易、OpenCorporates fallback；其余国家 API 是后续 adapter 准备项，不能在没有代码和测试前写成当前能力。
+
+| 国家/地区 | 最佳背调路径 | API / 账号准备 | 当前接入状态 |
+|---|---|---|---|
+| 英国 GB | Companies House API 搜索和 profile 是第一优先级；失败时退到官方 public Companies House 页面，再用 public web 辅证官网/地址/联系人。 | 申请 `COMPANIES_HOUSE_API_KEY`；Basic auth 使用 API key 作为用户名、空密码；按 600 requests / 5 minutes 节流。 | 已实现，强烈建议 demo/生产都配置。 |
+| 美国 US | 私营进口商：州注册页、官网、RDAP/DNS、ImportYeti/Volza 贸易证据。上市公司/SEC filer：SEC `company_tickers.json` + `submissions/CIK##########.json` 摘要。 | `SEC_USER_AGENT` 必填式推荐；SEC 不需要 key，但按 10 requests/sec fair access 节流。ImportYeti/Volza 仍需预算开关。 | SEC 和 ImportYeti/Volza 已实现。SEC `not_found` 不是负面证据。 |
+| 法国 FR | 先用 API Recherche d'Entreprises 查 SIREN/SIRET、法人名称、地址和状态；需要更高置信/授权数据时再走 API Entreprise habilitation。 | Public search route 可无 key，但需按 IP/ASN 限流；API Entreprise 需要申请 habilitation/token。 | Planned adapter。当前只通过 web_search 找官方页或 OpenCorporates fallback。 |
+| 日本 JP | 国税庁法人番号公表サイト确认 13 位 Corporate Number、名称、地址、变更；必要时人工获取法务局登記事项证明。 | Web-API 需要免费 application ID；只使用法人番号 Web-API 时还需按国税庁说明发邮件说明用途。 | Planned adapter。当前只通过官方页面/公共搜索采证。 |
+| 韩国 KR | OpenDART 适合上市/披露公司；小型贸易商仍要补官网、域名、公共足迹和贸易证据。 | 申请 OpenDART 40 位 `crtfc_key`；接口参数名为 `crtfc_key`，超限返回 `020` 等状态。 | Planned adapter。不要把无披露记录当成负面证据。 |
+| 巴西 BR | 免费/人工：Receita Federal / Redesim CNPJ 查询和证明；自动化/规模化：Serpro Consulta CNPJ 合同 API；BrasilAPI 只能作为 public aggregation 辅助，不标 official_api。 | Serpro 需要产品合同、客户区/证书流程和 key；公共 CNPJ 页面可能有人机校验，不做自动抓取假设。 | Planned adapter。当前只记录官方页或 public_api 覆盖缺口。 |
+| 德国 DE | Unternehmensregister / Handelsregister 官方入口确认公司名、登记号、公开文件；对 GmbH/AG 优先找 register number、城市和官网 footer 一致性。 | 默认没有可直接使用的自助 REST key；规模化时用 OpenCorporates 或客户采购的商业 KYB API。 | 当前只走官方网页/人工路径和 public web。 |
+| 西班牙 ES | Registro Mercantil Central / provincial registry / BORME 官方公告组合确认公司名、CIF、董事/登记事项。 | 未签约用户按官方流程信用卡支付；签约用户使用 RMC 分配密码。不要假设免费 REST API。 | 当前只走官方网页/人工路径和 public web。 |
+| 意大利 IT | Registro Imprese / InfoCamere 查企业基础资料、PEC、REA、visura/annual accounts；深度报告通常是 Telemaco/API 合同。 | InfoCamere 官方 API 需下载样例并联系专家/签约，后续 adapter 可用 `IT_REGISTRO_IMPRESE_API_KEY` 类 env。 | Planned adapter。当前只走官方网页/人工路径。 |
+| 墨西哥 MX | SIGER/RPC 确认商业登记；SAT RFC 只在 operator 提供 RFC 时做税号有效性验证，不能替代公司注册证明。 | RPC 是官方 web/窗口/在线流程；SAT RFC 有官方验证入口但不是公开公司库。商业自动 API 需单独采购。 | 当前只走官方网页/人工路径；RFC 缺失是 `pending_human_input`。 |
+| 多国 fallback | OpenCorporates 用于没有低成本官方 API、官方页面难解析或需要跨国统一检索时；必须保留 jurisdiction/source provenance。 | 申请 `OPENCORPORATES_API_KEY` 或商业计划；按套餐节流，最高不要超过服务条款的 QPS 限制。 | 已有 fallback adapter，但默认不买、不启用。 |
 
 ## 5. 每个 API Key 的获取流程
 
@@ -285,7 +303,9 @@ ABSTRACT_API_KEY=REPLACE_ME
 
 ### 5.7 `HUNTER_API_KEY`
 
-用途：邮箱验证、Domain Search、Email Finder、公司 enrichment 的后续扩展。当前 MCP server 已保留 env 变量，但 Phase-1 工具默认没有直接调用 Hunter。
+用途：邮箱验证的可选付费增强。当前 MCP server 会在 `cbe_intel_email_domain_check` 收到 `enable_paid_validation=true`、请求中有邮箱、且 `HUNTER_API_KEY` 已配置时调用 Hunter Email Verifier。
+
+Domain Search、Email Finder、公司 enrichment 属于销售情报扩展，不是默认背调路径；需要单独预算和审批后再开放。
 
 获取流程：
 
@@ -301,7 +321,8 @@ HUNTER_API_KEY=REPLACE_ME
 注意：
 
 - Hunter 的 Email Verifier、Domain Search、Email Finder 计费单位不同。
-- 如果后续扩展启用 Hunter，必须给工具加预算阈值和输出成本字段。
+- 默认背调只允许 Email Verifier；Domain Search/Finder 不应由 `cbe-buyer-screening` 自动调用。
+- Phase 2 的生产规则是每个背调目标最多一次 paid email validation，重试时不能自动重复扣费，除非用户重新批准。
 
 ### 5.8 `VOLZA_API_KEY`
 
@@ -352,6 +373,8 @@ CBE_MAX_PAID_SPEND_USD=0
 
 启用方式同 Volza。没有预算开关时，MCP server 不应调用付费贸易 API。
 
+Phase 2 压测使用过 `CBE_ENABLE_PAID_TRADE_DATA=true` 且单目标 `max_paid_spend_usd=1` 的配置来验证付费路径。生产默认仍应保持 `false/0`，只在客户明确授权、预算通过、并能记录 `api_call_ledger` 后开启。
+
 ### 5.10 `SEC_USER_AGENT`
 
 用途：SEC EDGAR public data API 的识别头。SEC public data API 不需要 key，但 automated access 需要遵守 fair access 规则。
@@ -385,6 +408,79 @@ SEC_USER_AGENT=SenturaCrossBorderIntel/0.1 ops@example.com
 - `cbe_intel_domain_rdap_lookup` 使用 `https://rdap.org/domain/{domain}`。
 - RDAP.org 适合低频 demo。高频生产应改 IANA bootstrap client 或付费 RDAP provider。
 - `cbe_intel_email_domain_check` 用本机 DNS resolver 查 MX/TXT。
+
+### 5.12 后续国家注册源 adapter 的账号准备
+
+以下账号/密钥当前不属于 `cross-border-intel` 已实现 env，不要直接塞进 MCP `env` 块。它们用于客户采购和后续 adapter 开发排期；只有在对应 TypeScript adapter、Zod schema、MCP tests、budget/rate-limit 策略都落地后，才把 env 写入 setup 脚本和员工工具说明。
+
+#### France — API Recherche d'Entreprises / API Entreprise
+
+推荐用途：
+
+- `API Recherche d'Entreprises`：按公司名、SIREN/SIRET 做法国企业检索和基础身份确认。
+- `API Entreprise`：需要授权数据、文件或更正式业务用途时使用，适合客户能说明合法用途并完成 habilitation 的场景。
+
+注册/准备：
+
+1. 先用 `https://recherche-entreprises.api.gouv.fr/docs/` 确认公共 search endpoint 和限流。
+2. 如果只做公开企业检索，优先实现无 key adapter，并按官方限流节流。
+3. 如果需要 API Entreprise，打开 `https://entreprise.api.gouv.fr/developpeurs`，创建账号并为客户业务场景申请 habilitation。
+4. 审批后取得 token，计划 env 名可用 `FR_API_ENTREPRISE_TOKEN`。
+5. Adapter 必须读取 rate-limit headers、处理 `429` / `Retry-After`，并把 denied/unsupported 写成 `unavailable_api` 或 `pending_human_input`。
+
+#### Japan — National Tax Agency Corporate Number Web-API
+
+推荐用途：查法人番号、商号/名称、总部地址和变更基础信息。
+
+注册/准备：
+
+1. 打开 `https://www.houjin-bangou.nta.go.jp/webapi/`，阅读 Web-API terms。
+2. 通过国税庁说明的 application ID 发行流程申请免费 ID。
+3. 如果只使用法人番号系统 Web-API，按官网要求向 `invoice-web-api@nta.go.jp` 发送申请人名称、申请邮箱、仅使用法人番号系统 Web-API 的说明。
+4. 计划 env 名可用 `JP_CORPORATE_NUMBER_APP_ID`。
+5. 输出只能标记法人番号基础 3 信息和变更；不要把缺少英文名称或无深度财务资料当作风险信号。
+
+#### Korea — OpenDART
+
+推荐用途：韩国上市公司/披露主体的公告、企业概况和财务公开信息；不适合作为所有中小贸易商的注册证明。
+
+注册/准备：
+
+1. 打开 `https://opendart.fss.or.kr/` 或英文站 `https://engopendart.fss.or.kr/`。
+2. 注册会员并进入 `Authentication Keys Application` / `인증키 신청`。
+3. 获取 40 位认证 key；官方 API 参数名是 `crtfc_key`。
+4. 计划 env 名可用 `KR_OPENDART_API_KEY`。
+5. Adapter 至少要处理 `010` 未注册 key、`011` key 不可用、`020` 请求超限、`021` 可查询公司数超限等状态。
+
+#### Brazil — Receita Federal / Serpro CNPJ
+
+推荐用途：确认 CNPJ、企业名称、状态、地址、QSA/股东管理层等公开登记信息。
+
+注册/准备：
+
+1. 低频人工验证先使用 gov.br / Receita Federal / Redesim 的 CNPJ 查询和证明页面。
+2. 自动化或批量生产场景优先采购 Serpro `Consulta CNPJ` / `CNPJ API Query`。
+3. 按 Serpro 客户区流程完成合同、e-CNPJ/证书校验、产品开通和 key 生成。
+4. 计划 env 名可用 `BR_SERPRO_CNPJ_API_KEY` 或按 Serpro 实际 OAuth/client credential 命名。
+5. BrasilAPI 这类 no-key 聚合源只能标 `public_api` 或 `public_web`，不能标 `official_api`；用于补字段，不用于单独定责。
+
+#### Italy — Registro Imprese / InfoCamere
+
+推荐用途：意大利企业基础资料、PEC、REA、visura、财报和公司注册报告。
+
+注册/准备：
+
+1. 打开 `https://accessoallebanchedati.registroimprese.it/abdo/en/api?lang=en`。
+2. 下载 API 示例，确认需要的是 company details、company registration reports、annual accounts XBRL 等哪一类。
+3. 联系 InfoCamere/Registro Imprese 专家完成合同和访问方式确认。
+4. 计划 env 名可用 `IT_REGISTRO_IMPRESE_API_KEY`，但具体认证方式以合同文档为准。
+5. 在 adapter 之前，Screening 只应捕获 official registry page URL 或要求人工上传/粘贴 visura 摘要。
+
+#### Germany / Spain / Mexico — 当前默认人工/官方网页路径
+
+- Germany：使用 `https://www.unternehmensregister.de/en` / Handelsregister 官方入口。记录 register number、城市、法律形式、官网 footer 一致性；规模化 API 只能走客户采购的商业 KYB/OpenCorporates 路线。
+- Spain：使用 `https://www.rmc.es/`、Sede Registradores 和 BORME。未签约用户按官方流程付费；签约用户有 RMC 密码。没有 adapter 前不要自动声称 API 已验证。
+- Mexico：使用 SIGER/RPC 官方入口和 SAT RFC 验证。RFC 只证明税号有效性；没有 RFC 时向 operator 要求补充，标 `pending_human_input`。
 
 ## 6. 把 key 写入 OpenClaw
 
@@ -665,12 +761,30 @@ grep VOLZA_API_KEY ~/.openclaw/.env
 - OpenClaw MCP docs: https://docs.openclaw.ai/cli/mcp
 - OpenClaw tool/sandbox docs: https://docs.openclaw.ai/gateway/config-tools
 - Brave Search API: https://brave.com/search/api/
+- Brave Search API quickstart: https://api-dashboard.search.brave.com/documentation/quickstart
 - Companies House API get started: https://developer.company-information.service.gov.uk/get-started
+- Companies House API authentication: https://developer.company-information.service.gov.uk/authentication
+- Companies House API developer guidelines: https://developer.company-information.service.gov.uk/developer-guidelines
 - SEC EDGAR data APIs: https://www.sec.gov/edgar/sec-api-documentation
+- SEC EDGAR fair access: https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data
 - RDAP.org: https://about.rdap.org/
 - Abstract Email Validation API: https://docs.abstractapi.com/api/email-validation
 - Hunter API: https://help.hunter.io/en/articles/1970956-hunter-api
 - OpenCorporates API: https://api.opencorporates.com/documentation/API-Reference
+- OpenCorporates API authentication: https://knowledge.opencorporates.com/knowledge-base/api-authentication-authorisation/
+- France API Recherche d'Entreprises docs: https://recherche-entreprises.api.gouv.fr/docs/
+- France API Entreprise developer docs: https://entreprise.api.gouv.fr/developpeurs
+- Japan Corporate Number Web-API: https://www.houjin-bangou.nta.go.jp/webapi/
+- Japan Corporate Number Publication Site: https://www.houjin-bangou.nta.go.jp/en/
+- Korea OpenDART developer guide: https://engopendart.fss.or.kr/intro/main.do
+- Korea OpenDART disclosure search API: https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
+- Germany Company Register: https://www.unternehmensregister.de/en
+- Spain Central Mercantile Register access: https://www.rmc.es/infgeneral.aspx?lang=en
+- Italy Registro Imprese API: https://accessoallebanchedati.registroimprese.it/abdo/en/api?lang=en
+- Mexico SIGER/RPC: https://rpc.economia.gob.mx/siger2/xhtml/login/login.xhtml
+- Mexico RFC identifier note: https://org-id.guide/list/MX-RFC
+- Brazil Receita Federal CNPJ service: https://www.gov.br/pt-br/servicos/consultar-cadastro-nacional-de-pessoas-juridicas
+- Brazil Serpro CNPJ API: https://www.store.serpro.gov.br/cnpj-api-query/product/cnpjapi
 - Volza API: https://www.volza.com/p/api/
 - ImportYeti API: https://www.importyeti.com/yeti-api
 - Tavily quickstart: https://docs.tavily.com/documentation/quickstart

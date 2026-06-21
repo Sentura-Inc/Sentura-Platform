@@ -77,6 +77,16 @@
           language: "zh-CN",
           tenant: "cross-border-ecommerce",
           operationScope: "Low-cost live buyer background investigation with contextual scoring",
+          executionPolicy: {
+            defaultMode: "single_target_fanout",
+            maxTargetsPerSession: 1,
+            allowBatch3Experiment: false,
+            paidEmailValidationMaxCallsPerTarget: 1,
+            paidTradeSearchMaxCallsPerTarget: 1,
+            paidTradeMaxSpendUsdPerTarget: 0,
+            paidTradeMaxSpendUsdPerApprovedTarget: 1,
+            blockBatch5Plus: true,
+          },
           allowedActions: [
             "lead_batch_screening",
             "manual_input_screening",

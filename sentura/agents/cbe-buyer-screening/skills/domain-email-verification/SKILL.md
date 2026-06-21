@@ -17,6 +17,7 @@ Use when a target has website, domain, email, or a contact candidate from Market
    - the best same-domain public contact email found from the official website when paid validation is enabled,
    - `domain` when no email is available,
    - `enable_paid_validation=true` only when the operator enabled paid/optional validation.
+   - Do not make more than one paid validation pass for the same target unless the retry request explicitly says a fresh paid lookup was approved.
 5. If paid validation is enabled but no same-domain email is found, still run the domain-only DNS check and record `direct_contact_validation` as `pending_human_input`.
 6. Interpret free-provider email carefully:
    - Free email plus verified company domain absent is a risk signal.

@@ -185,6 +185,32 @@ export async function failEmployeeTask(
       throw new CbeStoreError(404, "task_missing", "CBE task could not be failed.");
     }
 
+    if (row.task_kind === "lead") {
+      await client.query(
+        `
+          update lead_runs
+          set status = 'failed'
+          where tenant_id = $1
+            and agent_run_id = $2
+            and status in ('queued', 'running')
+        `,
+        [context.tenantId, taskId],
+      );
+      await client.query(
+        `
+          update lead_discovery_scopes
+          set
+            status = case when produced_unique_count > 0 then 'completed' else 'failed' end,
+            active_agent_run_id = null,
+            locked_until = now(),
+            updated_at = now()
+          where tenant_id = $1
+            and active_agent_run_id = $2
+        `,
+        [context.tenantId, taskId],
+      );
+    }
+
     await createAgentRunActivityEvent(client, context, {
       agentRunId: taskId,
       agentId: row.agent_id,
@@ -284,6 +310,19 @@ export async function cancelEmployeeTask(
           where tenant_id = $1
             and agent_run_id = $2
             and status in ('queued', 'running')
+        `,
+        [context.tenantId, taskId],
+      );
+      await client.query(
+        `
+          update lead_discovery_scopes
+          set
+            status = case when produced_unique_count > 0 then 'completed' else 'expired' end,
+            active_agent_run_id = null,
+            locked_until = now(),
+            updated_at = now()
+          where tenant_id = $1
+            and active_agent_run_id = $2
         `,
         [context.tenantId, taskId],
       );

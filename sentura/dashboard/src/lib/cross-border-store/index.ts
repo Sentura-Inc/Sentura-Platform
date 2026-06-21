@@ -16,3 +16,4 @@ export * from "./screening";
 export * from "./session";
 export * from "./tasks";
 export * from "./tenant-context";
+export * from "./workload-coordinator";

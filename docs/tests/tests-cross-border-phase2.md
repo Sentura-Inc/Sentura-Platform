@@ -8,12 +8,18 @@ Detailed test cases for Phase 2 of the mobile-accessory Cross-border e-commerce 
 
 ## CE17 — Cross-Border Phase 2 Execution Plan
 
-Status: PASS (2026-06-16; rechecked 2026-06-17)
+Status: PASS (2026-06-16; rechecked 2026-06-17; report-driven concurrency/API-scope design updated 2026-06-21)
 
 Scope:
 
 - `跨境电商/PHASE-2.md`
 - `跨境电商/DESIGN.md`
+- `跨境电商/SCREENING.md`
+- `跨境电商/API_KEYS_OPENCLAW_SETUP.md`
+- `sentura/agents/cbe-buyer-screening/config.json5`
+- `sentura/agents/cbe-buyer-screening/TOOLS.md`
+- `sentura/agents/cbe-buyer-screening/skills/*/SKILL.md`
+- `sentura/mcp-servers/cross-border-intel/README.md`
 - `README.md`
 - `AGENTS.md`
 - `docs/TESTS.md`
@@ -63,6 +69,13 @@ Latest recheck, 2026-06-17:
 | CE17.17 | Admin monitoring boundary | Manual review | Admin is a customer-side supervisor role with read-mostly monitoring over live tasks, aggregate lead/screening lists, per-user lists, per-agent usage, statistics, costs, and failures; it cannot create AI employees or edit prompts/tools/model/provider/OpenClaw config. |
 | CE17.18 | Monitoring database design | Manual review | The schema includes `cbe_user_profiles` with `admin`/`operator`, `agent_runs` target/stage fields, `agent_run_activity_events`, and owner/team/visibility fields for Lead, Screening, Accio, handoff, and memory records. |
 | CE17.19 | Admin monitoring route planning | Static review | `PHASE-2.md` includes planned Admin monitoring route handlers and page files for `overview`, `live-tasks`, `customers`, `operators`, `operators/[id]`, and `agent-usage`. |
+| CE17.20 | Report-driven workload baseline | Manual review | `PHASE-2.md` incorporates the supplied final pressure reports: Lead `find-10` remains one session, Screening batch-10 is blocked, Screening default is single-target fan-out, and the current single-box pilot envelope is 24 soft / 32 hard active OpenClaw sessions. |
+| CE17.21 | Workload coordinator config | Static/manual review | `PHASE-2.md` defines target P2.4/P2.5 settings for global active-task caps, Lead active runs, Screening execution mode, batch-3 feature flag, paid email/trade per-target caps, Accio active imports, provider headroom, and queue leases. |
+| CE17.22 | Screening fan-out data model | Manual review | `PHASE-2.md` adds planned queue/fan-out schema for parent `agent_runs`, queue claim fields, `screening_batches`, and `screening_batch_targets`; retries do not rerun completed siblings. |
+| CE17.23 | Screening API scope | Static/manual review | `SCREENING.md` and the Screening workspace docs restrict default API scope to read-only public/official/paid-budgeted sources, defer Alibaba/ICBU and sales-enrichment APIs, cap paid email/trade calls once per target, and treat missing/denied providers as coverage gaps. |
+| CE17.24 | Screening employee config alignment | Static review | `sentura/agents/cbe-buyer-screening/config.json5`, `TOOLS.md`, and related skills state `single_target_fanout`, `maxTargetsPerSession=1`, batch-5+ block, batch-3 feature flag, and per-target paid call caps without granting mutation tools. |
+| CE17.25 | P2.6 load-smoke recalibration | Manual review | `PHASE-2.md` updates load smoke to 50 sessions, 10 Lead `find-10` requests, Screening batches split into child runs, 3 Accio imports, and a controlled C=40/48 queue validation rather than unbounded active-session starts. |
+| CE17.26 | Country-aware API runbook | Static/manual review | `API_KEYS_OPENCLAW_SETUP.md`, `SCREENING.md`, `registry-verification/SKILL.md`, and `cross-border-intel/README.md` distinguish implemented GB/US/RDAP/email/trade/OpenCorporates routes from planned France/Japan/Korea/Brazil/Italy adapters and Germany/Spain/Mexico official-page/manual routes; registration steps are documented without adding unimplemented env vars to MCP setup. |
 
 ## CE18 — Phase 2 P2.1 Business Database Foundation
 
@@ -259,22 +272,101 @@ Notes:
 - The local PostgreSQL seed used for Browser validation had no customer/memory/task rows, so the expected UI state was a DB-backed empty list, not demo fixture rows.
 - Manual DB inspection should use `scripts/inspect-cross-border-live-db.sql` or the Employee API projections. The physical tables intentionally do not duplicate every UI field as a same-named column.
 
-## CE21 — Lead Coordinator Concurrency
+## CE21 — Workload Coordinator And Lead Coordinator Concurrency
 
-Status: PEND
+Status: PASS (2026-06-21)
 
-Planned scope:
+Scope:
 
-- Exact same-scope Lead requests create one active OpenClaw run and multiple memberships.
-- Near duplicates offer choices.
-- Completed pool reuse and top-up denylist work.
+- `sentura/lib/cross-border-store/migrations/005_workload_queue_and_screening_batches.sql`
+- `sentura/dashboard/src/lib/cross-border-store/workload-coordinator.ts`
+- `sentura/dashboard/src/lib/cross-border-store/agent-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/lead-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/screening.ts`
+- `sentura/dashboard/src/lib/cross-border-store/accio.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/admin/costs/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/admin/high-value-customers/page.tsx`
+- `sentura/agents/cbe-lead-discovery/AGENTS.md`
+- `sentura/agents/cbe-lead-discovery/skills/lead-query-generation/SKILL.md`
+- `sentura/agents/cbe-lead-discovery/skills/lead-deduplication/SKILL.md`
+- `scripts/test-cross-border-phase2-concurrency.ts`
+- `scripts/test-cross-border-phase2-store.ts`
 
-## CE22 — Screening/Accio Durable Workflow
+Validation commands:
 
-Status: PEND
+```bash
+pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts
+CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm --dir sentura/dashboard exec tsc --noEmit
+CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm --dir sentura/dashboard build
+git diff --check
+find . -path './node_modules' -prune -o -path './openclaw/node_modules' -prune -o -path './.git' -prune -o \( -name RULES.md -o -name CONTEXT.md \) -print
+```
 
-Planned scope:
+Assertions:
 
+| # | Check | Method | Expected |
+|---|---|---|---|
+| CE21.1 | Queue schema | Static/live DB check | Migration `005_workload_queue_and_screening_batches.sql` adds `agent_runs.parent_agent_run_id`, `queue_priority`, `queued_at`, `lease_owner`, and `lease_until`. |
+| CE21.2 | Queue indexes | Static/live DB check | `agent_runs_queue_claim_idx` and `agent_runs_active_session_idx` exist. |
+| CE21.3 | Screening fan-out preparation | Static/live DB check | `screening_batches` and `screening_batch_targets` tables exist for P2.5 parent/child runs. |
+| CE21.4 | Config contract | Static review | Workload settings read `CBE_TASK_MAX_ACTIVE_TOTAL=24`, `CBE_TASK_MAX_ACTIVE_TOTAL_HARD=32`, `CBE_LEAD_MAX_ACTIVE_RUNS=12`, Screening/Accio caps, and queue lease env values on the server side. |
+| CE21.5 | Tenant admission lock | Static review | Workload admission uses a tenant-scoped PostgreSQL advisory transaction lock before counting active sessions. |
+| CE21.6 | Active-session counting | Static/live check | Active load counts only `running`/`polling` rows with non-null `session_key`, so joined business records do not inflate OpenClaw session caps. |
+| CE21.7 | Soft cap queueing | Live PostgreSQL check | With 24 active CBE sessions, a new Lead request creates a queued `agent_run` with no `session_key` and `coordinatorDecision.workloadStatus = "queued"`. |
+| CE21.8 | Lead scope fingerprint | Static review | Lead coordinator computes a canonical JSON scope and `sha256:` hash excluding user id and target count. |
+| CE21.9 | Exact duplicate join | Live PostgreSQL check | Two exact same-scope Lead requests create one active `agent_run`, two `lead_runs`, and two `lead_run_memberships`; the second response is `join_existing`. |
+| CE21.10 | Near duplicate choices | Live PostgreSQL check | Similar active scopes with score >= 0.75 return `offer_near_duplicate_choices` and no new `agent_run`. |
+| CE21.11 | Completed scope no-reuse | Live PostgreSQL check | A same-scope normal request after a completed run returns `start_new_run`, carries prior identity keys in the denylist, and asks for the full requested new-customer count instead of reusing or copying assigned rows. |
+| CE21.12 | Explicit top-up denylist | Live PostgreSQL check | An internal `run_mode = "top_up_unique_leads"` request after a short completed run returns `queue_top_up`, includes existing identity keys, and creates a top-up `lead_run` for the missing count only. |
+| CE21.13 | Lead completion DB reconciliation | Static/live check | Completed Lead runs pre-check the tenant DB before writing visible candidates, skip same/other-operator duplicates, record `items_produced`, `duplicate_leads`, `top_up_needed`, `missing_count`, `existing_identity_keys`, and release the scope active lease. |
+| CE21.14 | Lead pre-search DB denylist | Live PostgreSQL check | A brand-new executable Lead run queries tenant DB identities before hidden search starts and returns prior customer identity keys on `coordinatorDecision.denylist`, so the prompt can avoid already-found customers before spending search/fetch work. |
+| CE21.15 | Screening batch block | Static check | Production `createScreeningRun` calls `assertScreeningSessionShape` before `insertAgentRun`, blocking multi-target single-session runs unless explicitly feature-flagged. |
+| CE21.16 | Employee start gating and auto top-up | Static/typecheck | Employee Lead/Screening/Accio UI does not call hidden OpenClaw runner for queued, joined, or near-duplicate responses; executable Lead runs pass DB pre-search denylist into the hidden prompt, and Lead completion uses DB reconciliation to automatically launch bounded top-up rounds when unique saved customers are below the current request target. |
+| CE21.17 | Lead strict-target prompt | Static review | Hidden Lead prompt and Lead workspace skills support `run_mode = "top_up_unique_leads"`, `existing_identity_keys`, `already_covered_queries`, pre-search exclusion of tenant DB identities in every run mode, strict `target_count` net-new output semantics, over-collection before dedupe, and search-result evidence fallback when `web_fetch` is blocked. |
+| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 184/184; live store checks are 204/204; CBE agent checks are 394/394; Dashboard typecheck/build and repo hygiene pass. |
+
+Latest verification, 2026-06-21:
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 21/21 static checks.
+- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 38/38 static + live PostgreSQL checks after the strict new-customer target update.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 184/184.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 204/204.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 394/394.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev pnpm --dir sentura/dashboard build`: PASS. Build still prints the existing Next workspace-root warning caused by multiple lockfiles.
+- `git diff --check`: PASS.
+- Forbidden workspace file scan for `RULES.md`/`CONTEXT.md`: PASS, no output.
+
+## CE22 — Lead Reconciliation, Screening Fan-Out/API Scope, And Accio Durable Workflow
+
+Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Screening fan-out/API-scope and durable Accio workflow remain PEND.
+
+Implemented Lead scope:
+
+- Lead completion uses the database as the source of truth before visible customer writes.
+- Returned Lead candidates are normalized by domain/identity key before visible writes.
+- Duplicate candidates already owned by the same employee or another employee are not written into the requesting employee's actionable customer list.
+- Duplicate candidates are recorded in `lead_run_results` with reason metadata for audit/provenance.
+- Before every executable Lead search, the coordinator retrieves tenant DB identity keys and passes them into the hidden employee as `existing_identity_keys`; a normal repeated request still asks for the full requested new-customer count, and if reconciliation still produces fewer unique new customers than requested, the Employee UI starts bounded top-up rounds for the missing count using the expanded database-derived denylist.
+- Employee task completion summaries show returned candidates, new unique customers, duplicates skipped, missing count, and top-up status.
+
+Remaining scope:
+
+- A 10-target Screening request creates one parent task and single-target child runs.
+- No production path sends batch-5 or batch-10 prompts to `cbe-buyer-screening`.
+- Optional batch-3 is allowed only behind `CBE_SCREENING_ALLOW_BATCH3`.
+- Paid email and paid trade checks are capped once per target and require explicit re-approval on retry.
+- Default Screening API scope stays read-only and source/budget-gated.
+- Country-aware registry routing is documented and tested as a static contract before any new country adapter is exposed to agents.
 - Screening writes targets/reports/evidence/score blocks.
 - Accio writes import/conversations/redacted messages/summaries.
 - Memory facts require approval before promotion.
@@ -287,5 +379,6 @@ Status: PEND
 Planned scope:
 
 - 30-50 user readiness checks.
-- Queued/running task counts.
+- 24 soft / 32 hard active-task behavior and controlled C=40/48 queue validation on the target deployment.
+- Queued/running task counts across Lead, Screening child runs, and Accio imports.
 - Cost/audit/load-smoke records.

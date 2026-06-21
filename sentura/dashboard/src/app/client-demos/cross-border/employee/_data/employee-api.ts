@@ -74,6 +74,88 @@ interface ApiLeadRun {
   completedAt: string | null;
 }
 
+interface ApiLeadCandidate {
+  id: string;
+  companyName: string;
+  normalizedDomain: string | null;
+  country: string | null;
+  status: string;
+}
+
+interface ApiLeadSource {
+  id: string;
+  leadCandidateId: string;
+  sourceUrl: string | null;
+}
+
+export interface ApiLeadRunReconciliation {
+  requestedCount: number;
+  returnedCount: number;
+  newUniqueCount: number;
+  duplicateCount: number;
+  missingCount: number;
+  topUpNeeded: boolean;
+  identityDenylist: string[];
+  items: Array<{
+    rank: number;
+    identityKey: string;
+    leadIdentityId: string;
+    companyName: string;
+    normalizedDomain: string | null;
+    country: string | null;
+    status: "new_unique" | "duplicate_same_owner" | "duplicate_other_operator";
+    duplicateReason: string | null;
+    existingCandidateId: string | null;
+    existingOwnerUserId: string | null;
+    existingOwnerName: string | null;
+    savedCandidateId: string | null;
+  }>;
+}
+
+export interface ApiLeadCoordinatorDecision {
+  action:
+    | "start_new_run"
+    | "join_existing"
+    | "offer_near_duplicate_choices"
+    | "queue_top_up";
+  scopeId?: string;
+  leadRunId?: string;
+  agentRunId?: string;
+  activeAgentRunId?: string;
+  workloadStatus?: "running" | "queued";
+  availableCount?: number;
+  missingCount?: number;
+  denylist?: string[];
+  similarScopes?: Array<{
+    scopeId: string;
+    scopeHash: string;
+    similarity: number;
+    activeAgentRunId: string | null;
+    requestedTotal: number;
+    producedUniqueCount: number;
+    lockedUntil: string | null;
+  }>;
+}
+
+export interface CreateEmployeeLeadRunResponse {
+  agentRun?: ApiAgentRun;
+  leadRun?: ApiLeadRun;
+  coordinatorDecision: ApiLeadCoordinatorDecision;
+}
+
+export interface CompleteEmployeeLeadRunResponse {
+  agentRun: ApiAgentRun;
+  leadRun: ApiLeadRun;
+  candidates: ApiLeadCandidate[];
+  sources: ApiLeadSource[];
+  reconciliation: ApiLeadRunReconciliation;
+  topUp: {
+    scopeId: string;
+    missingCount: number;
+    denylist: string[];
+  } | null;
+}
+
 interface ApiAccioImport {
   id: string;
   agentRunId: string | null;
@@ -757,7 +839,7 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
     targetCount,
     maxResultsPerQuery,
   });
-  return jsonPost<{ agentRun: ApiAgentRun; leadRun: ApiLeadRun }>(
+  return jsonPost<CreateEmployeeLeadRunResponse>(
     "/api/client-demos/cross-border/employee/lead-runs",
     {
       query_config: {
@@ -768,6 +850,7 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
         max_results_per_query: maxResultsPerQuery,
       },
       target_count: targetCount,
+      run_mode: input.runMode ?? "new_scope",
       session_key: sessionKey,
       target_summary: `${input.productKeywords} / ${input.countries}`,
       estimated_cost_usd: estimatedCost.estimatedUsd,
@@ -1273,11 +1356,14 @@ export async function completeEmployeeLeadRun(input: {
   sessionKey: string;
   payload: unknown;
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/lead-runs/${input.leadRunId}/complete`, {
-    agent_run_id: input.agentRunId,
-    session_key: input.sessionKey,
-    payload: normalizeLeadPayload(input.payload),
-  });
+  return jsonPost<CompleteEmployeeLeadRunResponse>(
+    `/api/client-demos/cross-border/employee/lead-runs/${input.leadRunId}/complete`,
+    {
+      agent_run_id: input.agentRunId,
+      session_key: input.sessionKey,
+      payload: normalizeLeadPayload(input.payload),
+    },
+  );
 }
 
 export async function completeEmployeeScreeningRun(input: {

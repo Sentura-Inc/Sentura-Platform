@@ -13,6 +13,8 @@ Use after public search/fetch has produced candidate companies, domains, contact
 2. Remove excluded domains.
    - Drop marketplace/supplier domains from the configured exclusion list.
    - Drop obvious consumer-only product review pages and product marketplaces.
+   - In every run mode, drop candidates whose normalized domain or normalized company/country key appears in `existing_identity_keys`; this list comes from the tenant database before search starts.
+   - Do not count dropped denylist candidates toward `target_count`. When the retained list falls below `target_count`, return to query generation and collect replacements before producing final JSON.
 3. Choose the dedupe key.
    - Prefer normalized domain.
    - If no domain exists, use normalized company name plus country.
@@ -31,6 +33,9 @@ Use after public search/fetch has produced candidate companies, domains, contact
    - Clear buyer persona.
    - Contact candidate backed by a public source.
    - Lower duplicate risk.
+7. Enforce the net-new output target.
+   - Final primary leads should equal `target_count` whenever public search produced enough non-denylisted buyer candidates.
+   - If fewer than `target_count` remain after filtering, record which country/product/query families were exhausted and why replacements could not be found.
 
 ## Dedupe Explanation
 

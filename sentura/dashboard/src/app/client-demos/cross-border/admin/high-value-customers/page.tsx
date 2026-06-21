@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, RefreshCw, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ function highlightFrameClass(active: boolean) {
     : "";
 }
 
-export default function AdminHighValueCustomersPage() {
+function AdminHighValueCustomersContent() {
   const searchParams = useSearchParams();
   const [items, setItems] = useState<AdminCustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,5 +160,13 @@ export default function AdminHighValueCustomersPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function AdminHighValueCustomersPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminHighValueCustomersContent />
+    </Suspense>
   );
 }

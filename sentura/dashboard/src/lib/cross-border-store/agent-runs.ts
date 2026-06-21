@@ -16,12 +16,17 @@ export interface AgentRunRecord {
   tenantId: string;
   userId: string | null;
   ownerUserId: string | null;
+  parentAgentRunId: string | null;
   agentId: CbeAgentId;
   sessionKey: string | null;
   status: CbeAgentRunStatus;
   taskKind: CbeTaskKind;
   targetSummary: string | null;
   currentStage: string | null;
+  queuePriority: number;
+  queuedAt: string | null;
+  leaseOwner: string | null;
+  leaseUntil: string | null;
   costUsdEstimate: number | null;
   startedAt: string;
   finishedAt: string | null;
@@ -35,12 +40,17 @@ interface AgentRunRow {
   tenant_id: string;
   user_id: string | null;
   owner_user_id: string | null;
+  parent_agent_run_id: string | null;
   agent_id: CbeAgentId;
   session_key: string | null;
   status: CbeAgentRunStatus;
   task_kind: CbeTaskKind;
   target_summary: string | null;
   current_stage: string | null;
+  queue_priority: number;
+  queued_at: Date | null;
+  lease_owner: string | null;
+  lease_until: Date | null;
   cost_usd_estimate: string | null;
   started_at: Date;
   finished_at: Date | null;
@@ -55,12 +65,17 @@ function toAgentRunRecord(row: AgentRunRow): AgentRunRecord {
     tenantId: row.tenant_id,
     userId: row.user_id,
     ownerUserId: row.owner_user_id,
+    parentAgentRunId: row.parent_agent_run_id,
     agentId: row.agent_id,
     sessionKey: row.session_key,
     status: row.status,
     taskKind: row.task_kind,
     targetSummary: row.target_summary,
     currentStage: row.current_stage,
+    queuePriority: row.queue_priority,
+    queuedAt: row.queued_at?.toISOString() ?? null,
+    leaseOwner: row.lease_owner,
+    leaseUntil: row.lease_until?.toISOString() ?? null,
     costUsdEstimate: row.cost_usd_estimate === null ? null : Number(row.cost_usd_estimate),
     startedAt: row.started_at.toISOString(),
     finishedAt: row.finished_at?.toISOString() ?? null,
@@ -84,6 +99,7 @@ export async function insertAgentRun(
         tenant_id,
         user_id,
         owner_user_id,
+        parent_agent_run_id,
         department_id,
         visibility_scope,
         agent_id,
@@ -94,17 +110,26 @@ export async function insertAgentRun(
         target_record_id,
         target_summary,
         current_stage,
+        queue_priority,
+        queued_at,
+        lease_owner,
+        lease_until,
         last_activity_at,
         cost_usd_estimate,
         metadata_json
       )
-      values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15::jsonb)
+      values (
+        $1, $2, $3, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14, $15, case when $9 = 'queued' then coalesce($16::timestamptz, now()) else null end,
+        $17, $18::timestamptz, now(), $19, $20::jsonb
+      )
       returning *
     `,
     [
       id,
       context.tenantId,
       context.userId,
+      input.parent_agent_run_id ?? null,
       context.departmentId ?? null,
       input.visibility_scope,
       input.agent_id,
@@ -115,6 +140,10 @@ export async function insertAgentRun(
       input.target_record_id ?? null,
       input.target_summary ?? null,
       input.current_stage ?? null,
+      input.queue_priority,
+      input.queued_at ?? null,
+      input.lease_owner ?? null,
+      input.lease_until ?? null,
       input.cost_usd_estimate ?? null,
       JSON.stringify(input.metadata_json),
     ],

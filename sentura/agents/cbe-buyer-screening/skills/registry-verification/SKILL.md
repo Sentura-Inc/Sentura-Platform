@@ -8,9 +8,10 @@ Use when a target has company name, country, registry number, official registry 
 
 1. For `country=GB`, always call `cross-border-intel__cbe_intel_company_registry_search` before public web search.
 2. If a Companies House company number is selected, call `cross-border-intel__cbe_intel_company_profile`.
-3. For `country=US`, always call `cross-border-intel__cbe_intel_sec_lookup` before public web search:
+3. For `country=US`, call `cross-border-intel__cbe_intel_sec_lookup` for public-company/SEC-filer checks:
    - pass `cik` when supplied;
-   - otherwise pass `company_name` so the tool can resolve `company_tickers.json` and return either SEC submissions or `not_found`.
+   - otherwise pass `company_name` so the tool can resolve `company_tickers.json` and return either bounded SEC summary data or `not_found`;
+   - do not carry raw SEC submissions history into reasoning, report text, or JSON markers.
 4. For GB, only use public web registry search after Companies House is missing, rejected, or ambiguous. For US, only use public web state registry search after SEC returns `not_found`, `api_error`, or the target appears private/non-filer.
 5. For other countries, use `web_search` to find official registry pages. Fetch only public pages with `web_fetch`.
 6. Record whether legal identity is:
@@ -24,8 +25,13 @@ Use when a target has company name, country, registry number, official registry 
 ## Required Ordering
 
 - GB: Companies House API/profile first, then official public Companies House page or web search fallback.
-- US: SEC `company_tickers.json`/submissions first, then state registry or official registry web search fallback.
+- US: SEC `company_tickers.json`/bounded submissions summary for public-company checks, then state registry or official registry web search fallback.
 - SEC `not_found` for a private company is `not_applicable` or coverage gap, not a negative signal.
+- FR: prefer API Recherche d'Entreprises / official French registry pages once an adapter exists; until then capture official page URLs and SIREN/SIRET clues through public search.
+- JP: use National Tax Agency Corporate Number pages/Web-API only when available; a corporate number confirms basic identity, not full financial due diligence.
+- KR: OpenDART is for listed/disclosing entities; DART no-result is neutral for private importers.
+- BR: Receita Federal/Redesim or Serpro CNPJ are official routes; BrasilAPI-style aggregators are supporting `public_api` only, not `official_api`.
+- DE/ES/IT/MX: use official registry/manual portal pages and operator-supplied registry numbers; ask for missing RFC/CIF/REA/register number when needed instead of inventing API-backed status.
 
 ## Evidence Tags
 

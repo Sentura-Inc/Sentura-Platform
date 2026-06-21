@@ -608,6 +608,12 @@ function CrossBorderMemoryPageContent() {
     setSheetMode(null);
     try {
       createdImport = await createEmployeeAccioImport(input, plannedSessionKey);
+      if (createdImport.agentRun.status === "queued" || !createdImport.agentRun.sessionKey) {
+        showNotice("当前 CBE 后台任务较多，记忆整理任务已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        await refreshDbBackedMemory().catch(() => undefined);
+        return;
+      }
+      const activeSessionKey = createdImport.agentRun.sessionKey;
       const localTaskId = startTask({
         id: createdImport.agentRun.id,
         kind: "accio_memory",
@@ -615,7 +621,7 @@ function CrossBorderMemoryPageContent() {
         message: "记忆整理任务已启动，后台员工正在分析聊天记录。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-        sessionKey: plannedSessionKey,
+        sessionKey: activeSessionKey,
         targetLabel: input.recordName,
       });
       taskId = localTaskId;
@@ -630,7 +636,7 @@ function CrossBorderMemoryPageContent() {
         client,
         input,
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey },
+        { sessionKey: activeSessionKey },
       );
       await completeEmployeeAccioImport({
         importId: createdImport.accioImport.id,

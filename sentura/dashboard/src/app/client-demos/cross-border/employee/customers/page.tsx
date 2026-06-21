@@ -158,6 +158,8 @@ const defaultScreeningOptions: ScreeningOptionState = {
   maxPaidSpendUsd: 0,
 };
 
+const MAX_LEAD_COMPLETION_ATTEMPTS = 8;
+
 function normalizeLeadTargetCount(value: number) {
   if (!Number.isFinite(value)) return 1;
   return Math.min(MAX_LEAD_TARGET_COUNT, Math.max(1, Math.floor(value)));
@@ -1211,68 +1213,159 @@ function CrossBorderCustomersPageContent() {
       );
       return;
     }
-    const plannedSessionKey = createPlannedEmployeeSessionKey(LEAD_AGENT_ID);
-    const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
+    let nextSessionKey = createPlannedEmployeeSessionKey(LEAD_AGENT_ID);
     let taskId: string | undefined;
     let createdRun: Awaited<ReturnType<typeof createEmployeeLeadRun>> | null = null;
     let abortSignal: AbortSignal | undefined;
+    let totalSaved = 0;
+    let totalReturned = 0;
+    let totalDuplicates = 0;
+    const savedCustomerIds: string[] = [];
     setSheetMode(null);
     try {
-      createdRun = await createEmployeeLeadRun(
-        {
+      let nextInput: EmployeeLeadTaskInput = normalizedInput;
+      for (let attempt = 1; attempt <= MAX_LEAD_COMPLETION_ATTEMPTS; attempt++) {
+        createdRun = await createEmployeeLeadRun(nextInput, nextSessionKey);
+        const decision = createdRun.coordinatorDecision;
+        if (decision.action === "offer_near_duplicate_choices") {
+          const message = totalSaved > 0
+            ? `已新增 ${totalSaved} 个唯一客户；仍有相似获客任务正在运行，剩余缺口稍后可继续补查。`
+            : "已有相似获客任务正在运行，请稍后补充未分配客户或缩小条件后重试。";
+          showNotice(message, "info", 8000);
+          await refreshDbBackedLists().catch(() => undefined);
+          return;
+        }
+        if (decision.action === "join_existing") {
+          const message = totalSaved > 0
+            ? `已新增 ${totalSaved} 个唯一客户；同 scope 仍有任务在运行，系统没有启动第二个相同搜索。`
+            : "已有相同获客任务正在运行。系统已加入协调记录，本次不会启动第二个相同搜索。";
+          showNotice(message, "info", 8000);
+          await refreshDbBackedLists().catch(() => undefined);
+          return;
+        }
+        if (!createdRun.agentRun || !createdRun.leadRun) {
+          showNotice("获客协调器没有返回可执行任务，请稍后重试。", "error", 8000);
+          return;
+        }
+        if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
+          const queuedMessage = totalSaved > 0
+            ? `已新增 ${totalSaved} 个唯一客户；剩余补足任务已进入排队中。`
+            : "当前 CBE 后台任务较多，获客任务已进入排队中；系统不会额外启动重复员工会话。";
+          showNotice(queuedMessage, "info", 8000);
+          await refreshDbBackedLists().catch(() => undefined);
+          return;
+        }
+
+        const coordinatorDenylist = decision.action === "start_new_run" || decision.action === "queue_top_up"
+          ? decision.denylist ?? []
+          : [];
+        const runInput: EmployeeLeadTaskInput = {
+          ...(decision.action === "queue_top_up"
+            ? {
+                ...normalizedInput,
+                targetCount: Math.max(1, decision.missingCount ?? nextInput.targetCount),
+                runMode: "top_up_unique_leads" as const,
+                alreadyCoveredQueries: nextInput.alreadyCoveredQueries ?? [],
+              }
+            : nextInput),
+          existingIdentityKeys: Array.from(new Set([
+            ...(nextInput.existingIdentityKeys ?? []),
+            ...coordinatorDenylist,
+          ])).sort(),
+        };
+        const estimatedMs = estimateLeadTaskDurationMs(runInput);
+        const activeSessionKey = createdRun.agentRun.sessionKey;
+        const localTaskId = startTask({
+          id: createdRun.agentRun.id,
+          kind: "lead",
+          title: decision.action === "queue_top_up" || attempt > 1 ? "补充获客" : "寻找客户",
+          message: decision.action === "queue_top_up" || attempt > 1
+            ? `第 ${attempt} 轮补充获客已启动，后台员工会避开数据库已有客户。`
+            : coordinatorDenylist.length > 0
+              ? `获客任务已启动，已先检索数据库并避开 ${coordinatorDenylist.length} 个已有客户。`
+              : "获客任务已启动，后台员工正在准备搜索。",
+          estimatedMs,
+          timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+          sessionKey: activeSessionKey,
+          targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
+        });
+        taskId = localTaskId;
+        abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
+        const result = await runLeadDiscoveryTask(
+          client,
+          {
+            ...runInput,
+          },
+          createProgressHandler(localTaskId),
+          { sessionKey: activeSessionKey, signal: abortSignal },
+        );
+        const completion = await completeEmployeeLeadRun({
+          leadRunId: createdRun.leadRun.id,
+          agentRunId: createdRun.agentRun.id,
+          sessionKey: result.sessionKey,
+          payload: result.payload,
+        });
+        const reconciliation = completion.reconciliation;
+        const newUniqueCount = reconciliation.newUniqueCount;
+        const duplicateCount = reconciliation.duplicateCount;
+        const returnedCount = reconciliation.returnedCount;
+        totalSaved += newUniqueCount;
+        totalReturned += returnedCount;
+        totalDuplicates += duplicateCount;
+        savedCustomerIds.push(...completion.candidates.map((candidate) => candidate.id));
+        const attemptMessage = `第 ${attempt} 轮返回 ${returnedCount} 个候选，新增 ${newUniqueCount} 个唯一客户${
+          duplicateCount > 0 ? `，跳过 ${duplicateCount} 个数据库重复客户` : ""
+        }${reconciliation.missingCount > 0 ? `，还差 ${reconciliation.missingCount} 个` : ""}。`;
+        completeTask(localTaskId, newUniqueCount, attemptMessage, result.sessionKey);
+        clearCbeEmployeeTaskAbortSignal(localTaskId);
+        taskId = undefined;
+        abortSignal = undefined;
+
+        const remainingCount = Math.max(0, normalizedInput.targetCount - totalSaved);
+        if (!reconciliation.topUpNeeded || remainingCount <= 0) {
+          break;
+        }
+        if (attempt >= MAX_LEAD_COMPLETION_ATTEMPTS) {
+          break;
+        }
+        showNotice(`数据库查重后还差 ${remainingCount} 个客户，正在自动补查第 ${attempt + 1} 轮。`, "info", 7000);
+        nextInput = {
           ...normalizedInput,
-        },
-        plannedSessionKey,
-      );
-      const localTaskId = startTask({
-        id: createdRun.agentRun.id,
-        kind: "lead",
-        title: "寻找客户",
-        message: "获客任务已启动，后台员工正在准备搜索。",
-        estimatedMs,
-        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-        sessionKey: plannedSessionKey,
-        targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
-      });
-      taskId = localTaskId;
-      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
-      const result = await runLeadDiscoveryTask(
-        client,
-        {
-          ...normalizedInput,
-        },
-        createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey, signal: abortSignal },
-      );
-      await completeEmployeeLeadRun({
-        leadRunId: createdRun.leadRun.id,
-        agentRunId: createdRun.agentRun.id,
-        sessionKey: result.sessionKey,
-        payload: result.payload,
-      });
-      const message = `获客员工已返回 ${result.records.length} 个客户，已写入当前列表。`;
-      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+          targetCount: remainingCount,
+          runMode: "top_up_unique_leads",
+          existingIdentityKeys: reconciliation.identityDenylist,
+          alreadyCoveredQueries: [],
+        };
+        nextSessionKey = createPlannedEmployeeSessionKey(LEAD_AGENT_ID);
+      }
+      const finalMessage = totalSaved >= normalizedInput.targetCount
+        ? `获客完成：新增 ${totalSaved} 个唯一客户${
+            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个数据库重复客户` : ""
+          }。`
+        : `获客暂时只新增 ${totalSaved}/${normalizedInput.targetCount} 个唯一客户${
+            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个数据库重复客户` : ""
+          }；员工共返回 ${totalReturned} 个候选，公开来源暂时不足以补齐。`;
       await refreshDbBackedLists();
-      flashNewCustomers(result.records.map((record) => record.customerId));
-      showNotice(message);
+      flashNewCustomers(savedCustomerIds);
+      showNotice(finalMessage, totalSaved >= normalizedInput.targetCount ? "success" : "error", totalSaved >= normalizedInput.targetCount ? 5000 : 12000);
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
       if (isEmployeeTaskCancellation(error)) {
-        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        if (taskId) cancelTask(taskId, message, sessionKey ?? nextSessionKey);
         await refreshDbBackedLists().catch(() => undefined);
         showNotice(message, "info", 6000);
         return;
       }
-      if (createdRun && shouldWriteFailure(error)) {
+      if (createdRun?.agentRun && shouldWriteFailure(error)) {
         await failEmployeeTaskInDb({
           agentRunId: createdRun.agentRun.id,
-          sessionKey: sessionKey ?? plannedSessionKey,
+          sessionKey: sessionKey ?? nextSessionKey,
           error,
           message,
         }).catch(() => undefined);
       }
-      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      if (taskId) failTask(taskId, message, sessionKey ?? nextSessionKey);
       await refreshDbBackedLists().catch(() => undefined);
       showNotice(message, "error", 0);
     } finally {
@@ -1316,6 +1409,12 @@ function CrossBorderCustomersPageContent() {
     setSheetMode(null);
     try {
       createdRun = await createEmployeeScreeningRun(screeningTargets, plannedSessionKey, options);
+      if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
+        showNotice("当前 CBE 后台任务较多，背调任务已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        await refreshDbBackedLists().catch(() => undefined);
+        return;
+      }
+      const activeSessionKey = createdRun.agentRun.sessionKey;
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
@@ -1323,7 +1422,7 @@ function CrossBorderCustomersPageContent() {
         message: "背调任务已启动，后台员工正在核验证据来源。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-        sessionKey: plannedSessionKey,
+        sessionKey: activeSessionKey,
         targetLabel: `${runnableTargets.length} 个客户`,
       });
       taskId = localTaskId;
@@ -1338,7 +1437,7 @@ function CrossBorderCustomersPageContent() {
         screeningTargets,
         options,
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey, signal: abortSignal },
+        { sessionKey: activeSessionKey, signal: abortSignal },
       );
       await completeEmployeeScreeningRun({
         agentRunId: createdRun.agentRun.id,
@@ -1409,6 +1508,12 @@ function CrossBorderCustomersPageContent() {
     setSheetMode(null);
     try {
       createdRun = await createEmployeeScreeningRun([target], plannedSessionKey, options);
+      if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
+        showNotice("当前 CBE 后台任务较多，手动背调已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        await refreshDbBackedLists().catch(() => undefined);
+        return;
+      }
+      const activeSessionKey = createdRun.agentRun.sessionKey;
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
@@ -1416,7 +1521,7 @@ function CrossBorderCustomersPageContent() {
         message: "手动背调任务已启动，后台员工正在核验证据来源。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-        sessionKey: plannedSessionKey,
+        sessionKey: activeSessionKey,
         targetLabel: input.companyName.trim(),
       });
       taskId = localTaskId;
@@ -1426,7 +1531,7 @@ function CrossBorderCustomersPageContent() {
         [target],
         options,
         createProgressHandler(localTaskId),
-        { sessionKey: plannedSessionKey, signal: abortSignal },
+        { sessionKey: activeSessionKey, signal: abortSignal },
       );
       await completeEmployeeScreeningRun({
         agentRunId: createdRun.agentRun.id,

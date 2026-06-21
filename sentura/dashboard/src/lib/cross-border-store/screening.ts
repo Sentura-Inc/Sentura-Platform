@@ -15,6 +15,7 @@ import type {
 } from "./schemas";
 import { CreateScreeningRunRequestSchema } from "./schemas";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
+import { admitCbeWorkload, assertScreeningSessionShape, getCbeWorkloadSettings, workloadMetadata } from "./workload-coordinator";
 
 export interface ScreeningTargetRecord {
   id: string;
@@ -291,6 +292,11 @@ export async function createScreeningRun(
   rawInput: CreateScreeningRunRequest,
 ) {
   const input = CreateScreeningRunRequestSchema.parse(rawInput);
+  const targetCount = typeof input.metadata_json.target_count === "number"
+    ? input.metadata_json.target_count
+    : 1;
+  const settings = getCbeWorkloadSettings();
+  assertScreeningSessionShape(targetCount, settings);
   await checkCbeCostBudgetBeforeRun(context, {
     agentId: "cbe-buyer-screening",
     taskKind: "screening",
@@ -299,18 +305,32 @@ export async function createScreeningRun(
     metadataJson: input.metadata_json,
   });
   return withCbeTransaction(async (client) => {
+    const admission = await admitCbeWorkload(client, context, {
+      agentId: "cbe-buyer-screening",
+      taskKind: "screening",
+      requestedSessionKey: input.session_key,
+      currentStageWhenRunning: "submitted_to_employee",
+      currentStageWhenQueued: "queued",
+    });
     const agentRun = await insertAgentRun(client, context, {
       agent_id: "cbe-buyer-screening",
       task_kind: "screening",
-      status: input.session_key ? "running" : "queued",
-      session_key: input.session_key,
+      status: admission.status,
+      session_key: admission.sessionKey,
       target_record_type: input.target_record_type,
       target_record_id: input.target_record_id,
       target_summary: input.target_summary,
-      current_stage: input.session_key ? "submitted_to_employee" : "queued",
+      current_stage: admission.currentStage,
+      queue_priority: admission.queuePriority,
+      queued_at: admission.queuedAt,
       cost_usd_estimate: input.estimated_cost_usd,
       visibility_scope: input.visibility_scope,
-      metadata_json: input.metadata_json,
+      metadata_json: {
+        ...input.metadata_json,
+        screening_execution_mode: settings.screeningExecutionMode,
+        max_targets_per_session: settings.screeningMaxTargetsPerSession,
+        ...workloadMetadata(admission),
+      },
     });
     await createAgentRunActivityEvent(client, context, {
       agentRunId: agentRun.id,

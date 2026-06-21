@@ -280,6 +280,33 @@ async function cleanupP2DashboardProbe(agentRunIds: string[], leadDomain: string
       `,
       [CBE_TENANT_ID, agentRunIds],
     );
+    await client.query(
+      `
+        delete from lead_run_memberships
+        where tenant_id = $1
+          and lead_run_id in (
+            select id from lead_runs where tenant_id = $1 and agent_run_id = any($2::text[])
+          )
+      `,
+      [CBE_TENANT_ID, agentRunIds],
+    );
+    await client.query(
+      `
+        update lead_discovery_scopes
+        set active_agent_run_id = null
+        where tenant_id = $1
+          and active_agent_run_id = any($2::text[])
+      `,
+      [CBE_TENANT_ID, agentRunIds],
+    );
+    await client.query(
+      `
+        delete from lead_discovery_scopes
+        where tenant_id = $1
+          and canonical_scope_json::text like $2
+      `,
+      [CBE_TENANT_ID, `%ce19%`],
+    );
     await client.query("delete from lead_candidates where tenant_id = $1 and normalized_domain = $2", [
       CBE_TENANT_ID,
       leadDomain,
@@ -333,7 +360,12 @@ async function runLiveDashboardStoreChecks() {
   const agentRunIds: string[] = [];
   try {
     const leadStart = await store.createLeadRun(context, {
-      query_config: { products: ["phone case"], countries: ["GB"], ce19_probe: stamp },
+      query_config: {
+        product_keywords: [`ce19-phone-case-${stamp}`],
+        countries: ["GB"],
+        buyer_types: ["electronics retailer"],
+        ce19_probe: stamp,
+      },
       target_count: 1,
       session_key: `ce19-lead-session-${stamp}`,
       target_summary: `CE19 Probe Lead ${stamp}`,
@@ -509,7 +541,12 @@ async function runLiveDashboardStoreChecks() {
     );
 
     const failedRun = await store.createLeadRun(context, {
-      query_config: { products: ["charger"], ce19_invalid_probe: stamp },
+      query_config: {
+        product_keywords: [`ce19-charger-${stamp}`],
+        countries: ["US"],
+        buyer_types: ["accessory importer"],
+        ce19_invalid_probe: stamp,
+      },
       target_count: 1,
       session_key: `ce19-invalid-session-${stamp}`,
       target_summary: `CE19 invalid marker ${stamp}`,
@@ -561,6 +598,8 @@ const requiredTables = [
   "cbe_cost_limits",
   "cbe_cost_allowances",
   "cbe_cost_approval_requests",
+  "screening_batches",
+  "screening_batch_targets",
   "cbe_schema_migrations",
 ];
 
@@ -588,6 +627,10 @@ const requiredIndexes = [
   "cbe_cost_allowances_user_idx",
   "cbe_cost_approval_requests_pending_idx",
   "cbe_cost_approval_requests_user_idx",
+  "agent_runs_queue_claim_idx",
+  "agent_runs_active_session_idx",
+  "screening_batches_parent_idx",
+  "screening_batch_targets_batch_idx",
 ];
 
 const p22StoreModules = [
@@ -607,6 +650,7 @@ const p22StoreModules = [
   "route-utils.ts",
   "admin.ts",
   "session.ts",
+  "workload-coordinator.ts",
 ];
 
 const p22EmployeeRoutes = [
@@ -664,6 +708,7 @@ const migrationFiles = fs.readdirSync(MIGRATIONS_DIR).filter((file) => file.ends
 check("migration directory exists", exists(MIGRATIONS_DIR));
 check("001 initial schema migration exists", migrationFiles.includes("001_initial_schema.sql"));
 check("002 lead scope coordinator migration exists", migrationFiles.includes("002_lead_scope_coordinator.sql"));
+check("005 workload queue and Screening fan-out migration exists", migrationFiles.includes("005_workload_queue_and_screening_batches.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");

@@ -19,6 +19,8 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 - EVERY final run must include the query strings used and the source URLs reviewed.
 - ALWAYS deduplicate by normalized domain first, then normalized company name, then contact email when present.
 - ALWAYS mark uncertain leads as low confidence or possible duplicates instead of presenting them as verified buyers.
+- ALWAYS treat `target_count` as the number of net-new, non-duplicate customers required for the current task. Do not reinterpret it as the employee's total list size.
+- ALWAYS skip every `existing_identity_keys` entry before search, during candidate review, and before final JSON. Replace duplicates with additional candidates rather than counting them.
 - ALWAYS explain shortage when the requested candidate count cannot be met by public sources for the selected countries/products.
 
 ### Output And Handoff Boundaries
@@ -54,6 +56,9 @@ When the operator says something like "根据手机壳、钢化膜、充电器�
 ## Core Workflow
 
 1. Confirm or infer run inputs: products, buyer personas, countries/languages, target count, max results per query, and exclusions.
+   - For every run mode, `target_count` is a hard net-new output target for this task. A normal repeated scope still requires `target_count` new customers; only `run_mode: "top_up_unique_leads"` means the dashboard has already computed a missing-count top-up.
+   - Skip every `existing_identity_keys` entry before search and again before final output. If a likely candidate is on that denylist, discard it and continue expanding queries until a replacement is found.
+   - If the task input includes `run_mode: "top_up_unique_leads"`, treat it as a补充获客 run. Return only net-new buyer candidates, skip every `existing_identity_keys` entry, and avoid repeating `already_covered_queries`.
 2. Use `lead-query-generation` to create buyer-type, retail/repair, trade-fair, B2B-platform, and public-social query families.
 3. Call `web_search` for each planned query. Use `web_fetch` only on public pages that appear likely to prove buyer identity, product fit, or contact candidate provenance.
 4. Extract candidate fields conservatively from public evidence only.
