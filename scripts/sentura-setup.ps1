@@ -74,7 +74,7 @@ function Resolve-PreferredMetaAgentModel {
     }
 
     if ($env:OPENAI_API_KEY -is [string] -and $env:OPENAI_API_KEY.Trim().Length -gt 0) {
-        return "openai/gpt-5.4"
+        return "openai/gpt-5.5"
     }
 
     $AuthProfilesPath = Join-Path $OpenClawState "agents" "main" "agent" "auth-profiles.json"
@@ -84,7 +84,7 @@ function Resolve-PreferredMetaAgentModel {
             $auth = Get-Content $AuthProfilesPath -Raw | ConvertFrom-Json -Depth 20
             $profileIds = @($auth.profiles.PSObject.Properties.Name)
             if ($profileIds | Where-Object { $_ -like 'openai:*' }) {
-                return "openai/gpt-5.4"
+                return "openai/gpt-5.5"
             }
             if ($profileIds | Where-Object { $_ -like 'deepseek:*' }) {
                 return "deepseek/deepseek-reasoner"
@@ -104,7 +104,7 @@ function Resolve-PreferredMetaAgentModel {
         Warn "Could not parse $OpenClawConfig while resolving preferred meta-agent model."
     }
 
-    return "openai/gpt-5.4"
+    return "openai/gpt-5.5"
 }
 
 $MetaAgentModel = Resolve-PreferredMetaAgentModel
@@ -187,11 +187,13 @@ if (-not (Test-Path $WorkspaceBase)) {
     New-Item -ItemType Directory -Path $WorkspaceBase -Force | Out-Null
 }
 
-# --- Step 2: Copy meta-agent workspaces ---
+# --- Step 2: Copy source-agent workspaces ---
 
-Log "Step 2: Copying meta-agent workspace files..."
+Log "Step 2: Copying source-agent workspace files..."
 
 $MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder", "data-scavenger")
+$ClientDemoAgents = @("zuolian-travel-concierge", "cbe-lead-discovery", "cbe-buyer-screening", "cbe-accio-memory")
+$SourceAgents = @($MetaAgents + $ClientDemoAgents)
 $SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
 
 foreach ($agent in $MetaAgents) {
@@ -203,7 +205,30 @@ foreach ($agent in $MetaAgents) {
     }
 }
 
-# Mark each meta-agent workspace as "bootstrap complete" for OpenClaw.
+foreach ($agent in $ClientDemoAgents) {
+    $agentSource = Join-Path $SenturaAgentsDir $agent
+    if (Test-Path $agentSource) {
+        Copy-Workspace -AgentId $agent -SourceDir $agentSource | Out-Null
+    } else {
+        Warn "Client-demo agent source not found: $agentSource"
+    }
+}
+
+Log "Ensuring Sentura workspace directories (ekg/, memory/users/)..."
+foreach ($agent in $SourceAgents) {
+    $target = Join-Path $WorkspaceBase $agent
+    if (Test-Path $target) {
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/org") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/rules") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/assets") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "ekg/workflows/experience-links") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "memory/users") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $target "skills") -Force | Out-Null
+    }
+}
+Ok "Sentura workspace directories ensured."
+
+# Mark each source-agent workspace as "bootstrap complete" for OpenClaw.
 #
 # WHY: OpenClaw (openclaw/src/agents/workspace.ts -> resolveWorkspaceBootstrapStatus)
 # treats a workspace as "bootstrap pending" while BOOTSTRAP.md exists on disk AND
@@ -214,9 +239,9 @@ foreach ($agent in $MetaAgents) {
 # from the dashboard. Sentura keeps BOOTSTRAP.md permanently because it hosts
 # the `## Enterprise Context` section, so we stamp setupCompletedAt instead of
 # deleting the file. See scripts/sentura-setup.sh for the matching bash logic.
-Log "Stamping setupCompletedAt into meta-agent workspace state..."
+Log "Stamping setupCompletedAt into source-agent workspace state..."
 $StateNow = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-foreach ($agent in $MetaAgents) {
+foreach ($agent in $SourceAgents) {
     $agentWorkspace = Join-Path $WorkspaceBase $agent
     if (-not (Test-Path $agentWorkspace)) {
         continue
@@ -260,13 +285,13 @@ if (typeof state.setupCompletedAt === "string" && state.setupCompletedAt.trim().
     Remove-Item Env:STATE_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:STATE_NOW -ErrorAction SilentlyContinue
 }
-Ok "Meta-agent workspaces marked as bootstrap-complete."
+Ok "Source-agent workspaces marked as bootstrap-complete."
 
-# --- Step 3: Register meta-agents ---
+# --- Step 3: Register source agents ---
 
-Log "Step 3: Registering meta-agents with OpenClaw..."
+Log "Step 3: Registering source agents with OpenClaw..."
 
-foreach ($agent in $MetaAgents) {
+foreach ($agent in $SourceAgents) {
     $agentWorkspace = Join-Path $WorkspaceBase $agent
     if (Test-Path $agentWorkspace) {
         Register-Agent -AgentId $agent
@@ -289,12 +314,112 @@ $WorkspaceBaseEscaped = $WorkspaceBase -replace '\\', '/'
 
 $patchScript = @"
 const fs = require('fs');
+const path = require('path');
 const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const projectRoot = '$($ProjectRoot -replace '\\', '\\\\')';
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.4';
+const preferredModel = process.env.SENTURA_META_AGENT_MODEL || 'openai/gpt-5.5';
+const openClawState = process.env.OPENCLAW_STATE || '';
 config.agents = config.agents || {};
 config.agents.defaults = config.agents.defaults || {};
 config.agents.defaults.models = config.agents.defaults.models || {};
+
+function readDotEnvFile(filePath) {
+  const entries = {};
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed);
+      if (!match) continue;
+      let value = match[2] || '';
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      entries[match[1]] = value;
+    }
+  } catch (_) {}
+  return entries;
+}
+
+const projectDotEnv = projectRoot ? readDotEnvFile(path.join(projectRoot, '.env')) : {};
+const openClawDotEnv = openClawState ? readDotEnvFile(path.join(openClawState, '.env')) : {};
+const setupEnv = { ...projectDotEnv, ...openClawDotEnv, ...process.env };
+function hasSetupEnv(name) {
+  return typeof setupEnv[name] === 'string' && setupEnv[name].trim().length > 0;
+}
+function setupEnvValue(name, fallback) {
+  return hasSetupEnv(name) ? setupEnv[name].trim() : fallback;
+}
+function setupEnvNumber(name, fallback) {
+  const parsed = Number(setupEnvValue(name, String(fallback)));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+const senturaLongAgentTimeoutSeconds = Math.max(
+  300,
+  Math.round(setupEnvNumber('SENTURA_AGENT_TIMEOUT_SECONDS', setupEnvNumber('CBE_AGENT_TIMEOUT_SECONDS', 900))),
+);
+const currentDefaultTimeoutSeconds = Number(config.agents.defaults.timeoutSeconds);
+if (!Number.isFinite(currentDefaultTimeoutSeconds) || currentDefaultTimeoutSeconds < senturaLongAgentTimeoutSeconds) {
+  config.agents.defaults.timeoutSeconds = senturaLongAgentTimeoutSeconds;
+  console.log('  Set agents.defaults.timeoutSeconds = ' + senturaLongAgentTimeoutSeconds);
+}
+function ensureModelProviderTimeout(providerId) {
+  if (!providerId) return;
+  if (!config.models || typeof config.models !== 'object' || Array.isArray(config.models)) {
+    config.models = {};
+  }
+  if (!config.models.providers || typeof config.models.providers !== 'object' || Array.isArray(config.models.providers)) {
+    config.models.providers = {};
+  }
+  const existing = config.models.providers[providerId] && typeof config.models.providers[providerId] === 'object'
+    ? config.models.providers[providerId]
+    : {};
+  const currentTimeoutSeconds = Number(existing.timeoutSeconds);
+  if (!Number.isFinite(currentTimeoutSeconds) || currentTimeoutSeconds < senturaLongAgentTimeoutSeconds) {
+    config.models.providers[providerId] = { ...existing, timeoutSeconds: senturaLongAgentTimeoutSeconds };
+    console.log('  Set models.providers.' + providerId + '.timeoutSeconds = ' + senturaLongAgentTimeoutSeconds);
+  }
+}
+const preferredProviderId = preferredModel.includes('/') ? preferredModel.split('/')[0] : '';
+if (preferredProviderId === 'openai') {
+  ensureModelProviderTimeout('openai');
+}
+function envRef(name) {
+  return '$' + '{' + name + '}';
+}
+function buildCrossBorderIntelEnv() {
+  const env = {};
+  for (const name of [
+    'COMPANIES_HOUSE_API_KEY',
+    'ABSTRACT_API_KEY',
+    'HUNTER_API_KEY',
+    'IMPORTYETI_API_KEY',
+    'GOOGLE_MAPS_API_KEY',
+    // Optional adapters not required by the default Phase-1 customer setup.
+    'OPENCORPORATES_API_KEY',
+    'VOLZA_API_KEY',
+  ]) {
+    if (hasSetupEnv(name)) {
+      env[name] = envRef(name);
+    }
+  }
+  env.SEC_USER_AGENT = setupEnvValue(
+    'SEC_USER_AGENT',
+    'SenturaCrossBorderIntel/0.1 contact=ops@example.invalid',
+  );
+  env.CBE_ENABLE_PAID_TRADE_DATA = setupEnvValue('CBE_ENABLE_PAID_TRADE_DATA', 'false');
+  env.CBE_MAX_PAID_SPEND_USD = setupEnvValue('CBE_MAX_PAID_SPEND_USD', '0');
+  env.CBE_INTEL_REQUEST_TIMEOUT_MS = setupEnvValue('CBE_INTEL_REQUEST_TIMEOUT_MS', '30000');
+  env.CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH = setupEnvValue('CBE_GOOGLE_MAPS_MAX_RESULTS_PER_SEARCH', '10');
+  env.CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN = setupEnvValue('CBE_GOOGLE_MAPS_MAX_DETAILS_PER_RUN', '20');
+  env.CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN = setupEnvValue('CBE_GOOGLE_MAPS_MAX_ADDRESS_VALIDATION_PER_RUN', '5');
+  return env;
+}
 
 function ensurePreferredModelAllowlistEntry(modelRef) {
   if (typeof modelRef !== 'string' || !modelRef.includes('/')) {
@@ -360,6 +485,54 @@ const dataScavengerSandboxAlsoAllow = [
   'sentura_agents_manage','memory_search','memory_get',
   'canvas','cron','update_plan'
 ];
+const zuolianToolAllow = ['group:plugins','web_search','web_fetch'];
+const zuolianSandboxAllow = ['dida-travel-demo__*','web_search','web_fetch'];
+const zuolianModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const zuolianToolsDeny = [
+  'agents_list','canvas','cron','create_goal','exec','gateway','get_goal',
+  'image','image_generate','memory_get','memory_search','message','nodes','pdf',
+  'process','read','session_status','sessions_history','sessions_list','sessions_send',
+  'sessions_spawn','sessions_yield','skill_workshop','subagents','tts','update_goal',
+  'update_plan','video_generate','edit','apply_patch','write'
+];
+const cbeLeadToolAllow = ['web_search','web_fetch','cron','group:plugins'];
+const cbeLeadSandboxAllow = ['web_search','web_fetch','cron','cross-border-intel__*'];
+const cbeLeadModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const cbeLeadToolsDeny = [
+  'agents_list','browser','canvas','create_goal','exec','gateway','get_goal',
+  'image','image_generate','memory_get','memory_search','message','nodes','pdf',
+  'process','read','session_status','sessions_history','sessions_list','sessions_send',
+  'sessions_spawn','sessions_yield','skill_workshop','subagents','tts','update_goal',
+  'update_plan','video_generate','edit','apply_patch','write'
+];
+const cbeScreeningToolAllow = ['web_search','web_fetch','memory_search','memory_get','group:plugins'];
+const cbeScreeningSandboxAllow = ['web_search','web_fetch','memory_search','memory_get','cross-border-intel__*'];
+const cbeScreeningModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const cbeScreeningToolsDeny = [
+  'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
+  'image','image_generate','message','nodes','pdf','process','read','session_status',
+  'sessions_history','sessions_list','sessions_send','sessions_spawn','sessions_yield',
+  'skill_workshop','subagents','tts','update_goal','update_plan','video_generate',
+  'edit','apply_patch','write'
+];
+const cbeAccioToolAllow = ['memory_search','memory_get','group:plugins'];
+const cbeAccioSandboxAllow = ['memory_search','memory_get','cross-border-intel__*'];
+const cbeAccioModels = {
+  [preferredModel]: { agentRuntime: { id: 'openclaw' } }
+};
+const cbeAccioToolsDeny = [
+  'agents_list','browser','canvas','create_goal','cron','exec','gateway','get_goal',
+  'image','image_generate','message','nodes','pdf','process','read','session_status',
+  'sessions_history','sessions_list','sessions_send','sessions_spawn','sessions_yield',
+  'skill_workshop','subagents','tts','update_goal','update_plan','video_generate',
+  'edit','apply_patch','write'
+];
 
 const overrides = {
   creator:         { name: 'Forge',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','sessions_spawn','web_search','web_fetch','browser','pdf','canvas','sentura_agents_manage','sentura_rbac_manage','sentura_audit_query'], deny: ['write','edit','apply_patch','exec'], sandbox: { tools: { alsoAllow: creatorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
@@ -367,6 +540,10 @@ const overrides = {
   orchestrator:    { name: 'Conductor', model: preferredModel, tools: { profile: 'minimal', alsoAllow: ['sessions_send','sessions_spawn','web_search'], sandbox: { tools: { alsoAllow: orchestratorSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'mcp-builder':   { name: 'Socket',    model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['gateway','sessions_send','web_search','web_fetch','browser','pdf'], deny: ['sessions_spawn','subagents','sessions_yield'], sandbox: { tools: { alsoAllow: mcpBuilderSandboxAlsoAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' } },
   'data-scavenger':{ name: 'Scout',     model: preferredModel, tools: { profile: 'coding',  alsoAllow: ['pdf','web_fetch','web_search','sentura_agents_manage','memory_search'], deny: ['sessions_spawn','subagents','sessions_yield','browser','exec','write','edit','apply_patch'], sandbox: { tools: { alsoAllow: dataScavengerSandboxAlsoAllow } } }, sandbox: { mode: 'non-main', workspaceAccess: 'rw' }, runtime: { type: 'embedded' } },
+  'zuolian-travel-concierge': { name: '座联出行客服', model: preferredModel, models: zuolianModels, tools: { profile: 'coding', allow: zuolianToolAllow, deny: zuolianToolsDeny, sandbox: { tools: { allow: zuolianSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Sitlink AI travel customer-support employee', language: 'zh-CN', demoScope: 'Phase 1 fixture-first web/chat demo with web research supplement' } },
+  'cbe-lead-discovery': { name: '跨境营销获客员工', model: preferredModel, models: cbeLeadModels, tools: { profile: 'minimal', alsoAllow: cbeLeadToolAllow, deny: cbeLeadToolsDeny, sandbox: { tools: { alsoAllow: cbeLeadSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Marketing Acquisition employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Public-search lead discovery with typed Screening handoff preview' } },
+  'cbe-buyer-screening': { name: '跨境筛选背调员工', model: preferredModel, models: cbeScreeningModels, tools: { profile: 'minimal', alsoAllow: cbeScreeningToolAllow, deny: cbeScreeningToolsDeny, sandbox: { tools: { alsoAllow: cbeScreeningSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Screening and Background Investigation employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Low-cost live buyer background investigation with contextual scoring' } },
+  'cbe-accio-memory': { name: '跨境记忆处理员工', model: preferredModel, models: cbeAccioModels, tools: { profile: 'minimal', alsoAllow: cbeAccioToolAllow, deny: cbeAccioToolsDeny, sandbox: { tools: { alsoAllow: cbeAccioSandboxAllow } } }, sandbox: { mode: 'non-main' }, runtime: { type: 'embedded' }, params: { role: 'Cross-border mobile-accessory Accio Memory Processing employee', language: 'zh-CN', tenant: 'cross-border-ecommerce', operationScope: 'Uploaded Accio chat parsing, deal summary, memory preview, and Screening handoff' } },
 };
 
 for (const agent of (config.agents?.list || [])) {
@@ -376,6 +553,56 @@ for (const agent of (config.agents?.list || [])) {
       delete agent.skills;
     }
   }
+}
+
+config.bindings = Array.isArray(config.bindings) ? config.bindings : [];
+if (!config.bindings.some((b) => b && b.agentId === 'zuolian-travel-concierge' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'zuolian-travel-concierge',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for zuolian-travel-concierge');
+}
+if (!config.bindings.some((b) => b && b.agentId === 'cbe-lead-discovery' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'cbe-lead-discovery',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for cbe-lead-discovery');
+}
+if (!config.bindings.some((b) => b && b.agentId === 'cbe-buyer-screening' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'cbe-buyer-screening',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for cbe-buyer-screening');
+}
+if (!config.bindings.some((b) => b && b.agentId === 'cbe-accio-memory' && b.match?.channel === 'webchat')) {
+  config.bindings.push({
+    agentId: 'cbe-accio-memory',
+    match: { channel: 'webchat', peer: { kind: 'dm', id: '*' } },
+  });
+  console.log('  Added webchat binding for cbe-accio-memory');
+}
+
+config.mcp = config.mcp || {};
+config.mcp.servers = config.mcp.servers || {};
+config.mcp.servers['dida-travel-demo'] = {
+  command: 'node',
+  args: ['$($ProjectRoot -replace '\\', '/')/sentura/mcp-servers/dida-travel-demo/dist/index.js'],
+  cwd: '$($ProjectRoot -replace '\\', '/')',
+  env: { DIDA_DEMO_MODE: 'fixture' },
+};
+config.mcp.servers['cross-border-intel'] = {
+  command: 'node',
+  args: ['$($ProjectRoot -replace '\\', '/')/sentura/mcp-servers/cross-border-intel/dist/index.js'],
+  cwd: '$($ProjectRoot -replace '\\', '/')',
+  env: buildCrossBorderIntelEnv(),
+  requestTimeoutMs: setupEnvNumber('CBE_INTEL_REQUEST_TIMEOUT_MS', 30000),
+};
+console.log('  Added/updated MCP server: cross-border-intel');
+if (hasSetupEnv('TAVILY_API_KEY')) {
+  console.log('  Detected TAVILY_API_KEY for OpenClaw web_search and CBE Dashboard live search');
 }
 
 config.agents.defaults.sandbox = config.agents.defaults.sandbox || {};
@@ -390,10 +617,100 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 "@
 
 $env:SENTURA_META_AGENT_MODEL = $MetaAgentModel
+$env:OPENCLAW_STATE = $OpenClawState
 node -e $patchScript
 Remove-Item Env:SENTURA_META_AGENT_MODEL -ErrorAction SilentlyContinue
+Remove-Item Env:OPENCLAW_STATE -ErrorAction SilentlyContinue
 
 Ok "Agent configuration applied."
+
+# --- Step 4b: Apply default tenancy to every registered agent ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 4b. Sentura's multi-tenancy
+# model lives in `agent-tenancy.json` (Sentura-side) — never inside
+# `agents.list[]` — so `sentura-cost`/`sentura-monitoring` can attribute
+# events without falling back to "unknown tenant". Idempotent.
+
+Log "Step 4b: Applying default tenancy to registered agents..."
+
+$RbacDataDirForTenancy = Join-Path $OpenClawState "sentura-rbac"
+if (-not (Test-Path $RbacDataDirForTenancy)) {
+    New-Item -ItemType Directory -Path $RbacDataDirForTenancy -Force | Out-Null
+}
+
+$tenancyScript = @"
+const fs = require('fs');
+const path = require('path');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const tenancyPath = path.join('$($RbacDataDirForTenancy -replace '\\', '\\\\')', 'agent-tenancy.json');
+
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const agents = (config.agents && config.agents.list) || [];
+if (agents.length === 0) {
+  console.log('  No registered agents - skipping tenancy seed.');
+  process.exit(0);
+}
+
+let records = [];
+try { records = JSON.parse(fs.readFileSync(tenancyPath, 'utf8')); } catch (_) {}
+
+const seen = new Set(records.map((r) => r.agentId));
+const now = new Date().toISOString();
+let added = 0;
+for (const agent of agents) {
+  if (!seen.has(agent.id)) {
+    records.push({ agentId: agent.id, tenantId: 'default', departmentId: null, updatedAt: now });
+    added++;
+  }
+}
+
+if (added > 0) {
+  records.sort((a, b) => a.agentId.localeCompare(b.agentId));
+  fs.writeFileSync(tenancyPath, JSON.stringify(records, null, 2));
+  console.log('  Seeded default tenancy for ' + added + ' agent(s)');
+} else {
+  console.log('  All agents already have tenancy records');
+}
+"@
+
+node -e $tenancyScript
+
+Ok "Agent tenancy applied."
+
+# --- Step 4c: Configure per-agent LanceDB memory isolation ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 5. Stamps
+# `agents.list[].params.memoryDbPath` for every agent missing one so the
+# Sentura memory layer (`sentura-memory-lancedb`) lands in a per-agent
+# directory under `~/.openclaw/memory/<agentId>/lancedb`.
+
+Log "Step 4c: Configuring per-agent LanceDB memory isolation..."
+
+$memoryIsolationScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+let updated = 0;
+for (const agent of (config.agents && config.agents.list) || []) {
+  if (!agent.params) agent.params = {};
+  if (!agent.params.memoryDbPath) {
+    agent.params.memoryDbPath = '~/.openclaw/memory/' + agent.id + '/lancedb';
+    updated++;
+  }
+}
+
+if (updated > 0) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Set per-agent memoryDbPath for ' + updated + ' agent(s)');
+} else {
+  console.log('  All agents already have memoryDbPath configured');
+}
+"@
+
+node -e $memoryIsolationScript
+
+Ok "Per-agent LanceDB isolation configured."
 
 # --- Step 5: Configure gateway for Sentura Dashboard ---
 
@@ -456,6 +773,272 @@ console.log('  Hook enabled in config');
     Ok "sentura-bootstrap hook enabled."
 } else {
     Warn "Hook source not found at $HookSource - skipping hook installation"
+}
+
+# --- Step 6a: Wire Sentura extensions into OpenClaw ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7a. Adds each extension's
+# directory to `plugins.load.paths` and enables it in `plugins.entries`.
+# When `sentura-memory-lancedb` is enabled in this run, also disables
+# the upstream `memory-lancedb` plugin so the two `kind: "memory"`
+# entries don't collide.
+
+Log "Step 6a: Wiring Sentura extensions (plugins.load.paths + plugins.entries)..."
+
+$SenturaExtensionsDir = Join-Path $ProjectRoot "sentura" "extensions"
+$SenturaExtIds = @(
+    "sentura-agents",
+    "sentura-rbac",
+    "sentura-audit",
+    "sentura-approval",
+    "sentura-provisioner",
+    "sentura-experience-extraction",
+    "sentura-mcp-health",
+    "sentura-memory-lancedb",
+    "sentura-cost",
+    "sentura-monitoring"
+)
+
+$extTuples = @()
+foreach ($extId in $SenturaExtIds) {
+    $extDir = Join-Path $SenturaExtensionsDir $extId
+    $manifest = Join-Path $extDir "openclaw.plugin.json"
+    $entry = Join-Path $extDir "index.ts"
+    if ((Test-Path $manifest) -and (Test-Path $entry)) {
+        $extTuples += "$extId|$extDir"
+        Ok "  -> $extId present at $extDir"
+    } else {
+        Warn "  X $extId missing (expected $manifest + index.ts) - skipping"
+    }
+}
+
+if ($extTuples.Count -gt 0) {
+    $env:SENTURA_EXT_TUPLES = ($extTuples -join "`n")
+    $extWiringScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const tuples = (process.env.SENTURA_EXT_TUPLES || '').split('\n').filter(Boolean);
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const HOOK_CONVERSATION_ACCESS_PLUGIN_IDS = new Set([
+  'sentura-audit',
+  'sentura-experience-extraction',
+]);
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.load) config.plugins.load = {};
+if (!Array.isArray(config.plugins.load.paths)) config.plugins.load.paths = [];
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+
+let pathsChanged = 0;
+let entriesChanged = 0;
+let hookAccessChanged = 0;
+for (const tuple of tuples) {
+  const [id, dir] = tuple.split('|');
+  if (!id || !dir) continue;
+  if (!config.plugins.load.paths.includes(dir)) {
+    config.plugins.load.paths.push(dir);
+    pathsChanged++;
+  }
+  const current = config.plugins.entries[id] || {};
+  let next = current;
+  if (next.enabled !== true) {
+    next = { ...next, enabled: true };
+    entriesChanged++;
+  }
+  if (HOOK_CONVERSATION_ACCESS_PLUGIN_IDS.has(id)) {
+    const currentHooks =
+      next.hooks && typeof next.hooks === 'object' && !Array.isArray(next.hooks)
+        ? next.hooks
+        : {};
+    if (currentHooks.allowConversationAccess !== true) {
+      next = {
+        ...next,
+        hooks: { ...currentHooks, allowConversationAccess: true },
+      };
+      hookAccessChanged++;
+    }
+  }
+  config.plugins.entries[id] = next;
+}
+
+let memoryLancedbDisabled = false;
+let memoryLancedbEmbeddingSeeded = false;
+const senturaMem = config.plugins.entries['sentura-memory-lancedb'];
+if (senturaMem && senturaMem.enabled === true) {
+  const upstream = config.plugins.entries['memory-lancedb'];
+  if (upstream && upstream.enabled === true) {
+    config.plugins.entries['memory-lancedb'] = { ...upstream, enabled: false };
+    memoryLancedbDisabled = true;
+  }
+  // sentura-memory-lancedb's configSchema requires embedding.apiKey, so a
+  // freshly-enabled entry without a config block fails ajv validation and
+  // the plugin never boots. Seed a default embedding block on first install
+  // using the documented `${OPENAI_API_KEY}` env-interpolation token (per
+  // the plugin's own uiHints.embedding.apiKey.help). The inner config
+  // nests under entry.config — that is the path OpenClaw's plugin loader
+  // feeds into the plugin's configSchema. Idempotent: only seeds when
+  // config.embedding is missing — operators can hand-edit either field
+  // afterward and re-runs of setup will leave their values alone.
+  const existingPluginConfig =
+    senturaMem.config && typeof senturaMem.config === 'object'
+      ? senturaMem.config
+      : {};
+  if (
+    !existingPluginConfig.embedding ||
+    typeof existingPluginConfig.embedding !== 'object'
+  ) {
+    config.plugins.entries['sentura-memory-lancedb'] = {
+      ...senturaMem,
+      config: {
+        ...existingPluginConfig,
+        embedding: {
+          apiKey: '`${OPENAI_API_KEY}`',
+          model: 'text-embedding-3-small',
+        },
+      },
+    };
+    memoryLancedbEmbeddingSeeded = true;
+  }
+}
+
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+console.log('  plugins.load.paths additions: ' + pathsChanged);
+console.log('  plugins.entries enable ops:   ' + entriesChanged);
+console.log('  hook conversation access ops: ' + hookAccessChanged);
+console.log('  wired extensions:             ' + tuples.map((t) => t.split('|')[0]).join(', '));
+if (memoryLancedbDisabled) {
+  console.log('  disabled upstream memory-lancedb (sentura-memory-lancedb owns the memory slot)');
+}
+if (memoryLancedbEmbeddingSeeded) {
+  console.log('  seeded sentura-memory-lancedb.embedding (`${OPENAI_API_KEY}` + text-embedding-3-small)');
+}
+"@
+    node -e $extWiringScript
+    Remove-Item Env:SENTURA_EXT_TUPLES -ErrorAction SilentlyContinue
+    Ok "Sentura extensions wired."
+} else {
+    Warn "  No Sentura extensions found on disk - plugins.load.paths left unchanged."
+}
+
+# --- Step 6b: Clear stale meta-agent sandboxes ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7b. Forces the
+# sentura-sandbox-seed hook to re-mirror skills/, ekg/, and a customized
+# BOOTSTRAP.md on next agent boot.
+
+Log "Step 6b: Clearing stale meta-agent sandboxes (forces clean re-seed)..."
+
+$SandboxRoot = Join-Path $OpenClawState "sandboxes"
+if (Test-Path $SandboxRoot) {
+    foreach ($agent in $MetaAgents) {
+        $agentSandboxes = Get-ChildItem -Path $SandboxRoot -Filter "agent-$agent-*" -Directory -ErrorAction SilentlyContinue
+        foreach ($dir in $agentSandboxes) {
+            Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Ok "  -> cleared stale sandbox $($dir.FullName)"
+        }
+    }
+} else {
+    Log "  No sandbox root at $SandboxRoot yet - nothing to clear."
+}
+
+# --- Step 6b2: Ensure the diagnostic-event bus is on ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7b2. OpenClaw gates `model.usage`
+# (and every other diagnostic event) behind `config.diagnostics.enabled === true`.
+# If unset, NO events fire and Sentura's `sentura-cost` + `sentura-monitoring`
+# extensions stay silent - the dashboard's `/cost` page reads as "zero
+# activity" even when users are chatting. Step 6c (OTel) used to be the
+# only place that flipped this, but it only ran when
+# OTEL_EXPORTER_OTLP_ENDPOINT was set, so operators without OTel silently
+# lost cost tracking. This step decouples the bus from the OTel sink:
+# diagnostics are now ALWAYS on after setup. Idempotent.
+
+Log "Step 6b2: Ensuring diagnostic-event bus is enabled..."
+
+$diagBusScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics.enabled = true (cost + monitoring events will now fire)');
+} else {
+  console.log('  diagnostics.enabled already true (no change)');
+}
+"@
+node -e $diagBusScript
+Ok "Diagnostic-event bus enabled."
+
+# --- Step 6c: Wire OpenTelemetry via diagnostics-otel ---
+#
+# Mirrors `scripts/sentura-setup.sh` Step 7c. Reads
+# OTEL_EXPORTER_OTLP_ENDPOINT and stamps the matching `diagnostics.otel`
+# block + enables the `diagnostics-otel` plugin entry. Skips silently if
+# the env var is unset.
+
+Log "Step 6c: Wiring OpenTelemetry (diagnostics-otel)..."
+
+if ($env:OTEL_EXPORTER_OTLP_ENDPOINT) {
+    $otelScript = @"
+const fs = require('fs');
+const configPath = '$($OpenClawConfig -replace '\\', '\\\\')';
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const serviceName = process.env.OTEL_SERVICE_NAME || 'openclaw-sentura';
+
+if (!config.plugins) config.plugins = {};
+if (!config.plugins.entries || typeof config.plugins.entries !== 'object') {
+  config.plugins.entries = {};
+}
+const current = config.plugins.entries['diagnostics-otel'] || {};
+let entryFlipped = false;
+if (current.enabled !== true) {
+  config.plugins.entries['diagnostics-otel'] = { ...current, enabled: true };
+  entryFlipped = true;
+}
+
+if (!config.diagnostics || typeof config.diagnostics !== 'object') {
+  config.diagnostics = {};
+}
+let diagFlipped = false;
+if (config.diagnostics.enabled !== true) {
+  config.diagnostics.enabled = true;
+  diagFlipped = true;
+}
+const otelBlock = config.diagnostics.otel || {};
+const desiredOtel = {
+  ...otelBlock,
+  enabled: true,
+  endpoint,
+  serviceName: otelBlock.serviceName || serviceName,
+};
+let otelFlipped = false;
+if (
+  otelBlock.enabled !== true ||
+  otelBlock.endpoint !== endpoint ||
+  (otelBlock.serviceName || '') !== desiredOtel.serviceName
+) {
+  config.diagnostics.otel = desiredOtel;
+  otelFlipped = true;
+}
+
+if (entryFlipped || diagFlipped || otelFlipped) {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  console.log('  Enabled diagnostics-otel (endpoint=' + endpoint + ', service=' + desiredOtel.serviceName + ')');
+} else {
+  console.log('  diagnostics-otel already configured (no change)');
+}
+"@
+    node -e $otelScript
+    Ok "OpenTelemetry wired."
+} else {
+    Log "  OTel disabled - set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace/metric export."
 }
 
 # --- Step 7: Seed the first platform admin (customer-facing: no curl required) ---

@@ -2,11 +2,18 @@ import type {
   AgentConfig,
   AgentFileContent,
   AgentFileEntry,
-  ApprovalRequest,
+  AuditEntry,
+  AuditQueryParams,
+  AuditStats,
   BindingConfig,
   ConnectParams,
+  CostEventsResponse,
+  CostQueryEventsParams,
+  CostQuerySummaryParams,
+  CostSummary,
   EventFrame,
   GatewayClientOptions,
+  GatewayChatAttachment,
   GatewayEvent,
   GatewayEventType,
   GatewayHealth,
@@ -24,9 +31,10 @@ import { filterChatSessions, isMetaAgentId } from "./chat-sessions";
 type EventHandler = (event: GatewayEvent) => void;
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const SENTURA_VERSION = "0.1.0";
 const REQUEST_TIMEOUT_MS = 30_000;
+const LONG_RUNNING_RPC_GRACE_MS = 15_000;
 
 function generateIdempotencyKey(): string {
   const g = globalThis as { crypto?: { randomUUID?: () => string } };
@@ -36,7 +44,13 @@ function generateIdempotencyKey(): string {
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
-  private options: Required<GatewayClientOptions>;
+  private options: GatewayClientOptions &
+    Required<
+      Pick<
+        GatewayClientOptions,
+        "autoReconnect" | "reconnectInterval" | "maxReconnectAttempts"
+      >
+    >;
   private pendingCalls = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: RpcError) => void }
@@ -89,7 +103,9 @@ export class GatewayClient {
       this.connectResolve = resolve;
       this.connectReject = reject;
 
-      this.ws = new WebSocket(this.options.url);
+      this.ws = this.options.wsFactory
+        ? this.options.wsFactory(this.options.url)
+        : new WebSocket(this.options.url);
 
       this.ws.onclose = () => {
         const wasConnecting = this._state === "connecting";
@@ -160,7 +176,7 @@ export class GatewayClient {
    * `connect.challenge` event. Uses `openclaw-control-ui` client ID with
    * `ui` mode to inherit Control UI scopes (operator.read/write/admin).
    */
-  private sendConnectHandshake(nonce: string) {
+  private sendConnectHandshake() {
     const params: ConnectParams = {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
@@ -239,7 +255,7 @@ export class GatewayClient {
       const payload = frame.payload as { nonce?: string } | undefined;
       const nonce = payload?.nonce;
       if (typeof nonce === "string" && nonce.trim()) {
-        this.sendConnectHandshake(nonce.trim());
+        this.sendConnectHandshake();
       }
       return;
     }
@@ -300,6 +316,12 @@ export class GatewayClient {
 
     const id = this.nextId();
     const frame: RequestFrame = { type: "req", id, method, params };
+    const requestedTimeoutMs = typeof params?.timeoutMs === "number" && Number.isFinite(params.timeoutMs)
+      ? params.timeoutMs
+      : undefined;
+    const clientTimeoutMs = requestedTimeoutMs
+      ? Math.max(REQUEST_TIMEOUT_MS, requestedTimeoutMs + LONG_RUNNING_RPC_GRACE_MS)
+      : REQUEST_TIMEOUT_MS;
 
     return new Promise<T>((resolve, reject) => {
       this.pendingCalls.set(id, {
@@ -313,7 +335,7 @@ export class GatewayClient {
           this.pendingCalls.delete(id);
           reject({ code: "TIMEOUT", message: "RPC call timed out" } satisfies RpcError);
         }
-      }, REQUEST_TIMEOUT_MS);
+      }, clientTimeoutMs);
     });
   }
 
@@ -394,10 +416,14 @@ export class GatewayClient {
     return this.rpc<SessionSummary>("sessions.get", { sessionKey });
   }
 
-  async getTranscript(sessionKey: string, limit?: number): Promise<TranscriptMessage[]> {
+  async getTranscript(
+    sessionKey: string,
+    limit?: number,
+    maxChars?: number,
+  ): Promise<TranscriptMessage[]> {
     const result = await this.rpc<{ messages?: TranscriptMessage[] }>(
       "chat.history",
-      { sessionKey, ...(limit ? { limit } : {}) }
+      { sessionKey, ...(limit ? { limit } : {}), ...(maxChars ? { maxChars } : {}) }
     );
     return result?.messages ?? [];
   }
@@ -437,7 +463,7 @@ export class GatewayClient {
   async createSession(
     agentId: string,
     initialMessage?: string,
-    options?: { label?: string },
+    options?: { label?: string; key?: string },
   ): Promise<SessionCreateResult> {
     const params: Record<string, unknown> = { agentId };
     if (initialMessage && initialMessage.trim()) {
@@ -445,6 +471,8 @@ export class GatewayClient {
     }
     const label = options?.label?.trim();
     if (label) params.label = label;
+    const key = options?.key?.trim();
+    if (key) params.key = key;
     return this.rpc<SessionCreateResult>("sessions.create", params);
   }
 
@@ -462,12 +490,15 @@ export class GatewayClient {
   async sendChat(
     message: string,
     sessionKey: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    options?: { timeoutMs?: number; attachments?: GatewayChatAttachment[] },
   ): Promise<unknown> {
     return this.rpc("chat.send", {
       message,
       sessionKey,
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+      ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
     });
   }
 
@@ -475,8 +506,9 @@ export class GatewayClient {
     sessionKey: string,
     message: string,
     idempotencyKey?: string,
+    options?: { timeoutMs?: number; attachments?: GatewayChatAttachment[] },
   ): Promise<unknown> {
-    return this.sendChat(message, sessionKey, idempotencyKey);
+    return this.sendChat(message, sessionKey, idempotencyKey, options);
   }
 
   async getChatHistory(
@@ -685,6 +717,48 @@ export class GatewayClient {
   async listTools(): Promise<unknown[]> {
     const result = await this.rpc<unknown[]>("tools.catalog");
     return result ?? [];
+  }
+
+  // --- Cost (Person A's sentura-cost extension, Week 4) ---
+
+  /**
+   * `sentura.cost.summary` — aggregate cost across a time window.
+   * Backs the `/cost` Cost Center page. ISO-8601 strings for startTime
+   * and endTime; both optional (extension defaults endTime to now and
+   * startTime to "all time" when omitted).
+   */
+  async getCostSummary(params: CostQuerySummaryParams = {}): Promise<CostSummary> {
+    return this.rpc<CostSummary>("sentura.cost.summary", { ...params });
+  }
+
+  async getCostEvents(params: CostQueryEventsParams = {}): Promise<CostEventsResponse> {
+    return this.rpc<CostEventsResponse>("sentura.cost.events", { ...params });
+  }
+
+  // --- Audit (Person D's sentura-audit extension, Week 4) ---
+
+  /**
+   * `sentura.audit.query` — list audit entries with filters.
+   * Backs the `/audit` Audit Trail page. All filter fields are optional;
+   * `search` does a case-insensitive contains-match against the
+   * `details` JSON of each entry.
+   */
+  async queryAudit(
+    params: AuditQueryParams = {},
+  ): Promise<{ entries: AuditEntry[]; count: number }> {
+    return this.rpc<{ entries: AuditEntry[]; count: number }>(
+      "sentura.audit.query",
+      { ...params },
+    );
+  }
+
+  /**
+   * `sentura.audit.stats` — last-24h aggregations grouped by event
+   * type, severity, agent, data tier, and tenant. Used for the
+   * `/audit` page's headline cards + filter-facet badges.
+   */
+  async getAuditStats(): Promise<AuditStats> {
+    return this.rpc<AuditStats>("sentura.audit.stats");
   }
 }
 

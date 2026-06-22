@@ -1,0 +1,122 @@
+{
+  "export_metadata": {
+    "platform": "Alibaba Accio",
+    "exported_at": "2026-06-07T09:30:00Z",
+    "seller_company": "Sentura Demo Mobile Accessories Co., Ltd.",
+    "source_file": "accio-chat-records.sample.json",
+    "data_classification": "T3-business-conversation-fixture"
+  },
+  "conversations": [
+    {
+      "conversation_id": "accio_conv_001",
+      "buyer": {
+        "display_name": "Maria Torres",
+        "company_name": "Andes Mobile Parts SpA",
+        "country": "CL",
+        "city": "Santiago",
+        "email": "purchasing@andesmobileparts.cl",
+        "website": "https://andesmobileparts.cl",
+        "claimed_role": "Purchasing Manager"
+      },
+      "messages": [
+        {
+          "timestamp": "2026-06-01T14:05:00Z",
+          "sender": "buyer",
+          "text": "Hello, we distribute mobile phone repair parts in Chile. We need tempered glass screen protectors for iPhone 15 and Samsung S24. What is your MOQ and FOB Shenzhen price?"
+        },
+        {
+          "timestamp": "2026-06-01T14:12:00Z",
+          "sender": "seller",
+          "text": "MOQ is 2,000 pcs per model. FOB Shenzhen price is USD 0.38 per piece for iPhone 15 and USD 0.42 per piece for Samsung S24."
+        },
+        {
+          "timestamp": "2026-06-01T14:30:00Z",
+          "sender": "buyer",
+          "text": "If we order 10,000 pcs mixed models, can you do USD 0.35? We need retail packaging with our brand."
+        },
+        {
+          "timestamp": "2026-06-01T14:44:00Z",
+          "sender": "seller",
+          "text": "For 10,000 pcs, best price is USD 0.36 per piece. Custom retail packaging adds USD 0.03 per piece and 7 days lead time."
+        },
+        {
+          "timestamp": "2026-06-01T15:10:00Z",
+          "sender": "buyer",
+          "text": "Please send PI for 10,000 pcs at USD 0.36 plus USD 0.03 packaging. Payment by T/T 30% deposit, balance before shipment is acceptable."
+        }
+      ],
+      "attachments": [
+        {
+          "file_name": "brand_packaging_reference.pdf",
+          "type": "packaging_reference",
+          "description": "Buyer brand packaging sample"
+        }
+      ]
+    },
+    {
+      "conversation_id": "accio_conv_002",
+      "buyer": {
+        "display_name": "Daniel Weber",
+        "company_name": "Berlin Gadget Wholesale GmbH",
+        "country": "DE",
+        "city": "Berlin",
+        "email": "daniel.weber@gmail.com",
+        "website": "https://berlin-gadget-wholesale.example",
+        "claimed_role": "Owner"
+      },
+      "messages": [
+        {
+          "timestamp": "2026-06-03T08:20:00Z",
+          "sender": "buyer",
+          "text": "We are looking for 65W GaN chargers with EU plug, CE and RoHS certificates. Initial quantity 500 pcs for testing."
+        },
+        {
+          "timestamp": "2026-06-03T08:35:00Z",
+          "sender": "seller",
+          "text": "For 65W GaN charger EU plug, MOQ is 1,000 pcs. EXW price USD 6.80 per piece. CE/RoHS certificates available."
+        },
+        {
+          "timestamp": "2026-06-03T09:05:00Z",
+          "sender": "buyer",
+          "text": "Can we start with 500 pcs at USD 6.50? We need delivery to Hamburg warehouse."
+        }
+      ],
+      "attachments": []
+    },
+    {
+      "conversation_id": "accio_conv_003",
+      "buyer": {
+        "display_name": "Alex Johnson",
+        "company_name": "Northstar Wireless LLC",
+        "country": "US",
+        "city": "Dallas",
+        "email": "orders@northstarwireless.example",
+        "website": "https://northstarwireless.example",
+        "claimed_role": "Operations Director"
+      },
+      "messages": [
+        {
+          "timestamp": "2026-06-05T18:40:00Z",
+          "sender": "buyer",
+          "text": "We operate online stores for phone cases and MagSafe accessories. Need clear MagSafe cases for iPhone 16 series, 20,000 pcs monthly if quality is stable."
+        },
+        {
+          "timestamp": "2026-06-05T18:55:00Z",
+          "sender": "seller",
+          "text": "For clear MagSafe cases, MOQ is 3,000 pcs per model. FOB Shenzhen price starts at USD 1.18 per piece for 5,000 pcs and USD 1.05 for 20,000 pcs."
+        },
+        {
+          "timestamp": "2026-06-05T19:20:00Z",
+          "sender": "buyer",
+          "text": "Please quote 5,000 pcs iPhone 16, 5,000 pcs iPhone 16 Pro, 5,000 pcs iPhone 16 Pro Max. We need Amazon FBA barcode stickers and drop-test packaging."
+        },
+        {
+          "timestamp": "2026-06-05T19:42:00Z",
+          "sender": "seller",
+          "text": "Total 15,000 pcs can be USD 1.10 per piece. FBA barcode sticker is USD 0.015 per piece. Drop-test packaging is USD 0.08 per piece."
+        }
+      ],
+      "attachments": []
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "sentura-cost",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Sentura Cost Tracking",
+  "description": "Per-agent and per-department LLM cost attribution. Subscribes to OpenClaw's `model.usage` diagnostic event and persists every LLM call's token counts, model, latency, and pre-computed costUsd to a rolling JSONL store. Exposes `sentura.cost.events`, `sentura.cost.summary`, and `sentura.cost.byUser` gateway RPCs for the dashboard's Cost Center page.",
+  "enabledByDefault": true,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "logDir": {
+        "type": "string",
+        "description": "Directory for cost-event JSONL files. Defaults to ~/.openclaw/sentura-cost/"
+      },
+      "retention": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxAgeDays": {
+            "type": "number",
+            "minimum": 1,
+            "default": 365,
+            "description": "Maximum age in days before old daily files are pruned"
+          }
+        }
+      }
+    }
+  }
+}

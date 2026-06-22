@@ -12,6 +12,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["*.ts"],
+  "include": ["*.ts", "cross-border-store/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

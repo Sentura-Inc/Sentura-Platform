@@ -15,7 +15,10 @@ import {
   Check,
   ChevronRight,
   Loader2,
+  Mic2,
+  Plus,
   Send,
+  Smile,
   Sparkles,
   User,
   Wrench,
@@ -73,6 +76,11 @@ export interface ToolCallEvent {
   timestamp: number;
 }
 
+export interface InteractiveTerm {
+  id: string;
+  label: string;
+}
+
 export interface AgentChatProps {
   /** ID of the agent this chat targets. Stable for the lifetime of the
    * component — switching agents requires unmounting and remounting. */
@@ -82,6 +90,10 @@ export interface AgentChatProps {
   sessionKey?: string;
   /** Optional prefilled draft for the input box on mount. */
   initialPrompt?: string;
+  /** Optional label for the new session created on first send. The label
+   * shows in the sidebar and OpenClaw Control UI — without it sessions
+   * read as "Untitled". /tune passes "Tuning {Employee name}". */
+  sessionLabel?: string;
   /**
    * Fired with the new session key after AgentChat creates a session on
    * first send. Caller should adopt the key into its own state so subsequent
@@ -94,8 +106,15 @@ export interface AgentChatProps {
   onMessage?: (message: ChatMessage) => void;
   /** Fired for each tool-lifecycle event observed during a run. */
   onToolCall?: (event: ToolCallEvent) => void;
+  /** Hide technical seed messages from the visible transcript. */
+  hiddenUserPrefixes?: string[];
   /** Custom UI to render when the conversation has no messages yet. */
   emptyState?: ReactNode;
+  /** Optional visual presentation. Defaults to the standard dashboard chat. */
+  presentation?: "default" | "wecom-phone";
+  /** Optional clickable terms rendered inside assistant messages. */
+  interactiveTerms?: InteractiveTerm[];
+  onInteractiveTermClick?: (id: string) => void;
   className?: string;
 }
 
@@ -108,6 +127,7 @@ export interface AgentChatHandle {
   setInput: (text: string) => void;
   focus: () => void;
   clearInput: () => void;
+  sendMessage: (text: string) => Promise<void>;
 }
 
 // =============================================================================
@@ -163,6 +183,63 @@ function extractTextFromContent(content: ChatEventPayload["message"]): string {
     .join("");
 }
 
+function isHiddenUserMessage(
+  role: ChatRole,
+  text: string,
+  prefixes: readonly string[] | undefined,
+): boolean {
+  if (role !== "user") return false;
+  if (!prefixes || prefixes.length === 0) return false;
+  const trimmed = text.trimStart();
+  return prefixes.some((prefix) => prefix && trimmed.startsWith(prefix));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderInteractiveText(
+  text: string,
+  terms: readonly InteractiveTerm[] | undefined,
+  onClick: ((id: string) => void) | undefined,
+): ReactNode {
+  const usableTerms = (terms ?? [])
+    .filter((term) => term.id && term.label)
+    .sort((a, b) => b.label.length - a.label.length);
+  if (!text || usableTerms.length === 0 || !onClick) return text;
+
+  const matcher = new RegExp(usableTerms.map((term) => escapeRegExp(term.label)).join("|"), "g");
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(matcher)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      nodes.push(text.slice(cursor, index));
+    }
+    const label = match[0];
+    const term = usableTerms.find((candidate) => candidate.label === label);
+    if (term) {
+      nodes.push(
+        <button
+          key={`${term.id}-${index}`}
+          type="button"
+          className="mx-0.5 cursor-pointer rounded-[3px] bg-[#e8f1ff] px-1 font-semibold text-[#145fd7] underline decoration-[#145fd7]/60 underline-offset-2 hover:bg-[#d7e8ff] hover:decoration-[#145fd7]"
+          onClick={() => onClick(term.id)}
+        >
+          {label}
+        </button>,
+      );
+    } else {
+      nodes.push(label);
+    }
+    cursor = index + label.length;
+  }
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return nodes.length > 0 ? nodes : text;
+}
+
 /** Session-tool event payload shape (subset we consume). */
 interface SessionToolEvent {
   runId?: string;
@@ -191,12 +268,23 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       agentId,
       sessionKey,
       initialPrompt,
+      sessionLabel,
       onSessionCreated,
       onMessage,
       onToolCall,
+      hiddenUserPrefixes,
       emptyState,
+      presentation = "default",
+      interactiveTerms,
+      onInteractiveTermClick,
       className,
     } = props;
+    // Stable ref so the submit handler reads the latest label without
+    // resubscribing the entire send closure on every parent render.
+    const sessionLabelRef = useRef(sessionLabel);
+    useEffect(() => {
+      sessionLabelRef.current = sessionLabel;
+    }, [sessionLabel]);
 
     const { client, state } = useGateway();
 
@@ -205,10 +293,12 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
     const onSessionCreatedRef = useRef(onSessionCreated);
     const onMessageRef = useRef(onMessage);
     const onToolCallRef = useRef(onToolCall);
+    const hiddenUserPrefixesRef = useRef(hiddenUserPrefixes);
     useEffect(() => {
       onSessionCreatedRef.current = onSessionCreated;
       onMessageRef.current = onMessage;
       onToolCallRef.current = onToolCall;
+      hiddenUserPrefixesRef.current = hiddenUserPrefixes;
     });
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -227,17 +317,6 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
     useEffect(() => {
       sessionKeyRef.current = sessionKey;
     });
-
-    // Imperative handle for the parent (e.g. emptyState wants to setInput).
-    useImperativeHandle(
-      ref,
-      () => ({
-        setInput: (text) => setInput(text),
-        focus: () => textareaRef.current?.focus(),
-        clearInput: () => setInput(""),
-      }),
-      [],
-    );
 
     // Auto-scroll to bottom on new content unless the user scrolled up
     // recently. We track this via a userScrolledUpRef sentinel updated on
@@ -287,32 +366,69 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       if (!sessionKey) return;
 
       let cancelled = false;
-      setHydrating(true);
       (async () => {
-        try {
-          const transcript = await client.getTranscript(sessionKey);
+        await Promise.resolve();
+        if (cancelled) return;
+        setHydrating(true);
+        // Retry-on-startup: when the dashboard's WebSocket reconnects faster
+        // than the gateway's plugin handshake completes, `chat.history` returns
+        // `UNAVAILABLE: chat.history unavailable during gateway startup`. The
+        // pre-2026-05-04 build caught the error and never retried, leaving the
+        // /tune (and /chat) transcript empty until the user manually clicked
+        // away and back. Retry with exponential backoff covers the entire
+        // typical plugin-load window (~3-8 seconds in dev, longer with cold
+        // node_modules).
+        const MAX_RETRIES = 5;
+        const BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           if (cancelled) return;
-          const hydrated: ChatMessage[] = transcript
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m, idx) => ({
-              id: `hydrated-${idx}-${m.role}`,
-              role: m.role as ChatRole,
-              text: transcriptToText(m.content),
-              streaming: false,
-              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            }))
-            .filter((m) => m.text.trim().length > 0);
-          setMessages(hydrated);
-        } catch (err: unknown) {
+          try {
+            const transcript = await client.getTranscript(sessionKey);
+            if (cancelled) return;
+            const hydrated: ChatMessage[] = transcript
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m, idx) => ({
+                id: `hydrated-${idx}-${m.role}`,
+                role: m.role as ChatRole,
+                text: transcriptToText(m.content),
+                streaming: false,
+                timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+              }))
+              .filter((m) => m.text.trim().length > 0)
+              .filter(
+                (m) =>
+                  !isHiddenUserMessage(
+                    m.role,
+                    m.text,
+                    hiddenUserPrefixesRef.current,
+                  ),
+              );
+            setMessages(hydrated);
+            lastError = null;
+            break;
+          } catch (err: unknown) {
+            lastError = err;
+            const msg =
+              err && typeof err === "object" && "message" in err
+                ? String((err as { message: unknown }).message)
+                : "";
+            const isStartup =
+              /unavailable during gateway startup/i.test(msg) ||
+              /UNAVAILABLE/.test(msg);
+            if (!isStartup || attempt === MAX_RETRIES - 1) break;
+            await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+          }
+        }
+        if (lastError && !cancelled) {
           const msg =
-            err && typeof err === "object" && "message" in err
-              ? (err as { message: string }).message
+            lastError && typeof lastError === "object" && "message" in lastError
+              ? (lastError as { message: string }).message
               : "Unknown error";
           console.warn("[agent-chat] transcript hydration failed:", msg);
           setError(`Could not load transcript: ${msg}`);
-        } finally {
-          if (!cancelled) setHydrating(false);
         }
+        if (!cancelled) setHydrating(false);
       })();
       return () => {
         cancelled = true;
@@ -518,11 +634,9 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       return unsub;
     }, [client, state]);
 
-    // Composer submit handler.
-    const handleSubmit = useCallback(
-      async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        const trimmed = input.trim();
+    const sendText = useCallback(
+      async (text: string) => {
+        const trimmed = text.trim();
         if (!trimmed || submitting || state !== "connected") return;
 
         setError(null);
@@ -534,14 +648,27 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           text: trimmed,
           timestamp: Date.now(),
         };
-        setMessages((prev) => [...prev, userMessage]);
-        onMessageRef.current?.(userMessage);
-        setInput("");
+        if (
+          !isHiddenUserMessage(
+            userMessage.role,
+            userMessage.text,
+            hiddenUserPrefixesRef.current,
+          )
+        ) {
+          setMessages((prev) => [...prev, userMessage]);
+          onMessageRef.current?.(userMessage);
+        }
+        setInput((current) => (current.trim() === trimmed ? "" : current));
 
         try {
           if (!sessionKeyRef.current) {
             // First message of a new conversation — create the session.
-            const result = await client.createSession(agentId, trimmed);
+            const label = sessionLabelRef.current?.trim();
+            const result = await client.createSession(
+              agentId,
+              trimmed,
+              label ? { label } : undefined,
+            );
             if (!result?.key) {
               throw new Error("Gateway did not return a session key");
             }
@@ -569,7 +696,28 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           setSubmitting(false);
         }
       },
-      [input, client, state, submitting, agentId],
+      [client, state, submitting, agentId],
+    );
+
+    // Imperative handle for the parent (e.g. suggestion buttons).
+    useImperativeHandle(
+      ref,
+      () => ({
+        setInput: (text) => setInput(text),
+        focus: () => textareaRef.current?.focus(),
+        clearInput: () => setInput(""),
+        sendMessage: (text) => sendText(text),
+      }),
+      [sendText],
+    );
+
+    // Composer submit handler.
+    const handleSubmit = useCallback(
+      async (e?: React.FormEvent) => {
+        e?.preventDefault();
+        await sendText(input);
+      },
+      [input, sendText],
     );
 
     // Show emptyState whenever we have no messages and aren't currently
@@ -584,10 +732,29 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       emptyState !== undefined;
 
     return (
-      <div className={cn("flex flex-1 flex-col min-w-0", className)}>
+      <div
+        className={cn(
+          "flex flex-1 flex-col min-w-0 min-h-0",
+          presentation === "wecom-phone" && "bg-[#e9ebf1]",
+          className,
+        )}
+      >
         {/* Transcript */}
-        <div ref={transcriptRef} className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
+        <div
+          ref={transcriptRef}
+          className={cn(
+            "flex-1 overflow-y-auto",
+            presentation === "wecom-phone" && "scrollbar-thin",
+          )}
+        >
+          <div
+            className={cn(
+              "mx-auto space-y-6",
+              presentation === "wecom-phone"
+                ? "max-w-none px-3 pb-4 pt-4"
+                : "max-w-3xl px-6 py-6",
+            )}
+          >
             {hydrating && messages.length === 0 && (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -596,7 +763,13 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
             )}
             {showEmptyState && emptyState}
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
+              <MessageBubble
+                key={msg.id}
+                msg={msg}
+                presentation={presentation}
+                interactiveTerms={interactiveTerms}
+                onInteractiveTermClick={onInteractiveTermClick}
+              />
             ))}
           </div>
         </div>
@@ -604,11 +777,28 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
         {/* Composer */}
         <form
           onSubmit={handleSubmit}
-          className="border-t border-border bg-background"
+          className={cn(
+            "border-t border-border bg-background",
+            presentation === "wecom-phone" && "border-transparent bg-[#f7f7f7]",
+          )}
         >
-          <div className="mx-auto max-w-3xl px-6 py-4 space-y-2">
+          <div
+            className={cn(
+              "mx-auto space-y-2",
+              presentation === "wecom-phone" ? "max-w-none px-2 py-2" : "max-w-3xl px-6 py-4",
+            )}
+          >
             {error && <p className="text-xs text-destructive">{error}</p>}
-            <div className="flex items-end gap-2">
+            <div className={cn("flex items-end gap-2", presentation === "wecom-phone" && "items-center")}>
+              {presentation === "wecom-phone" && (
+                <button
+                  type="button"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[#2b2b2b] text-[#2b2b2b]"
+                  aria-label="语音"
+                >
+                  <Mic2 className="h-3.5 w-3.5" />
+                </button>
+              )}
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -620,26 +810,46 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
                   }
                 }}
                 placeholder={
-                  sessionKey
-                    ? "Continue the conversation… (Shift+Enter for newline)"
-                    : "Type a message to start…"
+                  presentation === "wecom-phone"
+                    ? "输入消息"
+                    : sessionKey
+                      ? "Continue the conversation… (Shift+Enter for newline)"
+                      : "Type a message to start…"
                 }
-                rows={3}
+                rows={presentation === "wecom-phone" ? 1 : 3}
                 disabled={state !== "connected"}
                 className={cn(
                   "flex-1 resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none",
                   "placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
                   "disabled:cursor-not-allowed disabled:opacity-60",
+                  presentation === "wecom-phone" &&
+                    "min-h-7 rounded-[3px] border-transparent bg-white px-3 py-1.5 text-[14px] leading-4 focus-visible:border-[#3977cc] focus-visible:ring-[#3977cc]/20",
                 )}
               />
+              {presentation === "wecom-phone" && (
+                <button
+                  type="button"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[#2b2b2b] text-[#2b2b2b]"
+                  aria-label="表情"
+                >
+                  <Smile className="h-3.5 w-3.5" />
+                </button>
+              )}
               <Button
                 type="submit"
-                size="sm"
+                size={presentation === "wecom-phone" ? "icon" : "sm"}
                 disabled={!input.trim() || submitting || state !== "connected"}
-                className="shrink-0"
+                className={cn(
+                  "shrink-0",
+                  presentation === "wecom-phone" &&
+                    "h-7 w-7 rounded-full border border-[#2b2b2b] bg-transparent text-[#2b2b2b] hover:bg-white disabled:opacity-100",
+                )}
+                aria-label={presentation === "wecom-phone" ? "发送" : undefined}
               >
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : presentation === "wecom-phone" ? (
+                  <Plus className="h-4 w-4" />
                 ) : (
                   <>
                     <Send className="h-4 w-4 mr-1" />
@@ -659,9 +869,20 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
 // Presentational subcomponents
 // =============================================================================
 
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+function MessageBubble({
+  msg,
+  presentation = "default",
+  interactiveTerms,
+  onInteractiveTermClick,
+}: {
+  msg: ChatMessage;
+  presentation?: AgentChatProps["presentation"];
+  interactiveTerms?: AgentChatProps["interactiveTerms"];
+  onInteractiveTermClick?: AgentChatProps["onInteractiveTermClick"];
+}) {
   const isUser = msg.role === "user";
   const isSystem = msg.role === "system";
+  const isWecom = presentation === "wecom-phone";
 
   if (isSystem) {
     return (
@@ -677,21 +898,52 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   const hasProgress = steps.length > 0;
 
   return (
-    <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
+    <div
+      className={cn(
+        "flex gap-3",
+        isUser && "flex-row-reverse",
+        isWecom && "gap-2.5",
+      )}
+    >
       <div
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
           isUser ? "bg-primary text-primary-foreground" : "bg-muted",
+          isWecom &&
+            "h-9 w-9 rounded-[5px] text-[13px] font-semibold shadow-sm",
+          isWecom && isUser && "bg-[#2f7df6] text-white",
+          isWecom && !isUser && "bg-[#07c160] text-white",
         )}
       >
-        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+        {isWecom ? (
+          isUser ? (
+            "我"
+          ) : (
+            "坐"
+          )
+        ) : isUser ? (
+          <User className="h-4 w-4" />
+        ) : (
+          <Bot className="h-4 w-4" />
+        )}
       </div>
-      <div className={cn("flex flex-col gap-1.5 max-w-[80%]", isUser && "items-end")}>
+      <div
+        className={cn(
+          "flex flex-col gap-1.5 max-w-[80%]",
+          isUser && "items-end",
+          isWecom && "max-w-[78%]",
+        )}
+      >
         {!isUser && hasProgress && (
           <ProgressDropdown steps={steps} streaming={!!msg.streaming} />
         )}
         {msg.streaming && !msg.text ? (
-          <div className="rounded-lg border border-border bg-card px-3 py-2">
+          <div
+            className={cn(
+              "rounded-lg border border-border bg-card px-3 py-2",
+              isWecom && "rounded-[5px] border-transparent bg-white shadow-sm",
+            )}
+          >
             <StreamingDots />
           </div>
         ) : (
@@ -701,15 +953,28 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
               isUser
                 ? "bg-primary text-primary-foreground"
                 : "bg-card border border-border",
+              isWecom &&
+                "rounded-[4px] px-2.5 py-2 text-[13px] leading-5 shadow-sm",
+              isWecom && isUser && "bg-[#95ec69] text-[#111] border-transparent",
+              isWecom && !isUser && "border-transparent bg-white text-[#111]",
             )}
           >
-            {msg.text || "…"}
+            {msg.text
+              ? isUser
+                ? msg.text
+                : renderInteractiveText(msg.text, interactiveTerms, onInteractiveTermClick)
+              : "…"}
             {msg.streaming && msg.text && (
               <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-70" />
             )}
           </div>
         )}
-        <span className="text-[10px] text-muted-foreground">
+        <span
+          className={cn(
+            "text-[10px] text-muted-foreground",
+            isWecom && "px-0.5 text-[#999]",
+          )}
+        >
           {new Date(msg.timestamp).toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",

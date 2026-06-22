@@ -1,0 +1,76 @@
+{
+  "city": "Shenzhen",
+  "cityZh": "深圳",
+  "source": "demo-fixture",
+  "locale": "zh-CN",
+  "note": "Runtime fixtures now cover 深圳、广州、北京、上海、杭州、香港、澳门 in src/index.ts. This file mirrors the Shenzhen subset for quick inspection.",
+  "hotels": [
+    {
+      "hotelId": "DIDA-SZX-10001",
+      "hotelName": "Andaz Shenzhen Bay",
+      "hotelNameZh": "深圳湾安达仕酒店",
+      "districtZh": "南山",
+      "addressZh": "深圳市南山区科苑南路 2600 号",
+      "ratePlanId": "RP-SZX-BAY-BB",
+      "roomNameZh": "湾景大床房",
+      "boardNameZh": "含早餐",
+      "pricePerRoomCny": 980,
+      "metadata": "DIDA_META_SZX_BAY_20260611_20260615_RP_BB"
+    },
+    {
+      "hotelId": "DIDA-SZX-10002",
+      "hotelName": "Four Seasons Hotel Shenzhen",
+      "hotelNameZh": "深圳四季酒店",
+      "districtZh": "福田",
+      "addressZh": "深圳市福田区福华三路 138 号",
+      "ratePlanId": "RP-SZX-FTN-RO",
+      "roomNameZh": "豪华城景双床房",
+      "boardNameZh": "不含早餐",
+      "pricePerRoomCny": 690,
+      "metadata": "DIDA_META_SZX_FTN_20260611_20260615_RP_RO"
+    },
+    {
+      "hotelId": "DIDA-SZX-10003",
+      "hotelName": "InterContinental Shenzhen Dameisha Resort",
+      "hotelNameZh": "深圳大梅沙京基洲际度假酒店",
+      "districtZh": "盐田",
+      "addressZh": "深圳市盐田区大梅沙盐梅路 9 号",
+      "ratePlanId": "RP-SZX-OCT-FAM",
+      "roomNameZh": "海景度假大床房",
+      "boardNameZh": "含早餐",
+      "pricePerRoomCny": 1280,
+      "metadata": "DIDA_META_SZX_OCT_20260611_20260615_RP_FAM"
+    },
+    {
+      "hotelId": "DIDA-SZX-10004",
+      "hotelName": "The Langham, Shenzhen",
+      "hotelNameZh": "深圳东海朗廷酒店",
+      "districtZh": "福田",
+      "addressZh": "深圳市福田区深南大道 7888 号",
+      "ratePlanId": "RP-SZX-LGH-BB",
+      "roomNameZh": "豪华城景大床房",
+      "boardNameZh": "含早餐",
+      "pricePerRoomCny": 920,
+      "metadata": "DIDA_META_SZX_LGH_20260611_20260615_RP_BB"
+    },
+    {
+      "hotelId": "DIDA-SZX-10005",
+      "hotelName": "Shenzhen Marriott Hotel Nanshan",
+      "hotelNameZh": "深圳中洲万豪酒店",
+      "districtZh": "南山",
+      "addressZh": "深圳市南山区海德一道 88 号中洲控股中心 A 座",
+      "ratePlanId": "RP-SZX-MRT-BB",
+      "roomNameZh": "行政城景大床房",
+      "boardNameZh": "含早餐",
+      "pricePerRoomCny": 1080,
+      "metadata": "DIDA_META_SZX_MRT_20260611_20260615_RP_BB"
+    }
+  ],
+  "attractions": [
+    { "attractionId": "SZX-TICKET-WINDOW-WORLD", "attractionNameZh": "世界之窗", "districtZh": "南山" },
+    { "attractionId": "SZX-TICKET-SPLENDID-CHINA", "attractionNameZh": "锦绣中华民俗村", "districtZh": "南山" },
+    { "attractionId": "SZX-TICKET-PINGAN-FC", "attractionNameZh": "平安金融中心云际观光层", "districtZh": "福田" },
+    { "attractionId": "SZX-TICKET-BAY-PARK", "attractionNameZh": "深圳湾公园", "districtZh": "南山" },
+    { "attractionId": "SZX-TICKET-DAMEISHA", "attractionNameZh": "大梅沙海滨公园", "districtZh": "盐田" }
+  ]
+}

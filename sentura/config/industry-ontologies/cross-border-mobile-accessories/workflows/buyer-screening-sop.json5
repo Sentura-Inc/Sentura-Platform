@@ -1,0 +1,63 @@
+// Cross-Border Mobile Accessories — Buyer Screening SOP
+{
+  schemaVersion: "1.0",
+  pillar: "workflows",
+  domain: "cross-border-mobile-accessories.buyer-screening-sop",
+  tenant: "cross-border-ecommerce",
+  entities: [
+    {
+      id: "entity:procedure:cbe-buyer-screening",
+      type: "procedure",
+      name: "Low-cost buyer authenticity screening",
+      attributes: {
+        ownerAgentId: "cbe-buyer-screening",
+        ownerChineseName: "跨境筛选背调员工",
+        acceptedInputs: ["LeadCandidate[]", "manual_input"],
+        manualInputFields: [
+          "company_name",
+          "country",
+          "website",
+          "domain",
+          "email",
+          "contact_person",
+          "contact_title",
+          "social_or_profile_url",
+          "product_interest",
+          "operator_notes",
+        ],
+        steps: [
+          "1. Normalize Marketing leads and manual inputs into one InvestigationTarget shape.",
+          "2. Record supplied, inferred, and missing fields before scoring.",
+          "3. Check registry/legal existence first using official APIs where available, then official registry pages or public web evidence.",
+          "4. Check domain/email credibility with syntax, free-provider/disposable flags, DNS MX/SPF/DMARC, and RDAP.",
+          "5. Check public digital footprint through public search/fetch only.",
+          "6. Check trade/customs and financial evidence only when low-cost or approved paid sources are enabled.",
+          "7. Add conversation_behavior only when Accio or sales interaction evidence exists; mark cold Marketing leads as not_applicable.",
+          "8. Compute contextual normalized_score and evidence_coverage separately.",
+          "9. Apply forced downgrade rules after scoring.",
+          "10. Return an evidence-cited ScreeningReport with recommended next action and missing evidence.",
+        ],
+        defaultCostPosture: {
+          registry: "Companies House/SEC/free official pages first",
+          emailDomain: "free DNS/RDAP first",
+          tradeData: "disabled_by_budget unless operator enables Volza/ImportYeti",
+          social: "public search result snippets and fetchable pages only",
+        },
+        prohibitedActions: [
+          "Do not claim fraud solely because evidence is missing.",
+          "Do not use login-gated social scraping.",
+          "Do not expose raw secrets or paid API keys in reports.",
+        ],
+      },
+    },
+  ],
+  relations: [
+    { from: "entity:procedure:cbe-buyer-screening", type: "consumes", to: "entity:procedure:cbe-lead-discovery" },
+  ],
+  provenance: {
+    source: "跨境电商/DESIGN.md Milestone 2",
+    ingested: "2026-06-08T00:00:00Z",
+    ingestedBy: "codex",
+    confidence: 0.9,
+  },
+}

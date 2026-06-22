@@ -1,0 +1,15 @@
+{
+  "name": "@sentura/cost",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Per-agent / per-department LLM cost attribution for Sentura. Subscribes to OpenClaw's model.usage diagnostic event.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "openclaw": "link:../../../openclaw"
+  }
+}

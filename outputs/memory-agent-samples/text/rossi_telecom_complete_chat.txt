@@ -1,0 +1,96 @@
+Rossi Telecom SRL complete chat transcript
+Customer: Marco Rossi, Purchasing Manager, Rossi Telecom SRL, Milan, Italy
+Seller: Eva CHAN, Sentura Mobile Accessories Demo
+
+[2026-06-22 16:08] Marco Rossi (buyer):
+Hello Eva, this is Marco Rossi, purchasing manager at Rossi Telecom SRL in Milan. We distribute mobile accessories to 42 retail stores in Italy. Website: https://www.rossitelecom.it, VAT IT1029384756. We found your S25 Ultra magnetic rugged case on Accio. Are you the manufacturer?
+
+[2026-06-22 16:11] Eva CHAN (seller):
+Hello Marco, nice to meet you. Yes, we are a Shenzhen manufacturer for phone cases, screen protectors, chargers and power banks. The S25 Ultra magnetic rugged case is our current stock model.
+
+[2026-06-22 16:14] Marco Rossi (buyer):
+We want a trial order for 500 pcs, clear back + black frame. It must support magnetic charging, have raised camera protection, and fit S25 Ultra exactly. What is your MOQ, stock and lead time?
+
+[2026-06-22 16:18] Eva CHAN (seller):
+The case is TPU + PC, with N52 magnets, air-cushion corners, 1.5 mm raised camera lip, and wireless charging support. MOQ is 100 pcs. Current stock: 1,200 pcs clear back + black frame. Stock order can ship within 3-5 business days after payment.
+
+[2026-06-22 16:21] Marco Rossi (buyer):
+Please quote 500 pcs and 1,000 pcs. Also confirm packing options, CE/RoHS documents, and whether you can add our barcode and logo.
+
+[2026-06-22 16:27] Eva CHAN (seller):
+For 500 pcs: US$2.85/pc EXW Shenzhen. For 1,000 pcs: US$2.70/pc EXW. Neutral OPP bag is included. Retail box is +US$0.18/pc. Logo/EAN sticker is +US$0.08/pc, MOQ 500 pcs. CE and RoHS reports are available.
+
+[2026-06-22 16:31] Marco Rossi (buyer):
+What are carton quantity, carton size and gross weight? We need these for our import estimate.
+
+[2026-06-22 16:34] Eva CHAN (seller):
+Carton details: 100 pcs/carton, 13.8 kg gross weight, carton size 56 x 38 x 42 cm. For 500 pcs it will be 5 cartons, around 69 kg gross weight.
+
+[2026-06-22 16:40] Marco Rossi (buyer):
+Can we get samples first? We need to check magnet strength, side buttons and retail box quality before confirming the 500 pcs order.
+
+[2026-06-22 16:43] Eva CHAN (seller):
+Yes. Sample cost is US$35 including DHL to Milan. We can send 2 pcs clear/black, 1 pc clear/blue, a retail box mockup and a blank EAN sticker. Sample can ship tomorrow and usually arrives in 4-5 days.
+
+[2026-06-22 16:48] Marco Rossi (buyer):
+Our target for the trial order is US$2.60/pc because the local retail price will be under EUR 8.99. Can you meet this for 500 pcs?
+
+[2026-06-22 16:52] Eva CHAN (seller):
+For 500 pcs we cannot reach US$2.60. The best trial price is US$2.78/pc EXW. For the next 1,000 pcs order we can offer US$2.68/pc EXW if the packaging artwork stays the same.
+
+[2026-06-22 16:55] Marco Rossi (buyer):
+Please quote DDP air shipping to our Milan warehouse for 500 pcs with retail box, logo/EAN sticker, and Italian warranty card.
+
+[2026-06-22 17:02] Eva CHAN (seller):
+For 500 pcs DDP Milan: case US$2.78 + retail box US$0.18 + logo/EAN sticker US$0.08 + Italian warranty card US$0.04 = US$3.08/pc. Goods total US$1,540. Air DDP freight is US$420. Total DDP Milan is US$1,960.
+
+[2026-06-22 17:07] Marco Rossi (buyer):
+What is the delivery schedule if we approve the sample and pay the deposit on June 24?
+
+[2026-06-22 17:10] Eva CHAN (seller):
+If deposit and artwork are confirmed before 15:00 Beijing time on June 24, production starts June 25, finishes July 1, shipment leaves Shenzhen July 2, and estimated Milan delivery is July 7-9.
+
+[2026-06-22 17:14] Marco Rossi (buyer):
+Please send product video, magnet test, CE/RoHS reports and the artwork template for the retail box.
+
+[2026-06-22 17:21] Eva CHAN (seller):
+Sent. Files: product_video_S25U_magnetic_case.mp4, magnet_test_1kg.mp4, CE-2026-0429.pdf, RoHS-RSH2026-0518.pdf, and retail_box_artwork_template.ai. Please send your logo, EAN numbers and Italian warranty card text.
+
+[2026-06-22 17:25] Marco Rossi (buyer):
+Can you confirm warranty policy? Our retailers require at least 12 months and replacement support for defective units.
+
+[2026-06-22 17:29] Eva CHAN (seller):
+Warranty is 12 months for material and workmanship defects. If defective rate is below 1%, replacements are included in the next order. If defect is confirmed from production issue, we replace or credit the defective quantity.
+
+[2026-06-22 17:34] Marco Rossi (buyer):
+Payment terms?
+
+[2026-06-22 17:37] Eva CHAN (seller):
+For bulk order: 30% deposit and 70% balance before shipment. Payment can be T/T or Alibaba Trade Assurance. For sample, PayPal is OK.
+
+[2026-06-22 17:41] Marco Rossi (buyer):
+Can you make the bulk DDP total US$1,900 if the sample is approved? This will help us keep the launch price.
+
+[2026-06-22 17:48] Eva CHAN (seller):
+We can reduce US$35 from product/freight and offer final DDP Milan total US$1,925 for 500 pcs. For the next order of 1,000 pcs, estimated DDP unit price can be around US$2.95 if freight is similar.
+
+[2026-06-22 17:52] Marco Rossi (buyer):
+OK, let us proceed with sample first. Please issue sample PI to marco.rossi@rossitelecom.it. Delivery address: Rossi Telecom SRL, Via Torino 18, 20123 Milan, Italy. WhatsApp: +39 347 555 0198.
+
+[2026-06-22 17:58] Eva CHAN (seller):
+Sample PI sent: ST-2026-0622-IT01. Sample package includes 2 pcs clear/black, 1 pc clear/blue, retail box mockup and blank EAN sticker. Total sample invoice: US$35 including DHL.
+
+[2026-06-22 18:06] Marco Rossi (buyer):
+Payment sent via PayPal. Transaction ID PP-984521. Please ship tomorrow and send tracking once available.
+
+[2026-06-22 18:12] Eva CHAN (seller):
+Payment received, thank you. Sample will ship on June 23 by DHL. I will send tracking before 18:00 Beijing time tomorrow.
+
+[2026-06-23 17:36] Eva CHAN (seller):
+DHL tracking number: 1234567890. Estimated delivery to Milan: June 27. I also uploaded QC photos of the sample package.
+
+[2026-06-23 17:51] Marco Rossi (buyer):
+Thanks. If the sample is approved on June 27 or June 28, we plan to pay the 30% deposit next Monday. Please prepare the final 500 pcs quote and artwork checklist.
+
+[2026-06-23 18:02] Eva CHAN (seller):
+Noted. Follow-up items: wait for sample feedback June 27-28; prepare final 500 pcs DDP Milan quote at US$1,925; collect logo file, EAN numbers and Italian warranty card text; then issue bulk PI with 30% deposit US$577.50.

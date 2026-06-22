@@ -1,0 +1,41 @@
+{
+  "name": "@sentura/mcp-dida-travel-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fixture-first MCP server that simulates DidaTravel hotel booking, order lookup, transfer search, and attraction search for the Zuolian Phase 1 MVP.",
+  "type": "module",
+  "bin": {
+    "sentura-mcp-dida-travel-demo": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "sentura": {
+    "sourceDocs": [
+      "https://apidoc.didatravel.com/booking-api/price-search.html",
+      "https://apidoc.didatravel.com/booking-api/price-confirm.html",
+      "https://apidoc.didatravel.com/booking-api/booking-confirm.html",
+      "https://apidoc.didatravel.com/booking-api/booking-search.html",
+      "https://apidoc.didatravel.com/content-api-v2/how-to-use-content-api.html"
+    ],
+    "category": "client-pilot-integration",
+    "generatedFrom": "座联互动/DESIGN.md Milestone 1"
+  }
+}

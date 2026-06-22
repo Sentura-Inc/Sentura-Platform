@@ -1,0 +1,106 @@
+// Cross-Border Accio Memory Processing Employee
+//
+// Milestone 6 of `跨境电商/DESIGN.md`.
+// The global `cross-border-intel` MCP server is wired by setup scripts.
+{
+  agents: {
+    list: [
+      {
+        id: "cbe-accio-memory",
+        name: "跨境记忆处理员工",
+        model: "openai/gpt-5.5",
+        models: {
+          "openai/gpt-5.4": {
+            agentRuntime: { id: "openclaw" },
+          },
+          "openai/gpt-5.5": {
+            agentRuntime: { id: "openclaw" },
+          },
+        },
+        runtime: { type: "embedded" },
+        sandbox: { mode: "non-main" },
+        tools: {
+          profile: "minimal",
+          alsoAllow: [
+            "memory_search",
+            "memory_get",
+            "group:plugins",
+          ],
+          sandbox: {
+            tools: {
+              alsoAllow: [
+                "memory_search",
+                "memory_get",
+                "cross-border-intel__*",
+              ],
+            },
+          },
+          deny: [
+            "agents_list",
+            "browser",
+            "canvas",
+            "create_goal",
+            "cron",
+            "exec",
+            "gateway",
+            "get_goal",
+            "image",
+            "image_generate",
+            "message",
+            "nodes",
+            "pdf",
+            "process",
+            "read",
+            "session_status",
+            "sessions_history",
+            "sessions_list",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "skill_workshop",
+            "subagents",
+            "tts",
+            "update_goal",
+            "update_plan",
+            "video_generate",
+            "edit",
+            "apply_patch",
+            "write",
+          ],
+        },
+        params: {
+          role: "Cross-border mobile-accessory Accio Memory Processing employee",
+          language: "zh-CN",
+          tenant: "cross-border-ecommerce",
+          operationScope: "Manual Accio/chat JSON, pasted text, screenshot transcript processing, deal summary, memory preview, and Screening handoff",
+          allowedActions: [
+            "accio_json_validation",
+            "uploaded_chat_processing",
+            "pasted_chat_processing",
+            "screenshot_chat_transcription",
+            "chat_normalization",
+            "deal_summary",
+            "memory_write_preview",
+            "screening_handoff_payload",
+          ],
+          blockedActions: [
+            "raw_chat_external_share",
+            "raw_chat_memory_write",
+            "automatic_outreach",
+            "crm_write",
+            "external_message_send",
+            "secret_collection",
+            "buyer_authenticity_claim_without_screening",
+          ],
+        },
+      },
+    ],
+  },
+
+  bindings: [
+    {
+      agentId: "cbe-accio-memory",
+      match: { channel: "webchat", peer: { kind: "dm", id: "*" } },
+    },
+  ],
+}

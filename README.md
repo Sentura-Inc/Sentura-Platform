@@ -16,7 +16,7 @@ Turn OpenClaw agents into **mission-ready AI employees** for specific enterprise
 
 ### Core Principles
 
-- **OpenClaw at the core** — every AI employee is a configured OpenClaw agent. No custom runtime. 107 bundled extensions, 37+ AI providers, 22+ channels (as of OpenClaw `2026.4.19-beta.2`).
+- **OpenClaw at the core** — every AI employee is a configured OpenClaw agent. No custom runtime. 135 bundled extension directories, 51 provider-capable extensions, 24 channel extensions (as of OpenClaw `2026.6.2`).
 - **No-code everything** — enterprise users create and manage AI employees through natural language.
 - **Self-provisioning** — AI employees autonomously register for services and configure integrations using browser automation, structured skills, approval workflows, and error recovery.
 - **Flexible deployment** — cloud, on-premise, or hybrid; cloud LLMs or self-hosted (Ollama / vLLM / SGLang).
@@ -59,13 +59,13 @@ OpenClaw is a mature personal AI assistant platform providing runtime, channels,
 ### What OpenClaw Provides (That We Leverage As-Is)
 
 - **22+ messaging channels** (Slack, Teams, WhatsApp, Discord, Telegram, Signal, Matrix, and more)
-- **37+ AI provider integrations** (OpenAI, Anthropic, Google, Ollama, vLLM, SGLang, Mistral, Groq, and more — see `docs/OPENCLAW.md §21`)
+- **51 provider-capable extensions** (OpenAI, Anthropic, Google, Ollama, vLLM, SGLang, Mistral, Groq, and more — see `docs/OPENCLAW.md §21`)
 - **Agent tool system** (30+ built-in tools: browser, search, fetch, PDF, canvas, exec, cron, etc.)
 - **Gateway server** with HTTP + WebSocket JSON-RPC protocol
 - **Config system** with hot-patchable JSON5, Zod validation, `config.patch` RPC
 - **Memory system** (LanceDB vector embeddings, dreaming/consolidation)
 - **Cron scheduler** for recurring autonomous tasks
-- **Plugin SDK** (`@openclaw/plugin-sdk`, monorepo package under `openclaw/packages/plugin-sdk/`) with 107 bundled extensions and typed contracts
+- **Plugin SDK** (`@openclaw/plugin-sdk`, monorepo package under `openclaw/packages/plugin-sdk/`) with 135 bundled extension directories and typed contracts
 - **Security primitives** (tool denylists, sandbox mode, SSRF guards, path safety, audit logging)
 - **Exec approval system** (`exec.approval.*`, `plugin.approval.*` RPC)
 - **Subagent spawning** with depth limits and isolated sessions
@@ -89,7 +89,7 @@ OpenClaw is a mature personal AI assistant platform providing runtime, channels,
 └──────┬──────────────┬──────────────┬──────────────────────┘
        │              │              │
  ┌─────▼────┐   ┌────▼──────┐   ┌───▼─────────────────┐
- │ AI       │   │ 22+       │   │ 40+ LLM PROVIDERS   │
+ │ AI       │   │ 24        │   │ 51 PROVIDER EXTS    │
  │ EMPLOYEES│   │ CHANNELS  │   │ (cloud + self-host) │
  └──────────┘   └───────────┘   └─────────────────────┘
 
@@ -109,7 +109,7 @@ Do NOT substitute these without explicit approval.
 
 | Component | Technology |
 |-----------|-----------|
-| **Runtime** | Node.js 24 (recommended) or Node 22.16+ — ESM, TypeScript (matches OpenClaw `2026.4.19-beta.2` engines) |
+| **Runtime** | Node.js 24 (recommended) or Node 22.19+ — ESM, TypeScript (matches OpenClaw `2026.6.2` engines) |
 | **Gateway** | Hono (HTTP) + ws (WebSocket) |
 | **Agent core** | `@mariozechner/pi-agent-core` |
 | **Configuration** | JSON5 + Zod validation + JSON Schema |
@@ -139,7 +139,7 @@ Do NOT substitute these without explicit approval.
 | **Container** | Docker / Podman (production only; dev builds from source via `pnpm gateway:watch`) |
 | **Orchestration** | Docker Compose (small), Kubernetes (enterprise) |
 | **LLM serving** | Ollama, vLLM, SGLang (self-hosted) or cloud APIs |
-| **Monitoring** | OpenTelemetry (via `diagnostics-otel` extension) |
+| **Monitoring** | OpenClaw diagnostic bus via `openclaw/plugin-sdk/diagnostic-runtime`; optional OpenTelemetry export via upstream `diagnostics-otel` |
 | **Logging** | tslog → file / stdout / external collector |
 
 ---
@@ -148,9 +148,9 @@ Do NOT substitute these without explicit approval.
 
 ```
 Sentura-Platform/
-├── openclaw/                      # OpenClaw core (pnpm monorepo, v2026.4.19-beta.2)
+├── openclaw/                      # OpenClaw core (pnpm monorepo, v2026.6.2)
 │   ├── src/                       # Core TypeScript source (gateway, agents, config, mcp, …)
-│   ├── extensions/                # 107 plugin extensions (channels, providers, tools, memory)
+│   ├── extensions/                # 135 extension directories (channels, providers, tools, memory, diagnostics)
 │   ├── packages/                  # pnpm workspace packages
 │   │   ├── plugin-sdk/            # @openclaw/plugin-sdk (stable public API for extensions)
 │   │   ├── memory-host-sdk/       # @openclaw/memory-host-sdk (memory engine host interface)
@@ -274,17 +274,30 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| [`outputs/resume_card.md`](outputs/resume_card.md) | Short continuation card for unfinished work: current goal, state, next 3 actions, working set, last verification | First file for continuing an unfinished task |
+| [`outputs/task_handoff.md`](outputs/task_handoff.md) | Full current task handoff with decisions, commands, verification, blockers, and next steps | After `resume_card.md` points to it, or before handing off unfinished work |
 | [`README.md`](README.md) | High-level overview + 17-capability map (this file) | Every session |
-| [`docs/MEMORY.md`](docs/MEMORY.md) | Development session **matrix / TOC** — policy preamble, Current Ground Truth, one row per session linking to a detail file | Every session |
+| [`docs/MEMORY.md`](docs/MEMORY.md) | Development session **matrix / TOC** — policy preamble, Current Ground Truth, one row per session linking to a detail file | New independent sessions; targeted lookup during continuation |
 | [`docs/TeamPlan.md`](docs/TeamPlan.md) | 8-week sprint plan with per-person task breakdowns | Every session |
 | [`docs/TESTS.md`](docs/TESTS.md) | Test matrix — what to test and how | When adding/changing deliverables |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Deep technical design (architecture, EKG, memory, orchestration, deployment) | On demand — when making architectural decisions |
 | [`docs/OPENCLAW.md`](docs/OPENCLAW.md) | OpenClaw technical reference | On demand — when working with plugin-sdk, gateway RPC, extensions |
 | [`docs/memory/person-*/week-*.md`](docs/memory/) | Per-owner, per-week session detail (prose, diffs, verification steps) | On demand — open from the matrix row |
 | [`docs/memory/shared/*.md`](docs/memory/shared/) | Cross-cutting sessions (architecture pivots, workspace collapses, multi-round bug hunts) | On demand — open from the matrix row |
+| [`docs/memory/sitlink/*.md`](docs/memory/sitlink/) | Sitlink / 座联互动 independent client-pilot memory | On demand — for Sitlink tasks only |
+| [`docs/memory/cross-border-ecommerce/phase-2.md`](docs/memory/cross-border-ecommerce/phase-2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 memory for production persistence, customer Admin monitoring, typed store, concurrency, and durable workflows | On demand — for current 跨境电商 Phase 2 tasks |
+| [`docs/memory/cross-border-ecommerce/phase-1.md`](docs/memory/cross-border-ecommerce/phase-1.md) | Historical Cross-border e-commerce / 跨境电商 Phase 1/MVP memory | On demand — for Phase 1 regression/provenance lookup only |
+| [`座联互动/DESIGN.md`](座联互动/DESIGN.md) | Sitlink client-pilot design | On demand — for Sitlink tasks only |
+| [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce shared platform, database, deployment, MCP, and cross-agent design | On demand — for 跨境电商 tasks only |
+| [`跨境电商/PHASE-2.md`](跨境电商/PHASE-2.md) | Cross-border Phase 2 execution plan for production persistence, customer `admin`/`operator` levels, Admin monitoring, typed store, multi-user sessions, Lead coordinator, durable Screening/Accio workflows, and load-smoke testing | On demand — for 跨境电商 production/database/concurrency/customer-permission tasks only |
+| [`跨境电商/UI.md`](跨境电商/UI.md) | Cross-border ordinary-user/Admin monitoring UI design, Employee page layouts, status colors, and hidden Agent task connection contract | On demand — for 跨境电商 UI/UX tasks only |
+| [`跨境电商/MARKET_ACQUISITION.md`](跨境电商/MARKET_ACQUISITION.md) | Cross-border Marketing Acquisition / Lead Discovery employee design, implementation status, and plan | On demand — for 跨境电商获客 tasks only |
+| [`跨境电商/SCREENING.md`](跨境电商/SCREENING.md) | Cross-border Screening and Background employee design, evidence model, Alibaba API plan, implementation status, and plan | On demand — for 跨境电商背调 tasks only |
+| [`跨境电商/MEMORY_PROCESSING.md`](跨境电商/MEMORY_PROCESSING.md) | Cross-border Accio Memory Processing employee design, fixture/upload workflow, memory policy, implementation status, and plan | On demand — for 跨境电商记忆处理 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
-| [`docs/tests/*`](docs/tests/) | Detailed per-person + cross-team test cases | When running or updating tests |
+| [`docs/tests/tests-cross-border-phase2.md`](docs/tests/tests-cross-border-phase2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 detailed test cases (CE17+) | When running or updating CBE Phase 2 tests |
+| [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases; `tests-cross-border-ecommerce.md` remains CBE Phase 1/MVP regression history | When running or updating tests |
 | [`Documents/Demo.md`](Documents/Demo.md) | Demo scenarios and workflows | When designing demo flows |
 | [`ekg/*`](ekg/) | GradSale reference enterprise docs | When building MCP servers or integration skills |
 
