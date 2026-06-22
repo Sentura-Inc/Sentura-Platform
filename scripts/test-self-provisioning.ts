@@ -96,8 +96,8 @@ if (skillExists) {
     skill.includes("Auto") && skill.includes("Standard") && skill.includes("Elevated")
   );
   ok(
-    "SKILL.md references real secrets RPCs (secrets.resolve / secrets.reload)",
-    skill.includes("secrets.resolve") && skill.includes("secrets.reload"),
+    "SKILL.md references Sentura primitives (dotenv_check / sentura_approval_request)",
+    skill.includes("dotenv_check") && skill.includes("sentura_approval_request"),
   );
   ok(
     "SKILL.md references browser navigation for registration",
@@ -303,8 +303,8 @@ class GatewayRpcClient {
             id,
             method: "connect",
             params: {
-              minProtocol: 3,
-              maxProtocol: 3,
+              minProtocol: 4,
+              maxProtocol: 4,
               client: {
                 id: "openclaw-tui",
                 displayName: "Sentura Self-Prov Test",

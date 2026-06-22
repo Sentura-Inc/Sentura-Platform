@@ -300,8 +300,8 @@ ws.on("message", (raw: Buffer) => {
       id,
       method: "connect",
       params: {
-        minProtocol: 3,
-        maxProtocol: 3,
+        minProtocol: 4,
+        maxProtocol: 4,
         client: {
           id: "openclaw-tui",   // must be an allowed client id (see protocol schema)
           displayName: "My Client",

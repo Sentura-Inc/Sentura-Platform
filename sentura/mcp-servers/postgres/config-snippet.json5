@@ -1,0 +1,37 @@
+// Tier 1 — open-source MCP server. Paste this fragment under `mcp.servers` of
+// `~/.openclaw/openclaw.json` (or apply it via the gateway `config.patch` RPC
+// — never edit `openclaw.json` while the gateway is running). The path lives
+// at OpenClaw's native `mcp.servers.<name>` location; any other nesting is
+// invisible to the loader.
+{
+  mcp: {
+    servers: {
+      // Read-only PostgreSQL access for AI employees that need to inspect
+      // enterprise data — a Finance Analyst running ad-hoc queries against
+      // the data warehouse, a Customer Support employee looking up account
+      // history, an Auditor pulling activity logs. The upstream package
+      // exposes `query` and `schema` tools — both *read-only* by design.
+      // For mutations, build a dedicated Tier-2 MCP server that exposes
+      // ONLY the specific write operations (e.g. an "AP Clerk" server with
+      // `mark_invoice_paid`) so the agent cannot issue arbitrary UPDATE.
+      postgres: {
+        command: "npx",
+        args: [
+          "-y",
+          "@modelcontextprotocol/server-postgres",
+          // Postgres connection URL. Use a DEDICATED, read-only role for
+          // the employee. Never reuse the application's primary credential.
+          // The `$secret:` reference is resolved through OpenClaw's secret
+          // store at startup (see `docs/OPENCLAW.md § Secrets`).
+          "$secret:SENTURA_PG_READONLY_URL",
+        ],
+        env: {
+          // Optional: cap rows per query the agent can read. Defaults to
+          // server preference; set this for noisy analytics workflows so a
+          // runaway query cannot drag latency for the rest of the system.
+          MCP_PG_MAX_ROWS: "10000",
+        },
+      },
+    },
+  },
+}

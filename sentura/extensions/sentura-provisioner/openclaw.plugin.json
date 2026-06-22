@@ -1,5 +1,8 @@
 {
   "id": "sentura-provisioner",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Provisioner",
   "description": "Coordinates self-provisioning of new SaaS integrations — files an approval request via sentura-approval, hands off to a browser-driven provisioning skill once approved, and records the credential reference returned by the skill into the secret store. Tracks every provisioning run as an auditable record.",
   "enabledByDefault": true,

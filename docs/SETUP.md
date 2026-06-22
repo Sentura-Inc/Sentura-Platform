@@ -4,11 +4,11 @@
 
 | Tool | Version | Check | Required? |
 |------|---------|-------|-----------|
-| Node.js | 22.16+ (Node 24 recommended) | `node --version` | Yes |
-| pnpm | 10.33+ | `pnpm --version` | Yes |
+| Node.js | 22.19+ (Node 24 recommended) | `node --version` | Yes |
+| pnpm | 11.2.2+ | `pnpm --version` | Yes |
 | Docker | any recent version | `docker --version` | Recommended (see note) |
 
-> OpenClaw `2026.4.19-beta.2` declares `"engines": { "node": ">=22.14.0" }` and its README recommends Node 24. The `@openclaw/plugin-sdk` is shipped as a workspace package, so pnpm 10.33+ is needed for correct workspace resolution.
+> OpenClaw `2026.6.2` declares `"engines": { "node": ">=22.19.0" }` and `"packageManager": "pnpm@11.2.2+..."`. Node 24 remains the safest default. Make sure the same terminal that runs `pnpm install`, `pnpm build`, `pnpm openclaw onboard`, and `pnpm gateway:watch` reports Node `22.19+`; after using `nvm`/`fnm`/Homebrew, reopen the shell or run `hash -r` if an older `node` remains cached.
 
 > **Docker for meta-agent sandboxes.** The Sentura meta-agents (Creator/Forge, Tuner/Refine, Orchestrator/Conductor, MCP Builder/Socket) are configured with `sandbox.mode: "non-main"`, which runs the agent in a Docker container for isolation. Without Docker on PATH, dashboard chat with any meta-agent fails with:
 >
@@ -28,7 +28,7 @@
 **macOS:**
 ```bash
 brew install node
-npm install -g pnpm   # or: corepack enable
+npm install -g pnpm@11.2.2   # or: corepack prepare pnpm@11.2.2 --activate
 ```
 
 **Linux (Ubuntu/Debian):**
@@ -36,14 +36,14 @@ npm install -g pnpm   # or: corepack enable
 # Node.js 24 via NodeSource (or 22.x if you need LTS)
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
-npm install -g pnpm   # or: corepack enable
+npm install -g pnpm@11.2.2   # or: corepack prepare pnpm@11.2.2 --activate
 ```
 
 **Windows (PowerShell):**
 ```powershell
 # Via winget (preferred)
 winget install OpenJS.NodeJS.LTS
-npm install -g pnpm   # or: corepack enable
+npm install -g pnpm@11.2.2   # or: corepack prepare pnpm@11.2.2 --activate
 
 # Or download from https://nodejs.org/
 ```
@@ -88,7 +88,7 @@ After the local OpenClaw source builds successfully (next section), expose it on
 
 ```bash
 cd openclaw && npm link
-openclaw --version    # should match openclaw/package.json (2026.4.19-beta.2)
+openclaw --version    # should match openclaw/package.json (2026.6.2)
 ```
 
 ---
@@ -108,6 +108,8 @@ OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build          # skip A2UI bundle (see note be
 
 pnpm openclaw onboard
 ```
+
+> **Non-interactive installs:** pnpm 11 may ask to remove/recreate `node_modules` after a fresh OpenClaw pull. In CI or script-driven terminals, use `CI=true pnpm install` so the module directory refresh does not abort on a missing TTY.
 
 > **Note on `OPENCLAW_A2UI_SKIP_MISSING=1`:** the `canvas:a2ui:bundle` build step requires Google's A2UI closed-source bundle, which isn't included in this distribution's `openclaw/vendor/a2ui/`. The env var is the officially-supported skip path (see `openclaw/scripts/bundle-a2ui.mjs`). A2UI powers the optional Canvas agent-to-agent UI — it's not needed for Sentura core (dashboard, meta-agents, MCP tools, gateway all work without it). If you have access to A2UI sources, drop the env var and the bundle will build normally.
 
@@ -138,6 +140,22 @@ cp scripts/vitest.sentura.config.ts openclaw/test/vitest/vitest.sentura.config.t
 ```
 
 You only need this if you will run the Sentura extension test suite (`cd openclaw && npx vitest run --config test/vitest/vitest.sentura.config.ts`). See `docs/TESTS.md` for the full test commands.
+
+### Link Sentura extensions to the local OpenClaw source
+
+Sentura extension packages intentionally depend on the local source checkout with:
+
+```json
+"openclaw": "link:../../../openclaw"
+```
+
+Do not change these back to `"*"`. The wildcard resolves from the registry and can silently install an older OpenClaw package (for example `2026.4.x`) while the repo source is on `2026.6.x`, causing TypeScript to compile against the wrong Plugin SDK surface. After changing OpenClaw source or extension package manifests, refresh the root install:
+
+```bash
+pnpm install --no-frozen-lockfile
+```
+
+The command should leave `sentura/extensions/<name>/node_modules/openclaw` pointing at the repo's `openclaw/` directory. If `pnpm` reports a Node engine warning, fix the active shell to Node 22.19+ before treating build/test results as authoritative.
 
 ### API Keys
 
@@ -203,7 +221,7 @@ powershell -ExecutionPolicy Bypass -File scripts\sentura-setup.ps1
 ```
 
 Both scripts perform the same steps:
-1. Detect platform and verify prerequisites (Node.js 22.16+/24, pnpm, OpenClaw config)
+1. Detect platform and verify prerequisites (Node.js 22.19+/24, pnpm 11.2.2+, OpenClaw config)
 2. Copy meta-agent workspace files (Creator, Tuner, Orchestrator) to the OpenClaw workspace
 3. Register each meta-agent with the OpenClaw gateway via the CLI
 4. Apply tool permissions and sandbox defaults (Creator gets `gateway` access, sandbox browser is enabled for dashboard-created sessions, etc.)
@@ -212,6 +230,7 @@ Both scripts perform the same steps:
 7. **Seed the first platform admin** (see below) — writes a `platform_admin` user into `sentura-rbac` so agents created after setup are no longer in RBAC bootstrap mode.
 8. **Wire the dashboard `.env.local`** — injects the seeded admin's `userToken` as `NEXT_PUBLIC_SENTURA_ADMIN_TOKEN` so the dashboard acts as the admin on RBAC-guarded RPCs without any manual step.
 9. **Mark each meta-agent workspace as bootstrap-complete** (see "Meta-agent bootstrap convention" below) — stamps `setupCompletedAt` into `<workspace>/.openclaw/workspace-state.json` for `creator`, `tuner`, and `orchestrator` so OpenClaw stops treating the workspaces as `[Bootstrap pending]` and stops forcing non-primary runs (dashboard-spawned sessions) into "limited" mode. This is required because Sentura keeps `BOOTSTRAP.md` permanently as the Enterprise Context file, while OpenClaw's default convention is to delete `BOOTSTRAP.md` once setup is done.
+10. **Wire client-pilot MCP servers** — registers the Sitlink `dida-travel-demo` MCP and the Cross-border e-commerce `cross-border-intel` MCP under OpenClaw's flat `mcp.servers.<name>` config. The cross-border entry reads `~/.openclaw/.env` / process env during setup, writes API-key values as `${ENV_VAR}` references, and writes only non-secret budget/default values literally.
 
 Both scripts are idempotent — safe to re-run if agents are added later.
 
@@ -422,6 +441,7 @@ Week 3 contract rules:
 - Only stdio MCP `env` supports `$secret:` pointers this round.
 - Remote HTTP/SSE MCP `headers` remain operator-managed.
 - Shared/global MCP servers may still live in `openclaw.json -> mcp.servers`, but self-provisioned employee-local integrations should default to `config.json5 -> mcpServers`.
+- Client-pilot global MCP servers wired by `scripts/sentura-setup.{sh,ps1}` use OpenClaw config env substitution (`${ENV_VAR}`) for API keys in `mcp.servers.*.env`; do not use `$secret:` markers in that global config path.
 - Dashboard 1:1 chat sessions use keys shaped like `agent:<agentId>:dashboard:<uuid>`.
 
 ---

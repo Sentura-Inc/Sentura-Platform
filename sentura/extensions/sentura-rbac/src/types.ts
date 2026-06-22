@@ -64,3 +64,17 @@ export interface AuthorizationResult {
   reason?: string;
   filteredScope?: PermissionScope;
 }
+
+/**
+ * Per-agent tenancy assignment. Lives outside `agents.list[]` so we never
+ * mutate undocumented OpenClaw config fields, and so single-tenant deployments
+ * (where every agent belongs to `tenantId: "default"`) don't pollute the
+ * agent record. `departmentId` is `null` until an agent is assigned to a
+ * department; `tenantId` is always set (defaults to `"default"`).
+ */
+export interface AgentTenancy {
+  agentId: string;
+  tenantId: string;
+  departmentId: string | null;
+  updatedAt: string;
+}

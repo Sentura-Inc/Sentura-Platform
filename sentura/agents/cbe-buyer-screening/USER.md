@@ -9,3 +9,4 @@ They need fast buyer authenticity screening from:
 - Accio or offline sales clues.
 
 They care about source traceability, cost controls, and sales-next-action clarity.
+

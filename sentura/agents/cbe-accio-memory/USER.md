@@ -8,3 +8,4 @@ The operator needs concise Chinese reports, structured JSON for the dashboard, a
 - memory facts safe to store,
 - buyer behavior signals,
 - Screening handoff targets that still require investigation.
+

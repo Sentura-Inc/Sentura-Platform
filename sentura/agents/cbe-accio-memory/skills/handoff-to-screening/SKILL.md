@@ -25,3 +25,4 @@ Do not call Screening tools yourself. The handoff is a typed payload for the Scr
 ## Safety
 
 Do not say the buyer was verified. Accio chat behavior is a useful signal, not legal/company evidence.
+

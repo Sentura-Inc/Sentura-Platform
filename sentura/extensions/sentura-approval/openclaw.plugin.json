@@ -1,5 +1,8 @@
 {
   "id": "sentura-approval",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Approval",
   "description": "Context-aware HITL approval — evaluates policy rules to auto-approve, auto-deny, or route requests through configurable escalation chains with timeouts. Wraps OpenClaw's binary exec.approval / plugin.approval primitives with enterprise context (refund amounts, risk tiers, department ownership).",
   "enabledByDefault": true,

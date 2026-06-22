@@ -23,3 +23,4 @@ Use after deal summaries are produced and before any memory promotion.
 ## Safety
 
 Never claim "memory written" for a preview. Never write raw chat content to `MEMORY.md` or vector memory.
+

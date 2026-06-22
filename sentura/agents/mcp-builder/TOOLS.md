@@ -23,7 +23,7 @@ Your profile is `coding` with extra allowlist for `gateway`, `web_search`, `web_
 - Large PDFs (>50MB): extract section-by-section to stay within context.
 
 ### `gateway` — for OpenClaw integration
-- Use `config.patch` to add entries at OpenClaw's native path `mcp.servers.{name}`. This is the exact path OpenClaw's MCP loader reads (`openclaw/src/agents/embedded-pi-mcp.ts` → `normalizeConfiguredMcpServers(cfg.mcp?.servers)`). Any other nesting (including the legacy `mcp.servers.entries.{name}`) is silently ignored at runtime — the server never spawns and the agent has no tools.
+- Use `config.patch` to add entries at OpenClaw's native path `mcp.servers.{name}`. This is the exact path OpenClaw's MCP config loader reads (`openclaw/src/config/mcp-config.ts` → `normalizeConfiguredMcpServers(sourceConfig.mcp?.servers)`). Any other nesting (including the legacy `mcp.servers.entries.{name}`) is silently ignored at runtime — the server never spawns and the agent has no tools.
 - NEVER write to `agents.*` from this agent — that is the Creator Agent's job.
 
 ### `pnpm` / `npm` (via `exec` in coding profile)

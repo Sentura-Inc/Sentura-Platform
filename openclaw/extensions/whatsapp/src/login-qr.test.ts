@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startWebLoginWithQr, waitForWebLogin } from "./login-qr.js";
+import { renderQrPngDataUrl } from "./qr-image.js";
 import {
   createWaSocket,
   logoutWeb,
@@ -11,20 +13,8 @@ import {
 
 vi.mock("./session.js", async () => {
   const actual = await vi.importActual<typeof import("./session.js")>("./session.js");
-  const createWaSocket = vi.fn(
-    async (
-      _printQr: boolean,
-      _verbose: boolean,
-      opts?: { authDir?: string; onQr?: (qr: string) => void },
-    ) => {
-      const sock = { ws: { close: vi.fn() } };
-      if (opts?.onQr) {
-        setImmediate(() => opts.onQr?.("qr-data"));
-      }
-      return sock as never;
-    },
-  );
-  const waitForWaConnection = vi.fn();
+  const createWaSocketLocal = vi.fn();
+  const waitForWaConnectionLocal = vi.fn();
   const formatError = vi.fn((err: unknown) => `formatted:${String(err)}`);
   const getStatusCode = vi.fn(
     (err: unknown) =>
@@ -32,26 +22,27 @@ vi.mock("./session.js", async () => {
       (err as { status?: number })?.status ??
       (err as { error?: { output?: { statusCode?: number } } })?.error?.output?.statusCode,
   );
-  const readWebAuthExistsForDecision = vi.fn(async () => ({
+  const readWebAuthExistsForDecisionLocal = vi.fn(async () => ({
     outcome: "stable" as const,
     exists: false,
   }));
-  const readWebSelfId = vi.fn(() => ({ e164: null, jid: null, lid: null }));
-  const logoutWeb = vi.fn(async () => true);
+  const readWebSelfIdLocal = vi.fn(() => ({ e164: null, jid: null, lid: null }));
+  const logoutWebLocal = vi.fn(async () => true);
   return {
     ...actual,
-    createWaSocket,
-    waitForWaConnection,
+    createWaSocket: createWaSocketLocal,
+    waitForWaConnection: waitForWaConnectionLocal,
     formatError,
     getStatusCode,
-    readWebAuthExistsForDecision,
-    readWebSelfId,
-    logoutWeb,
+    readWebAuthExistsForDecision: readWebAuthExistsForDecisionLocal,
+    readWebSelfId: readWebSelfIdLocal,
+    logoutWeb: logoutWebLocal,
   };
 });
 
 vi.mock("./qr-image.js", () => ({
   renderQrPngBase64: vi.fn(async () => "base64"),
+  renderQrPngDataUrl: vi.fn(async (input: string) => `data:image/png;base64,encoded:${input}`),
 }));
 
 const createWaSocketMock = vi.mocked(createWaSocket);
@@ -59,13 +50,31 @@ const readWebAuthExistsForDecisionMock = vi.mocked(readWebAuthExistsForDecision)
 const readWebSelfIdMock = vi.mocked(readWebSelfId);
 const waitForWaConnectionMock = vi.mocked(waitForWaConnection);
 const logoutWebMock = vi.mocked(logoutWeb);
+const renderQrPngDataUrlMock = vi.mocked(renderQrPngDataUrl);
 
 async function flushTasks() {
   await Promise.resolve();
   await Promise.resolve();
 }
 
+async function waitMs(ms: number) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForQrRenderCallCount(count: number) {
+  const deadline = Date.now() + 1000;
+  while (renderQrPngDataUrlMock.mock.calls.length < count && Date.now() < deadline) {
+    await waitMs(0);
+    await flushTasks();
+  }
+}
+
 describe("login-qr", () => {
+  const rotatingAccountId = "rotating-qr";
+  const concurrentAccountId = "concurrent-qr";
+
   beforeEach(() => {
     vi.clearAllMocks();
     createWaSocketMock
@@ -90,6 +99,13 @@ describe("login-qr", () => {
     });
     readWebSelfIdMock.mockReset().mockReturnValue({ e164: null, jid: null, lid: null });
     logoutWebMock.mockReset().mockResolvedValue(true);
+    renderQrPngDataUrlMock
+      .mockReset()
+      .mockImplementation(async (input) => `data:image/png;base64,encoded:${input}`);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("restarts login once on status 515 and completes", async () => {
@@ -98,10 +114,17 @@ describe("login-qr", () => {
       .mockRejectedValueOnce({ error: { output: { statusCode: 515 } } })
       .mockResolvedValueOnce(undefined);
 
-    const start = await startWebLoginWithQr({ timeoutMs: 5000 });
-    expect(start.qrDataUrl).toBe("data:image/png;base64,base64");
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId: rotatingAccountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
 
-    const resultPromise = waitForWebLogin({ timeoutMs: 5000 });
+    const resultPromise = waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+      accountId: rotatingAccountId,
+    });
     await flushTasks();
     await flushTasks();
 
@@ -113,15 +136,49 @@ describe("login-qr", () => {
     expect(logoutWebMock).not.toHaveBeenCalled();
   });
 
+  it("returns a replacement QR when status 408 happens before the first QR", async () => {
+    const accountId = "timeout-before-first-qr";
+    createWaSocketMock
+      .mockImplementationOnce(async () => ({ ws: { close: vi.fn() } }) as never)
+      .mockImplementationOnce(
+        async (
+          _printQr: boolean,
+          _verbose: boolean,
+          opts?: { authDir?: string; onQr?: (qr: string) => void },
+        ) => {
+          const sock = { ws: { close: vi.fn() } };
+          setImmediate(() => opts?.onQr?.("qr-after-timeout"));
+          return sock as never;
+        },
+      );
+    waitForWaConnectionMock
+      .mockRejectedValueOnce({ output: { statusCode: 408 } })
+      .mockImplementation(() => new Promise(() => {}));
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+
+    expect(start).toEqual({
+      qrDataUrl: "data:image/png;base64,encoded:qr-after-timeout",
+      message: "Scan this QR in WhatsApp → Linked Devices.",
+    });
+    expect(createWaSocketMock).toHaveBeenCalledTimes(2);
+  });
+
   it("clears auth and reports a relink message when WhatsApp is logged out", async () => {
     waitForWaConnectionMock.mockRejectedValueOnce({
       output: { statusCode: 401 },
     });
 
     const start = await startWebLoginWithQr({ timeoutMs: 5000 });
-    expect(start.qrDataUrl).toBe("data:image/png;base64,base64");
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
 
-    const result = await waitForWebLogin({ timeoutMs: 5000 });
+    const result = await waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+    });
 
     expect(result).toEqual({
       connected: false,
@@ -131,6 +188,27 @@ describe("login-qr", () => {
     expect(logoutWebMock).toHaveBeenCalledOnce();
   });
 
+  it("caps oversized wait timeouts to a timer-safe delay", async () => {
+    const accountId = "oversized-wait-timeout";
+    waitForWaConnectionMock.mockImplementation(() => new Promise(() => {}));
+
+    const start = await startWebLoginWithQr({ timeoutMs: 5000, accountId });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    vi.useFakeTimers();
+    const resultPromise = waitForWebLogin({
+      timeoutMs: Number.MAX_SAFE_INTEGER,
+      currentQrDataUrl: start.qrDataUrl,
+      accountId,
+    });
+
+    await vi.advanceTimersByTimeAsync(MAX_TIMER_TIMEOUT_MS);
+    await expect(resultPromise).resolves.toEqual({
+      connected: false,
+      message: "Still waiting for the QR scan. Let me know when you’ve scanned it.",
+    });
+  });
+
   it("turns unexpected login cleanup failures into a normal login error", async () => {
     waitForWaConnectionMock.mockRejectedValueOnce({
       output: { statusCode: 401 },
@@ -138,9 +216,12 @@ describe("login-qr", () => {
     logoutWebMock.mockRejectedValueOnce(new Error("cleanup failed"));
 
     const start = await startWebLoginWithQr({ timeoutMs: 5000 });
-    expect(start.qrDataUrl).toBe("data:image/png;base64,base64");
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
 
-    const result = await waitForWebLogin({ timeoutMs: 5000 });
+    const result = await waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+    });
 
     expect(result).toEqual({
       connected: false,
@@ -184,6 +265,281 @@ describe("login-qr", () => {
     await expect(waitForWebLogin({ timeoutMs: 1000 })).resolves.toEqual({
       connected: false,
       message: "No active WhatsApp login in progress.",
+    });
+  });
+
+  it("surfaces the latest QR after the socket rotates it", async () => {
+    createWaSocketMock.mockImplementationOnce(
+      async (
+        _printQr: boolean,
+        _verbose: boolean,
+        opts?: { authDir?: string; onQr?: (qr: string) => void },
+      ) => {
+        const sock = { ws: { close: vi.fn() } };
+        setImmediate(() => opts?.onQr?.("qr-data"));
+        setTimeout(() => opts?.onQr?.("qr-data-2"), 100);
+        return sock as never;
+      },
+    );
+    waitForWaConnectionMock.mockImplementation(() => new Promise(() => {}));
+
+    const start = await startWebLoginWithQr({ timeoutMs: 5000 });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    const resultPromise = waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+    });
+    await flushTasks();
+    await waitMs(140);
+    await flushTasks();
+
+    await expect(resultPromise).resolves.toEqual({
+      connected: false,
+      message: "QR refreshed. Scan the latest code in WhatsApp → Linked Devices.",
+      qrDataUrl: "data:image/png;base64,encoded:qr-data-2",
+    });
+  });
+
+  it("does not short-circuit on an existing QR when the waiter has no current QR image", async () => {
+    const accountId = "wait-without-current-qr";
+    waitForWaConnectionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(undefined), 20);
+        }),
+    );
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    await expect(
+      waitForWebLogin({
+        timeoutMs: 5000,
+        accountId,
+      }),
+    ).resolves.toEqual({
+      connected: true,
+      message: "✅ Linked! WhatsApp is ready.",
+    });
+  });
+
+  it("returns a terminal login result before a stale QR refresh", async () => {
+    const accountId = "connected-before-refresh";
+    let resolveLogin: () => void = () => {
+      throw new Error("Expected login wait to be pending");
+    };
+    createWaSocketMock.mockImplementationOnce(
+      async (
+        _printQr: boolean,
+        _verbose: boolean,
+        opts?: { authDir?: string; onQr?: (qr: string) => void },
+      ) => {
+        const sock = { ws: { close: vi.fn() } };
+        setImmediate(() => opts?.onQr?.("qr-data"));
+        setTimeout(() => opts?.onQr?.("qr-data-2"), 20);
+        return sock as never;
+      },
+    );
+    waitForWaConnectionMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLogin = resolve;
+        }),
+    );
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    await waitMs(50);
+    await flushTasks();
+    resolveLogin();
+    await flushTasks();
+
+    await expect(
+      waitForWebLogin({
+        timeoutMs: 5000,
+        currentQrDataUrl: start.qrDataUrl,
+        accountId,
+      }),
+    ).resolves.toEqual({
+      connected: true,
+      message: "✅ Linked! WhatsApp is ready.",
+    });
+  });
+
+  it("returns a terminal result when an older replaced waiter resolves without state", async () => {
+    const accountId = "replaced-login-waiter";
+    let resolveFirstConnection: () => void = () => {
+      throw new Error("Expected first login wait to be pending");
+    };
+    waitForWaConnectionMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstConnection = resolve;
+          }),
+      )
+      .mockImplementation(() => new Promise(() => {}));
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    const waiter = waitForWebLogin({
+      timeoutMs: 1000,
+      currentQrDataUrl: start.qrDataUrl,
+      accountId,
+    });
+    await flushTasks();
+
+    const now = Date.now();
+    const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now + 3 * 60_000 + 1000);
+    try {
+      const replacement = await startWebLoginWithQr({
+        timeoutMs: 5000,
+        accountId,
+      });
+      expect(replacement.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+      resolveFirstConnection();
+
+      await expect(waiter).resolves.toEqual({
+        connected: false,
+        message: "Login ended without a connection.",
+      });
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it("keeps an active login reusable while a rotated QR image renders", async () => {
+    const accountId = "reuse-during-qr-render";
+    let onQr: (qr: string) => void = () => {
+      throw new Error("Expected QR callback to be registered");
+    };
+    createWaSocketMock.mockImplementation(
+      async (
+        _printQr: boolean,
+        _verbose: boolean,
+        opts?: { authDir?: string; onQr?: (qr: string) => void },
+      ) => {
+        const sock = { ws: { close: vi.fn() } };
+        onQr = (qr) => opts?.onQr?.(qr);
+        setImmediate(() => onQr("qr-data"));
+        return sock as never;
+      },
+    );
+    waitForWaConnectionMock.mockImplementation(() => new Promise(() => {}));
+    renderQrPngDataUrlMock.mockImplementation((qr) =>
+      qr === "qr-data-2"
+        ? new Promise<string>(() => {})
+        : Promise.resolve(`data:image/png;base64,encoded:${qr}`),
+    );
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    onQr("qr-data-2");
+    await flushTasks();
+
+    const reused = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+
+    expect(createWaSocketMock).toHaveBeenCalledTimes(1);
+    expect(reused).toEqual({
+      qrDataUrl: "data:image/png;base64,encoded:qr-data",
+      message: "QR already active. Scan it in WhatsApp → Linked Devices.",
+    });
+  });
+
+  it("deduplicates initial QR rendering while the start path awaits the same image", async () => {
+    const accountId = "single-flight-qr";
+    let resolveRender: (value: string) => void = () => {
+      throw new Error("Expected QR render promise to be pending");
+    };
+    renderQrPngDataUrlMock.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRender = resolve;
+        }),
+    );
+    waitForWaConnectionMock.mockImplementation(() => new Promise(() => {}));
+
+    const resultPromise = startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId,
+    });
+    await waitForQrRenderCallCount(1);
+
+    expect(renderQrPngDataUrlMock).toHaveBeenCalledTimes(1);
+
+    resolveRender("data:image/png;base64,encoded:qr-data");
+    await expect(resultPromise).resolves.toEqual({
+      qrDataUrl: "data:image/png;base64,encoded:qr-data",
+      message: "Scan this QR in WhatsApp → Linked Devices.",
+    });
+    expect(renderQrPngDataUrlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the same rotated QR to concurrent waiters that share the same current image", async () => {
+    createWaSocketMock.mockImplementationOnce(
+      async (
+        _printQr: boolean,
+        _verbose: boolean,
+        opts?: { authDir?: string; onQr?: (qr: string) => void },
+      ) => {
+        const sock = { ws: { close: vi.fn() } };
+        setImmediate(() => opts?.onQr?.("qr-data"));
+        setTimeout(() => opts?.onQr?.("qr-data-2"), 100);
+        return sock as never;
+      },
+    );
+    waitForWaConnectionMock.mockImplementation(() => new Promise(() => {}));
+
+    const start = await startWebLoginWithQr({
+      timeoutMs: 5000,
+      accountId: concurrentAccountId,
+    });
+    expect(start.qrDataUrl).toBe("data:image/png;base64,encoded:qr-data");
+
+    const waiterA = waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+      accountId: concurrentAccountId,
+    });
+    const waiterB = waitForWebLogin({
+      timeoutMs: 5000,
+      currentQrDataUrl: start.qrDataUrl,
+      accountId: concurrentAccountId,
+    });
+
+    await flushTasks();
+    await waitMs(140);
+    await flushTasks();
+
+    await expect(waiterA).resolves.toEqual({
+      connected: false,
+      message: "QR refreshed. Scan the latest code in WhatsApp → Linked Devices.",
+      qrDataUrl: "data:image/png;base64,encoded:qr-data-2",
+    });
+    await expect(waiterB).resolves.toEqual({
+      connected: false,
+      message: "QR refreshed. Scan the latest code in WhatsApp → Linked Devices.",
+      qrDataUrl: "data:image/png;base64,encoded:qr-data-2",
     });
   });
 });

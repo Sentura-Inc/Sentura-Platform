@@ -13,3 +13,4 @@ When an operator approves a memory preview in Phase 1, store only concise struct
 - Screening risk tier only after Screening has scored the buyer.
 
 Do not store raw message transcripts here.
+

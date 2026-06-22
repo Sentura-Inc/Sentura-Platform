@@ -2,12 +2,12 @@
 
 # OpenClaw — Technical Reference Document
 
-> **Version analyzed:** `2026.4.19-beta.2` (package.json)
+> **Version analyzed:** `2026.6.2` (package.json, local commit `965c175d`)
 > **License:** MIT (Copyright 2025 Peter Steinberger)
 > **Repository:** `github.com/openclaw/openclaw`
-> **Runtime:** Node.js 24 (recommended) or Node 22.16+ (engines declare `>=22.14.0`; README recommends 24)
+> **Runtime:** Node.js 24 (recommended) or Node 22.19+ (engines declare `>=22.19.0`)
 > **Language:** TypeScript (ESM, strict mode, ES2023 target) + Swift (Swabble package, native apps)
-> **Package manager:** pnpm 10.33.0 (pnpm workspaces: `.`, `ui`, `packages/*`, `extensions/*`)
+> **Package manager:** pnpm 11.2.2+ (packageManager field pins pnpm 11.2.2; pnpm workspaces: `.`, `ui`, `packages/*`, `extensions/*`)
 
 ---
 
@@ -41,14 +41,14 @@
 
 ## 1. Overview
 
-**OpenClaw** is an open-source, self-hosted **personal AI assistant** platform. It operates as a **multi-channel AI gateway** that receives messages from 22+ messaging platforms (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Matrix, MS Teams, IRC, etc.), routes them through configurable AI providers (OpenAI, Anthropic, Ollama, vLLM, 37+ providers), and delivers responses back to the originating channel.
+**OpenClaw** is an open-source, self-hosted **personal AI assistant** platform. It operates as a **multi-channel AI gateway** that receives messages from 24 channel extensions (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Matrix, MS Teams, IRC, SMS, etc.), routes them through configurable AI providers (OpenAI, Anthropic, Ollama, vLLM, and 51 provider-capable extensions), and delivers responses back to the originating channel.
 
 The product philosophy is **"the assistant, not the gateway."** The gateway is the control plane; the user experience is a personal AI assistant that lives across all your communication channels, runs on your own hardware, and supports voice, canvas rendering, browser automation, scheduled tasks, and multi-agent coordination.
 
 ### Core Capabilities
 
-- **22+ messaging channels** with unified conversation model
-- **37+ AI provider integrations** (cloud APIs + local inference; see §21 for the full catalog)
+- **24 messaging channel extensions** with unified conversation model
+- **51 provider-capable extensions** (71 provider ids across cloud APIs + local inference; see §21 for the full catalog)
 - **Agent tool system** with 30+ built-in tools (browser, canvas, cron, exec, file system, image generation, web search/fetch, session coordination)
 - **Subagent spawning** with depth limits and isolated sessions
 - **Cron scheduler** for persistent scheduled agent runs
@@ -56,7 +56,7 @@ The product philosophy is **"the assistant, not the gateway."** The gateway is t
 - **Voice pipeline** (Wake Word, Talk Mode, TTS/STT on macOS/iOS/Android)
 - **Live Canvas** with A2UI (agent-driven visual workspace)
 - **MCP loopback server** + child-process stdio MCP servers configured via `mcp.servers.<name>`
-- **Plugin SDK** (`@openclaw/plugin-sdk`) with **107 bundled extensions**
+- **Plugin SDK** (`@openclaw/plugin-sdk`) with **135 extension directories**
 - **Control UI** (web dashboard, now a pnpm workspace package) + **WebChat** interface
 - **Native apps** for macOS, iOS, and Android, plus the `Swabble/` Swift package
 - **Multi-agent routing** (per-channel/account/peer agent isolation)
@@ -135,7 +135,7 @@ OpenClaw is now a **pnpm monorepo** (`pnpm-workspace.yaml` lists `.`, `ui`, `pac
 ```
 openclaw/
 ├── openclaw.mjs              # CLI entry (bin wrapper, Node version check)
-├── package.json               # v2026.4.19-beta.2, exports ./plugin-sdk/* from dist/plugin-sdk/
+├── package.json               # v2026.6.2, exports selected ./plugin-sdk/* from dist/plugin-sdk/
 ├── pnpm-workspace.yaml        # pnpm monorepo definition
 ├── tsconfig.json              # ESM, NodeNext, strict, ES2023
 ├── Dockerfile                 # Multi-stage Node 24 bookworm build
@@ -146,7 +146,7 @@ openclaw/
 ├── src/                       # Core TypeScript source (root workspace `openclaw`)
 │   ├── entry.ts               # CLI entry point (respawn, profile, container target)
 │   ├── index.ts               # Library re-exports for programmatic use
-│   ├── agents/                # Agent tools factory, subagent control, embedded-pi-mcp loader
+│   ├── agents/                # Agent tools factory, subagent control, embedded-agent MCP loader
 │   ├── gateway/               # HTTP + WS server, protocol schemas, methods
 │   ├── config/                # Config loader, JSON5 I/O, Zod schemas, mcp-config.ts, types.mcp.ts
 │   ├── infra/                 # Platform infra (root resolution, env, updates, TLS, etc.)
@@ -190,7 +190,7 @@ openclaw/
 │   └── plugin-package-contract/ # @openclaw/plugin-package-contract — plugin package contract
 │                              #   shared between SDK and plugin manifests
 │
-├── extensions/                # 107 plugin extensions (channel / provider / memory / tool /
+├── extensions/                # 135 extension directories (channel / provider / memory / tool /
 │                              #   search / speech / infrastructure)
 │   ├── slack/  telegram/  whatsapp/  discord/  signal/  imessage/  msteams/  matrix/ …
 │   ├── openai/  anthropic/  google/  mistral/  groq/  ollama/  vllm/  sglang/ …
@@ -227,7 +227,7 @@ openclaw/
 └── git-hooks/                 # Pre-commit hooks
 ```
 
-**Monorepo migration notes:** the SDK used to be imported from `openclaw/plugin-sdk/*` (subpath exports of the root package). As of `2026.4.19-beta.2` the same subpath exports still work (package.json resolves `./plugin-sdk/*` to `dist/plugin-sdk/*`), **and** a parallel workspace package `@openclaw/plugin-sdk` exists under `packages/plugin-sdk/` that exposes the same surface with per-entry exports (`./core`, `./acp-runtime`, `./browser-config-runtime`, `./approval-runtime`, …). Sentura code should keep importing from `openclaw/plugin-sdk/*` — do NOT reach into `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly.
+**Monorepo migration notes:** the SDK remains available through selected root-package subpath exports such as `openclaw/plugin-sdk/plugin-entry`, `openclaw/plugin-sdk/state-paths`, `openclaw/plugin-sdk/runtime-env`, `openclaw/plugin-sdk/text-runtime`, and `openclaw/plugin-sdk/diagnostic-runtime`. As of `2026.6.2`, older convenience subpaths such as `openclaw/plugin-sdk/diagnostics-otel` and `openclaw/plugin-sdk/memory-lancedb` are no longer exported. Sentura code should keep importing from current `openclaw/plugin-sdk/...` public subpaths — do NOT reach into `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly.
 
 ---
 
@@ -240,7 +240,7 @@ openclaw (bin) → openclaw.mjs → dist/entry.js → src/entry.ts
 ```
 
 **`openclaw.mjs`** (CLI bin wrapper):
-- Validates Node.js version (engines declare `>=22.14.0`; Node 24 recommended, Node 22.16+ supported)
+- Validates Node.js version (engines declare `>=22.19.0`; Node 24 recommended, Node 22.19+ supported)
 - Enables compile cache
 - Handles fast-path `--help` via precomputed metadata
 - Imports `dist/entry.js` or `dist/entry.mjs`
@@ -398,14 +398,14 @@ Tools implement `execute(toolCallId, args)` returning structured results (`jsonR
 
 ### Plugin SDK
 
-As of `2026.4.19-beta.2` the plugin SDK lives in two places that expose the **same public API**:
+As of `2026.6.2` the plugin SDK lives in two places, but external consumers should rely only on the root `openclaw` package's exported subpaths:
 
 | Location | Package name | Used by |
 |----------|--------------|---------|
 | `openclaw/packages/plugin-sdk/` | `@openclaw/plugin-sdk` (private workspace package) | Internal workspace packages and extensions inside the OpenClaw monorepo (via pnpm workspace linking). |
 | `openclaw/src/plugin-sdk/` → compiled to `openclaw/dist/plugin-sdk/` | Re-exported from the root `openclaw` package as subpath exports `./plugin-sdk/*` | External consumers (including Sentura). |
 
-**Sentura rule:** always import from `openclaw/plugin-sdk/...` (the root package's subpath exports). Never import from `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly — those are build-time paths that change between versions.
+**Sentura rule:** always import from current `openclaw/plugin-sdk/...` root-package subpath exports. Never import from `src/plugin-sdk/` or `packages/plugin-sdk/src/` directly — those are build-time paths that change between versions. Removed `2026.6.x` subpaths include `openclaw/plugin-sdk/diagnostics-otel` and `openclaw/plugin-sdk/memory-lancedb`; use `openclaw/plugin-sdk/diagnostic-runtime`, `openclaw/plugin-sdk/plugin-entry`, and `openclaw/plugin-sdk/state-paths` instead.
 
 The SDK exposes 100+ sub-path exports:
 
@@ -1085,79 +1085,92 @@ Multiple project-scoped Vitest configs aggregated in `vitest.config.ts`:
 
 ## 21. Complete Extension Catalog
 
-`openclaw/extensions/` contains **107 extension directories** in the `2026.4.19-beta.2` cut (count via `ls -d openclaw/extensions/*/ | wc -l`). The tables below group them by role and reflect what shipped in this release. The directory also contains shared tsconfig fragments (`tsconfig.package-boundary.base.json`, `tsconfig.package-boundary.paths.json`), a `shared/` helpers directory, and a couple of live-test files (`music-generation-providers.live.test.ts`, `video-generation-providers.live.test.ts`) which are **not** extensions.
+`openclaw/extensions/` contains **135 extension directories** in the local `2026.6.2` checkout (counted from directory entries under `openclaw/extensions/`). The current manifest surface exposes **24 channel extensions** and **51 provider-capable extensions** / **71 provider ids**. Re-derive this catalog from `openclaw/extensions/*/openclaw.plugin.json` after each OpenClaw upgrade; the manifest shape now uses fields like `channels`, `channelConfigs`, `providers`, `providerRequest`, and `modelCatalog`, not only the older `kind` field.
 
-**New extensions since `2026.4.4`:** `active-memory`, `alibaba`, `amazon-bedrock-mantle`, `arcee`, `codex`, `comfy`, `fireworks`, `image-generation-core`, `lmstudio`, `media-understanding-core`, `memory-wiki`, `qa-channel`, `qa-lab`, `qa-matrix`, `runway`, `speech-core`, `video-generation-core`, `voyage`, `vydra`, `webhooks`. Always re-derive from the directory rather than trusting this list — it is maintained best-effort.
+### Messaging Channels (24 extensions)
 
-### Messaging Channels (22 extensions)
-
-| Extension | ID | Channel |
-|-----------|----|---------|
-| `bluebubbles` | bluebubbles | BlueBubbles (iMessage bridge) |
-| `discord` | discord | Discord |
-| `feishu` | feishu | Feishu/Lark |
-| `googlechat` | googlechat | Google Chat |
-| `imessage` | imessage | iMessage (legacy AppleScript) |
-| `irc` | irc | IRC |
-| `line` | line | LINE |
-| `matrix` | matrix | Matrix (E2EE) |
-| `mattermost` | mattermost | Mattermost |
-| `msteams` | msteams | Microsoft Teams |
-| `nextcloud-talk` | nextcloud-talk | Nextcloud Talk |
-| `nostr` | nostr | Nostr |
-| `qqbot` | qqbot | QQ Bot |
-| `signal` | signal | Signal |
-| `slack` | slack | Slack |
-| `synology-chat` | synology-chat | Synology Chat |
-| `telegram` | telegram | Telegram |
-| `tlon` | tlon | Tlon/Urbit |
-| `twitch` | twitch | Twitch |
-| `whatsapp` | whatsapp | WhatsApp |
-| `zalo` | zalo | Zalo Official Account |
-| `zalouser` | zalouser | Zalo Personal |
-
-### AI Providers (35 extensions)
-
-| Extension | ID | Provider(s) |
+| Extension | ID | Channel id(s) |
 |-----------|----|-------------|
-| `amazon-bedrock` | amazon-bedrock | Amazon Bedrock |
-| `anthropic` | anthropic | Anthropic Claude |
-| `anthropic-vertex` | anthropic-vertex | Claude on Vertex AI |
-| `byteplus` | byteplus | BytePlus |
-| `chutes` | chutes | Chutes |
-| `cloudflare-ai-gateway` | cloudflare-ai-gateway | Cloudflare AI Gateway |
-| `copilot-proxy` | copilot-proxy | GitHub Copilot Proxy |
-| `deepseek` | deepseek | DeepSeek |
-| `github-copilot` | github-copilot | GitHub Copilot |
-| `google` | google | Google Gemini |
-| `groq` | groq | Groq |
-| `huggingface` | huggingface | HuggingFace |
-| `kimi-coding` | kimi | Kimi / Moonshot |
-| `kilocode` | kilocode | KiloCode |
-| `litellm` | litellm | LiteLLM |
-| `microsoft-foundry` | microsoft-foundry | Microsoft Foundry |
-| `minimax` | minimax | Minimax |
-| `mistral` | mistral | Mistral AI |
-| `moonshot` | moonshot | Moonshot (Kimi) |
-| `nvidia` | nvidia | NVIDIA |
-| `ollama` | ollama | Ollama (local) |
-| `openai` | openai | OpenAI + Codex |
-| `opencode` | opencode | OpenCode |
-| `opencode-go` | opencode-go | OpenCode Go |
-| `openrouter` | openrouter | OpenRouter |
-| `qianfan` | qianfan | Baidu Qianfan |
-| `qwen` | qwen | Alibaba Qwen |
-| `sglang` | sglang | SGLang (local) |
-| `stepfun` | stepfun | StepFun |
-| `synthetic` | synthetic | Synthetic |
-| `together` | together | Together AI |
-| `venice` | venice | Venice AI |
-| `vercel-ai-gateway` | vercel-ai-gateway | Vercel AI Gateway |
-| `vllm` | vllm | vLLM (local) |
-| `volcengine` | volcengine | Volcengine |
-| `xai` | xai | xAI (Grok) |
-| `xiaomi` | xiaomi | Xiaomi |
-| `zai` | zai | Zai |
+| `clickclack` | clickclack | clickclack |
+| `discord` | discord | discord |
+| `feishu` | feishu | feishu |
+| `googlechat` | googlechat | googlechat |
+| `imessage` | imessage | imessage |
+| `irc` | irc | irc |
+| `line` | line | line |
+| `matrix` | matrix | matrix |
+| `mattermost` | mattermost | mattermost |
+| `msteams` | msteams | msteams |
+| `nextcloud-talk` | nextcloud-talk | nextcloud-talk |
+| `nostr` | nostr | nostr |
+| `qa-channel` | qa-channel | qa-channel |
+| `qqbot` | qqbot | qqbot |
+| `signal` | signal | signal |
+| `slack` | slack | slack |
+| `sms` | sms | sms |
+| `synology-chat` | synology-chat | synology-chat |
+| `telegram` | telegram | telegram |
+| `tlon` | tlon | tlon |
+| `twitch` | twitch | twitch |
+| `whatsapp` | whatsapp | whatsapp |
+| `zalo` | zalo | zalo |
+| `zalouser` | zalouser | zalouser |
+
+### AI / Model Providers (51 extensions)
+
+| Extension | ID | Provider id(s) |
+|-----------|----|-------------|
+| `amazon-bedrock` | amazon-bedrock | amazon-bedrock |
+| `amazon-bedrock-mantle` | amazon-bedrock-mantle | amazon-bedrock-mantle |
+| `anthropic` | anthropic | anthropic, claude-cli |
+| `anthropic-vertex` | anthropic-vertex | anthropic-vertex |
+| `arcee` | arcee | arcee |
+| `byteplus` | byteplus | byteplus, byteplus-plan |
+| `cerebras` | cerebras | cerebras |
+| `chutes` | chutes | chutes |
+| `cloudflare-ai-gateway` | cloudflare-ai-gateway | cloudflare-ai-gateway |
+| `codex` | codex | codex |
+| `comfy` | comfy | comfy |
+| `copilot-proxy` | copilot-proxy | copilot-proxy |
+| `deepinfra` | deepinfra | deepinfra |
+| `deepseek` | deepseek | deepseek |
+| `fal` | fal | fal |
+| `fireworks` | fireworks | fireworks |
+| `github-copilot` | github-copilot | github-copilot |
+| `gmi` | gmi | gmi, gmi-cloud, gmicloud |
+| `google` | google | google, google-gemini-cli, google-vertex |
+| `groq` | groq | groq |
+| `huggingface` | huggingface | huggingface |
+| `kilocode` | kilocode | kilocode |
+| `kimi-coding` | kimi | kimi, kimi-coding |
+| `litellm` | litellm | litellm |
+| `lmstudio` | lmstudio | lmstudio |
+| `microsoft-foundry` | microsoft-foundry | microsoft-foundry |
+| `minimax` | minimax | minimax, minimax-portal |
+| `mistral` | mistral | mistral |
+| `moonshot` | moonshot | moonshot |
+| `novita` | novita | novita, novita-ai, novitaai |
+| `nvidia` | nvidia | nvidia |
+| `ollama` | ollama | ollama, ollama-cloud |
+| `openai` | openai | openai |
+| `opencode` | opencode | opencode |
+| `opencode-go` | opencode-go | opencode-go |
+| `openrouter` | openrouter | openrouter |
+| `qianfan` | qianfan | qianfan |
+| `qwen` | qwen | dashscope, modelstudio, qwen, qwen-cli, qwen-oauth, qwen-portal, qwencloud |
+| `sglang` | sglang | sglang |
+| `stepfun` | stepfun | stepfun, stepfun-plan |
+| `synthetic` | synthetic | synthetic |
+| `tencent` | tencent | tencent-tokenhub |
+| `together` | together | together |
+| `venice` | venice | venice |
+| `vercel-ai-gateway` | vercel-ai-gateway | vercel-ai-gateway |
+| `vllm` | vllm | vllm |
+| `volcengine` | volcengine | volcengine, volcengine-plan |
+| `vydra` | vydra | vydra |
+| `xai` | xai | xai |
+| `xiaomi` | xiaomi | xiaomi, xiaomi-token-plan |
+| `zai` | zai | zai |
 
 ### Speech & Media (4 extensions)
 
@@ -1252,7 +1265,7 @@ OpenClaw **is** the Sentura runtime — Sentura does not wrap or replace it. Sen
 | Gateway RPC (`agent.run`, `config.patch`, `exec.approval`, `cron.*`, `sessions.*`) | Primary interface from the Sentura dashboard and meta-agents. Dashboard never talks directly to agents. |
 | Plugin SDK (`openclaw/plugin-sdk/*`) | Sentura extensions (`sentura/extensions/*`) register channels, tools, approval providers, and memory hooks via the same contracts. |
 | Channel extensions (22+) | Used as-is for Slack/Teams/Discord/WhatsApp/etc. notification and chat surfaces. Sensitive actions are always routed to the dashboard. |
-| Provider extensions (37+) | LLM selection per employee — cloud API keys or self-hosted Ollama/vLLM/SGLang. Sentura policy picks a default per tenant; users can override. |
+| Provider-capable extensions (51) | LLM/model selection per employee — cloud API keys or self-hosted Ollama/vLLM/SGLang. Sentura policy picks a default per tenant; users can override. |
 | Memory host (`@openclaw/memory-host-sdk`) + `memory-lancedb` | Per-employee vector memory namespaces with dreaming/consolidation on the OpenClaw cron. |
 | Approval workflow (`exec.approval`) | Sentura's HITL UI surfaces pending approvals from OpenClaw's queue and routes them to the right role via RBAC. |
 | MCP servers (`mcp.servers.<name>` + workspace `config.json5 -> mcpServers`) | Shared/operator-managed MCP servers still use global `mcp.servers.<name>`. Week 3 employee-local self-provisioning now writes to `~/.openclaw/workspace/<agentId>/config.json5 -> mcpServers` via Sentura host helpers, while still preserving OpenClaw's flat-map MCP wiring. |

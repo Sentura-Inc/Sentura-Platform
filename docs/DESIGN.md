@@ -10,7 +10,7 @@
 4. [Self-Provisioning & Autonomous Tool Setup](#5-self-provisioning--autonomous-tool-setup)
 5. [Enterprise Knowledge Graph (EKG)](#6-enterprise-knowledge-graph-ekg)
 6. [Communication & Channels](#7-communication--channels)
-7. [LLM Abstraction — 37+ Providers](#8-llm-abstraction--37-providers)
+7. [LLM Abstraction — 51 Provider Extensions](#8-llm-abstraction--51-provider-extensions)
 8. [Safety, Guardrails & Human-in-the-Loop](#9-safety-guardrails--human-in-the-loop)
 9. [Memory Architecture](#10-memory-architecture)
 10. [Observability & Traceability](#11-observability--traceability)
@@ -42,7 +42,7 @@
 │  └─────────┬──────────────────┬──────────────────┬─────────────────────┘  │
 │            │                  │                  │                        │
 │  ┌─────────▼──────┐ ┌────────▼───────┐ ┌───────▼───────────────────┐      │
-│  │  AI EMPLOYEES  │ │  22+ CHANNELS  │ │  37+ LLM PROVIDERS        │      │
+│  │  AI EMPLOYEES  │ │  24 CHANNELS   │ │  51 PROVIDER EXTENSIONS   │      │
 │  │                │ │                │ │                           │      │
 │  │ ┌────────────┐ │ │ Slack          │ │ OpenAI    │ Ollama        │      │
 │  │ │ AP Clerk   │ │ │ MS Teams       │ │ Anthropic │ vLLM          │      │
@@ -989,11 +989,11 @@ For tasks requiring multiple AI employees — "prepare the quarterly report" inv
 
 ---
 
-## 8. LLM Abstraction — 37+ Providers
+## 8. LLM Abstraction — 51 Provider Extensions
 
 ### Provider Flexibility
 
-OpenClaw `2026.4.19-beta.2` ships **37+ AI provider extensions** out of the box (see `docs/OPENCLAW.md §21` for the full catalog). Sentura enterprises can choose any combination:
+OpenClaw `2026.6.2` ships **51 provider-capable extensions** and **71 provider ids** out of the box (counted from `providers`, `providerRequest`, and `modelCatalog` fields in `openclaw/extensions/*/openclaw.plugin.json`; see `docs/OPENCLAW.md §21` for the catalog). Sentura enterprises can choose any combination:
 
 **Cloud Providers (API key-based)**:
 
@@ -1395,7 +1395,7 @@ The dreaming system is extended for user-aware consolidation:
 
 ### Built-in Diagnostics
 
-OpenClaw includes the `diagnostics-otel` extension for OpenTelemetry-based observability. Sentura extends this with enterprise-grade monitoring:
+OpenClaw `2026.6.2` exposes diagnostic events through the stable `openclaw/plugin-sdk/diagnostic-runtime` SDK subpath. Sentura's cost and monitoring extensions subscribe to that in-process diagnostic bus; the upstream `diagnostics-otel` extension remains the optional OpenTelemetry exporter when an OTLP collector is configured.
 
 ### Trace Architecture
 

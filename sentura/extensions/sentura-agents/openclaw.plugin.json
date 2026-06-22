@@ -1,5 +1,8 @@
 {
   "id": "sentura-agents",
+  "activation": {
+    "onStartup": true
+  },
   "name": "Sentura Agents",
   "description": "Host-side workspace management for AI employees. Exposes gateway RPCs for writing, reading, listing, and deleting files inside an employee's workspace subdirectories (skills/, ekg/, memory/users/) that OpenClaw's built-in agents.files.* RPCs do not cover. Used by the Creator agent's employee-deployment skill to materialize a designed employee entirely from inside its sandbox.",
   "enabledByDefault": true,

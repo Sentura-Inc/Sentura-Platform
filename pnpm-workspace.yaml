@@ -3,10 +3,12 @@ packages:
   - "sentura/extensions/*"
   - "sentura/mcp-servers/*"
 allowBuilds:
+  '@google/genai': set this to true or false
   esbuild: true
   koffi: true
   msw: true
   openclaw: true
   protobufjs: true
   sharp: true
+  tree-sitter-bash: set this to true or false
   unrs-resolver: true

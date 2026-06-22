@@ -18,3 +18,4 @@ Use only to look up prior approved customer summaries, previous Screening risk t
 ## Not Allowed
 
 No shell, filesystem mutation, gateway config edits, browser signup, external messaging, cold outreach, paid lookup, or subagent spawning.
+

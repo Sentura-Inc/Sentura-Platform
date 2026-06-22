@@ -13,6 +13,6 @@
     "@sinclair/typebox": "^0.34.49"
   },
   "devDependencies": {
-    "openclaw": "*"
+    "openclaw": "link:../../../openclaw"
   }
 }

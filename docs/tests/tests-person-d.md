@@ -227,3 +227,30 @@ python3 -c "import json; p='/Users/henry/.openclaw/openclaw.json'; d=json.load(o
 
 ---
 
+## D19 — Audit T0–T4 + multi-tenancy (W4)
+
+`cd openclaw && npx vitest run --config test/vitest/vitest.sentura.config.ts` runs `sentura-audit/src/store.test.ts` and `sentura-audit/src/data-tier.test.ts`. Expected: 12 store cases (6 pre-existing + 6 new for tenant/department/composite/dataTier/search/composite-tenant+tier+eventType) and 7 data-tier cases. Sentura suite at this commit shows `Test Files 9 passed (9), Tests 96 passed (96)`.
+
+## D20 — Audit Comm-Panel + MCP-health RPCs (W4)
+
+Live gateway must be running. Run `npx tsx scripts/test-week4-d.ts`. 21/21 checks expected: `audit.chat.log` (both directions + bad-direction-rejected), `audit.group.log` (created/fanout/archived), `audit.mcp.health` (up/down with `isChange: true`), `audit.query` filters (tenantId, groupId, dataTier=T1), `audit.stats` exposes `byTier` and `byTenant` rollups.
+
+## D21 — `sentura-mcp-health` (W4)
+
+Offline `monitor.test.ts` 9 cases: pure-state-machine (unknown→up, unknown→degraded, escalation, recovery) + orchestration (multi-server round, onChange-only-on-transition, disabled skip, throw → degraded). Live: `sentura.mcp.health.list` and `sentura.mcp.health.get` (BAD_REQUEST on empty `name`).
+
+## D22 — `sentura-approval` multi-tenancy (W4)
+
+`sentura-approval/src/store.test.ts` 7 cases: round-trip; status/agentId filter; tenantId isolation; departmentId composite; sweepExpired; tenant fields persist across reload. Live: `sentura.approval.requests.list` accepts `{ tenantId, limit }`.
+
+## D23 — Tier-1 GitHub + Postgres (W4)
+
+Verify `sentura/mcp-servers/github/{config-snippet.json5,README.md}` and `sentura/mcp-servers/postgres/{config-snippet.json5,README.md}` are paste-ready, reference secrets via `$secret:`, document tool inventory + security checklist, and contain no `package.json`/`dist/` (Tier 1 = upstream npm).
+
+## D24 — Tier-2 `gradsale-search` (W4)
+
+`cd sentura/mcp-servers/gradsale-search && pnpm install && pnpm test && pnpm build`. Expected `Test Files 1 passed (1), Tests 11 passed (11)` and clean `tsc` build producing `dist/index.js`.
+
+## D25 — Security scanner (W4)
+
+Offline `sentura-audit/src/security-scanner.test.ts` 12 cases (one per finding family + summarize rollup). Live `npx tsx scripts/scan-agent-security.ts` reads `~/.openclaw/openclaw.json` and `~/.openclaw/workspace/<id>/AGENTS.md`, exits 0 (no criticals) / 1 (criticals) / 2 (config error). At this commit reports `3 high, 0 critical` against the live config.

@@ -1,0 +1,31 @@
+# OpenTelemetry collector — example docker-compose for local development.
+#
+# This is documentation, NOT invoked by `scripts/sentura-setup.sh`. Spinning
+# up a collector adds Docker as a hard prereq, which Sentura intentionally
+# avoids. Run this stack only when you want a one-command local OTel
+# pipeline; otherwise point `OTEL_EXPORTER_OTLP_ENDPOINT` at your existing
+# corporate collector.
+#
+# Quick start:
+#   1. Bring up Jaeger (traces) + a minimal OTLP HTTP receiver:
+#        docker compose -f docs/otel/docker-compose.example.yml up -d
+#   2. Tell Sentura's gateway where to send OTLP traffic:
+#        export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#        export OTEL_SERVICE_NAME=openclaw-sentura     # optional
+#   3. Re-run the Sentura setup so Step 7c stamps the endpoint into
+#      ~/.openclaw/openclaw.json:
+#        ./scripts/sentura-setup.sh
+#   4. Restart the gateway and visit Jaeger at http://localhost:16686 to
+#      see traces from your sessions.
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: sentura-otel-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver (unused by Sentura's http/protobuf default)
+      - "4318:4318"     # OTLP HTTP receiver — point OTEL_EXPORTER_OTLP_ENDPOINT here

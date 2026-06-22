@@ -9,3 +9,4 @@ If the operator asks for recurring screening, first confirm:
 - paid-data budget cap,
 - report destination,
 - whether human review is required before any paid lookup.
+

@@ -5,6 +5,7 @@ import {
   appendSenturaConfigDiff,
   resolveSenturaConfigDiffLogPathFromOpenClawDir,
 } from "../../../lib/config-versioning.ts";
+import { getAgentTenancy, setAgentTenancy } from "../../../lib/tenancy.ts";
 import { PathValidationError, validateAgentId } from "./paths.js";
 
 /**
@@ -110,6 +111,15 @@ export interface RegisterAgentParams {
    * setup is complete.
    */
   stampSetupCompleted?: boolean;
+  /**
+   * Optional tenancy assignment. Written to the Sentura-side
+   * `~/.openclaw/sentura-rbac/agent-tenancy.json` (NOT to OpenClaw's
+   * `agents.list[]`) so we never mutate undocumented OpenClaw config fields.
+   * When omitted, defaults to `tenantId="default"`, `departmentId=null`
+   * — matching the behaviour of `applyDefaultTenancyOnDisk()`. The upsert
+   * is idempotent: identical scope = no write.
+   */
+  tenancy?: { tenantId?: string; departmentId?: string | null };
   /** Resolved OpenClaw home dir (for workspace/agentDir defaults). */
   openclawHomeDir: string;
 }
@@ -125,6 +135,11 @@ export interface RegisterAgentResult {
   bindingsAdded: number;
   mcpServersMerged: number;
   setupCompletedStamped: boolean;
+  /**
+   * Resolved tenancy that was upserted into agent-tenancy.json. `wrote=false`
+   * means an identical record already existed and no disk write happened.
+   */
+  tenancy: { tenantId: string; departmentId: string | null; wrote: boolean };
 }
 
 function expandUserPath(p: string, openclawHomeDir: string): string {
@@ -341,6 +356,18 @@ export async function registerAgentInRuntimeConfig(
     stamped = await stampSetupCompletedAt(workspaceDir);
   }
 
+  // Always upsert tenancy. Defaults to `{ tenantId: "default", departmentId: null }`
+  // when the caller doesn't pass one — same shape applyDefaultTenancyOnDisk() uses.
+  // The upsert is idempotent: identical scope returns the existing record without
+  // touching disk. We compare `updatedAt` against the pre-call snapshot to report
+  // whether a write actually happened (useful for tests and logs).
+  const tenancyBefore = await getAgentTenancy(agentId);
+  const tenancyAfter = await setAgentTenancy(agentId, {
+    tenantId: params.tenancy?.tenantId,
+    departmentId: params.tenancy?.departmentId ?? null,
+  });
+  const tenancyWrote = tenancyBefore?.updatedAt !== tenancyAfter.updatedAt;
+
   return {
     ok: true,
     agentId,
@@ -351,6 +378,11 @@ export async function registerAgentInRuntimeConfig(
     bindingsAdded,
     mcpServersMerged,
     setupCompletedStamped: stamped,
+    tenancy: {
+      tenantId: tenancyAfter.tenantId,
+      departmentId: tenancyAfter.departmentId,
+      wrote: tenancyWrote,
+    },
   };
 }
 

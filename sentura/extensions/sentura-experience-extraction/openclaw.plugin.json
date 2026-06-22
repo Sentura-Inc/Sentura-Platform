@@ -1,0 +1,36 @@
+{
+  "id": "sentura-experience-extraction",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Sentura Experience Extraction",
+  "description": "Capability #13 Tier 3 — observes completed agent tasks via after_tool_call + agent_end hooks, scores recurring tool-sequence patterns, and promotes high-confidence patterns into the target agent's ekg/workflows/experience-links/ pillar.",
+  "enabledByDefault": true,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "candidatesDir": {
+        "type": "string",
+        "description": "Directory for per-agent candidate stores. Defaults to ~/.openclaw/sentura-experience-extraction/"
+      },
+      "minOccurrences": {
+        "type": "number",
+        "minimum": 2,
+        "default": 3,
+        "description": "Minimum occurrences before a pattern can be promoted to an experience-link"
+      },
+      "confidenceThreshold": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.75,
+        "description": "Confidence floor for promotion (matches qa-completion + capability-extraction conventions)"
+      },
+      "workspaceRoot": {
+        "type": "string",
+        "description": "Root for target agent workspaces (where promoted experience-links land). Defaults to ~/.openclaw/workspace/"
+      }
+    }
+  }
+}

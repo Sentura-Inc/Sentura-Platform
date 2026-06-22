@@ -11,6 +11,8 @@ When enterprise knowledge needs to be ingested, organized, and distributed to AI
 
 ## Procedure
 
+> **Source handoff**: When the Data Scavenger Agent (`sentura/agents/data-scavenger/`) merges entries into a target agent's `ekg/workflows/*.json5`, run the focused [`ekg-to-skill-synthesis`](../ekg-to-skill-synthesis/SKILL.md) sub-skill — it generates `skills/<workflow>/SKILL.md` files from the structured workflow entities and protects hand-authored skills via a provenance footer. Use the procedure below for non-Scavenger sources (raw URLs, file uploads, operator descriptions).
+
 ### Step 1: Receive Knowledge Source
 
 1. Accept the knowledge source from the user. Supported formats:

@@ -13,3 +13,4 @@ Phase 1 uses simulated Alibaba Accio chat records in:
 The fixture contains three demo conversations and no real customer data. Raw Accio chats are still treated as T2/T3 business data because they include contacts, prices, quantities, and negotiation history.
 
 The employee's job is to produce structured summaries, memory-write previews, and Screening handoff targets. It must not write raw chat externally or claim buyer authenticity before `cbe-buyer-screening` verifies it.
+

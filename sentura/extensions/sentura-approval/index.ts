@@ -139,6 +139,14 @@ export default definePluginEntry({
               type: "string",
               description: "Optional session key the request originated from. Recorded on the audit trail.",
             },
+            tenantId: {
+              type: "string",
+              description: "Optional Sentura tenant id. Required for multi-tenant deployments — approvals are filtered by tenant when the dashboard lists them.",
+            },
+            departmentId: {
+              type: "string",
+              description: "Optional department id. Drives RBAC department-scope filters on the dashboard approvals page.",
+            },
           },
           required: ["action", "riskLevel"],
         },
@@ -152,6 +160,8 @@ export default definePluginEntry({
             ? (args.context as Record<string, unknown>)
             : {};
           const sessionKey = typeof args.sessionKey === "string" ? args.sessionKey : undefined;
+          const tenantId = typeof args.tenantId === "string" ? args.tenantId : undefined;
+          const departmentId = typeof args.departmentId === "string" ? args.departmentId : undefined;
 
           const evaluation = evaluate({ action, riskLevel, context }, store.listPolicies(), config);
 
@@ -176,6 +186,8 @@ export default definePluginEntry({
               status: "auto_approved",
               decisionReason: evaluation.outcome.reason,
               decidedAt: now,
+              tenantId,
+              departmentId,
             };
             await store.appendRequest(request);
             return JSON.stringify({
@@ -199,6 +211,8 @@ export default definePluginEntry({
               status: "auto_denied",
               decisionReason: evaluation.outcome.reason,
               decidedAt: now,
+              tenantId,
+              departmentId,
             };
             await store.appendRequest(request);
             return JSON.stringify({
@@ -224,6 +238,8 @@ export default definePluginEntry({
             expiresAt,
             onTimeoutDecision: evaluation.outcome.onTimeout,
             escalation: { chain: evaluation.outcome.escalation, currentIndex: 0 },
+            tenantId,
+            departmentId,
           };
           await store.appendRequest(request);
           return JSON.stringify({
@@ -383,6 +399,9 @@ export interface FileApprovalParams {
   action: string;
   riskLevel: RiskLevel;
   context: Record<string, unknown>;
+  /** Multi-tenancy fields (Week 4 Person D). Optional; unset = global. */
+  tenantId?: string;
+  departmentId?: string;
 }
 
 export interface FileApprovalResult {

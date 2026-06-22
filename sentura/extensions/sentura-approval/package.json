@@ -10,6 +10,6 @@
     ]
   },
   "devDependencies": {
-    "openclaw": "*"
+    "openclaw": "link:../../../openclaw"
   }
 }

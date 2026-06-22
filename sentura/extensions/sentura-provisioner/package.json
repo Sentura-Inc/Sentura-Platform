@@ -13,6 +13,6 @@
     "@sentura/approval": "workspace:*"
   },
   "devDependencies": {
-    "openclaw": "*"
+    "openclaw": "link:../../../openclaw"
   }
 }
