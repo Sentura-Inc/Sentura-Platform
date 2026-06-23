@@ -28,11 +28,11 @@ export function isEmployeeCostNotification(task: CbeEmployeeTaskRecord) {
     .map((item) => item ?? "")
     .join(" ");
   return [
-    "API 成本",
-    "API成本",
-    "成本限额",
-    "基础成本限额",
-    "成本额度",
+    "工具成本",
+    "费用",
+    "费用限额",
+    "基础费用限额",
+    "费用额度",
     "临时额度",
     "超额申请",
     "请求额度",

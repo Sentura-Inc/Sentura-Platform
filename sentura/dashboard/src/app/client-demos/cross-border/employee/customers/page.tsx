@@ -7,6 +7,7 @@ import {
   ArrowDownWideNarrow,
   CheckCircle2,
   Eye,
+  ExternalLink,
   Filter,
   HelpCircle,
   Loader2,
@@ -40,6 +41,12 @@ import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
+import {
+  buyerTypeLabel,
+  canonicalBuyerType,
+  canonicalProduct,
+  productLabel,
+} from "@/components/cross-border/customer-labels";
 import {
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
@@ -176,7 +183,7 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 const sourceLabels: Record<CustomerListItem["source"], string> = {
   lead_discovery: "",
   manual_screening: "手动录入",
-  accio_handoff: "聊天记录移交",
+  accio_handoff: "来自聊天记录",
 };
 
 const scoreTierLabels: Record<ScoreTier, string> = {
@@ -194,26 +201,26 @@ const riskTierLabels: Record<string, string> = {
 
 const scoreBlockLabels: Record<string, string> = {
   legal_identity: "公司注册信息",
-  domain_email: "域名 / 邮箱",
-  google_maps_local_presence: "Google 本地足迹",
+  domain_email: "官网和邮箱",
+  google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
-  public_footprint: "公开网页足迹",
+  public_footprint: "公开资料",
   business_fit: "业务匹配",
-  trade_financial: "贸易 / 财务",
-  conversation_behavior: "Accio 行为记录",
+  trade_financial: "贸易和财务",
+  conversation_behavior: "聊天行为",
 };
 
 const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   legal_registry: "公司注册信息",
-  domain_rdap: "域名 / RDAP",
-  email_dns: "邮箱 / DNS",
+  domain_rdap: "域名信息",
+  email_dns: "邮箱信息",
   official_contact: "官网公开联系信息",
-  google_maps_local_presence: "Google 本地足迹",
+  google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
-  public_footprint: "公开网页足迹",
-  trade_customs: "贸易 / 海关记录",
-  financial_public_filing: "SEC / 财务公开文件",
-  accio_behavior: "Accio 行为记录",
+  public_footprint: "公开资料",
+  trade_customs: "贸易记录",
+  financial_public_filing: "财务公开信息",
+  accio_behavior: "聊天行为",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -290,74 +297,6 @@ function isCustomerFilters(value: unknown): value is CustomerFilters {
     Array.isArray(filters.scoreTiers) &&
     filters.scoreTiers.every(isScoreTier)
   );
-}
-
-const buyerTypeDisplayLabels: Record<string, string> = {
-  "repair-chain": "维修连锁",
-  "electronics-retailer": "电子零售商",
-  "accessory-retailer": "配件零售商",
-  "cell-phone-store": "手机门店",
-  reseller: "转售采购商",
-  importer: "进口采购商",
-  distributor: "分销商",
-  retailer: "零售商",
-  "e-commerce-seller": "电商卖家",
-  "manual-input": "手动录入",
-  "accio-handoff": "聊天记录移交",
-};
-
-const productDisplayLabels: Record<string, string> = {
-  "phone-case": "手机壳",
-  "tempered-glass": "钢化膜",
-  "usb-c-charger": "USB-C 充电器",
-  magsafe: "MagSafe 配件",
-  "repair-parts": "维修配件",
-  cable: "数据线",
-  "oled-screen": "OLED 屏幕",
-};
-
-function normalizeFilterValue(value: string) {
-  return value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
-}
-
-function canonicalBuyerType(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("聊天") || normalized.includes("accio")) return "accio-handoff";
-  if (normalized.includes("manual") || normalized.includes("手动")) return "manual-input";
-  if (normalized.includes("repair") || normalized.includes("维修")) return "repair-chain";
-  if (normalized.includes("distributor") || normalized.includes("经销") || normalized.includes("分销")) return "distributor";
-  if (normalized === "retailer" || normalized.includes("零售商")) return "retailer";
-  if (normalized.includes("e-commerce") || normalized.includes("电商")) return "e-commerce-seller";
-  if (normalized.includes("cell-phone-store") || normalized.includes("手机门店")) return "cell-phone-store";
-  if (normalized.includes("electronics-retailer") || normalized.includes("电子零售")) return "electronics-retailer";
-  if (normalized.includes("accessory-retailer") || normalized.includes("配件零售")) return "accessory-retailer";
-  if (normalized.includes("reseller") || normalized.includes("转售")) return "reseller";
-  if (normalized.includes("importer") || normalized.includes("进口")) return "importer";
-  return normalized;
-}
-
-function canonicalProduct(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("usb-c") || normalized.includes("charger") || normalized.includes("充电")) return "usb-c-charger";
-  if (normalized.includes("oled")) return "oled-screen";
-  if (normalized.includes("tempered") || normalized.includes("screen-protector") || normalized.includes("钢化膜")) return "tempered-glass";
-  if (normalized.includes("phone-case") || normalized.includes("手机壳")) return "phone-case";
-  if (normalized.includes("repair-parts") || normalized.includes("repair-part") || normalized.includes("维修配件")) return "repair-parts";
-  if (normalized.includes("magsafe")) return "magsafe";
-  if (normalized === "cable" || normalized.includes("数据线")) return "cable";
-  return normalized;
-}
-
-function buyerTypeLabel(value: string) {
-  const canonical = canonicalBuyerType(value);
-  return buyerTypeDisplayLabels[canonical] ?? value;
-}
-
-function productLabel(value: string) {
-  const canonical = canonicalProduct(value);
-  return productDisplayLabels[canonical] ?? value;
 }
 
 function customerCountryLabel(item: CustomerListItem) {
@@ -585,6 +524,57 @@ function percentLabel(value: number | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
+function sourceTypeLabel(value?: string) {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (normalized.includes("registry")) return "官方注册资料";
+  if (normalized.includes("dns") || normalized.includes("rdap") || normalized.includes("domain")) return "官网和邮箱资料";
+  if (normalized.includes("web")) return "公开网页";
+  if (normalized.includes("map") || normalized.includes("place")) return "公开地址资料";
+  if (normalized.includes("trade") || normalized.includes("custom")) return "贸易资料";
+  if (normalized.includes("financial") || normalized.includes("filing")) return "财务公开资料";
+  return "公开资料";
+}
+
+function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
+  if (value === "positive") return "正向依据";
+  if (value === "negative") return "风险依据";
+  if (value === "coverage_only") return "仅作覆盖";
+  return "参考依据";
+}
+
+function simplifyDisplayText(value: string | null | undefined) {
+  if (!value) return value ?? undefined;
+  return value
+    .replace(/外部可追溯证据 URL/g, "可核验来源")
+    .replace(/可追溯证据 URL/g, "可核验来源")
+    .replace(/来源 URL/g, "来源链接")
+    .replace(/证据 URL/g, "核验来源")
+    .replace(/工具返回 URL/g, "工具返回的来源链接")
+    .replace(/\brdap\b/gi, "域名登记信息")
+    .replace(/\bdns\b/gi, "域名解析")
+    .replace(/\bjson\b/gi, "结构化结果")
+    .replace(/\bsec\b/gi, "财务公开信息")
+    .replace(/\bkyb\b/gi, "企业核验")
+    .replace(/\bapi_error\b/gi, "查询失败")
+    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
+    .replace(/\bAPI\b/gi, "工具查询")
+    .replace(/\bHTTP 401\b/gi, "查询权限错误")
+    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
+    .replace(/\bMX\b/gi, "收信设置")
+    .replace(/\bSPF\b/gi, "发信设置")
+    .replace(/\bDMARC\b/gi, "邮件安全设置")
+    .replace(/\bendpoint\b/gi, "查询入口")
+    .replace(/\bprovider\b/gi, "工具")
+    .replace(/\bobjectClassName\b/g, "对象类型")
+    .replace(/\bself link\b/gi, "来源链接")
+    .replace(/\blookup\b/gi, "查询")
+    .replace(/\bredirected\b/gi, "跳转")
+    .replace(/\breturned\b/gi, "返回")
+    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
+    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+}
+
 function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
   if (typeof score !== "number") return "insufficient_evidence";
   if (score >= 80) return "trusted_candidate";
@@ -600,12 +590,12 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
     riskTier: riskTierForScore(item.normalizedScore),
     normalizedScore: item.normalizedScore ?? null,
     evidenceCoverage: undefined,
-    recommendedAction: item.recommendedAction ?? "复核背调结果后再决定是否跟进。",
+    recommendedAction: simplifyDisplayText(item.recommendedAction) ?? "复核背调结果后再决定是否跟进。",
     scoreBlocks: [],
     evidence: item.sourceUrls.map((url) => ({
       layer: "public_footprint",
       sourceUrl: url,
-      finding: item.evidenceSummary,
+      finding: simplifyDisplayText(item.evidenceSummary) ?? "暂无核验说明。",
       scoreBlock: "public_footprint",
       scoreImpact: "neutral",
       affectsScore: true,
@@ -743,8 +733,8 @@ function ScreeningOptionControls({
   return (
     <section className="space-y-2">
       <div className="inline-flex items-center gap-1.5 text-sm font-medium">
-        证据来源与预算
-        <InfoTooltip>默认只查公开资料。开启付费来源会提高命中率，也会提高预计成本。</InfoTooltip>
+        核验范围与费用
+        <InfoTooltip>默认只查公开资料。开启付费查询可能更完整，也会增加费用。</InfoTooltip>
       </div>
       <label className="flex items-start justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
         <span>
@@ -768,7 +758,7 @@ function ScreeningOptionControls({
         <span>
           <span className="font-medium">贸易数据</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            可用时查询贸易记录；预算是硬上限，不是预计花费。没有 key 或未命中时只记为缺口。
+            可用时查询贸易记录；额度是硬上限，不是预计花费。查不到时只提示缺口，不当作负面结论。
           </span>
         </span>
         <input
@@ -784,7 +774,7 @@ function ScreeningOptionControls({
         />
       </label>
       {options.paidTradeData ? (
-        <FilterGroup title="单次付费预算上限">
+        <FilterGroup title="单次付费额度上限">
           {[1, 5, 10, 15].map((amount) => (
             <Button
               key={amount}
@@ -1144,7 +1134,7 @@ function CrossBorderCustomersPageContent() {
   const openBulkScreening = () => {
     const skippedCount = selectedCustomers.length - selectedScreeningCustomers.length;
     if (selectedScreeningCustomers.length === 0) {
-      showNotice("证据不足的聊天记录移交/手动录入客户需要先补充聊天记录，重新分析后再送到背调。", "info", 6000);
+      showNotice("证据不足的聊天记录或手动录入客户，需要先补充聊天记录，再送到背调。", "info", 6000);
       return;
     }
     if (skippedCount > 0) {
@@ -1213,8 +1203,8 @@ function CrossBorderCustomersPageContent() {
     if (!canRunLead) {
       showNotice(
         state === "connected"
-          ? "获客员工还没有启动，请先完成系统初始化。"
-          : "后台未连接，暂时不能执行获客任务。",
+          ? "客户搜索暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行找客户任务。",
         "error",
       );
       return;
@@ -1243,8 +1233,8 @@ function CrossBorderCustomersPageContent() {
         }
         if (decision.action === "join_existing") {
           const message = totalSaved > 0
-            ? `已新增 ${totalSaved} 个唯一客户；同 scope 仍有任务在运行，系统没有启动第二个相同搜索。`
-            : "已有相同获客任务正在运行。系统已加入协调记录，本次不会启动第二个相同搜索。";
+            ? `已新增 ${totalSaved} 个唯一客户；相同条件仍有任务在运行，系统没有重复搜索。`
+            : "已有相同找客户任务正在运行，本次不会重复搜索。";
           showNotice(message, "info", 8000);
           await refreshDbBackedLists().catch(() => undefined);
           return;
@@ -1256,7 +1246,7 @@ function CrossBorderCustomersPageContent() {
         if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
           const queuedMessage = totalSaved > 0
             ? `已新增 ${totalSaved} 个唯一客户；剩余补足任务已进入排队中。`
-            : "当前 CBE 后台任务较多，获客任务已进入排队中；系统不会额外启动重复员工会话。";
+            : "当前任务较多，找客户任务已进入排队；系统不会重复启动相同任务。";
           showNotice(queuedMessage, "info", 8000);
           await refreshDbBackedLists().catch(() => undefined);
           return;
@@ -1286,10 +1276,10 @@ function CrossBorderCustomersPageContent() {
           kind: "lead",
           title: decision.action === "queue_top_up" || attempt > 1 ? "补充获客" : "寻找客户",
           message: decision.action === "queue_top_up" || attempt > 1
-            ? `第 ${attempt} 轮补充获客已启动，后台员工会避开数据库已有客户。`
+            ? `第 ${attempt} 轮补充找客户已启动，会避开已有客户。`
             : coordinatorDenylist.length > 0
-              ? `获客任务已启动，已先检索数据库并避开 ${coordinatorDenylist.length} 个已有客户。`
-              : "获客任务已启动，后台员工正在准备搜索。",
+              ? `找客户任务已启动，已避开 ${coordinatorDenylist.length} 个已有客户。`
+              : "找客户任务已启动，正在准备搜索。",
           estimatedMs,
           timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
           sessionKey: activeSessionKey,
@@ -1320,7 +1310,7 @@ function CrossBorderCustomersPageContent() {
         totalDuplicates += duplicateCount;
         savedCustomerIds.push(...completion.candidates.map((candidate) => candidate.id));
         const attemptMessage = `第 ${attempt} 轮返回 ${returnedCount} 个候选，新增 ${newUniqueCount} 个唯一客户${
-          duplicateCount > 0 ? `，跳过 ${duplicateCount} 个数据库重复客户` : ""
+          duplicateCount > 0 ? `，跳过 ${duplicateCount} 个重复客户` : ""
         }${reconciliation.missingCount > 0 ? `，还差 ${reconciliation.missingCount} 个` : ""}。`;
         completeTask(localTaskId, newUniqueCount, attemptMessage, result.sessionKey);
         clearCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1334,7 +1324,7 @@ function CrossBorderCustomersPageContent() {
         if (attempt >= MAX_LEAD_COMPLETION_ATTEMPTS) {
           break;
         }
-        showNotice(`数据库查重后还差 ${remainingCount} 个客户，正在自动补查第 ${attempt + 1} 轮。`, "info", 7000);
+        showNotice(`还差 ${remainingCount} 个客户，正在自动补查第 ${attempt + 1} 轮。`, "info", 7000);
         nextInput = {
           ...normalizedInput,
           targetCount: remainingCount,
@@ -1346,11 +1336,11 @@ function CrossBorderCustomersPageContent() {
       }
       const finalMessage = totalSaved >= normalizedInput.targetCount
         ? `获客完成：新增 ${totalSaved} 个唯一客户${
-            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个数据库重复客户` : ""
+            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个重复客户` : ""
           }。`
         : `获客暂时只新增 ${totalSaved}/${normalizedInput.targetCount} 个唯一客户${
-            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个数据库重复客户` : ""
-          }；员工共返回 ${totalReturned} 个候选，公开来源暂时不足以补齐。`;
+            totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个重复客户` : ""
+          }；共找到 ${totalReturned} 个候选，公开来源暂时不足以补齐。`;
       await refreshDbBackedLists();
       flashNewCustomers(savedCustomerIds);
       showNotice(finalMessage, totalSaved >= normalizedInput.targetCount ? "success" : "error", totalSaved >= normalizedInput.targetCount ? 5000 : 12000);
@@ -1395,8 +1385,8 @@ function CrossBorderCustomersPageContent() {
     if (!canRunScreening) {
       showNotice(
         state === "connected"
-          ? "背调员工还没有启动，请先完成系统初始化。"
-          : "后台未连接，暂时不能执行背调任务。",
+          ? "背调功能暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行背调任务。",
         "error",
       );
       return;
@@ -1416,7 +1406,7 @@ function CrossBorderCustomersPageContent() {
     try {
       createdRun = await createEmployeeScreeningRun(screeningTargets, plannedSessionKey, options);
       if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
-        showNotice("当前 CBE 后台任务较多，背调任务已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        showNotice("当前任务较多，背调任务已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedLists().catch(() => undefined);
         return;
       }
@@ -1425,7 +1415,7 @@ function CrossBorderCustomersPageContent() {
         id: createdRun.agentRun.id,
         kind: "screening",
         title: runnableTargets.length > 1 ? "批量背调" : "单个背调",
-        message: "背调任务已启动，后台员工正在核验证据来源。",
+        message: "背调任务已启动，正在核验客户资料。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
@@ -1450,7 +1440,7 @@ function CrossBorderCustomersPageContent() {
         sessionKey: result.sessionKey,
         payload: result.payload,
       });
-      const message = `背调员工已返回 ${result.records.length} 份报告，客户评分已更新。`;
+      const message = `已完成 ${result.records.length} 份背调报告，客户评分已更新。`;
       completeTask(localTaskId, result.records.length, message, result.sessionKey);
       await refreshDbBackedLists();
       showNotice(message);
@@ -1499,8 +1489,8 @@ function CrossBorderCustomersPageContent() {
     if (!canRunScreening) {
       showNotice(
         state === "connected"
-          ? "背调员工还没有启动，请先完成系统初始化。"
-          : "后台未连接，暂时不能执行背调任务。",
+          ? "背调功能暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行背调任务。",
         "error",
       );
       return;
@@ -1515,7 +1505,7 @@ function CrossBorderCustomersPageContent() {
     try {
       createdRun = await createEmployeeScreeningRun([target], plannedSessionKey, options);
       if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
-        showNotice("当前 CBE 后台任务较多，手动背调已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        showNotice("当前任务较多，手动背调已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedLists().catch(() => undefined);
         return;
       }
@@ -1524,7 +1514,7 @@ function CrossBorderCustomersPageContent() {
         id: createdRun.agentRun.id,
         kind: "screening",
         title: "手动背调",
-        message: "手动背调任务已启动，后台员工正在核验证据来源。",
+        message: "手动背调任务已启动，正在核验客户资料。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
@@ -1705,19 +1695,20 @@ function CrossBorderCustomersPageContent() {
           {filtered.length === 0 ? (
             <div className="rounded-md border border-dashed bg-muted/20 px-4 py-10 text-center">
               <div className="text-sm font-medium">
-                {isCurrentDatabaseEmpty ? "当前数据库还没有客户" : "没有符合条件的客户"}
+                {isCurrentDatabaseEmpty ? "客户库还没有客户" : "没有符合条件的客户"}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {isCurrentDatabaseEmpty && latestLeadFailure
-                  ? `最近一次获客任务失败，未写入客户：${latestLeadFailure.message}`
+                  ? `最近一次找客户失败，未写入客户：${latestLeadFailure.message}`
                   : isCurrentDatabaseEmpty
-                    ? "还没有成功完成并写入数据库的获客任务。点击“寻找客户”启动新的获客任务。"
-                    : "调整筛选条件，或点击“寻找客户”启动新的获客任务。"}
+                    ? "点击“寻找客户”后，找到的客户会显示在这里。"
+                    : "调整筛选条件，或点击“寻找客户”启动新的任务。"}
               </p>
               {isCurrentDatabaseEmpty && latestLeadFailure?.sessionKey ? (
-                <p className="mt-2 font-mono text-xs text-muted-foreground">
-                  失败任务 {latestLeadFailure.sessionKey}
-                </p>
+                <details className="mt-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">查看诊断信息</summary>
+                  <p className="mt-1 font-mono">失败任务 {latestLeadFailure.sessionKey}</p>
+                </details>
               ) : null}
               <Button className="mt-4" size="sm" onClick={() => setSheetMode("lead")}>
                 <Search className="h-4 w-4" />
@@ -1999,10 +1990,10 @@ function scoreSegmentClass(block: CustomerScoreBlock) {
 
 function statusText(status: CustomerScoreBlock["status"]) {
   const labels: Record<CustomerScoreBlock["status"], string> = {
-    scored: "已计分",
+    scored: "已评分",
     not_applicable: "不适用",
-    unavailable_api: "接口不可用",
-    disabled_by_budget: "预算未启用",
+    unavailable_api: "暂不可用",
+    disabled_by_budget: "未开启",
     pending_human_input: "待补充",
   };
   return labels[status];
@@ -2014,7 +2005,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (
       <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-        本次报告没有返回评分维度拆解。
+        本次报告暂未返回评分来源。
       </div>
     );
   }
@@ -2031,15 +2022,18 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
             <div
               key={block.block}
               className={scoreSegmentClass(block)}
-              title={`${scoreBlockLabels[block.block] ?? block.block} · ${block.maxPoints} 权重`}
+              title={`${scoreBlockLabels[block.block] ?? block.block} · 权重 ${block.maxPoints}`}
               style={{ width: `${(block.maxPoints / maxTotal) * 100}%` }}
             />
           ))}
         </div>
       </div>
-      <div className="text-xs text-muted-foreground">
-        单项合计 {Number(earnedTotal.toFixed(2))} / {maxTotal}，总分按已计分维度动态归一化。
-      </div>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer">评分说明</summary>
+        <div className="mt-1">
+          单项合计 {Number(earnedTotal.toFixed(2))} / {maxTotal}，总分会按已评分项目折算。
+        </div>
+      </details>
       <div className="space-y-2">
         {displayBlocks.map((block) => {
           const earned = block.status === "scored" ? block.earnedPoints ?? 0 : 0;
@@ -2049,8 +2043,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="font-medium">{scoreBlockLabels[block.block] ?? block.block}</span>
                 <span className="font-mono text-muted-foreground">
-                  权重 {block.maxPoints} ·{" "}
-                  {block.status === "scored" ? `单项得分 ${earned}/${block.maxPoints}` : statusText(block.status)}
+                  {block.status === "scored" ? `得分 ${earned}/${block.maxPoints}` : statusText(block.status)}
                 </span>
               </div>
               <div className="flex h-2 overflow-hidden rounded-full bg-muted">
@@ -2064,7 +2057,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
                 )}
               </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {block.summary ?? block.reason ?? "该维度未返回详细说明。"}
+                {simplifyDisplayText(block.summary ?? block.reason) ?? "这一项暂无说明。"}
               </div>
             </div>
           );
@@ -2076,7 +2069,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
 
 function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
   if (evidence.length === 0) {
-    return <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">本维度暂无证据。</div>;
+    return <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">暂无核验依据。</div>;
   }
   return (
     <div className="space-y-2">
@@ -2084,22 +2077,25 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
         <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
-              {item.scoreImpact ?? "neutral"}
+              {scoreImpactLabel(item.scoreImpact)}
             </Badge>
-            {item.sourceType ? <Badge variant="secondary">{item.sourceType}</Badge> : null}
+            {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
             {item.costPosture ? <span className="text-xs text-muted-foreground">{item.costPosture}</span> : null}
           </div>
-          <div className="mt-2 leading-6">{item.finding}</div>
-          <a
-            href={item.sourceUrl.startsWith("http") ? item.sourceUrl : undefined}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 block break-all font-mono text-xs text-primary"
-          >
-            {item.sourceUrl}
-          </a>
+          <div className="mt-2 leading-6">{simplifyDisplayText(item.finding) ?? "暂无核验说明。"}</div>
+          {item.sourceUrl.startsWith("http") ? (
+            <a
+              href={item.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              查看来源
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : null}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>维度 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+            {item.scoreBlock ? <span>来源分类 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
             {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
             {item.fetchedAt ? <span>{item.fetchedAt}</span> : null}
           </div>
@@ -2233,14 +2229,14 @@ function ReportDetailDialog({
                 icon={<ShieldCheck className="h-4 w-4 text-primary" />}
               >
                 <div className={cn("rounded-md border px-3 py-2 text-sm leading-6", statusBadgeClass(customer))}>
-                  {report?.recommendedAction ?? customer.recommendedAction ?? "暂无报告，等待背调员工返回结构化结果。"}
+                  {simplifyDisplayText(report?.recommendedAction ?? customer.recommendedAction) ?? "暂无报告，等待背调结果。"}
                 </div>
               </ReportPanel>
 
               {report ? (
                 <>
                   <ReportPanel
-                    title="评分维度拆解"
+                    title="评分来源"
                     icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                   >
                     <ScoreBreakdownChart blocks={report.scoreBlocks} />
@@ -2248,23 +2244,30 @@ function ReportDetailDialog({
 
                   <section>
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="text-sm font-medium">证据明细</div>
-                      <Badge variant="outline">{report.evidence.length} 条证据</Badge>
+                      <div className="text-sm font-medium">核验依据</div>
+                      <Badge variant="outline">{report.evidence.length} 条</Badge>
                     </div>
                     <ReportEvidenceSections report={report} />
                   </section>
                 </>
               ) : (
                 <ReportPanel
-                  title="来源证据"
+                  title="来源资料"
                   icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                 >
-                  <p className="text-sm leading-6 text-muted-foreground">{customer.evidenceSummary}</p>
+                  <p className="text-sm leading-6 text-muted-foreground">{simplifyDisplayText(customer.evidenceSummary) ?? "暂无核验说明。"}</p>
                   <div className="mt-3 space-y-2">
-                    {customer.sourceUrls.map((url) => (
-                      <div key={url} className="break-all rounded-md bg-muted/40 px-2 py-1.5 font-mono text-xs">
-                        {url}
-                      </div>
+                    {customer.sourceUrls.map((url, index) => (
+                      <a
+                        key={url}
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看来源 {index + 1}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
                     ))}
                   </div>
                 </ReportPanel>
@@ -2285,7 +2288,7 @@ function ReportDetailDialog({
                     </div>
                   ) : null}
                   <div>
-                    <dt className="text-xs text-muted-foreground">报告 ID</dt>
+                      <dt className="text-xs text-muted-foreground">报告编号</dt>
                     <dd className="mt-1 break-all font-mono text-xs text-muted-foreground">
                       {report?.reportId ?? customer.reportId ?? customer.customerId}
                     </dd>
@@ -2294,7 +2297,7 @@ function ReportDetailDialog({
               </ReportPanel>
 
               {report?.coverageGaps.length ? (
-                <ReportPanel title="证据缺口" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
+                <ReportPanel title="还缺什么" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
                   <div className="space-y-2">
                     {report.coverageGaps.map((gap, index) => (
                       <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
@@ -2616,7 +2619,7 @@ function TaskSheet({
             <SheetHeader>
               <SheetTitle>寻找客户</SheetTitle>
               <SheetDescription>
-                选择目标后，由后台获客员工搜索真实买家公司，并把结果写回客户列表。
+                选择目标后，系统会搜索真实买家公司，并把结果写回客户列表。
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-5 px-4">
@@ -2696,7 +2699,7 @@ function TaskSheet({
                 title={
                   <span className="inline-flex items-center gap-1.5">
                     目标数量
-                    <InfoTooltip>手动输入希望获得的客户数量。后台获客员工会按这个数量扩展搜索；公开来源不足时才返回不足原因。</InfoTooltip>
+                    <InfoTooltip>手动输入希望获得的客户数量。系统会按这个数量扩展搜索；公开来源不足时会提示原因。</InfoTooltip>
                   </span>
                 }
               >
@@ -2794,7 +2797,7 @@ function TaskSheet({
               <TaskCostNotice {...leadEstimate} />
               {!leadReady ? <SystemNotice text="请至少选择一个产品、买家类型和国家。" /> : null}
               {!gatewayConnected || !canRunLead ? (
-                <SystemNotice text={gatewayConnected ? "获客员工还没有启动，请先完成系统初始化。" : "后台未连接，暂时不能执行获客任务。"} />
+                <SystemNotice text={gatewayConnected ? "客户搜索暂不可用，请先完成系统初始化。" : "系统暂未连接，暂时不能执行找客户任务。"} />
               ) : null}
               {leadRunning ? <SystemNotice text="已有获客任务正在运行；背调可以同时继续执行。" /> : null}
             </div>
@@ -2811,7 +2814,7 @@ function TaskSheet({
           <>
             <SheetHeader>
               <SheetTitle>批量背调</SheetTitle>
-              <SheetDescription>对已选客户启动后台背调，完成后自动更新评分和建议。</SheetDescription>
+              <SheetDescription>对已选客户启动背调，完成后自动更新评分和建议。</SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4">
               <div className="space-y-2">
@@ -2828,7 +2831,7 @@ function TaskSheet({
               <ScreeningOptionControls options={screeningOptions} setOptions={setScreeningOptions} />
               <TaskCostNotice {...bulkEstimate} />
               {!gatewayConnected || !canRunScreening ? (
-                <SystemNotice text={gatewayConnected ? "背调员工还没有启动，请先完成系统初始化。" : "后台未连接，暂时不能执行背调任务。"} />
+                <SystemNotice text={gatewayConnected ? "背调功能暂不可用，请先完成系统初始化。" : "系统暂未连接，暂时不能执行背调任务。"} />
               ) : null}
               {screeningRunning ? <SystemNotice text="已有背调任务正在运行；获客可以同时继续执行。" /> : null}
             </div>
@@ -2848,7 +2851,7 @@ function TaskSheet({
           <>
             <SheetHeader>
               <SheetTitle>手动背调</SheetTitle>
-              <SheetDescription>录入公司基础信息后，后台背调员工会自动开始调查。</SheetDescription>
+              <SheetDescription>录入公司基础信息后，系统会自动开始背调。</SheetDescription>
             </SheetHeader>
             <div className="space-y-3 px-4">
               <Input
@@ -2912,7 +2915,7 @@ function TaskSheet({
             <SheetHeader>
               <SheetTitle>确认删除客户</SheetTitle>
               <SheetDescription>
-                将从当前获客与背调列表中删除 {deleteTargets.length} 个客户。此操作不会停止已经提交到后台的任务。
+                将从当前获客与背调列表中删除 {deleteTargets.length} 个客户。此操作不会停止已经提交的任务。
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4">

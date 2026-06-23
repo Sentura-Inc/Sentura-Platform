@@ -151,7 +151,7 @@ function sleep(ms: number) {
 
 function throwIfTaskCancelled(signal: AbortSignal | undefined, sessionKey?: string) {
   if (!signal?.aborted) return;
-  throw new EmployeeTaskError("cancelled", "任务已取消，后台结果不会写入列表。", { sessionKey });
+  throw new EmployeeTaskError("cancelled", "任务已取消，结果不会写入列表。", { sessionKey });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -312,15 +312,15 @@ function transcriptFailureMessage(messages: TranscriptMessage[]): { message: str
     if (errorMessage) {
       if (/LLM idle timeout/i.test(errorMessage)) {
         return {
-          message: `后台模型在工具调用后出现一次静默超时，系统已继续等待重试结果：${errorMessage}`,
+          message: `任务处理短暂超时，系统已继续等待重试结果：${errorMessage}`,
           recoverable: true,
         };
       }
-      return { message: `后台 AI 员工执行失败：${errorMessage}`, recoverable: false };
+      return { message: `任务处理失败：${errorMessage}`, recoverable: false };
     }
     const stopReason = asString(raw.stopReason) ?? asString(nested.stopReason);
     if (message.role === "assistant" && stopReason === "aborted" && !contentToText(message.content)) {
-      return { message: "后台模型生成被中止，未返回结构化报告。", recoverable: true };
+      return { message: "任务被中止，未返回报告。", recoverable: true };
     }
   }
   return undefined;
@@ -423,7 +423,7 @@ async function runHiddenEmployeeTask(options: {
   };
 
   throwIfTaskCancelled(signal);
-  emitProgress("queued", "正在创建后台 AI 员工任务...");
+  emitProgress("queued", "正在创建任务...");
 
   let sessionKey = "";
   const abortGatewaySession = () => {
@@ -440,12 +440,12 @@ async function runHiddenEmployeeTask(options: {
       sessionKey = created.key;
       throwIfTaskCancelled(signal, sessionKey);
       if (!sessionKey) {
-        throw new EmployeeTaskError("gateway", "后台没有返回任务编号。");
+        throw new EmployeeTaskError("gateway", "系统没有返回任务编号。");
       }
       if (created.runError) {
         throw new EmployeeTaskError("gateway", created.runError, { sessionKey });
       }
-      emitProgress("running", "后台 AI 员工已创建，正在提交任务。", sessionKey);
+      emitProgress("running", "任务已创建，正在提交。", sessionKey);
       throwIfTaskCancelled(signal, sessionKey);
       try {
         await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs });
@@ -453,19 +453,19 @@ async function runHiddenEmployeeTask(options: {
         if (!isGatewayTimeout(error)) throw error;
         emitProgress(
           "running",
-          "提交请求已超过前端等待窗口，后台 AI 员工可能仍在运行，正在改为读取任务记录。",
+          "提交请求等待时间较长，系统正在改为读取任务记录。",
           sessionKey,
         );
       }
       throwIfTaskCancelled(signal, sessionKey);
     } catch (error) {
       if (error instanceof EmployeeTaskError) throw error;
-      const message = unknownErrorMessage(error, "隐藏员工任务提交失败。");
+      const message = unknownErrorMessage(error, "任务提交失败。");
       emitProgress("failed", message, sessionKey || undefined);
       throw new EmployeeTaskError("gateway", message, { sessionKey: sessionKey || undefined });
     }
 
-    emitProgress("running", "已提交给后台 AI 员工，正在等待结构化结果。", sessionKey);
+    emitProgress("running", "任务已提交，正在等待结果。", sessionKey);
 
     const deadline = Date.now() + timeoutMs;
     let lastAssistantText = "";
@@ -484,24 +484,24 @@ async function runHiddenEmployeeTask(options: {
         startedAt,
         estimatedMs,
         ...fields,
-        message: progressMessage("正在读取后台任务状态。", startedAt, timeoutMs, pollCount),
+        message: progressMessage("正在读取任务状态。", startedAt, timeoutMs, pollCount),
       });
 
       const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
       throwIfTaskCancelled(signal, sessionKey);
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
-        emitProgress("completed", "后台 AI 员工已返回结构化结果。", sessionKey);
+        emitProgress("completed", "任务已返回结果。", sessionKey);
         throwIfTaskCancelled(signal, sessionKey);
         return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
       }
       parseError = payloadRead.parseError;
 
       if (parseError) {
-        emitProgress("failed", `员工已返回结果，但系统无法解析结构化数据：${parseError.message}`, sessionKey);
+        emitProgress("failed", `任务已返回结果，但系统无法读取：${parseError.message}`, sessionKey);
         throw new EmployeeTaskError(
           "parse_error",
-          `员工已返回结果，但系统无法解析结构化数据：${parseError.message}`,
+          `任务已返回结果，但系统无法读取：${parseError.message}`,
           { sessionKey, lastAssistantText },
         );
       }
@@ -524,7 +524,7 @@ async function runHiddenEmployeeTask(options: {
       const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
-        emitProgress("completed", "后台 AI 员工已返回结构化结果。", sessionKey);
+        emitProgress("completed", "任务已返回结果。", sessionKey);
         return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
       }
       const failure = transcriptFailureMessage(payloadRead.messages);
@@ -535,8 +535,8 @@ async function runHiddenEmployeeTask(options: {
     }
 
     const timeoutMessage = lastRecoverableFailureMessage
-      ? `${lastRecoverableFailureMessage}；已继续等待到任务超时，仍未收到结构化结果。`
-      : "等待后台 AI 员工返回结构化结果超时。";
+      ? `${lastRecoverableFailureMessage}；已继续等待到任务超时，仍未收到结果。`
+      : "等待任务返回结果超时。";
     emitProgress("failed", timeoutMessage, sessionKey);
     throw new EmployeeTaskError("timeout", timeoutMessage, { sessionKey, lastAssistantText });
   } finally {
@@ -746,7 +746,7 @@ function synthesizeScoreBlocks(
         maxPoints: block.maxPoints,
         earnedPoints: null,
         sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-        reason: block.block === "conversation_behavior" ? "没有 Accio 或销售对话记录。" : "员工报告未返回该维度的单项分。",
+        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未返回这一项单项分。",
       };
     }
     return {
@@ -878,7 +878,7 @@ function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | u
   const operational = locations.filter((item) => item.businessStatus === "OPERATIONAL").length;
   const closed = locations.filter((item) => /CLOSED/i.test(item.businessStatus ?? "")).length;
   return {
-    sectionTitle: asString(raw.section_title) ?? asString(raw.sectionTitle) ?? "Google Maps 地址版图",
+    sectionTitle: asString(raw.section_title) ?? asString(raw.sectionTitle) ?? "线下地址线索",
     coverageStatus: normalizeAddressCoverageStatus(raw.coverage_status ?? raw.coverageStatus),
     searchScope: {
       queriesRun: asStringArray(searchScope.queries_run ?? searchScope.queriesRun),
@@ -1064,7 +1064,7 @@ function screeningRowsFromPayload(
           evidence
             .map((item) => item.finding)
             .find(Boolean) ??
-          "背调员工已返回结构化报告，证据详情见原始报告 JSON。",
+          "已返回背调报告，核验依据可在报告详情中查看。",
         recommendedAction: asString(raw.recommended_action) ?? "复核背调报告后决定是否跟进。",
         screeningReport,
       };
@@ -1094,7 +1094,7 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
       : `mem-${conversationId}`;
     return {
       recordId,
-      name: `${company} - Accio 对话`,
+      name: `${company} - 聊天记录`,
       source: "accio",
       importedAt: nowLabel(),
       analysisStatus: "analyzed",
@@ -1107,7 +1107,7 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
         asString(raw.summary) ??
         asString(preview.summary) ??
         nextActions[0] ??
-        "记忆员工已生成 Accio 对话结构化摘要。",
+        "已完成聊天记录整理。",
       handoffCompany: company,
     };
   });

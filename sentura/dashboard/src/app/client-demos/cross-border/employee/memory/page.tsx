@@ -100,14 +100,14 @@ const statusLabels: Record<MemoryRecordItem["analysisStatus"], string> = {
 };
 
 const sourceLabels: Record<MemoryRecordItem["source"], string> = {
-  accio: "Accio",
-  alibaba_international: "阿里国际站",
+  accio: "聊天工具",
+  alibaba_international: "平台聊天",
   manual_import: "手动导入",
   demo_data: "演示数据",
   other: "其他",
 };
 
-const memorySourceChoices = ["Accio", "阿里国际站", "手动导入"] as const;
+const memorySourceChoices = ["聊天工具", "平台聊天", "手动导入"] as const;
 const memoryStatusFilterChoices = ["all", "not_started", "analyzed"] as const;
 const memoryStatusFilterValues: Array<MemoryRecordItem["analysisStatus"] | "all"> = ["all", "not_started", "analyzed"];
 const memorySourceValues: MemoryRecordItem["source"][] = ["accio", "alibaba_international", "manual_import", "demo_data", "other"];
@@ -141,9 +141,9 @@ const importRangeLabels: Record<ImportRange, string> = {
 };
 
 const supplementSourceLabels: Record<MemorySupplementSource, string> = {
-  lead_discovery: "获客员工",
+  lead_discovery: "找客户结果",
   manual_screening: "手动录入",
-  accio_handoff: "聊天记录移交",
+  accio_handoff: "聊天记录",
 };
 
 function highlightFrameClass(active: boolean) {
@@ -539,7 +539,7 @@ function CrossBorderMemoryPageContent() {
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
       setUploadPayload(parsed);
-      showNotice(`已读取 ${file.name}，可以导入或提交记忆员工分析。`, "info");
+      showNotice(`已读取 ${file.name}，可以导入或提交分析。`, "info");
     } catch (error) {
       setUploadPayload(null);
       showNotice(error instanceof Error ? error.message : "聊天记录文件解析失败。", "error", 8000);
@@ -595,8 +595,8 @@ function CrossBorderMemoryPageContent() {
     if (!canRun) {
       showNotice(
         state === "connected"
-          ? "记忆员工还没有启动，请先完成系统初始化。"
-          : "后台未连接，暂时不能执行记忆分析。",
+          ? "记忆整理暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行记忆整理。",
         "error",
       );
       return;
@@ -609,7 +609,7 @@ function CrossBorderMemoryPageContent() {
     try {
       createdImport = await createEmployeeAccioImport(input, plannedSessionKey);
       if (createdImport.agentRun.status === "queued" || !createdImport.agentRun.sessionKey) {
-        showNotice("当前 CBE 后台任务较多，记忆整理任务已进入排队中；系统不会启动超出容量的员工会话。", "info", 8000);
+        showNotice("当前任务较多，记忆整理已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedMemory().catch(() => undefined);
         return;
       }
@@ -618,7 +618,7 @@ function CrossBorderMemoryPageContent() {
         id: createdImport.agentRun.id,
         kind: "accio_memory",
         title: "记忆整理",
-        message: "记忆整理任务已启动，后台员工正在分析聊天记录。",
+        message: "记忆整理任务已启动，正在分析聊天记录。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
@@ -646,7 +646,7 @@ function CrossBorderMemoryPageContent() {
         payload: result.payload,
         supplementTarget: input.supplementTarget,
       });
-      const message = `记忆员工已返回 ${result.records.length} 份结构化摘要，已更新当前列表。`;
+      const message = `已整理 ${result.records.length} 份聊天记录，当前列表已更新。`;
       completeTask(localTaskId, result.records.length, message, result.sessionKey);
       await refreshDbBackedMemory();
       showNotice(message);
@@ -829,7 +829,7 @@ function CrossBorderMemoryPageContent() {
             <div className="rounded-md border border-dashed bg-muted/20 px-4 py-10 text-center">
               <div className="text-sm font-medium">没有符合条件的记录</div>
               <p className="mt-1 text-sm text-muted-foreground">
-                调整筛选条件，或点击“添加新记录”导入 Accio / 阿里国际站记录。
+                调整筛选条件，或点击“添加新记录”导入聊天记录。
               </p>
               <Button className="mt-4" size="sm" onClick={() => setSheetMode("add")}>
                 <Upload className="h-4 w-4" />
@@ -1100,7 +1100,7 @@ function MemorySheet({
   onAnalyzeUpload: (recordName: string, sourceLabel: string) => void;
 }) {
   const [recordName, setRecordName] = useState("");
-  const [sourceLabel, setSourceLabel] = useState("Accio");
+  const [sourceLabel, setSourceLabel] = useState("聊天工具");
   const isSupplementMode = mode === "supplement" && Boolean(supplementContext);
   const effectiveRecordName = recordName || uploadName.replace(/\.json$/i, "");
   const uploadConversationCount = useMemo(() => {
@@ -1116,13 +1116,13 @@ function MemorySheet({
   useEffect(() => {
     if (mode !== "supplement" || !supplementContext) return;
     setRecordName(supplementRecordName(supplementContext.companyName));
-    setSourceLabel("Accio");
+    setSourceLabel("聊天工具");
   }, [mode, supplementContext]);
 
   useEffect(() => {
     if (mode !== "add") return;
     setRecordName("");
-    setSourceLabel("Accio");
+    setSourceLabel("聊天工具");
   }, [mode]);
 
   return (
@@ -1207,7 +1207,7 @@ function MemorySheet({
               <SheetDescription>
                 {isSupplementMode && supplementContext
                   ? `为 ${supplementContext.companyName} 上传补充聊天记录，提交后会绑定到原客户并进入未分析状态。`
-                  : "导入 Accio、阿里国际站或手动聊天记录。"}
+                  : "导入聊天工具、平台聊天或手动整理的聊天记录。"}
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4">
@@ -1221,7 +1221,7 @@ function MemorySheet({
               ) : null}
               <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground hover:bg-muted/40">
                 <FileJson className="mb-2 h-5 w-5" />
-                {uploadName || "上传聊天记录 JSON 文件"}
+                {uploadName || "上传聊天记录文件"}
                 <Input
                   className="hidden"
                   type="file"
@@ -1256,14 +1256,14 @@ function MemorySheet({
                 className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
                 title="这是内部安全分级，表示这类数据是业务聊天记录，默认只展示摘要和预览。"
               >
-                数据安全：业务聊天记录，只生成摘要和写入预览
+                安全处理：只整理摘要，不展示完整原文
               </div>
               <TaskCostNotice {...uploadEstimate} />
               {uploadName && !uploadPayload ? (
                 <SystemNotice text="当前文件尚未成功读取，请重新选择聊天记录文件。" />
               ) : null}
               {!isSupplementMode && (!gatewayConnected || !canRun) ? (
-                <SystemNotice text={gatewayConnected ? "记忆员工还没有启动，请先完成系统初始化。" : "后台未连接，暂时不能执行记忆分析。"} />
+                <SystemNotice text={gatewayConnected ? "记忆整理暂不可用，请先完成系统初始化。" : "系统暂未连接，暂时不能执行记忆整理。"} />
               ) : null}
             </div>
             <SheetFooter>
@@ -1311,7 +1311,7 @@ function MemoryDeleteDialog({
         <DialogHeader>
           <DialogTitle>删除记忆记录</DialogTitle>
           <DialogDescription>
-            删除后会移除对应聊天记忆、分析摘要和待移交事件；这不会自动删除已生成的背调报告。
+            删除后会移除对应聊天记录、整理结果和待处理移交；这不会自动删除已生成的背调报告。
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-64 space-y-2 overflow-y-auto">
@@ -1378,7 +1378,7 @@ function MemoryReportDialog({
                 <p className="text-sm leading-6 text-muted-foreground">
                   {activeRecord.analysisStatus === "analyzed"
                     ? activeRecord.summary
-                    : "等待记忆员工返回结构化摘要后展示客户画像、需求商品、价格、付款/物流条款和跟进上下文。"}
+                    : "等待整理完成后展示客户画像、需求商品、价格、付款/物流条款和跟进上下文。"}
                 </p>
               </section>
 
@@ -1395,7 +1395,7 @@ function MemoryReportDialog({
               <section className="rounded-md border p-3">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <Database className="h-4 w-4 text-primary" />
-                  写入记忆预览
+                  整理结果预览
                 </div>
                 <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
                   仅展示简洁事实和来源引用，不写入原始聊天。
@@ -1421,9 +1421,12 @@ function MemoryReportDialog({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-muted-foreground">任务 ID</dt>
-                    <dd className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                      {activeRecord.latestAgentRunId ?? "暂无"}
+                    <dt className="text-xs text-muted-foreground">处理编号</dt>
+                    <dd className="mt-1">
+                      <details className="text-xs text-muted-foreground">
+                        <summary className="cursor-pointer">查看诊断信息</summary>
+                        <span className="mt-1 block break-all font-mono">{activeRecord.latestAgentRunId ?? "暂无"}</span>
+                      </details>
                     </dd>
                   </div>
                 </dl>

@@ -1,5 +1,160 @@
 # Sentura CBE Continuation Handoff
 
+## Active Task — Chinese Label Cleanup And Manager Customer Filter Fix
+
+Date: 2026-06-23
+
+### Task Introduction
+
+The user reported two issues after the broad copy simplification pass:
+
+- Some visible `类型` and `产品` values still show English and must be converted to accurate Chinese.
+- The Manager-side customer filtering UI cannot open and must be fixed.
+
+Constraints remain the same as the copy simplification task: preserve business meaning, avoid business-logic/data-structure changes unless needed for display, keep unrelated local changes intact, and verify Employee and Manager customer/report surfaces.
+
+### Workspace And Environment
+
+- Active workspace: `/Users/purest./Documents/Sentura/Sentura-Platform`
+- Existing full backup from before the copy simplification work: `/Users/purest./Documents/Sentura/backups/Sentura-Platform-before-copy-simplification-20260623-004415`
+- Current known unrelated pre-existing modification: `启动说明.md`; do not revert it.
+- Main files to inspect first:
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/high-value-customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+  - `sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+
+### Task Flow
+
+Planned implementation order:
+
+1. Locate every visible buyer-type/product rendering path in Employee and Manager pages.
+2. Add or centralize Chinese display helpers for raw English type/product values.
+3. Fix the Manager customer filter UI so it opens reliably from both the High-value Customers page and the Employee Detail dialog.
+4. Run typecheck, focused store tests if affected, and browser checks for Manager filter opening plus English residue.
+
+### Progress So Far
+
+- Task recorded before edits.
+- Previous verification before this follow-up: `pnpm --dir sentura/dashboard exec tsc --noEmit` passed, `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` passed 195/195, and broad browser checks found no overflow or technical-copy leaks in checked routes. These checks did not specifically open the Manager customer filter UI or audit all buyer-type/product raw values.
+- Added shared visible label helpers in `sentura/dashboard/src/components/cross-border/customer-labels.ts`.
+- Replaced duplicated buyer-type/product display helpers in:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`
+  - `sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx`
+- Updated Manager high-value customer product display in `sentura/dashboard/src/app/client-demos/cross-border/admin/high-value-customers/page.tsx`.
+- Fixed Manager customer filtering by turning the former static `国家 / 类型 / 产品` button into a real `筛选客户` expandable panel in `AdminCustomerListTable`. The panel filters by country, buyer type, and product, shows active chips, and works inside the Manager employee-detail dialog without opening another nested dialog.
+
+### Current State
+
+Implementation and verification for this follow-up are complete.
+
+Verification completed:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- Local Chrome/Playwright check on Manager `/client-demos/cross-border/admin/employees`: opened Lin Yue employee detail, clicked `筛选客户`, confirmed the panel opens and common raw English buyer/product terms are absent from the detail surface.
+- Local Chrome/Playwright check on Manager `/client-demos/cross-border/admin/high-value-customers`: confirmed common raw English product terms are absent.
+- Local Chrome/Playwright check on Employee `/client-demos/cross-border/employee/customers`: confirmed `类型` and `产品` table columns do not expose common raw English values.
+- Mobile Chrome/Playwright check at `390x844`: Manager employee-detail `筛选客户` opens and has no document-level horizontal overflow.
+
+### Next Steps
+
+No required next implementation step remains for this follow-up. If new English residue is reported, first check whether it is a company name/domain versus a visible `类型` or `产品` field before changing display text.
+
+## Active Task — Copy Simplification Across CBE Employee And Manager UI
+
+Date: 2026-06-23
+
+### Task Introduction
+
+The user asked to first back up the current `Sentura-Platform` checkout, then implement a broad copy simplification pass for the Sentura cross-border e-commerce Employee and Manager platforms. The goal is to remove technical, hard-to-read default copy while preserving the original meaning and precision. This is a UI-copy-only task: do not change business logic, database schemas, score/cost calculations, runtime task behavior, or permissions.
+
+Hard constraints:
+
+- Keep accurate business meaning.
+- Default visible UI should be clear for ordinary employees and managers.
+- Keep technical details available, but move them behind short tooltips, collapsible detail sections, or diagnostic-only surfaces.
+- Do not revert unrelated local changes.
+
+### Workspace And Environment
+
+- Active workspace: `/Users/purest./Documents/Sentura/Sentura-Platform`
+- Full backup created before edits: `/Users/purest./Documents/Sentura/backups/Sentura-Platform-before-copy-simplification-20260623-004415`
+- Pre-change `git status --short`: only `M 启动说明.md` existed before this task.
+- Target app: `sentura/dashboard` Next.js CBE UI.
+- Main target areas:
+  - Employee: `个人中心`, `获客与背调`, `记忆整理`, task status bar, message center, employee cost card/detail, report dialogs.
+  - Manager: `员工管理`, `高分客户`, `成本监控`, employee detail, cost detail, approval table, customer report dialogs.
+  - Shared components under `sentura/dashboard/src/components/cross-border/`.
+
+### Task Flow
+
+Planned implementation order:
+
+1. Simplify shared CBE copy in the app shell, task status, employee cost, and report dialog components.
+2. Simplify Employee pages and all drawers/dialogs while preserving current information architecture.
+3. Simplify Manager pages and detail dialogs.
+4. Hide or downgrade legacy diagnostic entries (`CBE Leads`, `CBE Screening`, `CBE Accio`) from ordinary navigation.
+5. Run typecheck, focused store tests, copy scan, and browser checks.
+
+Technical detail presentation rule:
+
+- Short explanations: small tooltip/question-style helper text.
+- Long explanations: collapsed sections such as `费用怎么算`, `查看核验依据`, `查看技术详情`.
+- Failure/debug information: diagnostic details only, not default UI.
+
+### Progress So Far
+
+- Backup completed successfully.
+- Pre-change status recorded.
+- Shared UI copy simplified:
+  - `sentura/dashboard/src/components/app-shell.tsx`
+  - `sentura/dashboard/src/components/sidebar.tsx`
+  - `sentura/dashboard/src/components/cross-border/employee-task-status.tsx`
+  - `sentura/dashboard/src/components/cross-border/employee-cost.tsx`
+  - `sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx`
+- Employee UI copy simplified:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-notification-targets.ts`
+- Manager UI copy simplified:
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/employees/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/high-value-customers/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/costs/page.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`
+  - `sentura/dashboard/src/app/client-demos/cross-border/admin/_components/report-dialog.tsx`
+- Legacy ordinary sidebar entries `CBE Leads`, `CBE Screening`, and `CBE Accio` removed from normal navigation.
+- Technical data is now mostly behind `查看技术详情`, `查看诊断信息`, `评分说明`, or `费用怎么算`; report evidence source URLs show as `查看来源` instead of raw URLs.
+
+### Current State
+
+Implementation and verification are complete. The Employee home mobile overflow was fixed by constraining the main two-column grid and list links with `min-w-0`. Historical report text that contained technical terms such as `RDAP`, `JSON`, `API authorization failure`, `HTTP 401`, `MX`, `SPF`, `DMARC`, `provider`, and raw `URL` references is cleaned at display time in Employee and Manager report surfaces. Raw source links remain available as `查看来源` links rather than default visible text.
+
+Final verification completed:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- `git diff --check`: PASS.
+- Authenticated browser checks on desktop and mobile for:
+  - Employee: `/client-demos/cross-border/employee`, `/employee/customers`, `/employee/memory`
+  - Manager: `/admin/employees`, `/admin/high-value-customers`, `/admin/costs`
+  - Employee report dialog, Manager report dialog, Manager employee detail, and Manager cost detail.
+- Browser results: no horizontal overflow, no default-visible banned technical terms, and no raw URL text in checked report/detail surfaces.
+- Dashboard dev server restarted from current workspace and is running at `http://127.0.0.1:3000`.
+
+Known existing local modification before this task: `启动说明.md`; do not revert it unless the user explicitly asks.
+
+### Next Steps
+
+No required next implementation step remains for this task. If continuing from this handoff, first inspect `git status --short`, keep the pre-existing `启动说明.md` change separate, and use `http://127.0.0.1:3000` for manual review while the dev server is still running.
+
 ## Current Resume Snapshot
 
 Default continuation rule: read `outputs/resume_card.md` first. Then read only this snapshot and `Next Steps` unless deeper history is required. Use `docs/MEMORY.md` as an index only when a specific prior row is needed.

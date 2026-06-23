@@ -168,39 +168,39 @@ export interface CustomerListItem {
 
 export function coverageGapReasonForBlock(block: string, status?: ScreeningEvidenceStatus) {
   if (status === "disabled_by_budget") {
-    return "付费贸易、邮箱或外部资料源未启用，未调用该付费证据。";
+    return "付费贸易、邮箱或外部资料源未启用，未查询该付费资料。";
   }
   if (status === "unavailable_api") {
-    return "已尝试调用该证据源，但 API 未配置、不可用或返回不可用结果。";
+    return "已尝试查询该资料源，但当前不可用或没有返回可用结果。";
   }
   if (status === "not_applicable") {
     return "该客户当前没有适用的数据输入，不参与本次评分。";
   }
   if (status === "pending_human_input") {
-    return "员工报告未返回该维度的可核验证据，需要人工补充或重新背调。";
+    return "报告未返回这一项可核验依据，需要人工补充或重新背调。";
   }
   switch (block) {
     case "legal_identity":
       return "公司注册信息或官方注册页未搜索到可核验主体记录。";
     case "domain_email":
-      return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够证据。";
+      return "官网域名、邮箱记录或邮箱验证未搜索到足够依据。";
     case "public_footprint":
-      return "公开网页或 Google Maps 地址版图未找到足够业务足迹或可信来源。";
+      return "公开网页或线下地址线索未找到足够业务足迹。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
     case "trade_financial":
-      return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
+      return "贸易记录或财务公开信息未搜索到可用结果。";
     case "conversation_behavior":
-      return "没有 Accio 或销售对话记录可用于行为判断。";
+      return "没有聊天或销售对话记录可用于行为判断。";
     default:
-      return "该证据源未返回可用结果；员工报告未提供更具体原因。";
+      return "该资料源未返回可用结果；报告未提供更具体原因。";
   }
 }
 
 export function coverageGapActionForBlock(block: string, status?: ScreeningEvidenceStatus) {
   if (status === "disabled_by_budget") return "开启对应付费来源或提高单次预算后重新背调。";
-  if (status === "unavailable_api") return "检查 API key、额度和供应商可用性后重试。";
-  if (status === "not_applicable") return "如后续产生 Accio 对话或销售记录，可再补充行为证据。";
+  if (status === "unavailable_api") return "检查资料源配置、额度和可用性后重试。";
+  if (status === "not_applicable") return "如后续产生聊天或销售记录，可再补充行为依据。";
   switch (block) {
     case "legal_identity":
       return "补充公司注册号、法定名称或官方注册地区后重新查询。";
@@ -209,7 +209,7 @@ export function coverageGapActionForBlock(block: string, status?: ScreeningEvide
     case "trade_financial":
       return "开启贸易/财务数据源，或补充进口商名称、注册号后重新搜索。";
     case "conversation_behavior":
-      return "导入 Accio 聊天记录或销售跟进记录后再评估。";
+      return "导入聊天记录或销售跟进记录后再评估。";
     default:
       return undefined;
   }
@@ -375,7 +375,7 @@ export const leadBuyerTypeOptions: LeadBuyerTypeOption[] = [
 
 export const leadCountryOptions: LeadCountryOption[] = [
   { code: "GB", label: "英国", language: "en", description: "优先查公司主体和官网线索。" },
-  { code: "US", label: "美国", language: "en", description: "优先查官网、州注册和 SEC 公开线索。" },
+  { code: "US", label: "美国", language: "en", description: "优先查官网、州注册和财务公开线索。" },
   { code: "DE", label: "德国", language: "de", description: "适合电子零售和配件渠道。" },
   { code: "FR", label: "法国", language: "fr", description: "适合法语市场渠道搜索。" },
   { code: "BR", label: "巴西", language: "pt", description: "适合维修配件和本地渠道搜索。" },
@@ -417,8 +417,8 @@ export const monthlyCostBudget: CostBudget = {
 };
 
 export const costEstimateAssumptions = {
-  sourceLabel: "近期真实成本 + 已定价调用",
-  leadSourceLabel: "近期真实成本 + 已定价调用",
+  sourceLabel: "近期实际费用记录",
+  leadSourceLabel: "近期实际费用记录",
   leadDiscovery: {
     minimumUsd: 0.12,
     observedBaseUsd: 0.1,
@@ -466,11 +466,11 @@ export const costEstimateAssumptions = {
 function reportBlocks(overrides: Partial<Record<string, Partial<CustomerScoreBlock>>> = {}): CustomerScoreBlock[] {
   const base: CustomerScoreBlock[] = [
     { block: "legal_identity", status: "scored", maxPoints: 25, earnedPoints: 20, sourceCount: 1, summary: "公司主体或官方来源已核验。" },
-    { block: "domain_email", status: "scored", maxPoints: 25, earnedPoints: 21, sourceCount: 2, summary: "域名、邮箱和 DNS 信号基本稳定。" },
+    { block: "domain_email", status: "scored", maxPoints: 25, earnedPoints: 21, sourceCount: 2, summary: "官网和邮箱信号基本稳定。" },
     { block: "public_footprint", status: "scored", maxPoints: 20, earnedPoints: 16, sourceCount: 2, summary: "公开网页与业务画像匹配。" },
     { block: "business_fit", status: "scored", maxPoints: 20, earnedPoints: 18, sourceCount: 2, summary: "产品和渠道与手机配件采购匹配。" },
-    { block: "trade_financial", status: "unavailable_api", maxPoints: 10, earnedPoints: null, sourceCount: 0, reason: "贸易/财务数据未启用或未命中。" },
-    { block: "conversation_behavior", status: "not_applicable", maxPoints: 15, earnedPoints: null, sourceCount: 0, reason: "冷启动获客记录没有 Accio 行为数据。" },
+    { block: "trade_financial", status: "unavailable_api", maxPoints: 10, earnedPoints: null, sourceCount: 0, reason: "贸易或财务资料未启用或未命中。" },
+    { block: "conversation_behavior", status: "not_applicable", maxPoints: 15, earnedPoints: null, sourceCount: 0, reason: "冷启动找客户记录没有聊天行为数据。" },
   ];
   return base.map((block) => ({ ...block, ...(overrides[block.block] ?? {}) }));
 }
@@ -532,7 +532,7 @@ export const customerRows: CustomerListItem[] = [
           layer: "domain_rdap",
           sourceUrl: "https://rdap.org/domain/mobilelab.example",
           sourceType: "official_api",
-          finding: "域名/RDAP 检查用于确认官网域名归属与稳定性。",
+          finding: "官网域名信息用于确认网站归属与稳定性。",
           confidence: 0.66,
           scoreBlock: "domain_email",
           scoreImpact: "positive",
@@ -543,7 +543,7 @@ export const customerRows: CustomerListItem[] = [
           layer: "email_dns",
           sourceUrl: "https://mobilelab.example",
           sourceType: "public_dns",
-          finding: "同域邮箱和 DNS 信号与企业官网一致，未发现一次性邮箱信号。",
+          finding: "同域邮箱与企业官网一致，未发现一次性邮箱信号。",
           confidence: 0.84,
           scoreBlock: "domain_email",
           scoreImpact: "positive",
@@ -575,8 +575,8 @@ export const customerRows: CustomerListItem[] = [
       ],
       coverageGaps: coverageGaps(
         "未取得可直接归属到该主体的贸易/海关记录。",
-        "未取得 SEC/公开财务文件；英国私营或非美上市主体应以 Companies House/本地公开财务来源复核。",
-        "未提供 Accio 或销售对话记录，行为信号不计入分母。",
+        "未取得财务公开信息；英国私营或非美上市主体应以 Companies House/本地公开财务来源复核。",
+        "未提供聊天或销售对话记录，行为信号不计入分母。",
       ),
       openQuestions: ["补充采购联系人邮箱。", "确认是否有近期进口或批发采购记录。"],
     },
@@ -659,8 +659,8 @@ export const customerRows: CustomerListItem[] = [
         "缺少公司注册号或官方注册页。",
         "缺少公司邮箱，无法触发付费邮箱验证。",
         "贸易/海关数据未启用，不能作为负面证据。",
-        "未取得 SEC/公开财务文件；墨西哥私营或非美国申报主体通常不适用 SEC，应补充本地注册/税务主体资料。",
-        "未提供 Accio 或销售对话记录。",
+        "未取得财务公开信息；墨西哥私营或非美国申报主体应补充本地注册/税务主体资料。",
+        "未提供聊天或销售对话记录。",
       ),
       openQuestions: ["要求客户补充注册主体/RFC。", "要求客户用公司域名邮箱回复。"],
     },
@@ -672,13 +672,13 @@ export const customerRows: CustomerListItem[] = [
     country: "BR",
     countryName: "巴西",
     city: "Sao Paulo",
-    buyerType: "聊天记录移交",
+    buyerType: "来自聊天记录",
     products: ["OLED screen", "repair parts"],
     foundAt: "2026-06-11 17:22",
     screeningStatus: "not_started",
     latestAgentRunId: "run-accio-20260611-1722",
     sourceUrls: ["accio-chat-records.sample.json"],
-    evidenceSummary: "来自 Accio 对话整理，已有价格和数量线索，尚未做主体背调。",
+    evidenceSummary: "来自聊天记录整理，已有价格和数量线索，尚未做主体背调。",
     recommendedAction: "点击开始调研，先核验公司主体和官网。",
   },
   {
@@ -742,7 +742,7 @@ export const customerRows: CustomerListItem[] = [
         "缺少稳定法律主体证据。",
         "缺少同域采购邮箱。",
         "未命中贸易/海关记录，建议人工确认后再投入销售资源。",
-        "未命中 SEC/公开财务文件；若对方不是美国上市申报主体，此项只能作为覆盖缺口，不能直接扣为欺诈证据。",
+        "未命中财务公开信息；若对方不是上市申报主体，此项只能作为待补充内容，不能直接作为负面结论。",
       ),
       openQuestions: ["要求客户提供公司注册资料。", "确认是否为终端买家而非小型零售站点。"],
     },
@@ -752,7 +752,7 @@ export const customerRows: CustomerListItem[] = [
 export const memoryRows: MemoryRecordItem[] = [
   {
     recordId: "mem-accio-001",
-    name: "Brasil Cell Parts - Accio 对话",
+    name: "Brasil Cell Parts - 聊天记录",
     source: "accio",
     importedAt: "2026-06-11 17:12",
     analysisStatus: "analyzed",
@@ -772,7 +772,7 @@ export const memoryRows: MemoryRecordItem[] = [
     conversationCount: 2,
     latestAgentRunId: "run-accio-20260613-1030",
     memoryPreviewStatus: "preview_only",
-    summary: "记忆员工正在提取产品、数量、目标价和物流条款。",
+    summary: "正在提取产品、数量、目标价和物流条款。",
   },
   {
     recordId: "mem-manual-003",
@@ -782,7 +782,7 @@ export const memoryRows: MemoryRecordItem[] = [
     analysisStatus: "not_started",
     conversationCount: 1,
     memoryPreviewStatus: "preview_only",
-    summary: "已导入客户描述，等待员工分析后生成写入预览。",
+    summary: "已导入客户描述，等待分析后生成整理预览。",
   },
 ];
 
@@ -810,7 +810,7 @@ export const employeeMessages = [
 export const leadTaskEstimate = {
   label: "寻找客户",
   estimatedUsd: 0.35,
-  details: "按当前 OpenAI gpt-5.5、搜索工具官方价格和近期本地真实任务用量估算；不是已发生账单。",
+  details: "按当前公开资料查询价格和近期实际任务用量估算；不是已发生账单。",
   source: costEstimateAssumptions.leadSourceLabel,
 };
 
@@ -824,7 +824,7 @@ export const screeningTaskEstimate = {
 export const memoryTaskEstimate = {
   label: "记忆分析",
   estimatedUsd: 0.18,
-  details: "按近期 Accio JSON 解析任务的模型用量估算；不是已发生账单。",
+  details: "按近期聊天记录整理任务估算；不是已发生账单。",
   source: costEstimateAssumptions.sourceLabel,
 };
 
@@ -859,13 +859,6 @@ export function estimateLeadTaskCost({
   );
   const estimatedFetchedPages = Math.min(searchUnits, estimatedSearchRequestCount * safeMaxResultsPerQuery, safeTargetCount * 3);
   const searchRequestUsd = estimatedSearchRequestCount * assumptions.tavilyAdvancedSearchRequestUsd;
-  const estimatedModelInputTokens =
-    assumptions.modelBaseInputTokens +
-    estimatedSearchRequestCount * assumptions.modelInputTokensPerSearch +
-    estimatedFetchedPages * assumptions.modelInputTokensPerFetchedPage;
-  const cachedInputTokens = Math.round(estimatedModelInputTokens * assumptions.promptCacheRatio);
-  const estimatedModelOutputTokens =
-    assumptions.modelBaseOutputTokens + safeTargetCount * assumptions.modelOutputTokensPerCandidate;
   const retainedCandidateUsd =
     Math.min(safeTargetCount, searchUnits) * assumptions.retainedCandidateReviewUsd;
   const pricedExternalUsd = searchRequestUsd + retainedCandidateUsd;
@@ -885,7 +878,7 @@ export function estimateLeadTaskCost({
     label: "寻找客户",
     estimatedUsd,
     source: costEstimateAssumptions.leadSourceLabel,
-    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期 sentura-cost 获客记录校准：基础 US$${assumptions.observedBaseUsd.toFixed(2)} + ${estimatedSearchRequestCount} 次搜索 × US$${assumptions.observedSearchRequestUsd.toFixed(3)} + ${Math.min(safeTargetCount, searchUnits)} 个保留客户 × US$${assumptions.observedRetainedCandidateUsd.toFixed(3)}，并与已定价外部调用下限取较高值。参考负载约 ${estimatedModelInputTokens.toLocaleString("zh-CN")} input tokens（其中 ${cachedInputTokens.toLocaleString("zh-CN")} cached）、${estimatedModelOutputTokens.toLocaleString("zh-CN")} output tokens、${estimatedSearchRequestCount} 次 Tavily advanced web_search（US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}/次）和约 ${estimatedFetchedPages} 个公开页面；模型美元成本按 sentura-cost 真实回填校准，不再用理论最大 token 预算抬高。实际账单以完成后的 sentura-cost 记录为准。`,
+    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期实际找客户费用校准，并与外部资料查询下限取较高值。预计会读取约 ${estimatedFetchedPages} 个公开页面；实际费用以任务完成后的费用记录为准。`,
   };
 }
 
@@ -940,7 +933,7 @@ export function estimateScreeningTaskCost({
     label: safeTargetCount > 1 ? "批量背调" : "单个背调",
     estimatedUsd,
     source: costEstimateAssumptions.sourceLabel,
-    details: `${safeTargetCount} 个客户：按近期 sentura-cost 背调记录校准，基础 US$${assumptions.observedBaseUsd.toFixed(2)} + 每客户 US$${assumptions.observedTargetUsd.toFixed(2)}，并与模型/公开查询/邮箱验证的单价演算取较高值。单价演算包含约 ${estimatedInputTokens.toLocaleString("zh-CN")} input tokens（${cachedInputTokens.toLocaleString("zh-CN")} cached）、${estimatedOutputTokens.toLocaleString("zh-CN")} output tokens、${publicSearchCount} 次 Tavily advanced web_search × US$${assumptions.tavilyAdvancedSearchRequestUsd.toFixed(3)}。${paidEmailValidation ? `邮箱验证按 Abstract US$${assumptions.abstractEmailReputationRequestUsd.toFixed(4)}/次 + Hunter US$${assumptions.hunterVerificationCreditUsd.toFixed(4)}/credit，约 US$${emailValidationUsd.toFixed(2)}。` : "未启用邮箱付费验证。"}${enabled.length ? ` 已启用：${enabled.join("、")}。` : " 不预留外部付费数据。"}贸易数据预算只作为硬上限，ImportYeti requestCost=0 或 included 时预计成本为 US$0.00；实际账单以任务完成后的 sentura-cost 真实记录为准。`,
+    details: `${safeTargetCount} 个客户：按近期实际背调费用校准，并与公开查询、邮箱验证等查询费用取较高值。${paidEmailValidation ? `邮箱验证预计约 US$${emailValidationUsd.toFixed(2)}。` : "未启用邮箱付费验证。"}${enabled.length ? ` 已启用：${enabled.join("、")}。` : " 不预留外部付费数据。"}贸易数据额度只作为硬上限，不代表一定会花完；实际费用以任务完成后的费用记录为准。`,
   };
 }
 

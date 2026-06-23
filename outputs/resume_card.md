@@ -1,10 +1,23 @@
 # Sentura CBE Resume Card
 
-Workspace: `/Users/henry/Desktop/Sentura-Platform`
+Workspace: `/Users/purest./Documents/Sentura/Sentura-Platform`
 
 Conversation language: Chinese for user-facing replies. Keep handoff notes concise English with exact Chinese product/customer/UI names unchanged.
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
+
+Completed task, 2026-06-23:
+
+- The user requested a full backup and broad UI copy simplification across the CBE Employee and Manager platforms.
+- Full backup created before edits: `/Users/purest./Documents/Sentura/backups/Sentura-Platform-before-copy-simplification-20260623-004415`.
+- Pre-change `git status --short` showed only one existing unrelated local modification: `M 启动说明.md`.
+- Scope covered Employee `个人中心`, `获客与背调`, `记忆整理`, task status, messages, employee cost card/detail, all customer/report dialogs; Manager `员工管理`, `优先跟进客户`, `费用监控`, employee detail, cost detail, approvals, and customer report dialogs.
+- Business logic, DB schemas, scoring/cost calculation, task behavior, and permissions were not intentionally changed.
+- Legacy normal sidebar entries `CBE Leads`, `CBE Screening`, and `CBE Accio` were removed from ordinary navigation.
+- Default visible copy now uses business language. Technical details remain available behind `查看技术详情`, `查看诊断信息`, `评分说明`, and `费用怎么算`.
+- Historical report text is cleaned at display time so terms such as `RDAP`, `JSON`, `API authorization failure`, `HTTP 401`, `MX`, `SPF`, `DMARC`, `provider`, and raw `URL` references do not appear by default in checked report/detail surfaces.
+- Verification: `pnpm --dir sentura/dashboard exec tsc --noEmit` PASS; `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` PASS 195/195; `git diff --check` PASS; authenticated desktop/mobile browser checks passed for Employee/Manager main routes, report dialogs, employee detail, and cost detail with no horizontal overflow or default-visible banned technical terms.
+- Dashboard dev server is running at `http://127.0.0.1:3000` from `/Users/purest./Documents/Sentura/Sentura-Platform`.
 
 Latest implementation, 2026-06-22:
 

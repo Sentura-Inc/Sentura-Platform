@@ -46,12 +46,12 @@ function taskTone(task: CbeEmployeeTaskRecord) {
 function completedTaskSummary(task: CbeEmployeeTaskRecord) {
   const count = typeof task.resultCount === "number" ? task.resultCount : 0;
   if (task.kind === "screening") {
-    return `背调员工已返回 ${count} 份报告，客户评分已更新。`;
+    return `已完成 ${count} 份背调报告，客户评分已更新。`;
   }
   if (task.kind === "accio_memory") {
-    return `记忆员工已返回 ${count} 份摘要，记忆列表已更新。`;
+    return `已整理 ${count} 份聊天记录，记忆列表已更新。`;
   }
-  return `获客员工已返回 ${count} 个客户，客户列表已更新。`;
+  return `已找到 ${count} 个客户，客户列表已更新。`;
 }
 
 function formatTaskClock(value: number | undefined) {
@@ -84,7 +84,7 @@ export function EmployeeTaskStatusBar() {
 
   const cancelTaskStatus = (task: CbeEmployeeTaskRecord) => {
     if (!isCbeEmployeeTaskActive(task)) return;
-    const message = "任务已取消，后台结果不会写入列表。";
+    const message = "任务已取消，结果不会写入列表。";
     cancelCbeEmployeeRuntimeTask(task.id);
     cancelTask(task.id, message, task.sessionKey);
     if (task.sessionKey) {
@@ -117,7 +117,7 @@ export function EmployeeTaskStatusBar() {
       <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-4 py-3 lg:px-6">
         {visibleTasks.length > 1 ? (
           <div className="text-xs font-medium text-muted-foreground">
-            正在同时运行 {visibleTasks.length} 个后台任务
+            正在处理 {visibleTasks.length} 个任务
           </div>
         ) : null}
         {visibleTasks.map((visibleTask) => {
@@ -149,23 +149,28 @@ export function EmployeeTaskStatusBar() {
                   </div>
                   {isCompleted ? (
                     <div className="mt-1 leading-5">
-                      完成耗时 {elapsed} ·{" "}
+                      用时 {elapsed} ·{" "}
                       {completedTaskSummary(visibleTask)}
                     </div>
                   ) : (
                     <>
                       <div className="mt-1 leading-5">{visibleTask.message}</div>
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs opacity-75">
-                        <span>计划耗时 {plannedDuration}</span>
-                        <span>最长等待 {waitWindow}</span>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-75">
                         <span>已用 {elapsed}</span>
                         {isActive ? <span>剩余等待 {remaining}</span> : null}
-                        {lastActivity ? <span>最后活动 {lastActivity}</span> : null}
                         {typeof visibleTask.resultCount === "number" ? (
                           <span>结果 {visibleTask.resultCount} 条</span>
                         ) : null}
-                        {visibleTask.sessionKey ? <span className="truncate">任务 {visibleTask.sessionKey}</span> : null}
                       </div>
+                      <details className="mt-1 text-xs opacity-70">
+                        <summary className="cursor-pointer">查看技术详情</summary>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono">
+                          <span>计划耗时 {plannedDuration}</span>
+                          <span>最长等待 {waitWindow}</span>
+                          {lastActivity ? <span>最后活动 {lastActivity}</span> : null}
+                          {visibleTask.sessionKey ? <span className="truncate">任务 {visibleTask.sessionKey}</span> : null}
+                        </div>
+                      </details>
                     </>
                   )}
                 </div>

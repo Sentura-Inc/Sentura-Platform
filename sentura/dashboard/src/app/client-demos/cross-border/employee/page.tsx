@@ -140,7 +140,7 @@ function CrossBorderEmployeeHomeContent() {
         setLoadError(null);
       } catch (error) {
         if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "数据库状态读取失败。");
+        setLoadError(error instanceof Error ? error.message : "客户状态读取失败。");
       }
     }
     void refresh();
@@ -215,30 +215,30 @@ function CrossBorderEmployeeHomeContent() {
 
   const stats = [
     {
-      label: "获客结果",
+      label: "找到客户",
       value: visibleCustomers.length,
-      note: `${selectedRangeLabel}获客员工找到的潜在客户`,
+      note: `${selectedRangeLabel}找到的潜在客户`,
       icon: Search,
       href: customerHighlightHref("lead-results", selectedRange),
     },
     {
-      label: "背调结果",
+      label: "已完成背调",
       value: screenedCustomers.length,
-      note: "背调员工深度调研客户",
+      note: "已完成核验的客户",
       icon: ShieldCheck,
       href: customerHighlightHref("screening-results", selectedRange),
     },
     {
       label: "记忆整理",
       value: memoryRows.length,
-      note: "记忆员工整理聊天记录",
+      note: "已整理的聊天记录",
       icon: Database,
       href: memoryHighlightHref(),
     },
     {
-      label: "高可信客户",
+      label: "优先跟进客户",
       value: highScoreCustomers.length,
-      note: "高可信候选客户",
+      note: "建议优先跟进",
       icon: TrendingUp,
       href: customerHighlightHref("trusted", selectedRange),
     },
@@ -296,7 +296,7 @@ function CrossBorderEmployeeHomeContent() {
           </div>
           <h1 className="mt-3 text-2xl font-semibold tracking-normal">你好，{currentEmployeeName}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            当前查看 {selectedRangeLabel} 数据，优先处理待背调客户、失败任务和需要补充线索的记录。
+            当前查看 {selectedRangeLabel} 数据。建议优先处理待背调、失败或需补充线索的客户。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -323,8 +323,8 @@ function CrossBorderEmployeeHomeContent() {
       {!loadError && customerRows.length === 0 ? (
         <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
           {latestLeadFailure
-            ? `当前数据库没有客户；最近一次获客任务失败，未写入客户：${latestLeadFailure.message}`
-            : "当前数据库没有客户；还没有成功完成并写入数据库的获客任务。"}
+            ? `客户库还没有客户；最近一次找客户失败，未写入客户：${latestLeadFailure.message}`
+            : "客户库还没有客户；完成一次找客户任务后会显示在这里。"}
         </div>
       ) : null}
 
@@ -347,8 +347,8 @@ function CrossBorderEmployeeHomeContent() {
         ))}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-4">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
               <CardTitle className="text-base">待处理事项</CardTitle>
@@ -362,7 +362,7 @@ function CrossBorderEmployeeHomeContent() {
                   <Link
                     key={item.customerId}
                     href={customerHighlightHref("pending", selectedRange, item.customerId)}
-                    className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-medium">{item.companyName}</div>
@@ -381,7 +381,7 @@ function CrossBorderEmployeeHomeContent() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">高可信客户</CardTitle>
+              <CardTitle className="text-base">优先跟进客户</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
               {highScoreCustomers.length > 0 ? (
@@ -389,7 +389,7 @@ function CrossBorderEmployeeHomeContent() {
                   <Link
                     key={item.customerId}
                     href={customerHighlightHref("trusted", selectedRange, item.customerId)}
-                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
                   >
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{item.companyName}</div>
@@ -402,14 +402,14 @@ function CrossBorderEmployeeHomeContent() {
                 ))
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                  当前范围暂无高可信客户。
+                  当前范围暂无优先跟进客户。
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div
             id={EMPLOYEE_API_COST_ELEMENT_ID}
             className={cn("scroll-mt-24 rounded-lg", costHighlightActive && EMPLOYEE_NOTIFICATION_HIGHLIGHT_CLASS)}

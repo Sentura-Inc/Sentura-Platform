@@ -6,6 +6,7 @@ import { Loader2, RefreshCw, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { productLabel } from "@/components/cross-border/customer-labels";
 import {
   Table,
   TableBody,
@@ -46,7 +47,7 @@ function AdminHighValueCustomersContent() {
       const result = await fetchHighValueCustomers();
       setItems(result.items.filter((item) => (item.normalizedScore ?? 0) >= 80));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "高分客户加载失败。");
+      setError(err instanceof Error ? err.message : "优先跟进客户加载失败。");
     } finally {
       setLoading(false);
     }
@@ -68,9 +69,9 @@ function AdminHighValueCustomersContent() {
     <div className="space-y-5">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">高分客户</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">优先跟进客户</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            从每个员工账户的最新背调结果中自动归集可信候选客户。
+            汇总各员工背调后建议优先跟进的客户。
           </p>
         </div>
         <Button variant="outline" onClick={refresh} disabled={loading}>
@@ -91,10 +92,10 @@ function AdminHighValueCustomersContent() {
           <CardContent className="text-2xl font-semibold">{stats.avgScore.toFixed(1)}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>归集规则</CardTitle></CardHeader>
+          <CardHeader><CardTitle>入选规则</CardTitle></CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <Star className="h-4 w-4 text-amber-600" />
-            评分 &gt;= 80 / 高分 / 优先跟进
+            评分 80 分及以上，建议优先跟进
           </CardContent>
         </Card>
       </div>
@@ -132,7 +133,7 @@ function AdminHighValueCustomersContent() {
                     <div className="text-xs text-muted-foreground">{item.domain ?? item.website ?? item.recordId}</div>
                   </TableCell>
                   <TableCell>{item.country ?? "-"}</TableCell>
-                  <TableCell>{item.matchedProducts?.slice(0, 3).join("、") || "-"}</TableCell>
+                  <TableCell>{item.matchedProducts?.slice(0, 3).map(productLabel).join("、") || "-"}</TableCell>
                   <TableCell>
                     <div>{item.ownerName ?? "-"}</div>
                     <div className="text-xs text-muted-foreground">{item.teamName ?? ""}</div>
@@ -147,12 +148,12 @@ function AdminHighValueCustomersContent() {
               })}
               {!loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">暂无高分客户。</TableCell>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">暂无优先跟进客户。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">正在加载高分客户...</TableCell>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">正在加载优先跟进客户...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>

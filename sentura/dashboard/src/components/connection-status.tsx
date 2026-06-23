@@ -25,8 +25,8 @@ export function ConnectionStatus() {
       <span
         className={cn("h-2 w-2 rounded-full", stateColors[state])}
       />
-      <span title="后台连接状态：已连接时才能让 AI 员工执行任务。">
-        后台：{stateLabels[state]}
+      <span title="系统连接状态：已连接时才能提交页面任务。">
+        系统：{stateLabels[state]}
       </span>
     </div>
   );

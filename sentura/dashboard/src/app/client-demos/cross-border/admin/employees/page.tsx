@@ -63,6 +63,10 @@ function usd(value: unknown) {
   return `US$${money(value).toFixed(2)}`;
 }
 
+function operatorStatusLabel(status: unknown) {
+  return status === "active" ? "正常" : "已停用";
+}
+
 export default function AdminEmployeesPage() {
   const [range, setRange] = usePersistentUiState<RangeKey>(
     ADMIN_EMPLOYEE_RANGE_STORAGE_KEY,
@@ -246,7 +250,7 @@ export default function AdminEmployeesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">员工管理</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            从真实 CBE 数据库汇总每个员工的获客、背调、成本和审批状态。
+            汇总每位员工的获客、背调、费用和待审批事项。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -283,7 +287,7 @@ export default function AdminEmployeesPage() {
           <CardContent className="text-2xl font-semibold">{totals.screenings}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>成本消耗</CardTitle></CardHeader>
+          <CardHeader><CardTitle>已用费用</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(totals.cost)}</CardContent>
         </Card>
         <Card size="sm">
@@ -318,8 +322,8 @@ export default function AdminEmployeesPage() {
                 <TableHead>团队</TableHead>
                 <TableHead>获客</TableHead>
                 <TableHead>背调</TableHead>
-                <TableHead>成本</TableHead>
-                <TableHead>月剩余额度</TableHead>
+                <TableHead>已用费用</TableHead>
+                <TableHead>本月剩余额度</TableHead>
                 <TableHead>审批</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
@@ -340,7 +344,7 @@ export default function AdminEmployeesPage() {
                         variant={operator.status === "active" ? "outline" : "destructive"}
                         className={operator.status === "active" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : undefined}
                       >
-                        {operator.status}
+                        {operatorStatusLabel(operator.status)}
                       </Badge>
                     </TableCell>
                     <TableCell>{operator.team_name ?? "-"}</TableCell>
@@ -366,11 +370,11 @@ export default function AdminEmployeesPage() {
                         />
                         <Button variant="outline" size="sm" onClick={() => resetPassword(operator)} disabled={busy === `password:${operator.user_id}`}>
                           {busy === `password:${operator.user_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                          设密码
+                          重置密码
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => toggleStatus(operator)} disabled={busy === operator.user_id}>
                           {operator.status === "active" ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                          {operator.status === "active" ? "停用" : "启用"}
+                          {operator.status === "active" ? "暂停账号" : "恢复账号"}
                         </Button>
                         <Button
                           variant="destructive"
@@ -417,7 +421,7 @@ export default function AdminEmployeesPage() {
         <DialogContent className="max-h-[88vh] w-[96vw] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[1280px]">
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{detail?.profile?.display_name ?? "员工详情"}</DialogTitle>
-            <DialogDescription>完整获客与背调列表、报告和员工状态。</DialogDescription>
+            <DialogDescription>查看该员工的客户、报告和账号状态。</DialogDescription>
           </DialogHeader>
           <ScrollArea className="min-h-0 px-5 pb-5">
             {!detail ? (
@@ -449,7 +453,7 @@ export default function AdminEmployeesPage() {
           <DialogHeader>
             <DialogTitle>删除员工</DialogTitle>
             <DialogDescription>
-              员工 {deleteTarget?.display_name ?? ""} 将从员工管理和成本列表移除，未完成任务与待审批会同步取消，历史客户和成本记录会保留。
+              员工 {deleteTarget?.display_name ?? ""} 将从员工管理和费用列表移除，未完成任务与待审批会同步取消，历史客户和费用记录会保留。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

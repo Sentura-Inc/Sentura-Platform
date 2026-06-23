@@ -451,6 +451,38 @@ function firstTextValue(...values: unknown[]) {
   return undefined;
 }
 
+function simplifyDisplayText(value: string | null | undefined) {
+  if (!value) return value ?? undefined;
+  return value
+    .replace(/外部可追溯证据 URL/g, "可核验来源")
+    .replace(/可追溯证据 URL/g, "可核验来源")
+    .replace(/来源 URL/g, "来源链接")
+    .replace(/证据 URL/g, "核验来源")
+    .replace(/工具返回 URL/g, "工具返回的来源链接")
+    .replace(/\brdap\b/gi, "域名登记信息")
+    .replace(/\bdns\b/gi, "域名解析")
+    .replace(/\bjson\b/gi, "结构化结果")
+    .replace(/\bsec\b/gi, "财务公开信息")
+    .replace(/\bkyb\b/gi, "企业核验")
+    .replace(/\bapi_error\b/gi, "查询失败")
+    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
+    .replace(/\bAPI\b/gi, "工具查询")
+    .replace(/\bHTTP 401\b/gi, "查询权限错误")
+    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
+    .replace(/\bMX\b/gi, "收信设置")
+    .replace(/\bSPF\b/gi, "发信设置")
+    .replace(/\bDMARC\b/gi, "邮件安全设置")
+    .replace(/\bendpoint\b/gi, "查询入口")
+    .replace(/\bprovider\b/gi, "工具")
+    .replace(/\bobjectClassName\b/g, "对象类型")
+    .replace(/\bself link\b/gi, "来源链接")
+    .replace(/\blookup\b/gi, "查询")
+    .replace(/\bredirected\b/gi, "跳转")
+    .replace(/\breturned\b/gi, "返回")
+    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
+    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+}
+
 function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
   const slug = companyName
     .toLowerCase()
@@ -476,8 +508,8 @@ function normalizeScoreBlock(value: unknown): CustomerScoreBlock {
     maxPoints: asNumber(raw.max_points ?? raw.maxPoints) ?? 10,
     earnedPoints: asNumber(raw.earned_points ?? raw.earnedPoints) ?? null,
     sourceCount: asNumber(raw.source_count ?? raw.sourceCount),
-    summary: asString(raw.summary),
-    reason: asString(raw.reason),
+    summary: simplifyDisplayText(asString(raw.summary)),
+    reason: simplifyDisplayText(asString(raw.reason)),
   };
 }
 
@@ -489,7 +521,7 @@ function normalizeEvidence(value: unknown): CustomerEvidenceItem {
     sourceUrl,
     sourceType: sourceType(raw.source_type ?? raw.sourceType),
     fetchedAt: toIsoTimestamp(raw.fetched_at ?? raw.fetchedAt),
-    finding: asString(raw.finding ?? raw.summary ?? raw.excerpt) ?? "背调员工返回了证据项，但未提供可读摘要。",
+    finding: simplifyDisplayText(asString(raw.finding ?? raw.summary ?? raw.excerpt)) ?? "背调员工返回了证据项，但未提供可读摘要。",
     confidence: asNumber(raw.confidence),
     scoreBlock: scoreBlockId(raw.score_block ?? raw.scoreBlock),
     scoreImpact:
@@ -614,7 +646,7 @@ function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | u
   const operational = locations.filter((item) => item.businessStatus === "OPERATIONAL").length;
   const closed = locations.filter((item) => /CLOSED/i.test(item.businessStatus ?? "")).length;
   return {
-    sectionTitle: asString(raw.section_title ?? raw.sectionTitle) ?? "Google Maps 地址版图",
+    sectionTitle: asString(raw.section_title ?? raw.sectionTitle) ?? "线下地址线索",
     coverageStatus: normalizeAddressCoverageStatus(raw.coverage_status ?? raw.coverageStatus),
     searchScope: {
       queriesRun: asStringArray(searchScope.queries_run ?? searchScope.queriesRun),
@@ -716,8 +748,8 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
         : undefined;
     return {
       block,
-      reason: asString(gap.reason ?? gap.summary ?? gap.note) ?? coverageGapReasonForBlock(block, normalizedStatus),
-      action: asString(gap.action ?? gap.recommended_action) ?? coverageGapActionForBlock(block, normalizedStatus),
+      reason: simplifyDisplayText(asString(gap.reason ?? gap.summary ?? gap.note)) ?? coverageGapReasonForBlock(block, normalizedStatus),
+      action: simplifyDisplayText(asString(gap.action ?? gap.recommended_action)) ?? coverageGapActionForBlock(block, normalizedStatus),
     };
   });
   return {
@@ -725,7 +757,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     riskTier,
     normalizedScore,
     evidenceCoverage: asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined,
-    recommendedAction: asString(raw.recommended_action ?? raw.recommendedAction) ?? record.recommendedAction ?? "复核背调报告后决定是否跟进。",
+    recommendedAction: simplifyDisplayText(asString(raw.recommended_action ?? raw.recommendedAction) ?? record.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: asString(raw.created_at ?? raw.createdAt) ?? record.updatedAt,
     scoreBlocks,
     evidence,
@@ -779,10 +811,9 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
       asString(asRecord(record.reportJson).agent_run_id),
     sourceUrls,
     evidenceSummary:
-      report?.evidence.map((item) => item.finding).find(Boolean) ??
-      record.recommendedAction ??
-      "数据库中已有客户记录，等待下一步背调或人工复核。",
-    recommendedAction: report?.recommendedAction ?? record.recommendedAction ?? "进入背调或复核客户资料。",
+      simplifyDisplayText(report?.evidence.map((item) => item.finding).find(Boolean) ?? record.recommendedAction) ??
+      "客户库中已有客户记录，等待下一步背调或人工复核。",
+    recommendedAction: simplifyDisplayText(report?.recommendedAction ?? record.recommendedAction) ?? "进入背调或复核客户资料。",
     screeningReport: report,
   };
 }
@@ -847,16 +878,16 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     record.currentStage ??
     record.current_stage ??
     (status === "completed"
-      ? "后台任务已完成。"
+      ? "任务已完成。"
       : status === "cancelled"
-        ? "任务已取消，后台结果不会写入列表。"
-        : "后台任务正在执行。");
+        ? "任务已取消，结果不会写入列表。"
+        : "任务正在执行。");
   return {
     id: record.id,
     kind: taskKind === "screening" ? "screening" : taskKind === "accio_memory" ? "accio_memory" : "lead",
     title: notificationTitle ?? taskKindLabel(taskKind),
     status: status as CbeEmployeeTaskStatus,
-    message,
+    message: simplifyDisplayText(message) ?? message,
     startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(),
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
     lastActivityAt: Number.isFinite(lastActivityAt) ? lastActivityAt : undefined,
@@ -865,7 +896,7 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     timeoutMs: Math.max(estimatedMs + 120_000, 300_000),
     deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + Math.max(estimatedMs + 120_000, 300_000),
     sessionKey,
-    targetLabel: notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined,
+    targetLabel: simplifyDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
     resultCount: asNumber(metadata.saved_leads ?? metadata.saved_reports ?? metadata.saved_summaries),
     affectedCustomerIds: taskAffectedCustomerIds(metadata),
     error: record.errorMessage ?? record.error_message ?? undefined,
@@ -1198,7 +1229,7 @@ function normalizeLeadPayload(payload: unknown) {
         website,
       ].filter((url): url is string => Boolean(url))));
       if (sourceUrls.length === 0) {
-        throw new EmployeeTaskError("marker_missing", `获客结果缺少可追溯来源 URL：${asString(lead.company_name ?? lead.name) ?? `Unknown buyer ${index + 1}`}`);
+        throw new EmployeeTaskError("marker_missing", `获客结果缺少可核验来源：${asString(lead.company_name ?? lead.name) ?? `Unknown buyer ${index + 1}`}`);
       }
       const evidence = (evidenceRows.length ? evidenceRows : sourceUrls.map((sourceUrl) => ({ source_url: sourceUrl })))
         .map((evidenceItem, evidenceIndex) => {
@@ -1275,7 +1306,7 @@ function normalizeScreeningPayload(payload: unknown) {
             source: asString(evidenceRecord.source),
             source_url: sourceUrl ?? missingEvidenceUrl(companyName, evidenceIndex),
             finding: usesGapMarker
-              ? `背调员工未返回 ${companyName} 的外部可追溯证据 URL，已记录为证据缺口。`
+              ? `背调员工未返回 ${companyName} 的可核验来源，已记录为证据缺口。`
               : asString(evidenceRecord.finding ?? evidenceRecord.summary ?? evidenceRecord.excerpt) ?? "背调员工返回了证据项。",
             confidence: usesGapMarker ? 0 : asNumber(evidenceRecord.confidence),
             fetched_at: toIsoTimestamp(evidenceRecord.fetched_at ?? evidenceRecord.fetchedAt, now),
@@ -1297,11 +1328,11 @@ function normalizeScreeningPayload(payload: unknown) {
       const traceabilityGapRecord = {
         block: "public_footprint",
         status: "pending_human_input",
-        reason: `背调员工未返回 ${companyName} 的外部可追溯证据 URL，无法核验公开来源。`,
-        action: "补充官网、注册页、公开网页或工具返回 URL 后重新背调。",
+        reason: `背调员工未返回 ${companyName} 的可核验来源，无法核验公开信息。`,
+        action: "补充官网、注册页、公开网页或工具返回的来源链接后重新背调。",
       };
       const coverageGaps = traceabilityGap &&
-        !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可追溯证据 URL"))
+        !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可核验来源"))
           ? [...reportCoverageGaps, traceabilityGapRecord]
           : reportCoverageGaps;
       const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
@@ -1328,7 +1359,7 @@ function normalizeScreeningPayload(payload: unknown) {
         normalized_score: traceabilityGap ? null : typeof score === "number" ? score : null,
         evidence_coverage: traceabilityGap ? Math.min(evidenceCoverage ?? 0, 0.2) : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0),
         recommended_action: traceabilityGap
-          ? `背调员工未返回 ${companyName} 的外部可追溯证据 URL，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
+          ? `背调员工未返回 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
           : asString(report.recommended_action ?? report.recommendedAction) ?? "复核背调报告后决定是否跟进。",
         score_blocks: scoreBlocks.length
           ? scoreBlocks.map((block) => {
@@ -1351,8 +1382,8 @@ function normalizeScreeningPayload(payload: unknown) {
                 earned_points: null,
                 source_count: evidence.length,
                 reason: traceabilityGap
-                  ? `背调员工未返回 ${companyName} 的外部可追溯证据 URL。`
-                  : "员工报告未返回评分维度拆解，已保留证据供人工复核。",
+                  ? `背调员工未返回 ${companyName} 的可核验来源。`
+                  : "报告未返回评分来源，已保留核验依据供人工复核。",
               },
             ],
         evidence,
@@ -1428,7 +1459,7 @@ function normalizeAccioPayload(
       const nextActions = asStringArray(summary.next_actions ?? summary.nextActions);
       const negotiationSummary =
         firstTextValue(summary.negotiation_summary, summary.summary, memoryPreview.summary, behaviorSignals.summary) ??
-        "记忆员工已生成 Accio 对话摘要。";
+        "已完成聊天记录整理。";
       const normalizedProductInterest = asStringArray(handoff.product_interest).length
         ? asStringArray(handoff.product_interest)
         : derivedProduct

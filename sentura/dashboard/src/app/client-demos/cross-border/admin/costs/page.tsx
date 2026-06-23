@@ -69,8 +69,27 @@ function moneyInput(value: unknown) {
 
 function costAmount(value: unknown, status: unknown) {
   const statusText = String(status ?? "").toLowerCase();
-  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "未折算";
+  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "暂未折算";
   return usd(value);
+}
+
+function costTaskLabel(value: unknown) {
+  const raw = String(value ?? "").toLowerCase();
+  if (raw.includes("screening")) return "背调";
+  if (raw.includes("accio") || raw.includes("memory")) return "聊天整理";
+  if (raw.includes("lead")) return "找客户";
+  return "任务";
+}
+
+function costSourceLabel(value: unknown) {
+  const raw = String(value ?? "").toLowerCase();
+  if (raw.includes("google") || raw.includes("maps") || raw.includes("places")) return "公开地址查询";
+  if (raw.includes("search") || raw.includes("fetch") || raw.includes("web")) return "公开网页查询";
+  if (raw.includes("external") || raw.includes("api") || raw.includes("provider")) return "工具调用";
+  if (raw.includes("cbe-lead")) return "找客户";
+  if (raw.includes("cbe-buyer") || raw.includes("screening")) return "背调";
+  if (raw.includes("cbe-accio") || raw.includes("memory")) return "聊天整理";
+  return "工具调用";
 }
 
 function sameJson(left: unknown, right: unknown) {
@@ -141,7 +160,7 @@ function AdminCostsContent() {
         return next;
       });
     } catch (err) {
-      if (!options.background) setError(err instanceof Error ? err.message : "成本数据加载失败。");
+      if (!options.background) setError(err instanceof Error ? err.message : "费用数据加载失败。");
     } finally {
       if (!options.background) setLoading(false);
     }
@@ -235,7 +254,7 @@ function AdminCostsContent() {
     } catch (err) {
       setSelectedCostUserId(null);
       setCostDetail(null);
-      setError(err instanceof Error ? err.message : "员工成本明细加载失败。");
+      setError(err instanceof Error ? err.message : "员工费用明细加载失败。");
     }
   }
 
@@ -247,9 +266,9 @@ function AdminCostsContent() {
     <div className="space-y-5">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">成本监控</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">费用监控</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            真实外部账本优先，缺少真实账本时标注为任务估算；页面每 15 秒刷新。
+            查看各员工本月已用费用、预计费用和额度审批。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -269,11 +288,11 @@ function AdminCostsContent() {
 
       <div className="grid gap-3 md:grid-cols-4">
         <Card size="sm">
-          <CardHeader><CardTitle>总成本消耗池</CardTitle></CardHeader>
+          <CardHeader><CardTitle>总已用费用</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(pool.spendUsd)}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>总基础限额</CardTitle></CardHeader>
+          <CardHeader><CardTitle>总基础额度</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(pool.baseLimitUsd)}</CardContent>
         </Card>
         <Card size="sm">
@@ -288,21 +307,21 @@ function AdminCostsContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>员工实时消耗</CardTitle>
+          <CardTitle>员工费用情况</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>员工</TableHead>
-                <TableHead>真实成本</TableHead>
-                <TableHead>估算成本</TableHead>
-                <TableHead>未定价调用</TableHead>
-                <TableHead>活跃任务</TableHead>
-                <TableHead>基础限额</TableHead>
+                <TableHead>已发生费用</TableHead>
+                <TableHead>预计费用</TableHead>
+                <TableHead>暂未折算</TableHead>
+                <TableHead>进行中任务</TableHead>
+                <TableHead>基础额度</TableHead>
                 <TableHead className="w-[220px]">临时额度</TableHead>
                 <TableHead>剩余</TableHead>
-                <TableHead className="w-[220px]">限额设置（月限额）</TableHead>
+                <TableHead className="w-[220px]">本月限额</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -321,7 +340,7 @@ function AdminCostsContent() {
                   <TableCell>{usd(item.actual_cost_usd)}</TableCell>
                   <TableCell>
                     <div>{usd(item.estimated_cost_usd)}</div>
-                    {item.estimated_cost_usd > 0 ? <Badge variant="outline">estimated</Badge> : null}
+                    {item.estimated_cost_usd > 0 ? <Badge variant="outline">预计</Badge> : null}
                   </TableCell>
                   <TableCell>{num(item.unpriced_call_count)}</TableCell>
                   <TableCell>{num(item.active_task_count)}</TableCell>
@@ -367,12 +386,12 @@ function AdminCostsContent() {
               ))}
               {!loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无成本数据。</TableCell>
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载成本数据...</TableCell>
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
@@ -391,31 +410,42 @@ function AdminCostsContent() {
       >
         <DialogContent className="max-h-[84vh] w-[94vw] max-w-[960px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[960px]">
           <DialogHeader className="border-b px-5 py-4">
-            <DialogTitle>{costDetail?.profile?.display_name ?? "员工成本明细"}</DialogTitle>
-            <DialogDescription>与成本监控汇总使用同一员工和账本范围，展示最近 100 条成本事件。</DialogDescription>
+            <DialogTitle>{costDetail?.profile?.display_name ?? "员工费用明细"}</DialogTitle>
+            <DialogDescription>展示最近 100 条费用记录。</DialogDescription>
           </DialogHeader>
           <ScrollArea className="min-h-0 px-5 pb-5">
             {!costDetail ? (
               <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在加载成本明细
+                正在加载费用明细
               </div>
             ) : (
               <div className="space-y-2 py-4">
                 {costDetail.costEvents.map((event, index) => (
                   <div key={`${String(event.agent_run_id ?? event.id)}-${index}`} className="rounded-md border p-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{String(event.task_kind ?? "-")}</Badge>
-                      <span className="font-medium">{String(event.provider ?? event.agent_id ?? "-")}</span>
-                      <span className="text-muted-foreground">{String(event.session_key ?? "")}</span>
+                      <Badge variant="outline">{costTaskLabel(event.task_kind ?? event.agent_id)}</Badge>
+                      <span className="font-medium">{costSourceLabel(event.provider ?? event.agent_id)}</span>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      真实成本 {costAmount(event.actual_cost_usd, event.ledger_status)} · 估算 {usd(event.cost_usd_estimate)} · {String(event.ledger_status ?? event.status ?? "-")}
+                      已发生 {costAmount(event.actual_cost_usd, event.ledger_status)} · 预计 {usd(event.cost_usd_estimate)}
                     </div>
+                    <details className="mt-2 text-xs text-muted-foreground">
+                      <summary className="cursor-pointer">技术详情</summary>
+                      <div className="mt-1">
+                        来源 {String(event.provider ?? event.agent_id ?? "-")}
+                      </div>
+                      <div className="mt-1 break-all font-mono">
+                        {String(event.session_key ?? "")}
+                      </div>
+                      <div className="mt-1">
+                        状态 {String(event.ledger_status ?? event.status ?? "-")}
+                      </div>
+                    </details>
                   </div>
                 ))}
                 {costDetail.costEvents.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-muted-foreground">暂无成本明细。</p>
+                  <p className="py-8 text-center text-sm text-muted-foreground">暂无费用明细。</p>
                 ) : null}
               </div>
             )}
@@ -429,7 +459,7 @@ function AdminCostsContent() {
         onClick={() => dismissHighlight("approvals")}
       >
         <CardHeader>
-          <CardTitle>待审批超额申请</CardTitle>
+          <CardTitle>待审批额度申请</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -438,9 +468,9 @@ function AdminCostsContent() {
                 <TableHead>员工</TableHead>
                 <TableHead>任务</TableHead>
                 <TableHead>周期</TableHead>
-                <TableHead>预估成本</TableHead>
+                <TableHead>预计费用</TableHead>
                 <TableHead>请求额度</TableHead>
-                <TableHead>目标</TableHead>
+                <TableHead>任务内容</TableHead>
                 <TableHead className="text-right">处理</TableHead>
               </TableRow>
             </TableHeader>

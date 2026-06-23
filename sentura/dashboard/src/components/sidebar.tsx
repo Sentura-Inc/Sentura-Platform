@@ -25,8 +25,6 @@ import {
   ScrollText,
   Bug,
   Compass,
-  Database,
-  Search,
   Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -67,9 +65,6 @@ const sections: NavSection[] = [
       { label: "Create Employee", href: "/create", icon: Plus },
       { label: "Chat", href: "/chat", icon: MessageSquare },
       { label: "Zuolian Demo", href: "/client-demos/zuolian", icon: Compass },
-      { label: "CBE Leads", href: "/client-demos/cross-border/lead-discovery", icon: Search },
-      { label: "CBE Screening", href: "/client-demos/cross-border/screening", icon: ShieldCheck },
-      { label: "CBE Accio", href: "/client-demos/cross-border/accio-memory", icon: Database },
       { label: "Tune Employee", href: "/tune", icon: Sliders },
       { label: "Approvals", href: "/approvals", icon: ShieldCheck },
     ],

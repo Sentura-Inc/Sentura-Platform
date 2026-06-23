@@ -336,7 +336,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
             ),
           ),
         })),
-      cancelTask: (id, message = "任务已取消，后台结果不会写入列表。", sessionKey) =>
+      cancelTask: (id, message = "任务已取消，结果不会写入列表。", sessionKey) =>
         set((state) => ({
           tasks: trimTasks(
             state.tasks.map((task) => {

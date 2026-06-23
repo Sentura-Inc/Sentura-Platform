@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, MapPin, ShieldCheck, X } fro
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { buyerTypeLabel, productLabel } from "@/components/cross-border/customer-labels";
 import type {
   CustomerEvidenceItem,
   CustomerListItem,
@@ -34,26 +35,26 @@ const riskTierLabels: Record<string, string> = {
 
 const scoreBlockLabels: Record<string, string> = {
   legal_identity: "公司注册信息",
-  domain_email: "域名 / 邮箱",
-  google_maps_local_presence: "Google 本地足迹",
+  domain_email: "官网和邮箱",
+  google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
-  public_footprint: "公开网页足迹",
+  public_footprint: "公开资料",
   business_fit: "业务匹配",
-  trade_financial: "贸易 / 财务",
-  conversation_behavior: "Accio 行为记录",
+  trade_financial: "贸易和财务",
+  conversation_behavior: "聊天行为",
 };
 
 const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   legal_registry: "公司注册信息",
-  domain_rdap: "域名 / RDAP",
-  email_dns: "邮箱 / DNS",
+  domain_rdap: "域名信息",
+  email_dns: "邮箱信息",
   official_contact: "官网公开联系信息",
-  google_maps_local_presence: "Google 本地足迹",
+  google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
-  public_footprint: "公开网页足迹",
-  trade_customs: "贸易 / 海关记录",
-  financial_public_filing: "SEC / 财务公开文件",
-  accio_behavior: "Accio 行为记录",
+  public_footprint: "公开资料",
+  trade_customs: "贸易记录",
+  financial_public_filing: "财务公开信息",
+  accio_behavior: "聊天行为",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -69,30 +70,6 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "accio_behavior",
 ];
 
-const buyerTypeDisplayLabels: Record<string, string> = {
-  "repair-chain": "维修连锁",
-  "electronics-retailer": "电子零售商",
-  "accessory-retailer": "配件零售商",
-  "cell-phone-store": "手机门店",
-  reseller: "转售采购商",
-  importer: "进口采购商",
-  distributor: "分销商",
-  retailer: "零售商",
-  "e-commerce-seller": "电商卖家",
-  "manual-input": "手动录入",
-  "accio-handoff": "聊天记录移交",
-};
-
-const productDisplayLabels: Record<string, string> = {
-  "phone-case": "手机壳",
-  "tempered-glass": "钢化膜",
-  "usb-c-charger": "USB-C 充电器",
-  magsafe: "MagSafe 配件",
-  "repair-parts": "维修配件",
-  cable: "数据线",
-  "oled-screen": "OLED 屏幕",
-};
-
 const addressTypeLabels: Record<AddressFootprintAddressType, string> = {
   headquarters_or_office: "总部 / 办公",
   storefront: "门店",
@@ -107,50 +84,6 @@ const relationshipLabels: Record<AddressFootprintRelationshipStatus, string> = {
   possible_related_location: "待复核",
   rejected_unrelated_location: "已排除",
 };
-
-function normalizeFilterValue(value: string) {
-  return value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
-}
-
-function canonicalBuyerType(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("聊天") || normalized.includes("accio")) return "accio-handoff";
-  if (normalized.includes("manual") || normalized.includes("手动")) return "manual-input";
-  if (normalized.includes("repair") || normalized.includes("维修")) return "repair-chain";
-  if (normalized.includes("distributor") || normalized.includes("经销") || normalized.includes("分销")) return "distributor";
-  if (normalized === "retailer" || normalized.includes("零售商")) return "retailer";
-  if (normalized.includes("e-commerce") || normalized.includes("电商")) return "e-commerce-seller";
-  if (normalized.includes("cell-phone-store") || normalized.includes("手机门店")) return "cell-phone-store";
-  if (normalized.includes("electronics-retailer") || normalized.includes("电子零售")) return "electronics-retailer";
-  if (normalized.includes("accessory-retailer") || normalized.includes("配件零售")) return "accessory-retailer";
-  if (normalized.includes("reseller") || normalized.includes("转售")) return "reseller";
-  if (normalized.includes("importer") || normalized.includes("进口")) return "importer";
-  return normalized;
-}
-
-function canonicalProduct(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("usb-c") || normalized.includes("charger") || normalized.includes("充电")) return "usb-c-charger";
-  if (normalized.includes("oled")) return "oled-screen";
-  if (normalized.includes("tempered") || normalized.includes("screen-protector") || normalized.includes("钢化膜")) return "tempered-glass";
-  if (normalized.includes("phone-case") || normalized.includes("手机壳")) return "phone-case";
-  if (normalized.includes("repair-parts") || normalized.includes("repair-part") || normalized.includes("维修配件")) return "repair-parts";
-  if (normalized.includes("magsafe")) return "magsafe";
-  if (normalized === "cable" || normalized.includes("数据线")) return "cable";
-  return normalized;
-}
-
-function buyerTypeLabel(value: string) {
-  const canonical = canonicalBuyerType(value);
-  return buyerTypeDisplayLabels[canonical] ?? value;
-}
-
-function productLabel(value: string) {
-  const canonical = canonicalProduct(value);
-  return productDisplayLabels[canonical] ?? value;
-}
 
 function parseCustomerDate(value: string) {
   const source = value.trim();
@@ -207,6 +140,57 @@ function percentLabel(value: number | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
+function sourceTypeLabel(value?: string) {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (normalized.includes("registry")) return "官方注册资料";
+  if (normalized.includes("dns") || normalized.includes("rdap") || normalized.includes("domain")) return "官网和邮箱资料";
+  if (normalized.includes("web")) return "公开网页";
+  if (normalized.includes("map") || normalized.includes("place")) return "公开地址资料";
+  if (normalized.includes("trade") || normalized.includes("custom")) return "贸易资料";
+  if (normalized.includes("financial") || normalized.includes("filing")) return "财务公开资料";
+  return "公开资料";
+}
+
+function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
+  if (value === "positive") return "正向依据";
+  if (value === "negative") return "风险依据";
+  if (value === "coverage_only") return "仅作覆盖";
+  return "参考依据";
+}
+
+function simplifyDisplayText(value: string | null | undefined) {
+  if (!value) return value ?? undefined;
+  return value
+    .replace(/外部可追溯证据 URL/g, "可核验来源")
+    .replace(/可追溯证据 URL/g, "可核验来源")
+    .replace(/来源 URL/g, "来源链接")
+    .replace(/证据 URL/g, "核验来源")
+    .replace(/工具返回 URL/g, "工具返回的来源链接")
+    .replace(/\brdap\b/gi, "域名登记信息")
+    .replace(/\bdns\b/gi, "域名解析")
+    .replace(/\bjson\b/gi, "结构化结果")
+    .replace(/\bsec\b/gi, "财务公开信息")
+    .replace(/\bkyb\b/gi, "企业核验")
+    .replace(/\bapi_error\b/gi, "查询失败")
+    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
+    .replace(/\bAPI\b/gi, "工具查询")
+    .replace(/\bHTTP 401\b/gi, "查询权限错误")
+    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
+    .replace(/\bMX\b/gi, "收信设置")
+    .replace(/\bSPF\b/gi, "发信设置")
+    .replace(/\bDMARC\b/gi, "邮件安全设置")
+    .replace(/\bendpoint\b/gi, "查询入口")
+    .replace(/\bprovider\b/gi, "工具")
+    .replace(/\bobjectClassName\b/g, "对象类型")
+    .replace(/\bself link\b/gi, "来源链接")
+    .replace(/\blookup\b/gi, "查询")
+    .replace(/\bredirected\b/gi, "跳转")
+    .replace(/\breturned\b/gi, "返回")
+    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
+    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+}
+
 function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
   if (typeof score !== "number") return "insufficient_evidence";
   if (score >= 80) return "trusted_candidate";
@@ -222,12 +206,12 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
     riskTier: riskTierForScore(item.normalizedScore),
     normalizedScore: item.normalizedScore ?? null,
     evidenceCoverage: undefined,
-    recommendedAction: item.recommendedAction ?? "复核背调结果后再决定是否跟进。",
+    recommendedAction: simplifyDisplayText(item.recommendedAction) ?? "复核背调结果后再决定是否跟进。",
     scoreBlocks: [],
     evidence: item.sourceUrls.map((url) => ({
       layer: "public_footprint",
       sourceUrl: url,
-      finding: item.evidenceSummary,
+      finding: simplifyDisplayText(item.evidenceSummary) ?? "暂无核验说明。",
       scoreBlock: "public_footprint",
       scoreImpact: "neutral",
       affectsScore: true,
@@ -254,10 +238,10 @@ function scoreSegmentClass(block: CustomerScoreBlock) {
 
 function statusText(status: CustomerScoreBlock["status"]) {
   const labels: Record<CustomerScoreBlock["status"], string> = {
-    scored: "已计分",
+    scored: "已评分",
     not_applicable: "不适用",
-    unavailable_api: "接口不可用",
-    disabled_by_budget: "预算未启用",
+    unavailable_api: "暂不可用",
+    disabled_by_budget: "未开启",
     pending_human_input: "待补充",
   };
   return labels[status];
@@ -269,7 +253,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (
       <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-        本次报告没有返回评分维度拆解。
+        本次报告暂未返回评分来源。
       </div>
     );
   }
@@ -286,15 +270,18 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
             <div
               key={block.block}
               className={scoreSegmentClass(block)}
-              title={`${scoreBlockLabels[block.block] ?? block.block} · ${block.maxPoints} 权重`}
+              title={`${scoreBlockLabels[block.block] ?? block.block} · 权重 ${block.maxPoints}`}
               style={{ width: `${(block.maxPoints / maxTotal) * 100}%` }}
             />
           ))}
         </div>
       </div>
-      <div className="text-xs text-muted-foreground">
-        单项合计 {Number(earnedTotal.toFixed(2))} / {maxTotal}，总分按已计分维度动态归一化。
-      </div>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer">评分说明</summary>
+        <div className="mt-1">
+          单项合计 {Number(earnedTotal.toFixed(2))} / {maxTotal}，总分会按已评分项目折算。
+        </div>
+      </details>
       <div className="space-y-2">
         {displayBlocks.map((block) => {
           const earned = block.status === "scored" ? block.earnedPoints ?? 0 : 0;
@@ -304,8 +291,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="font-medium">{scoreBlockLabels[block.block] ?? block.block}</span>
                 <span className="font-mono text-muted-foreground">
-                  权重 {block.maxPoints} ·{" "}
-                  {block.status === "scored" ? `单项得分 ${earned}/${block.maxPoints}` : statusText(block.status)}
+                  {block.status === "scored" ? `得分 ${earned}/${block.maxPoints}` : statusText(block.status)}
                 </span>
               </div>
               <div className="flex h-2 overflow-hidden rounded-full bg-muted">
@@ -319,7 +305,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
                 )}
               </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {block.summary ?? block.reason ?? "该维度未返回详细说明。"}
+                {simplifyDisplayText(block.summary ?? block.reason) ?? "这一项暂无说明。"}
               </div>
             </div>
           );
@@ -331,7 +317,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
 
 function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
   if (evidence.length === 0) {
-    return <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">本维度暂无证据。</div>;
+    return <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">暂无核验依据。</div>;
   }
   return (
     <div className="space-y-2">
@@ -339,22 +325,25 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
         <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
-              {item.scoreImpact ?? "neutral"}
+              {scoreImpactLabel(item.scoreImpact)}
             </Badge>
-            {item.sourceType ? <Badge variant="secondary">{item.sourceType}</Badge> : null}
+            {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
             {item.costPosture ? <span className="text-xs text-muted-foreground">{item.costPosture}</span> : null}
           </div>
-          <div className="mt-2 leading-6">{item.finding}</div>
-          <a
-            href={item.sourceUrl.startsWith("http") ? item.sourceUrl : undefined}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 block break-all font-mono text-xs text-primary"
-          >
-            {item.sourceUrl}
-          </a>
+          <div className="mt-2 leading-6">{simplifyDisplayText(item.finding) ?? "暂无核验说明。"}</div>
+          {item.sourceUrl.startsWith("http") ? (
+            <a
+              href={item.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              查看来源
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : null}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>维度 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+            {item.scoreBlock ? <span>来源分类 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
             {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
             {item.fetchedAt ? <span>{item.fetchedAt}</span> : null}
           </div>
@@ -418,7 +407,7 @@ function addressFootprintStatusText(status: CustomerAddressFootprint["coverageSt
     found: "已发现",
     partial: "部分发现",
     not_found: "未发现",
-    unavailable_api: "接口不可用",
+    unavailable_api: "暂不可用",
     not_checked: "未查询",
   };
   return labels[status];
@@ -472,10 +461,10 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-sky-950">
             <MapPin className="h-4 w-4 text-sky-700" />
-            <span>{footprint.sectionTitle || "Google Maps 地址版图"}</span>
+            <span>{footprint.sectionTitle || "线下地址线索"}</span>
           </div>
           <p className="mt-1 text-xs leading-5 text-sky-900/75">
-            Google Maps 公开地址发现结果，仅用于实体足迹、官网/地址一致性和业务匹配辅助，不作为注册或 KYB 证明。
+            展示公开地址线索，用来辅助判断客户是否有实际经营地点；公司注册结论仍以注册信息为准。
           </p>
         </div>
         <Badge variant="outline" className="border-sky-300 bg-white text-sky-800">
@@ -538,7 +527,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
                     <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
                       <div>地址验证：{addressValidationText(location)}</div>
                       <div>
-                        匹配置信度：
+                        匹配度：
                         {typeof location.matchConfidence === "number" ? `${Math.round(location.matchConfidence * 100)}%` : "未返回"}
                       </div>
                       <div>官网匹配：{typeof location.domainMatch === "boolean" ? (location.domainMatch ? "是" : "否") : location.domainMatch ?? "未检查"}</div>
@@ -574,7 +563,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
 
       {footprint.searchScope.queriesRun.length ? (
         <details className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-sky-900">查询范围</summary>
+          <summary className="cursor-pointer font-medium text-sky-900">查看查询范围</summary>
           <div className="mt-2 space-y-1">
             {footprint.searchScope.queriesRun.map((query) => (
               <div key={query} className="break-words font-mono">{query}</div>
@@ -661,7 +650,7 @@ export function CustomerReportDialog({
                 icon={<ShieldCheck className="h-4 w-4 text-primary" />}
               >
                 <div className={cn("rounded-md border px-3 py-2 text-sm leading-6", statusBadgeClass(customer))}>
-                  {report?.recommendedAction ?? customer.recommendedAction ?? "暂无报告，等待背调员工返回结构化结果。"}
+                  {simplifyDisplayText(report?.recommendedAction ?? customer.recommendedAction) ?? "暂无报告，等待背调结果。"}
                 </div>
               </ReportPanel>
 
@@ -670,7 +659,7 @@ export function CustomerReportDialog({
                   <AddressFootprintPanel footprint={report.addressFootprint} />
 
                   <ReportPanel
-                    title="评分维度拆解"
+                    title="评分来源"
                     icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                   >
                     <ScoreBreakdownChart blocks={report.scoreBlocks} />
@@ -678,23 +667,30 @@ export function CustomerReportDialog({
 
                   <section>
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="text-sm font-medium">证据明细</div>
-                      <Badge variant="outline">{report.evidence.length} 条证据</Badge>
+                      <div className="text-sm font-medium">核验依据</div>
+                      <Badge variant="outline">{report.evidence.length} 条</Badge>
                     </div>
                     <ReportEvidenceSections report={report} />
                   </section>
                 </>
               ) : (
                 <ReportPanel
-                  title="来源证据"
+                  title="来源资料"
                   icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                 >
-                  <p className="text-sm leading-6 text-muted-foreground">{customer.evidenceSummary}</p>
+                  <p className="text-sm leading-6 text-muted-foreground">{simplifyDisplayText(customer.evidenceSummary) ?? "暂无核验说明。"}</p>
                   <div className="mt-3 space-y-2">
-                    {customer.sourceUrls.map((url) => (
-                      <div key={url} className="break-all rounded-md bg-muted/40 px-2 py-1.5 font-mono text-xs">
-                        {url}
-                      </div>
+                    {customer.sourceUrls.map((url, index) => (
+                      <a
+                        key={url}
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看来源 {index + 1}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
                     ))}
                   </div>
                 </ReportPanel>
@@ -715,7 +711,7 @@ export function CustomerReportDialog({
                     </div>
                   ) : null}
                   <div>
-                    <dt className="text-xs text-muted-foreground">报告 ID</dt>
+                      <dt className="text-xs text-muted-foreground">报告编号</dt>
                     <dd className="mt-1 break-all font-mono text-xs text-muted-foreground">
                       {report?.reportId ?? customer.reportId ?? customer.customerId}
                     </dd>
@@ -724,7 +720,7 @@ export function CustomerReportDialog({
               </ReportPanel>
 
               {report?.coverageGaps.length ? (
-                <ReportPanel title="证据缺口" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
+                <ReportPanel title="还缺什么" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
                   <div className="space-y-2">
                     {report.coverageGaps.map((gap, index) => (
                       <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">

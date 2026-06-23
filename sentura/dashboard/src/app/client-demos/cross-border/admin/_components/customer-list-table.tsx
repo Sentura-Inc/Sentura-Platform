@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDownWideNarrow,
   CheckCircle2,
@@ -13,6 +13,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
+import {
+  buyerTypeLabel,
+  canonicalBuyerType,
+  canonicalProduct,
+  productLabel,
+} from "@/components/cross-border/customer-labels";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
@@ -40,11 +46,26 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 
 type AdminStatusFilter = "all" | "not_started" | "screened" | "insufficient_evidence";
 type AdminScoreSort = "none" | "score_desc" | "score_asc";
+interface AdminCustomerFilters {
+  countries: string[];
+  buyerTypes: string[];
+  products: string[];
+}
+
+type FilterOption = {
+  value: string;
+  label: string;
+};
 
 const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const;
 const adminScoreSortValues: AdminScoreSort[] = ["none", "score_desc", "score_asc"];
 const ADMIN_CUSTOMER_STATUS_FILTER_STORAGE_KEY = "sentura:cbe:admin:customer-list:status-filter:v1";
 const ADMIN_CUSTOMER_SCORE_SORT_STORAGE_KEY = "sentura:cbe:admin:customer-list:score-sort:v1";
+const emptyAdminFilters: AdminCustomerFilters = {
+  countries: [],
+  buyerTypes: [],
+  products: [],
+};
 
 function isAdminStatusFilter(value: unknown): value is AdminStatusFilter {
   return typeof value === "string" && quickStatusFilters.includes(value as AdminStatusFilter);
@@ -63,7 +84,7 @@ const scoreSortLabels: Record<AdminScoreSort, string> = {
 const sourceLabels: Record<CustomerListItem["source"], string> = {
   lead_discovery: "",
   manual_screening: "手动录入",
-  accio_handoff: "聊天记录移交",
+  accio_handoff: "来自聊天记录",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -79,30 +100,6 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "accio_behavior",
 ];
 
-const buyerTypeDisplayLabels: Record<string, string> = {
-  "repair-chain": "维修连锁",
-  "electronics-retailer": "电子零售商",
-  "accessory-retailer": "配件零售商",
-  "cell-phone-store": "手机门店",
-  reseller: "转售采购商",
-  importer: "进口采购商",
-  distributor: "分销商",
-  retailer: "零售商",
-  "e-commerce-seller": "电商卖家",
-  "manual-input": "手动录入",
-  "accio-handoff": "聊天记录移交",
-};
-
-const productDisplayLabels: Record<string, string> = {
-  "phone-case": "手机壳",
-  "tempered-glass": "钢化膜",
-  "usb-c-charger": "USB-C 充电器",
-  magsafe: "MagSafe 配件",
-  "repair-parts": "维修配件",
-  cable: "数据线",
-  "oled-screen": "OLED 屏幕",
-};
-
 const countryLabels: Record<string, string> = {
   BR: "巴西",
   CL: "智利",
@@ -112,6 +109,10 @@ const countryLabels: Record<string, string> = {
   MX: "墨西哥",
   US: "美国",
 };
+
+function toggleFilterValue(values: string[], value: string) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
 
 const validEvidenceStatuses = new Set<ScreeningEvidenceStatus>([
   "scored",
@@ -154,50 +155,6 @@ function asNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function normalizeFilterValue(value: string) {
-  return value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
-}
-
-function canonicalBuyerType(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("聊天") || normalized.includes("accio")) return "accio-handoff";
-  if (normalized.includes("manual") || normalized.includes("手动")) return "manual-input";
-  if (normalized.includes("repair") || normalized.includes("维修")) return "repair-chain";
-  if (normalized.includes("distributor") || normalized.includes("经销") || normalized.includes("分销")) return "distributor";
-  if (normalized === "retailer" || normalized.includes("零售商")) return "retailer";
-  if (normalized.includes("e-commerce") || normalized.includes("电商")) return "e-commerce-seller";
-  if (normalized.includes("cell-phone-store") || normalized.includes("手机门店")) return "cell-phone-store";
-  if (normalized.includes("electronics-retailer") || normalized.includes("电子零售")) return "electronics-retailer";
-  if (normalized.includes("accessory-retailer") || normalized.includes("配件零售")) return "accessory-retailer";
-  if (normalized.includes("reseller") || normalized.includes("转售")) return "reseller";
-  if (normalized.includes("importer") || normalized.includes("进口")) return "importer";
-  return normalized;
-}
-
-function canonicalProduct(value: string) {
-  const normalized = normalizeFilterValue(value);
-  if (!normalized) return "";
-  if (normalized.includes("usb-c") || normalized.includes("charger") || normalized.includes("充电")) return "usb-c-charger";
-  if (normalized.includes("oled")) return "oled-screen";
-  if (normalized.includes("tempered") || normalized.includes("screen-protector") || normalized.includes("钢化膜")) return "tempered-glass";
-  if (normalized.includes("phone-case") || normalized.includes("手机壳")) return "phone-case";
-  if (normalized.includes("repair-parts") || normalized.includes("repair-part") || normalized.includes("维修配件")) return "repair-parts";
-  if (normalized.includes("magsafe")) return "magsafe";
-  if (normalized === "cable" || normalized.includes("数据线")) return "cable";
-  return normalized;
-}
-
-function buyerTypeLabel(value: string) {
-  const canonical = canonicalBuyerType(value);
-  return buyerTypeDisplayLabels[canonical] ?? value;
-}
-
-function productLabel(value: string) {
-  const canonical = canonicalProduct(value);
-  return productDisplayLabels[canonical] ?? value;
-}
-
 function sourceFromRecordType(value: string): CustomerListItem["source"] {
   if (value.includes("accio")) return "accio_handoff";
   if (value.includes("manual")) return "manual_screening";
@@ -238,6 +195,38 @@ function scoreImpact(value: unknown): ScreeningScoreImpact {
   return validScoreImpacts.has(raw as ScreeningScoreImpact) ? (raw as ScreeningScoreImpact) : "neutral";
 }
 
+function simplifyDisplayText(value: string | null | undefined) {
+  if (!value) return value ?? undefined;
+  return value
+    .replace(/外部可追溯证据 URL/g, "可核验来源")
+    .replace(/可追溯证据 URL/g, "可核验来源")
+    .replace(/来源 URL/g, "来源链接")
+    .replace(/证据 URL/g, "核验来源")
+    .replace(/工具返回 URL/g, "工具返回的来源链接")
+    .replace(/\brdap\b/gi, "域名登记信息")
+    .replace(/\bdns\b/gi, "域名解析")
+    .replace(/\bjson\b/gi, "结构化结果")
+    .replace(/\bsec\b/gi, "财务公开信息")
+    .replace(/\bkyb\b/gi, "企业核验")
+    .replace(/\bapi_error\b/gi, "查询失败")
+    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
+    .replace(/\bAPI\b/gi, "工具查询")
+    .replace(/\bHTTP 401\b/gi, "查询权限错误")
+    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
+    .replace(/\bMX\b/gi, "收信设置")
+    .replace(/\bSPF\b/gi, "发信设置")
+    .replace(/\bDMARC\b/gi, "邮件安全设置")
+    .replace(/\bendpoint\b/gi, "查询入口")
+    .replace(/\bprovider\b/gi, "工具")
+    .replace(/\bobjectClassName\b/g, "对象类型")
+    .replace(/\bself link\b/gi, "来源链接")
+    .replace(/\blookup\b/gi, "查询")
+    .replace(/\bredirected\b/gi, "跳转")
+    .replace(/\breturned\b/gi, "返回")
+    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
+    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+}
+
 function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined {
   const reportJson = asRecord(row.reportJson);
   if (!row.reportJson && row.screeningStatus !== "screened" && row.screeningStatus !== "insufficient_evidence") return undefined;
@@ -253,15 +242,15 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
     maxPoints: asNumber(block.max_points ?? block.maxPoints) ?? 0,
     earnedPoints: asNumber(block.earned_points ?? block.earnedPoints) ?? null,
     sourceCount: asNumber(block.source_count ?? block.sourceCount),
-    summary: asString(block.summary) || undefined,
-    reason: asString(block.reason) || undefined,
+    summary: simplifyDisplayText(asString(block.summary)) || undefined,
+    reason: simplifyDisplayText(asString(block.reason)) || undefined,
   }));
   const evidence = asRecordArray(reportJson.evidence).map((item): CustomerEvidenceItem => ({
     layer: evidenceLayer(item.layer ?? item.score_block ?? item.scoreBlock),
     sourceUrl: asString(item.source_url ?? item.url ?? item.source, "-"),
     sourceType: asString(item.source_type ?? item.sourceType) || undefined,
     fetchedAt: asString(item.fetched_at ?? item.fetchedAt) || undefined,
-    finding: asString(item.finding, "员工报告未返回该证据的文字说明。"),
+    finding: simplifyDisplayText(asString(item.finding)) ?? "报告暂未返回这一条说明。",
     confidence: asNumber(item.confidence),
     scoreBlock: asString(item.score_block ?? item.scoreBlock) || undefined,
     scoreImpact: scoreImpact(item.score_impact ?? item.scoreImpact),
@@ -270,8 +259,8 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
   }));
   const coverageGaps = asRecordArray(reportJson.coverage_gaps).map((gap) => ({
     block: asString(gap.block ?? gap.score_block, "public_footprint"),
-    reason: asString(gap.reason ?? gap.summary, "缺少该维度证据。"),
-    action: asString(gap.action) || undefined,
+    reason: simplifyDisplayText(asString(gap.reason ?? gap.summary)) ?? "缺少这一项核验依据。",
+    action: simplifyDisplayText(asString(gap.action)) || undefined,
   }));
   const openQuestions = Array.isArray(reportJson.open_questions)
     ? reportJson.open_questions.map((question) => String(question))
@@ -282,7 +271,7 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
     riskTier,
     normalizedScore: score,
     evidenceCoverage: row.evidenceCoverage ?? asNumber(reportJson.evidence_coverage),
-    recommendedAction: asString(reportJson.recommended_action, row.recommendedAction ?? "复核背调结果后再决定是否跟进。"),
+    recommendedAction: simplifyDisplayText(asString(reportJson.recommended_action, row.recommendedAction ?? "复核背调结果后再决定是否跟进。")) ?? "复核背调结果后再决定是否跟进。",
     createdAt: asString(reportJson.created_at ?? row.updatedAt) || undefined,
     scoreBlocks,
     evidence,
@@ -315,8 +304,8 @@ function adminCustomerToListItem(row: AdminCustomerRow): CustomerListItem {
     scoreTier: scoreTierForScore(row.normalizedScore),
     reportId: report?.reportId,
     sourceUrls: row.website ? [row.website] : row.domain ? [`https://${row.domain}`] : [],
-    evidenceSummary: row.recommendedAction ?? "暂无背调结论。",
-    recommendedAction: row.recommendedAction ?? undefined,
+    evidenceSummary: simplifyDisplayText(row.recommendedAction) ?? "暂无背调结论。",
+    recommendedAction: simplifyDisplayText(row.recommendedAction),
     screeningReport: report,
   };
 }
@@ -455,6 +444,43 @@ function CustomerProductBadges({
   );
 }
 
+function AdminFilterGroup({
+  title,
+  options,
+  selectedValues,
+  emptyText,
+  onToggle,
+}: {
+  title: ReactNode;
+  options: FilterOption[];
+  selectedValues: string[];
+  emptyText: string;
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-muted-foreground">{title}</div>
+      {options.length ? (
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => (
+            <Button
+              key={option.value}
+              type="button"
+              variant={selectedValues.includes(option.value) ? "default" : "outline"}
+              size="sm"
+              onClick={() => onToggle(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground">{emptyText}</div>
+      )}
+    </div>
+  );
+}
+
 export function AdminCustomerReportButton({
   customer,
   triggerLabel,
@@ -480,6 +506,8 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
   const [expandedProductRows, setExpandedProductRows] = useState<Set<string>>(() => new Set());
   const [activeCustomer, setActiveCustomer] = useState<CustomerListItem | null>(null);
   const [query, setQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<AdminCustomerFilters>(emptyAdminFilters);
   const [statusFilter, setStatusFilter] = usePersistentUiState<AdminStatusFilter>(
     ADMIN_CUSTOMER_STATUS_FILTER_STORAGE_KEY,
     "all",
@@ -491,12 +519,90 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
     isAdminScoreSort,
   );
   const rows = useMemo(() => customers.map(adminCustomerToListItem), [customers]);
+  const filterOptions = useMemo(() => {
+    const countryMap = new Map<string, string>();
+    const buyerTypes = new Map<string, string>();
+    const products = new Map<string, string>();
+    for (const item of rows) {
+      if (item.country) countryMap.set(item.country, item.countryName);
+      const buyerTypeValue = canonicalBuyerType(item.buyerType);
+      if (buyerTypeValue) buyerTypes.set(buyerTypeValue, buyerTypeLabel(item.buyerType));
+      item.products.forEach((product) => {
+        const productValue = canonicalProduct(product);
+        if (productValue) products.set(productValue, productLabel(product));
+      });
+    }
+    return {
+      countries: Array.from(countryMap.entries())
+        .map(([code, name]) => ({ value: code, label: name || code }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
+      buyerTypes: Array.from(buyerTypes.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
+      products: Array.from(products.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
+    };
+  }, [rows]);
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; clear: () => void }> = [];
+    for (const country of filters.countries) {
+      const label = filterOptions.countries.find((item) => item.value === country)?.label ?? country;
+      chips.push({
+        key: `country-${country}`,
+        label: `国家：${label}`,
+        clear: () => setFilters((current) => ({ ...current, countries: current.countries.filter((item) => item !== country) })),
+      });
+    }
+    for (const buyerType of filters.buyerTypes) {
+      const label = filterOptions.buyerTypes.find((item) => item.value === buyerType)?.label ?? buyerTypeLabel(buyerType);
+      chips.push({
+        key: `type-${buyerType}`,
+        label: `类型：${label}`,
+        clear: () => setFilters((current) => ({ ...current, buyerTypes: current.buyerTypes.filter((item) => item !== buyerType) })),
+      });
+    }
+    for (const product of filters.products) {
+      const label = filterOptions.products.find((item) => item.value === product)?.label ?? productLabel(product);
+      chips.push({
+        key: `product-${product}`,
+        label: `产品：${label}`,
+        clear: () => setFilters((current) => ({ ...current, products: current.products.filter((item) => item !== product) })),
+      });
+    }
+    if (statusFilter !== "all") {
+      chips.push({
+        key: `status-${statusFilter}`,
+        label: `状态：${statusLabels[statusFilter]}`,
+        clear: () => setStatusFilter("all"),
+      });
+    }
+    if (scoreSort !== "none") {
+      chips.push({
+        key: "score-sort",
+        label: `排序：${scoreSortLabels[scoreSort]}`,
+        clear: () => setScoreSort("none"),
+      });
+    }
+    return chips;
+  }, [filterOptions.buyerTypes, filterOptions.countries, filterOptions.products, filters, scoreSort, statusFilter, setScoreSort, setStatusFilter]);
+  const activeFilterCount = activeFilterChips.length;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const next = rows.filter((item) => {
-      const matchesQuery = !normalizedQuery || item.companyName.toLowerCase().includes(normalizedQuery);
+      const matchesQuery =
+        !normalizedQuery ||
+        item.companyName.toLowerCase().includes(normalizedQuery) ||
+        item.products.join(" ").toLowerCase().includes(normalizedQuery) ||
+        item.products.map(productLabel).join(" ").toLowerCase().includes(normalizedQuery) ||
+        buyerTypeLabel(item.buyerType).toLowerCase().includes(normalizedQuery) ||
+        item.countryName.toLowerCase().includes(normalizedQuery);
       const matchesStatus = statusFilter === "all" || item.screeningStatus === statusFilter;
-      return matchesQuery && matchesStatus;
+      const matchesCountry = filters.countries.length === 0 || filters.countries.includes(item.country);
+      const matchesBuyerType = filters.buyerTypes.length === 0 || filters.buyerTypes.includes(canonicalBuyerType(item.buyerType));
+      const itemProducts = item.products.map(canonicalProduct);
+      const matchesProduct = filters.products.length === 0 || itemProducts.some((product) => filters.products.includes(product));
+      return matchesQuery && matchesStatus && matchesCountry && matchesBuyerType && matchesProduct;
     });
     if (scoreSort === "score_desc") {
       next.sort((a, b) => (b.normalizedScore ?? -1) - (a.normalizedScore ?? -1));
@@ -505,7 +611,7 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
       next.sort((a, b) => (a.normalizedScore ?? 101) - (b.normalizedScore ?? 101));
     }
     return next;
-  }, [query, rows, scoreSort, statusFilter]);
+  }, [filters, query, rows, scoreSort, statusFilter]);
 
   const toggleProductsExpanded = (customerId: string) => {
     setExpandedProductRows((current) => {
@@ -539,9 +645,16 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" type="button">
+              <Button
+                variant={filtersOpen || activeFilterCount > 0 ? "default" : "outline"}
+                size="sm"
+                type="button"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((current) => !current)}
+              >
                 <Filter className="h-3.5 w-3.5" />
-                国家 / 类型 / 产品
+                筛选客户
+                {activeFilterCount > 0 ? `（${activeFilterCount}）` : ""}
               </Button>
               {quickStatusFilters.map((status) => (
                 <Button
@@ -571,16 +684,68 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
             </div>
           </div>
 
-          {query || statusFilter !== "all" || scoreSort !== "none" ? (
+          {filtersOpen ? (
+            <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+              <div className="grid gap-4 md:grid-cols-3">
+                <AdminFilterGroup
+                  title="国家"
+                  options={filterOptions.countries}
+                  selectedValues={filters.countries}
+                  emptyText="暂无国家可筛选。"
+                  onToggle={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      countries: toggleFilterValue(current.countries, value),
+                    }))
+                  }
+                />
+                <AdminFilterGroup
+                  title="类型"
+                  options={filterOptions.buyerTypes}
+                  selectedValues={filters.buyerTypes}
+                  emptyText="暂无类型可筛选。"
+                  onToggle={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      buyerTypes: toggleFilterValue(current.buyerTypes, value),
+                    }))
+                  }
+                />
+                <AdminFilterGroup
+                  title="产品"
+                  options={filterOptions.products}
+                  selectedValues={filters.products}
+                  emptyText="暂无产品可筛选。"
+                  onToggle={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      products: toggleFilterValue(current.products, value),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {query || activeFilterCount > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               {query ? <Badge variant="secondary">搜索：{query}</Badge> : null}
-              {statusFilter !== "all" ? <Badge variant="secondary">{statusLabels[statusFilter]}</Badge> : null}
-              {scoreSort !== "none" ? <Badge variant="secondary">{scoreSortLabels[scoreSort]}</Badge> : null}
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="inline-flex items-center rounded-full border bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+                  onClick={chip.clear}
+                >
+                  {chip.label}
+                </button>
+              ))}
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
                   setQuery("");
+                  setFilters(emptyAdminFilters);
                   setStatusFilter("all");
                   setScoreSort("none");
                 }}
@@ -594,7 +759,7 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
           {filtered.length === 0 ? (
             <div className="rounded-md border border-dashed bg-muted/20 px-4 py-10 text-center">
               <div className="text-sm font-medium">没有符合条件的客户</div>
-              <p className="mt-1 text-sm text-muted-foreground">调整筛选条件后查看该员工的获客与背调记录。</p>
+              <p className="mt-1 text-sm text-muted-foreground">调整筛选条件后查看客户记录。</p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-md border">

@@ -76,14 +76,14 @@ function buildCostBreakdown(events: CostEvent[]): EmployeeCostSnapshot["sourceBr
   ).length;
 
   return [
-    { label: "AI 员工模型", amountUsd: modelSpend, note: "来自当前数据库任务 session 的真实模型用量记录" },
+    { label: "智能处理", amountUsd: modelSpend, note: "来自当前任务的实际处理用量" },
     {
-      label: "外部资料服务",
+      label: "外部资料查询",
       amountUsd: externalSpend,
       note:
         unpricedExternalCalls > 0
-          ? `${freeExternalCalls} 次 0 美元/套餐内调用，${unpricedExternalCalls} 次按积分或套餐未折算美元`
-          : `${freeExternalCalls} 次外部资料调用已记录为 0 美元或套餐内`,
+          ? `${freeExternalCalls} 次免费或套餐内查询，${unpricedExternalCalls} 次暂未折算美元`
+          : `${freeExternalCalls} 次外部资料查询已记录为免费或套餐内`,
     },
   ];
 }
@@ -178,9 +178,9 @@ function formatDurationMs(value: number) {
 }
 
 const costAgentLabels: Record<string, string> = {
-  "cbe-lead-discovery": "获客员工",
-  "cbe-buyer-screening": "背调员工",
-  "cbe-accio-memory": "记忆员工",
+  "cbe-lead-discovery": "找客户",
+  "cbe-buyer-screening": "背调",
+  "cbe-accio-memory": "聊天整理",
 };
 
 const costPricingLabels: Record<NonNullable<CostEvent["pricingStatus"]>, string> = {
@@ -193,7 +193,7 @@ const costPricingLabels: Record<NonNullable<CostEvent["pricingStatus"]>, string>
 
 function costSourceLabel(event: CostEvent) {
   if (event.source === "external_tool_log") return "外部回填";
-  if (event.source === "session_log") return "模型回填";
+  if (event.source === "session_log") return "智能处理记录";
   return "实时记录";
 }
 
@@ -209,7 +209,7 @@ function costOperationLabel(event: CostEvent) {
 
 function costUsageLabel(event: CostEvent) {
   if (costEventKind(event) === "model") {
-    return `${event.usage.totalTokens.toLocaleString("zh-CN")} tokens`;
+    return `${event.usage.totalTokens.toLocaleString("zh-CN")} 用量单位`;
   }
   if (event.externalUsage?.label) return event.externalUsage.label;
   if (event.externalUsage) {
@@ -347,7 +347,7 @@ export function EmployeeCostMini() {
       <button
         type="button"
         className="hidden min-w-[220px] items-center gap-3 rounded-md border bg-background px-3 py-2 text-left transition-all duration-150 hover:scale-[1.03] hover:border-primary/40 hover:shadow-md focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none active:scale-[0.99] md:flex"
-        aria-label="查看本月 API 成本明细"
+        aria-label="查看本月工具成本明细"
         onClick={() => setOpen(true)}
       >
         <div
@@ -364,7 +364,7 @@ export function EmployeeCostMini() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium">本月 API 成本</span>
+            <span className="font-medium">本月工具成本</span>
             <span className="font-mono text-muted-foreground">{costBudget.limitEnabled ? `${percent}%` : "不限额"}</span>
           </div>
           <div className="mt-1 h-1.5 rounded-full bg-muted">
@@ -386,11 +386,16 @@ export function EmployeeCostMini() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[86vh] flex-col overflow-hidden sm:max-w-4xl">
           <DialogHeader className="pr-8">
-            <DialogTitle>本月 API 成本明细</DialogTitle>
+            <DialogTitle>本月工具成本明细</DialogTitle>
             <DialogDescription>
-              逐条展示 sentura-cost 已记录的模型与外部资料服务调用；可折算美元的计入已用，免费/套餐/积分未折算会单独标明。
-              当前工作台只统计已写入 CBE 数据库的任务 session。
+              逐条展示本月已记录的智能处理和外部资料查询费用；已折算美元的计入已用，免费或暂未折算的项目会单独标明。
             </DialogDescription>
+            <details className="mt-2 text-xs text-muted-foreground">
+              <summary className="cursor-pointer">查看技术详情</summary>
+              <p className="mt-1">
+                明细来自系统费用记录，并只统计已关联到当前跨境电商客户库任务的处理编号。
+              </p>
+            </details>
           </DialogHeader>
 
           <div className="grid grid-cols-3 gap-2">
@@ -403,7 +408,7 @@ export function EmployeeCostMini() {
               <div className="mt-1 font-mono text-lg font-semibold">{snapshot.totalCalls}</div>
             </div>
             <div className="rounded-md border bg-muted/20 p-3">
-              <div className="text-xs text-muted-foreground">模型 tokens</div>
+              <div className="text-xs text-muted-foreground">智能处理用量</div>
               <div className="mt-1 font-mono text-lg font-semibold">{formatCompact(snapshot.totalTokens)}</div>
             </div>
           </div>
@@ -417,9 +422,9 @@ export function EmployeeCostMini() {
           >
             {snapshot.events.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                当前数据库任务还没有真实成本消耗记录。
+                当前任务还没有实际成本记录。
                 {snapshot.outsideScopeCount > 0
-                  ? ` 已排除 ${snapshot.outsideScopeCount} 条不属于当前数据库任务的历史 sentura-cost 记录。`
+                  ? ` 已隐藏 ${snapshot.outsideScopeCount} 条不属于当前任务范围的历史记录。`
                   : null}
               </div>
             ) : (
@@ -428,7 +433,7 @@ export function EmployeeCostMini() {
                   <tr>
                     <th className="px-3 py-2 text-left">时间</th>
                     <th className="px-3 py-2 text-left">员工</th>
-                    <th className="px-3 py-2 text-left">服务 / 接口</th>
+                    <th className="px-3 py-2 text-left">服务项目</th>
                     <th className="px-3 py-2 text-right">用量</th>
                     <th className="px-3 py-2 text-right">耗时</th>
                     <th className="px-3 py-2 text-right">成本</th>
@@ -441,27 +446,30 @@ export function EmployeeCostMini() {
                       <td className="px-3 py-2">{costAgentLabels[event.agentId] ?? event.agentId}</td>
                       <td className="px-3 py-2">
                         <div className="font-medium">{costServiceLabel(event)}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">{costOperationLabel(event)}</div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-                            {costSourceLabel(event)}
-                          </Badge>
-                          {event.pricingStatus ? (
-                            <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">
-                              {costPricingLabels[event.pricingStatus]}
-                            </Badge>
-                          ) : null}
-                          {event.httpStatus ? (
+                        <details className="mt-1 text-[11px] text-muted-foreground">
+                          <summary className="cursor-pointer">技术详情</summary>
+                          <div className="mt-1 font-mono">{costOperationLabel(event)}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
                             <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-                              HTTP {event.httpStatus}
+                              {costSourceLabel(event)}
                             </Badge>
-                          ) : null}
-                        </div>
-                        {event.pricingNote ? (
-                          <div className="mt-1 max-w-[320px] text-[11px] leading-4 text-muted-foreground">
-                            {event.pricingNote}
+                            {event.pricingStatus ? (
+                              <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">
+                                {costPricingLabels[event.pricingStatus]}
+                              </Badge>
+                            ) : null}
+                            {event.httpStatus ? (
+                              <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
+                                状态 {event.httpStatus}
+                              </Badge>
+                            ) : null}
                           </div>
-                        ) : null}
+                          {event.pricingNote ? (
+                            <div className="mt-1 max-w-[320px] leading-4">
+                              {event.pricingNote}
+                            </div>
+                          ) : null}
+                        </details>
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{costUsageLabel(event)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{formatDurationMs(event.durationMs)}</td>
@@ -488,16 +496,16 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
   const { snapshot, costBudget, ratio, status, loading, error, refresh } = useEmployeeCostSnapshot();
   const percent = Math.min(100, Math.round(ratio * 100));
   const sourceLabel =
-    snapshot.source === "recorded" ? "实时记录" : snapshot.source === "empty" ? "暂无实时记录" : "接口未就绪";
+    snapshot.source === "recorded" ? "实时记录" : snapshot.source === "empty" ? "暂无记录" : "暂不可用";
   const costNotice =
     error
-      ? "成本或 CBE 数据库接口暂不可用，当前不显示演示成本；修复 sentura-cost/Gateway/数据库后再读取真实记录。"
+      ? "费用记录暂时不可用；恢复后会读取实际费用。"
       : snapshot.source === "unavailable"
-        ? "正在等待 sentura-cost 和 CBE 数据库返回真实成本记录；接口未就绪时不使用演示金额代替。"
+        ? "正在等待实际费用记录。"
       : snapshot.source === "empty"
         ? snapshot.outsideScopeCount > 0
-          ? `当前 CBE 数据库任务没有真实成本事件；已排除 ${snapshot.outsideScopeCount} 条旧 OpenClaw 成本记录，避免把历史账单混入当前工作台。`
-          : "当前 CBE 数据库任务没有本月真实模型或外部资料服务成本事件；已用显示为 0，且不包含预计任务或演示预算。"
+          ? `当前任务没有实际费用记录；已隐藏 ${snapshot.outsideScopeCount} 条历史记录，避免混入本月工作台。`
+          : "当前任务本月还没有实际费用；已用显示为 0，且不包含预计任务或演示预算。"
         : status === "blocked"
           ? "额度已达上限，高成本任务将被禁用。"
           : "额度接近 80%，建议控制批量背调和付费数据。";
@@ -509,11 +517,10 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold">
               <DollarSign className="h-4 w-4 text-primary" />
-              我的 API 成本
+              我的工具成本
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              显示 sentura-cost 已记录的模型和外部资料服务调用；没有真实事件时显示 0
-              ，仅统计当前数据库任务
+              只统计当前任务产生的实际费用；没有记录时显示 0
             </p>
           </div>
           <Badge variant={snapshot.source === "recorded" ? "secondary" : "outline"}>
@@ -551,8 +558,8 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
             />
           </div>
           <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-            <span title="模型用量单位，主要用于估算 AI 调用成本。">{formatCompact(snapshot.totalTokens)} 用量单位</span>
-            <span>{snapshot.unpricedCalls} 次未计价调用</span>
+            <span title="系统处理任务时产生的用量。">{formatCompact(snapshot.totalTokens)} 用量单位</span>
+            <span>{snapshot.unpricedCalls} 次暂未折算</span>
           </div>
         </div>
 
@@ -581,7 +588,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
 
         <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="w-full">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          刷新成本
+          刷新费用
         </Button>
       </CardContent>
     </Card>
@@ -612,21 +619,27 @@ export function TaskCostNotice({
     >
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="font-medium">{label}预算预估</div>
+          <div className="font-medium">{label}费用预估</div>
           <Badge variant="outline" className="mt-1 bg-background/70 text-[11px]">
             {source}
           </Badge>
         </div>
         <div className="font-mono">{formatUsd(estimatedUsd)}</div>
       </div>
-      <p className="mt-1 text-xs opacity-80">{details}</p>
+      <p className="mt-1 text-xs opacity-80">
+        这是提交前预估，实际费用以任务完成后的记录为准。
+      </p>
+      <details className="mt-1 text-xs opacity-80">
+        <summary className="cursor-pointer">费用怎么算</summary>
+        <p className="mt-1">{details}</p>
+      </details>
       <p className="mt-2 text-xs opacity-80">
         {costBudget.limitEnabled
           ? `按预算预留后约 ${formatUsd(projected)} / ${formatBudgetLimit(costBudget)}${blocked ? "，已超过账号上限。" : "。"}`
           : `按预算预留后约 ${formatUsd(projected)}，当前未启用账号成本上限。`}
       </p>
       <p className="mt-1 text-xs opacity-80">
-        预计值不会写入本月 API 成本；实际成本只在任务产生 sentura-cost 真实调用记录后累加。
+        预计值不会写入本月工具成本；实际费用只在任务完成并产生记录后累加。
       </p>
     </div>
   );

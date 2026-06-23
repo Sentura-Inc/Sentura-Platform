@@ -67,12 +67,12 @@ const adminNav = [
     icon: UsersRound,
   },
   {
-    label: "高分客户",
+    label: "优先跟进客户",
     href: "/client-demos/cross-border/admin/high-value-customers",
     icon: Star,
   },
   {
-    label: "成本监控",
+    label: "费用监控",
     href: "/client-demos/cross-border/admin/costs",
     icon: BadgeDollarSign,
   },
@@ -169,7 +169,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
           .sort((a: Record<string, unknown>, b: Record<string, unknown>) => timeMs(b.updatedAt) - timeMs(a.updatedAt))
           .map((item: Record<string, unknown>) => ({
             recordId: asText(item.recordId),
-            companyName: asText(item.companyName, "高分客户"),
+            companyName: asText(item.companyName, "优先跟进客户"),
             ownerName: asText(item.ownerName) || null,
             normalizedScore: typeof item.normalizedScore === "number" ? item.normalizedScore : null,
             updatedAt: asText(item.updatedAt) || null,
@@ -256,7 +256,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
         <div className="max-h-80 overflow-y-auto overscroll-contain pr-1">
           {hasAdminMessages ? (
             <>
-              <div className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground">成本审批</div>
+              <div className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground">费用审批</div>
               {snapshot.approvals.length > 0 ? (
                 snapshot.approvals.map((item) => (
                   <DropdownMenuItem
@@ -268,7 +268,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                   >
                     <BadgeDollarSign className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{item.displayName} 的成本超支审批</span>
+                      <span className="block truncate text-sm font-medium">{item.displayName} 的额度申请</span>
                       <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
                         {item.targetSummary ?? item.taskKind}
                       </span>
@@ -276,9 +276,9 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                   </DropdownMenuItem>
                 ))
               ) : (
-                <div className="px-2 py-2 text-xs text-muted-foreground">暂无成本超支审批。</div>
+                <div className="px-2 py-2 text-xs text-muted-foreground">暂无额度申请。</div>
               )}
-              <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">高分客户</div>
+              <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">优先跟进客户</div>
               {snapshot.highValueItems.length > 0 ? (
                 snapshot.highValueItems.map((item) => (
                   <DropdownMenuItem
@@ -293,7 +293,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                   >
                     <Star className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">高分客户：{item.companyName}</span>
+                      <span className="block truncate text-sm font-medium">优先跟进：{item.companyName}</span>
                       <span className="mt-0.5 block truncate text-xs leading-5 text-muted-foreground">
                         {item.ownerName ? `${item.ownerName} · ` : ""}评分 {item.normalizedScore ?? "N/A"}
                       </span>
@@ -301,7 +301,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                   </DropdownMenuItem>
                 ))
               ) : (
-                <div className="px-2 py-2 text-xs text-muted-foreground">暂无高分客户通知。</div>
+                <div className="px-2 py-2 text-xs text-muted-foreground">暂无优先跟进客户通知。</div>
               )}
             </>
           ) : (
@@ -634,10 +634,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {!isAdminPath && !isAuthPath ? (
       <div
         className="fixed bottom-4 right-4 hidden rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm lg:flex"
-        title="页面操作会在后台调用对应 AI 员工，员工不会以聊天框形式显示。"
+        title="你在页面提交任务后，系统会自动处理，不需要打开聊天框。"
       >
         <Search className="mr-2 h-3.5 w-3.5" />
-        员工界面 · 后台 AI 员工执行
+        页面任务 · 系统自动处理
       </div>
       ) : null}
     </div>
