@@ -87,8 +87,10 @@ import {
 } from "../_data/employee-task-runner";
 import {
   CbeEmployeeApiError,
+  cancelEmployeeTaskInDb,
   completeEmployeeLeadRun,
   completeEmployeeScreeningRun,
+  claimEmployeeQueuedScreeningRuns,
   createEmployeeLeadRun,
   createEmployeeScreeningRun,
   deleteEmployeeCustomers,
@@ -1405,20 +1407,31 @@ function CrossBorderCustomersPageContent() {
     setSheetMode(null);
     try {
       createdRun = await createEmployeeScreeningRun(screeningTargets, plannedSessionKey, options);
-      if (createdRun.agentRun.status === "queued" || !createdRun.agentRun.sessionKey) {
+      const initialChildRuns = createdRun.childRuns?.length
+        ? createdRun.childRuns
+        : [{
+            batchTargetId: "",
+            targetOrder: 1,
+            status: createdRun.agentRun.status,
+            agentRun: createdRun.agentRun,
+            target: screeningTargets[0],
+          }];
+      const hasRunnableChild = initialChildRuns.some((child) => child.agentRun.status !== "queued" && child.agentRun.sessionKey);
+      if (!hasRunnableChild) {
         showNotice("当前任务较多，背调任务已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedLists().catch(() => undefined);
         return;
       }
-      const activeSessionKey = createdRun.agentRun.sessionKey;
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
         title: runnableTargets.length > 1 ? "批量背调" : "单个背调",
-        message: "背调任务已启动，正在核验客户资料。",
+        message: runnableTargets.length > 1
+          ? `批量背调已拆分为 ${runnableTargets.length} 个单客户任务。`
+          : "背调任务已启动，正在核验客户资料。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
-        sessionKey: activeSessionKey,
+        sessionKey: createdRun.agentRun.sessionKey ?? initialChildRuns.find((child) => child.agentRun.sessionKey)?.agentRun.sessionKey ?? plannedSessionKey,
         targetLabel: `${runnableTargets.length} 个客户`,
       });
       taskId = localTaskId;
@@ -1428,22 +1441,95 @@ function CrossBorderCustomersPageContent() {
           ids.has(item.customerId) ? { ...item, screeningStatus: "running" } : item,
         ),
       );
-      const result = await runScreeningTask(
-        client,
-        screeningTargets,
-        options,
-        createProgressHandler(localTaskId),
-        { sessionKey: activeSessionKey, signal: abortSignal },
-      );
-      await completeEmployeeScreeningRun({
-        agentRunId: createdRun.agentRun.id,
-        sessionKey: result.sessionKey,
-        payload: result.payload,
-      });
-      const message = `已完成 ${result.records.length} 份背调报告，客户评分已更新。`;
-      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      let currentChildren = initialChildRuns;
+      let failedChildren = 0;
+      let savedReports = 0;
+      let queuedRemaining = createdRun.batch?.aggregate.queued ?? currentChildren.filter((child) => child.agentRun.status === "queued").length;
+      let lastSessionKey = plannedSessionKey;
+
+      const runChild = async (child: (typeof initialChildRuns)[number]) => {
+        const activeSessionKey = child.agentRun.sessionKey;
+        if (child.agentRun.status === "queued" || !activeSessionKey) return { status: "queued" as const, count: 0 };
+        const childLabel = child.target.company_name ?? child.agentRun.targetSummary ?? `第 ${child.targetOrder} 个客户`;
+        try {
+          const result = await runScreeningTask(
+            client,
+            [child.target],
+            options,
+            (progress) => {
+              createProgressHandler(localTaskId)({
+                ...progress,
+                message: `${childLabel}：${progress.message}`,
+              });
+            },
+            { sessionKey: activeSessionKey, signal: abortSignal },
+          );
+          const savedResult = await completeEmployeeScreeningRun({
+            agentRunId: child.agentRun.id,
+            sessionKey: result.sessionKey,
+            payload: result.payload,
+          });
+          lastSessionKey = result.sessionKey;
+          const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
+          return { status: "completed" as const, count: Math.max(savedReportCount, result.records.length) };
+        } catch (error) {
+          const message = employeeTaskErrorMessage(error);
+          const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : activeSessionKey;
+          if (isEmployeeTaskCancellation(error)) {
+            await cancelEmployeeTaskInDb({
+              id: child.agentRun.id,
+              sessionKey,
+            }).catch(() => undefined);
+            throw error;
+          }
+          if (shouldWriteFailure(error)) {
+            await failEmployeeTaskInDb({
+              agentRunId: child.agentRun.id,
+              sessionKey,
+              error,
+              message,
+            }).catch(() => undefined);
+          }
+          return { status: "failed" as const, count: 0, message };
+        }
+      };
+
+      while (currentChildren.length > 0) {
+        const activeChildren = currentChildren.filter((child) => child.agentRun.status !== "queued" && child.agentRun.sessionKey);
+        if (activeChildren.length === 0) break;
+        updateTaskProgress(localTaskId, {
+          status: "running",
+          message: `正在执行 ${activeChildren.length} 个单客户背调子任务。`,
+          sessionKey: activeChildren[0]?.agentRun.sessionKey ?? lastSessionKey,
+        });
+        const childResults = await Promise.all(activeChildren.map((child) => runChild(child)));
+        failedChildren += childResults.filter((item) => item.status === "failed").length;
+        savedReports += childResults.reduce((sum, item) => sum + item.count, 0);
+        await refreshDbBackedLists().catch(() => undefined);
+        if (!createdRun.batch?.id) break;
+        const drained = await claimEmployeeQueuedScreeningRuns({
+          screeningBatchId: createdRun.batch.id,
+          limit: 3,
+        });
+        queuedRemaining = drained.queuedRemaining;
+        currentChildren = drained.childRuns;
+      }
+
+      if (savedReports === 0 && failedChildren > 0 && queuedRemaining === 0) {
+        const message = `批量背调失败：${failedChildren} 个子任务未完成。`;
+        failTask(localTaskId, message, lastSessionKey);
+        showNotice(message, "error", 0);
+        await refreshDbBackedLists().catch(() => undefined);
+        return;
+      }
+      const message = queuedRemaining > 0
+        ? `已完成 ${savedReports} 份背调报告，${queuedRemaining} 个子任务仍在排队。`
+        : failedChildren > 0
+          ? `已完成 ${savedReports} 份背调报告，${failedChildren} 个子任务失败，可稍后重试。`
+          : `已完成 ${savedReports} 份背调报告，客户评分已更新。`;
+      completeTask(localTaskId, savedReports, message, lastSessionKey);
       await refreshDbBackedLists();
-      showNotice(message);
+      showNotice(message, failedChildren > 0 || queuedRemaining > 0 ? "info" : "success", 8000);
     } catch (error) {
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
@@ -1529,13 +1615,15 @@ function CrossBorderCustomersPageContent() {
         createProgressHandler(localTaskId),
         { sessionKey: activeSessionKey, signal: abortSignal },
       );
-      await completeEmployeeScreeningRun({
+      const savedResult = await completeEmployeeScreeningRun({
         agentRunId: createdRun.agentRun.id,
         sessionKey: result.sessionKey,
         payload: result.payload,
       });
-      const message = `手动背调已完成，已新增/更新 ${result.records.length} 个客户。`;
-      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
+      const completedCount = Math.max(savedReportCount, result.records.length);
+      const message = `手动背调已完成，已新增/更新 ${completedCount} 个客户。`;
+      completeTask(localTaskId, completedCount, message, result.sessionKey);
       await refreshDbBackedLists();
       showNotice(message);
     } catch (error) {

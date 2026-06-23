@@ -27,6 +27,8 @@ import {
 import {
   ACCIO_AGENT_ID,
   EmployeeTaskError,
+  SCREENING_AGENT_ID,
+  createPlannedEmployeeSessionKey,
   type AccioMemoryTaskInput,
   type CbeEmployeeAgentId,
   type EmployeeLeadTaskInput,
@@ -85,6 +87,44 @@ interface ApiLeadCandidate {
   normalizedDomain: string | null;
   country: string | null;
   status: string;
+}
+
+export interface ApiScreeningBatch {
+  id: string;
+  parentAgentRunId: string;
+  requestedTargetCount: number;
+  executionMode: string;
+  status: string;
+  aggregate: {
+    total: number;
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    retryable: number;
+    terminal: number;
+  };
+}
+
+export interface ApiScreeningChildRun {
+  batchTargetId: string;
+  targetOrder: number;
+  status: string;
+  agentRun: ApiAgentRun;
+  target: ScreeningTarget;
+}
+
+export interface CreateEmployeeScreeningRunResponse {
+  agentRun: ApiAgentRun;
+  batch?: ApiScreeningBatch | null;
+  childRuns?: ApiScreeningChildRun[];
+}
+
+export interface CompleteEmployeeScreeningRunResponse {
+  agentRun?: ApiAgentRun;
+  reports?: unknown[];
+  targets?: unknown[];
 }
 
 interface ApiLeadSource {
@@ -1146,11 +1186,16 @@ export async function createEmployeeScreeningRun(
     paidTradeData: options.paidTradeData,
     maxPaidSpendUsd: options.maxPaidSpendUsd,
   });
-  return jsonPost<{ agentRun: ApiAgentRun }>("/api/client-demos/cross-border/employee/screening-runs", {
+  const childSessionKeys = targets.map((_, index) =>
+    index === 0 ? sessionKey : createPlannedEmployeeSessionKey(SCREENING_AGENT_ID),
+  );
+  return jsonPost<CreateEmployeeScreeningRunResponse>("/api/client-demos/cross-border/employee/screening-runs", {
     target_summary: targets.map((target) => target.company_name ?? target.target_id).join(", ").slice(0, 240),
     target_record_type: targets.length === 1 ? targets[0].source : "screening_batch",
     target_record_id: targets.length === 1 ? targets[0].lead_id ?? targets[0].target_id : undefined,
     session_key: sessionKey,
+    child_session_keys: childSessionKeys,
+    targets,
     estimated_cost_usd: estimatedCost.estimatedUsd,
     metadata_json: {
       target_count: targets.length,
@@ -1163,6 +1208,20 @@ export async function createEmployeeScreeningRun(
       })),
       options,
     },
+  });
+}
+
+export async function claimEmployeeQueuedScreeningRuns(input: {
+  screeningBatchId?: string;
+  limit?: number;
+}) {
+  return jsonPost<{
+    batch: ApiScreeningBatch | null;
+    childRuns: ApiScreeningChildRun[];
+    queuedRemaining: number;
+  }>("/api/client-demos/cross-border/employee/screening-runs/drain", {
+    screening_batch_id: input.screeningBatchId,
+    limit: input.limit ?? 3,
   });
 }
 
@@ -1654,7 +1713,7 @@ export async function completeEmployeeScreeningRun(input: {
   sessionKey: string;
   payload: unknown;
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/complete`, {
+  return jsonPost<CompleteEmployeeScreeningRunResponse>(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/complete`, {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
     payload: normalizeScreeningPayload(input.payload),

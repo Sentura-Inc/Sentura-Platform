@@ -43,6 +43,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-22 | Phase 2 Google Maps integration final audit | Rechecked the Google Maps integration across MCP tools, Lead Discovery, Screening, Dashboard UI/reporting, address persistence, setup env wiring, scoring boundaries, documentation, and regression suites; no blocking Google Maps gaps remain. |
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring design | Documented the new 25% `公司注册与线下门店/地址` first block, company-scale assessment, medium/large registry+Maps fusion, and small-local/offline Maps-only authenticity rule; implementation remains pending. |
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring implementation | Implemented `company_scale_assessment`, `公司注册与线下门店/地址` labeling, MCP scoring propagation, Dashboard report rendering, static/live store validation, and live `cbe-buyer-screening` workspace sync. |
+| 2026-06-24 | Phase 2 Screening parent/child fan-out and queue drain | Implemented P2.5 parent batch plus single-target child run fan-out, queued child claim/drain, parent aggregate updates, Employee execution path, live CE22 PostgreSQL probe, and live OpenClaw validation with operator `吴思彤`. |
 
 ## Current Phase 2 Ground Truth
 
@@ -63,7 +64,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Lead Discovery pre-run `scope_hash`/`scope_similarity` is only a cost/backpressure predictor. The database is the authoritative dedupe reference before any customer row becomes visible in an employee list.
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
-- Screening user batches must split into parent tasks plus single-target child runs by default. P2.4 added the parent/child schema and blocks multi-target single-session Screening runs unless the explicit batch-3 feature flag is enabled; remaining P2.5 work must implement full scheduler fan-out/draining.
+- Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
 - Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup.
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
 - Google Maps Places + OpenClaw web search is implemented as the primary Lead Discovery acquisition route. `cross-border-intel` now exposes read-only `cbe_intel_google_places_search`, `cbe_intel_google_place_details`, `cbe_intel_google_geocode`, and `cbe_intel_google_address_validate`; setup scripts pass `GOOGLE_MAPS_API_KEY` and conservative request caps from env into the MCP server.
@@ -72,6 +73,39 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
 - Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
+
+## 2026-06-24 — Phase 2 Screening parent/child fan-out and queue drain
+
+### Context
+
+The user asked to start the next Phase 2 task from `跨境电商/PHASE-2.md` P2.5 and follow the plan strictly. The planned next slice was Screening parent task plus single-target child-run fan-out, then queue draining/claim behavior around queued `agent_runs`.
+
+### Implementation
+
+- Extended the Screening create request schema to accept `targets` and planned `child_session_keys`, and added a drain request schema with optional `screening_batch_id` plus bounded `limit`.
+- Implemented `createScreeningBatchRun` in the Dashboard CBE store. Multi-target Screening requests now create one parent `agent_runs` row, one `screening_batches` row, one pre-created `screening_targets` row per target, one child `agent_runs` row per target, and one `screening_batch_targets` row per child.
+- Child runs carry exactly one target in `child_target_json`; production batch-5/batch-10 prompts remain blocked, and the old batch-3 single-session path remains gated by `CBE_SCREENING_ALLOW_BATCH3=true`.
+- Child admission uses the existing workload coordinator inside the create transaction. Children over the active cap stay `queued` with planned session keys and `notification_silent` metadata.
+- Added `POST /api/client-demos/cross-border/employee/screening-runs/drain`, which claims queued child runs with `FOR UPDATE SKIP LOCKED`, lease fields, admission checks, running session keys, activity events, and parent aggregate refresh.
+- Updated Employee bulk Screening execution so the UI creates one parent task, runs only claimed non-queued child rows, sends exactly one target per hidden child session, records child completion/failure/cancellation, and drains additional queued work after each wave.
+- Updated task listing/failure/cancellation handling so ordinary Employee views hide silent child notifications, while child completion/failure/cancellation updates `screening_batch_targets` and the parent aggregate counts.
+- Fixed the live-test-discovered aggregate bug where `refreshScreeningBatchAggregate(... childAgentRunId)` counted only the matching child row. It now resolves the batch first and then counts every target in that batch, preventing premature parent completion.
+- Fixed the Employee task completion message to count backend-saved Screening reports from `completeEmployeeScreeningRun().reports.length`; the hidden runner's local `records.length` remains only a fallback.
+- Added static and live PostgreSQL coverage to `scripts/test-cross-border-phase2-concurrency.ts` for a three-target Screening batch under an active-target cap of 1, parent-not-prematurely-completed behavior, and saved-report completion count sourcing.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46. The live probe verifies parent/child rows, queued excess children, child failure, parent remains running after one terminal child, queued child drain, aggregate counts, and saved-report completion count sourcing.
+- Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Started `pnpm gateway:watch:raw` in `openclaw/`, started `pnpm dev` in `sentura/dashboard`, logged into `/client-demos/cross-border/employee/customers`, ran two real 3-target bulk Screening batches, monitored Gateway/Dashboard logs, and queried the DB. The second run ended with parent aggregate `total=3/completed=3/terminal=3`, three completed child runs, and one saved Screening report per child.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410. Failures are stale legacy static/UI-copy assertions outside this P2.5 fan-out path: removed ordinary CBE sidebar demo links, older terminal/status strings, older cost/detail locations, older label expectations, evidence-gap wording, and historical budget-copy assumptions.
+
+### Remaining Boundary
+
+P2.5 still needs per-target paid email/trade retry state with explicit re-approval, durable Screening report/evidence retry UX, Accio approval-to-memory promotion, and durable Screening handoff consumption. P2.6 load smoke should start after those paths are stable.
 
 ## 2026-06-23 — Phase 2 scale-aware Google Maps Screening scoring implementation
 

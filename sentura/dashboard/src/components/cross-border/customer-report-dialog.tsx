@@ -13,7 +13,6 @@ import type {
   CustomerScoreBlock,
   CustomerScreeningReport,
   CompanyScaleAssessment,
-  CompanyScaleAssessment,
   AddressFootprintAddressType,
   AddressFootprintRelationshipStatus,
   CustomerAddressFootprint,

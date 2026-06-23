@@ -354,7 +354,7 @@ Latest verification, 2026-06-21:
 
 ## CE22 — Lead Reconciliation, Google Maps Source Redesign, Screening Fan-Out/API Scope, And Accio Durable Workflow
 
-Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening fan-out/API-scope and durable Accio workflow remain PEND.
+Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening parent/child fan-out and route-triggered queued-child drain PASS 2026-06-24; paid retry state and durable Accio/Screening workflow polish remain PEND.
 
 Implemented Lead scope:
 
@@ -381,7 +381,28 @@ Implemented scale-aware Screening scoring checks:
 - Report wording distinguishes `线下经营真实性由 Google Maps 公开门店/地址证据支持` from formal legal/KYB registration proof.
 - Regression coverage now checks that MCP scoring carries `company_scale_assessment`, Dashboard store schemas preserve it in `report_json`, hidden and legacy Screening prompts require it, report labels render `公司注册与线下门店/地址`, and live workspace files contain the small-local/offline Maps first-block rule. Future behavior fixtures should still add concrete end-to-end examples for: small shop no registry API match but operational Maps address earns first-block credit; listed/public company with Maps but no registry/disclosure match does not earn full first-block credit; closed Maps location triggers caution; online-only small company does not get penalized solely for missing Maps.
 
-Latest verification, 2026-06-23:
+Implemented Screening fan-out/drain checks:
+
+- `POST /api/client-demos/cross-border/employee/screening-runs` accepts `targets` plus planned `child_session_keys` for multi-target Screening requests.
+- Multi-target requests create one parent `agent_runs` row, one `screening_batches` row, one pre-created `screening_targets` row per target, one child `agent_runs` row per target, and one `screening_batch_targets` row per child.
+- Each child run prompt carries exactly one target. Production batch-5 and batch-10 prompts remain blocked; batch-3 remains only behind `CBE_SCREENING_ALLOW_BATCH3=true`.
+- Child rows use `parent_agent_run_id`, `child_target_json`, planned session keys, and `notification_silent` metadata so ordinary task lists show the parent aggregate rather than noisy child notifications.
+- `POST /api/client-demos/cross-border/employee/screening-runs/drain` claims queued child rows with `FOR UPDATE SKIP LOCKED`, admission checks, leases, running session keys, activity events, and parent aggregate refresh.
+- Child completion/failure/cancellation updates `screening_batch_targets` and refreshes parent aggregate counts so completed, failed, cancelled, queued, and running children remain durable.
+- Employee bulk Screening execution now starts the parent task, runs claimed single-target children, fails individual child runs when marker/runtime errors occur, and drains another queued wave after each child wave completes.
+- Parent aggregate refresh first resolves the batch id before counting all batch targets, so one terminal child cannot prematurely mark the parent completed. Employee completion messages use the backend-saved `reports.length`, not only the hidden runner's local marker count.
+
+Latest verification, 2026-06-24:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218 static + live PostgreSQL checks.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46 static + live PostgreSQL checks. The live probe creates a three-target Screening batch with an active-target cap of 1, verifies parent/child rows, queued excess children, one-child failure, parent remains running after one terminal child, drain claim of one queued child, aggregate counts, and completion-count source checks.
+- Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Two real three-target bulk Screening submissions split into one parent plus three child sessions, updated six customer scores/reports, showed no production batch-5/batch-10 single-session path, and the second run finished with parent aggregate `total=3/completed=3/terminal=3`.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410. The failures are stale legacy static/UI-copy assertions outside the P2.5 fan-out path, including removed ordinary sidebar demo links, older terminal/status copy, older cost/detail locations, older Chinese label expectations, evidence-gap wording, and historical budget-copy assumptions.
+
+Previous verification, 2026-06-23:
 
 - `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
 - `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
@@ -410,9 +431,6 @@ Latest verification, 2026-06-22:
 
 Remaining scope:
 
-- A 10-target Screening request creates one parent task and single-target child runs.
-- No production path sends batch-5 or batch-10 prompts to `cbe-buyer-screening`.
-- Optional batch-3 is allowed only behind `CBE_SCREENING_ALLOW_BATCH3`.
 - Paid email and paid trade checks are capped once per target and require explicit re-approval on retry.
 - Default Screening API scope stays read-only and source/budget-gated.
 - Country-aware registry routing is documented and tested as a static contract before any new country adapter is exposed to agents.

@@ -219,17 +219,6 @@ export const CompleteLeadRunRequestSchema = z.object({
 });
 export type CompleteLeadRunRequest = z.infer<typeof CompleteLeadRunRequestSchema>;
 
-export const CreateScreeningRunRequestSchema = z.object({
-  target_summary: z.string().min(1),
-  target_record_type: z.string().min(1).optional(),
-  target_record_id: z.string().min(1).optional(),
-  visibility_scope: CbeVisibilityScopeSchema.default("private"),
-  session_key: z.string().min(1).optional(),
-  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
-  metadata_json: JsonRecordSchema.default({}),
-});
-export type CreateScreeningRunRequest = z.infer<typeof CreateScreeningRunRequestSchema>;
-
 export const ScreeningTargetMarkerSchema = z.object({
   target_id: z.string().min(1).optional(),
   source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).default("manual_input"),
@@ -245,6 +234,25 @@ export const ScreeningTargetMarkerSchema = z.object({
   missing_fields: z.array(z.string().min(1)).default([]),
 });
 export type ScreeningTargetMarker = z.infer<typeof ScreeningTargetMarkerSchema>;
+
+export const CreateScreeningRunRequestSchema = z.object({
+  target_summary: z.string().min(1),
+  target_record_type: z.string().min(1).optional(),
+  target_record_id: z.string().min(1).optional(),
+  visibility_scope: CbeVisibilityScopeSchema.default("private"),
+  session_key: z.string().min(1).optional(),
+  child_session_keys: z.array(z.string().min(1)).max(10).optional(),
+  targets: z.array(ScreeningTargetMarkerSchema).min(1).max(10).optional(),
+  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
+  metadata_json: JsonRecordSchema.default({}),
+});
+export type CreateScreeningRunRequest = z.infer<typeof CreateScreeningRunRequestSchema>;
+
+export const ClaimQueuedScreeningRunsRequestSchema = z.object({
+  screening_batch_id: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(10).default(3),
+});
+export type ClaimQueuedScreeningRunsRequest = z.infer<typeof ClaimQueuedScreeningRunsRequestSchema>;
 
 export const ScreeningEvidenceMarkerSchema = z.object({
   layer: z.string().min(1).default("public_footprint"),

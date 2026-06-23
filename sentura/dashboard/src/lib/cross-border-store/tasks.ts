@@ -2,6 +2,7 @@ import type { CbeDb } from "./db";
 import { queryCbe, withCbeTransaction } from "./db";
 import { CbeStoreError } from "./errors";
 import { createAgentRunActivityEvent, failAgentRun } from "./agent-runs";
+import { markScreeningChildRunCancelled, markScreeningChildRunFailed } from "./screening";
 import type {
   CbeAgentId,
   CbeAgentRunStatus,
@@ -93,6 +94,7 @@ export async function listEmployeeTasks(context: TenantContext, query: ListQuery
       from agent_runs ar
       where ar.tenant_id = $1
         and not (ar.metadata_json ? 'notification_deleted_at')
+        and not (ar.metadata_json ? 'notification_silent')
       ${scope.sql}
       ${statusClause}
       order by ar.started_at desc, ar.id desc
@@ -210,6 +212,12 @@ export async function failEmployeeTask(
         [context.tenantId, taskId],
       );
     }
+    if (row.task_kind === "screening") {
+      await markScreeningChildRunFailed(client, context, {
+        agentRunId: taskId,
+        errorCode: input.error_code,
+      });
+    }
 
     await createAgentRunActivityEvent(client, context, {
       agentRunId: taskId,
@@ -326,6 +334,9 @@ export async function cancelEmployeeTask(
         `,
         [context.tenantId, taskId],
       );
+    }
+    if (row.task_kind === "screening") {
+      await markScreeningChildRunCancelled(client, context, { agentRunId: taskId });
     }
 
     await createAgentRunActivityEvent(client, context, {

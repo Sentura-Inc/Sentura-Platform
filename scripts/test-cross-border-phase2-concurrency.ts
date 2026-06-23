@@ -55,6 +55,8 @@ async function cleanupCe21Probe(input: {
   scopeIds: string[];
   fakeActivePrefix: string;
   domainPrefix: string;
+  screeningBatchIds?: string[];
+  screeningTargetIds?: string[];
 }) {
   const pool = createCbePool({ max: 2, applicationName: "sentura-cbe-ce21-cleanup" });
   const client = await pool.connect();
@@ -79,6 +81,41 @@ async function cleanupCe21Probe(input: {
       `,
       [CBE_TENANT_ID, input.agentRunIds, `${input.fakeActivePrefix}%`],
     );
+    if (input.screeningBatchIds?.length || input.screeningTargetIds?.length) {
+      await client.query(
+        `
+          delete from screening_batch_targets
+          where tenant_id = $1
+            and (
+              screening_batch_id = any($2::text[])
+              or screening_target_id = any($3::text[])
+              or child_agent_run_id = any($4::text[])
+            )
+        `,
+        [
+          CBE_TENANT_ID,
+          input.screeningBatchIds ?? [],
+          input.screeningTargetIds ?? [],
+          input.agentRunIds,
+        ],
+      );
+      await client.query(
+        `
+          delete from screening_batches
+          where tenant_id = $1
+            and id = any($2::text[])
+        `,
+        [CBE_TENANT_ID, input.screeningBatchIds ?? []],
+      );
+      await client.query(
+        `
+          delete from screening_targets
+          where tenant_id = $1
+            and id = any($2::text[])
+        `,
+        [CBE_TENANT_ID, input.screeningTargetIds ?? []],
+      );
+    }
     await client.query(
       `
         delete from lead_sources
@@ -177,6 +214,8 @@ async function runLiveCe21Checks() {
   const agentRunIds: string[] = [];
   const leadRunIds: string[] = [];
   const scopeIds: string[] = [];
+  const screeningBatchIds: string[] = [];
+  const screeningTargetIds: string[] = [];
 
   try {
     const capPool = createCbePool({ max: 2, applicationName: "sentura-cbe-ce21-cap" });
@@ -233,6 +272,100 @@ async function runLiveCe21Checks() {
     agentRunIds.length = 0;
     leadRunIds.length = 0;
     scopeIds.length = 0;
+
+    const previousScreeningCap = process.env.CBE_SCREENING_MAX_ACTIVE_TARGETS;
+    process.env.CBE_SCREENING_MAX_ACTIVE_TARGETS = "1";
+    try {
+      const fanout = await store.createScreeningRun(contextA, {
+        target_summary: "CE22 Screening fan-out live probe",
+        target_record_type: "screening_batch",
+        session_key: `ce22-screening-parent-${stamp}`,
+        child_session_keys: [1, 2, 3].map((item) => `ce22-screening-child-${stamp}-${item}`),
+        targets: [1, 2, 3].map((item) => ({
+          target_id: `ce22-screening-target-input-${stamp}-${item}`,
+          source: "manual_input",
+          lead_id: null,
+          company_name: `CE22 Fanout Buyer ${item} ${stamp}`,
+          country: "GB",
+          website: `https://ce22-fanout-${item}-${stamp}.example.com`,
+          product_interest: ["phone case"],
+          supplied_fields: ["company_name", "country", "website"],
+          missing_fields: [],
+        })),
+        estimated_cost_usd: 0,
+        metadata_json: {
+          target_count: 3,
+          options: {
+            paidEmailValidation: false,
+            paidTradeData: false,
+            maxPaidSpendUsd: 0,
+          },
+        },
+      });
+      agentRunIds.push(fanout.agentRun.id, ...fanout.childRuns.map((child: any) => child.agentRun.id));
+      if (fanout.batch?.id) screeningBatchIds.push(fanout.batch.id);
+      screeningTargetIds.push(...fanout.childRuns.map((child: any) => child.target.target_id).filter(Boolean));
+      check("Screening batch creates one parent run", fanout.agentRun.parentAgentRunId === null && fanout.agentRun.sessionKey === null);
+      check("Screening batch creates one child run per target", fanout.childRuns.length === 3);
+      check(
+        "Screening cap queues excess child runs",
+        fanout.childRuns.filter((child: any) => child.agentRun.status === "running").length === 1 &&
+          fanout.childRuns.filter((child: any) => child.agentRun.status === "queued").length === 2,
+      );
+
+      const firstRunningChild = fanout.childRuns.find((child: any) => child.agentRun.status === "running");
+      if (firstRunningChild) {
+        await store.failEmployeeTask(contextA, firstRunningChild.agentRun.id, {
+          session_key: firstRunningChild.agentRun.sessionKey,
+          error_code: "marker_timeout",
+          error_message: "CE22 fan-out claim probe releases one active slot.",
+        });
+      }
+      const parentAggregatePool = createCbePool({ max: 2, applicationName: "sentura-cbe-ce21-screening-parent" });
+      const parentAggregateClient = await parentAggregatePool.connect();
+      try {
+        const parentAfterFirstTerminal = await parentAggregateClient.query<{
+          status: string;
+          current_stage: string | null;
+          metadata_json: Record<string, any>;
+        }>(
+          `
+            select status, current_stage, metadata_json
+            from agent_runs
+            where tenant_id = $1
+              and id = $2
+            limit 1
+          `,
+          [CBE_TENANT_ID, fanout.agentRun.id],
+        );
+        const parentMetadata = parentAfterFirstTerminal.rows[0]?.metadata_json ?? {};
+        const parentAggregate = (parentMetadata.screening_batch as { aggregate?: Record<string, unknown> } | undefined)?.aggregate ?? {};
+        check(
+          "Screening parent stays running after one child terminal state",
+          parentAfterFirstTerminal.rows[0]?.status === "running" &&
+            parentAfterFirstTerminal.rows[0]?.current_stage === "screening_children_running" &&
+            Number(parentAggregate.total) === 3 &&
+            Number(parentAggregate.terminal) === 1,
+        );
+      } finally {
+        parentAggregateClient.release();
+        await parentAggregatePool.end();
+      }
+      const drained = await store.claimQueuedScreeningChildRuns(contextA, {
+        screening_batch_id: fanout.batch?.id,
+        limit: 3,
+      });
+      check("Screening drain claims one queued child after a slot opens", drained.childRuns.length === 1 && drained.childRuns[0].agentRun.status === "running");
+      check(
+        "Screening batch aggregate tracks failed, running, and queued children",
+        drained.batch?.aggregate.failed === 1 &&
+          drained.batch.aggregate.running === 1 &&
+          drained.batch.aggregate.queued === 1,
+      );
+    } finally {
+      if (previousScreeningCap === undefined) delete process.env.CBE_SCREENING_MAX_ACTIVE_TARGETS;
+      else process.env.CBE_SCREENING_MAX_ACTIVE_TARGETS = previousScreeningCap;
+    }
 
     const exactA = await store.createLeadRun(contextA, {
       query_config: {
@@ -587,7 +720,15 @@ async function runLiveCe21Checks() {
       await failPool.end();
     }
   } finally {
-    await cleanupCe21Probe({ agentRunIds, leadRunIds, scopeIds, fakeActivePrefix, domainPrefix });
+    await cleanupCe21Probe({
+      agentRunIds,
+      leadRunIds,
+      scopeIds,
+      fakeActivePrefix,
+      domainPrefix,
+      screeningBatchIds,
+      screeningTargetIds,
+    });
     await store.getCbePool().end();
   }
 }
@@ -631,7 +772,24 @@ check("Lead completion records DB reconciliation and releases scope lease", ["it
 
 check("Screening and Accio create paths use workload admission", [screeningTs, accioTs].every((file) => read(file).includes("admitCbeWorkload") && read(file).includes("workloadMetadata")));
 const screeningCreateBody = read(screeningTs).slice(read(screeningTs).indexOf("export async function createScreeningRun"));
-check("Screening create path enforces fan-out boundary before insert", screeningCreateBody.includes("assertScreeningSessionShape") && screeningCreateBody.indexOf("assertScreeningSessionShape") < screeningCreateBody.indexOf("insertAgentRun"));
+check(
+  "Screening create path implements parent/child fan-out and queued child drain",
+  [
+    "createScreeningBatchRun",
+    "screening_batches",
+    "screening_batch_targets",
+    "child_session_keys",
+    "claimQueuedScreeningChildRuns",
+    "for update skip locked",
+    "assertScreeningSessionShape",
+  ].every((needle) => read(screeningTs).includes(needle)) && screeningCreateBody.includes("shouldFanOut"),
+);
+check(
+  "Screening aggregate refresh resolves child id before counting all batch targets",
+  ["with selected_batch as", "exists (", "child_sbt.child_agent_run_id", "sbt.screening_batch_id = selected_batch.id"].every((needle) =>
+    read(screeningTs).includes(needle),
+  ),
+);
 
 const employeeApiText = read(employeeApiTs);
 const employeeRunnerText = read(employeeRunnerTs);
@@ -639,8 +797,9 @@ const customersPageText = read(customersPageTs);
 const memoryPageText = read(memoryPageTs);
 check("Employee API exposes Lead coordinator decision shape", employeeApiText.includes("ApiLeadCoordinatorDecision") && employeeApiText.includes("CreateEmployeeLeadRunResponse"));
 check("Lead hidden prompt supports strict target and top-up denylist", ["top_up_unique_leads", "existing_identity_keys", "already_covered_queries", "target_count 是本次任务必须新增的净新客户硬目标", "web_fetch 被安全策略拦截"].every((needle) => employeeRunnerText.includes(needle)));
-check("Employee Lead page does not launch sessions for join/near/queued decisions and supports auto top-up", ["join_existing", "offer_near_duplicate_choices", "agentRun.status === \"queued\"", "MAX_LEAD_COMPLETION_ATTEMPTS", "数据库查重后还差"].every((needle) => customersPageText.includes(needle)) && !customersPageText.includes("reuse_completed_pool"));
-check("Employee Screening and Accio pages do not launch queued sessions", customersPageText.includes("背调任务已进入排队中") && memoryPageText.includes("记忆整理任务已进入排队中"));
+check("Employee Lead page does not launch sessions for join/near/queued decisions and supports auto top-up", ["join_existing", "offer_near_duplicate_choices", "agentRun.status === \"queued\"", "MAX_LEAD_COMPLETION_ATTEMPTS", "top_up_unique_leads"].every((needle) => customersPageText.includes(needle) || employeeApiText.includes(needle)) && !customersPageText.includes("reuse_completed_pool"));
+check("Employee Screening fan-out page launches only claimed child sessions and Accio page does not launch queued sessions", ["childRuns", "claimEmployeeQueuedScreeningRuns", "agentRun.status !== \"queued\"", "背调任务已进入排队"].every((needle) => customersPageText.includes(needle)) && memoryPageText.includes("记忆整理已进入排队"));
+check("Employee Screening completion count uses saved DB reports", employeeApiText.includes("CompleteEmployeeScreeningRunResponse") && customersPageText.includes("savedResult.reports") && customersPageText.includes("Math.max(savedReportCount, result.records.length)"));
 check("Lead workspace documents pre-search denylist, strict target, and top-up mode", read(leadAgentsMd).includes("net-new, non-duplicate customers") && read(leadQuerySkill).includes("max_results_per_query") && read(leadDedupeSkill).includes("Do not count dropped denylist candidates") && read(leadListSkill).includes("The `leads` array should contain exactly `target_count`"));
 
 if (process.env.CBE_DATABASE_URL) {

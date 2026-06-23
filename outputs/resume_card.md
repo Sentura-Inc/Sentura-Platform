@@ -1,10 +1,22 @@
 # Sentura CBE Resume Card
 
-Workspace: `/Users/purest./Documents/Sentura/Sentura-Platform`
+Workspace: `/Users/henry/Desktop/Sentura-Platform`
 
 Conversation language: Chinese for user-facing replies. Keep handoff notes concise English with exact Chinese product/customer/UI names unchanged.
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
+
+Completed task, 2026-06-24:
+
+- User asked to start the next task from `跨境电商/PHASE-2.md` P2.5 and strictly follow the plan, then inspect the implementation.
+- Implemented Screening parent/child fan-out: multi-target Screening requests now create one parent `agent_runs` row, one `screening_batches` row, one pre-created `screening_targets` row per target, one child `agent_runs` row per target, and one `screening_batch_targets` row per child.
+- Child Screening prompt payloads carry exactly one target. Production batch-5 and batch-10 remain blocked; batch-3 remains behind `CBE_SCREENING_ALLOW_BATCH3=true`.
+- Added route-triggered queued-child drain: `POST /api/client-demos/cross-border/employee/screening-runs/drain` claims queued child runs with row locks, workload admission, leases, running session keys, activity events, and parent aggregate refresh.
+- Employee bulk Screening now starts one parent task, runs claimed single-target child sessions, records child completion/failure/cancellation, and drains another queued wave after each wave completes. Ordinary task lists hide silent child notifications and show the parent aggregate.
+- Live-test fixes: parent aggregate refresh now resolves the batch before counting all child targets, preventing one terminal child from completing the parent early; Employee completion messages count backend-saved Screening reports from `completeEmployeeScreeningRun().reports.length`.
+- Verification so far: Dashboard `tsc --noEmit` PASS; Phase 2 store static PASS 196/196; Phase 2 store live PostgreSQL PASS 218/218; Phase 2 concurrency static PASS 23/23; Phase 2 concurrency live PostgreSQL PASS 46/46 with a three-target fan-out/drain probe; live OpenClaw/Dashboard bulk Screening under operator `吴思彤` PASS across two real three-target runs.
+- Broad legacy `scripts/test-cross-border-agents.ts` currently FAILS 398/410 because of stale UI/copy assertions outside the P2.5 fan-out path; do not treat those 12 failures as fan-out regressions without re-reading the failing assertions.
+- Remaining P2.5 work: per-target paid email/trade retry state with explicit re-approval, durable Screening report/evidence retry polish, Accio approval-to-memory promotion, and durable Screening handoff consumption. Then proceed to P2.6 load smoke.
 
 Completed task, 2026-06-23:
 
@@ -75,7 +87,7 @@ Latest P2.4 audit, 2026-06-22:
   - Dashboard `tsc --noEmit`: PASS.
   - Dashboard production build: PASS, with only the known Next multiple-lockfile workspace-root warning.
   - `git diff --check`: PASS before final memory/handoff docs.
-- Remaining work is not P2.4: queue draining/claim outside the original browser request, Screening parent/child fan-out, durable Screening/Accio workflow polish, and P2.6 load smoke.
+- Remaining work is not P2.4: P2.5 paid-call retry state, durable Screening/Accio workflow polish, and P2.6 load smoke. Screening parent/child fan-out plus queued-child drain were implemented on 2026-06-24.
 
 Latest live audit, 2026-06-22:
 

@@ -1,5 +1,42 @@
 # Sentura CBE Continuation Handoff
 
+## Current Resume Snapshot
+
+Default continuation rule: read `outputs/resume_card.md` first. Then read only this snapshot and `Next Steps` unless deeper history is required. Use `docs/MEMORY.md` as an index only when a specific prior row is needed.
+
+Workspace: `/Users/henry/Desktop/Sentura-Platform`
+
+Conversation language: answer the user in Chinese. Keep handoff updates concise English for token efficiency, while preserving exact Chinese UI labels when they matter.
+
+Current active product area: Sentura cross-border e-commerce / 跨境电商 Phase 2 production hardening.
+
+Latest task, 2026-06-24: implement P2.5 Screening parent/child fan-out and queued-child drain from `跨境电商/PHASE-2.md`.
+
+### Result
+
+- Multi-target Screening requests now create one parent `agent_runs` row, one `screening_batches` row, one pre-created `screening_targets` row per target, one child `agent_runs` row per target, and one `screening_batch_targets` row per child.
+- Each child run carries exactly one target in its prompt/session payload. Production batch-5 and batch-10 remain blocked; batch-3 remains gated by `CBE_SCREENING_ALLOW_BATCH3=true`.
+- Added `POST /api/client-demos/cross-border/employee/screening-runs/drain` for route-triggered queued-child claim using row locks, workload admission, leases, session keys, activity events, and parent aggregate refresh.
+- Employee bulk Screening execution now starts one parent task, runs claimed non-queued single-target child sessions, records individual child completion/failure/cancellation, and drains another queued wave after each child wave.
+- Ordinary Employee task lists hide silent child notifications and show the parent aggregate task.
+- Live-test fixes: parent aggregate refresh now resolves the batch before counting all child targets, preventing one terminal child from completing the parent early; Employee completion messages count backend-saved Screening reports from `completeEmployeeScreeningRun().reports.length`.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46. The live probe verifies a three-target Screening batch under active-target cap 1, queued excess children, child failure, parent remains running after one terminal child, drain claim, aggregate counts, and saved-report completion count sourcing.
+- Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Two real three-target bulk Screening runs completed; the second ended with parent aggregate `total=3/completed=3/terminal=3` and one saved report per child.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410 due to stale legacy static/UI-copy assertions outside the P2.5 fan-out path.
+
+### Next Steps
+
+1. Persist per-target paid email/trade call retry state and require explicit re-approval before paid retry repeats a lookup.
+2. Finish durable Screening/Accio workflow polish: report/evidence detail UX, retry/recovery, approval-to-memory promotion, and durable Screening handoff consumption.
+3. Add the P2.6 load-smoke profile after paid retry and durable workflow paths are stable.
+
 ## Active Task — Chinese Label Cleanup And Manager Customer Filter Fix
 
 Date: 2026-06-23
@@ -203,7 +240,7 @@ The scale-aware Screening scoring redesign is now implemented:
 
 ### Boundary
 
-This completes the Google Maps scoring fusion requested in this round. Remaining CBE Phase 2 work is P2.5 queue draining/claim behavior, Screening parent/child fan-out, paid-call retry state, durable Screening/Accio workflow polish, and later P2.6 load smoke.
+This completes the Google Maps scoring fusion requested in that round. As of 2026-06-24, Screening parent/child fan-out plus queued-child drain are also implemented. Remaining CBE Phase 2 work is paid-call retry state, durable Screening/Accio workflow polish, and later P2.6 load smoke.
 
 ## Latest Implementation
 
@@ -278,7 +315,7 @@ P2.4 is complete. The current implementation matches the CE21/P2.4 boundary:
 - tenant DB pre-search denylist and completion-time DB reconciliation before visible Lead writes;
 - Lead failure cascade and scope lease release;
 - Employee Lead/Screening/Accio UI gating so queued/join/near responses do not start hidden sessions;
-- Screening multi-target production-session block and P2.5 fan-out schema preparation.
+- Screening multi-target production-session block, P2.5 fan-out schema preparation, and the 2026-06-24 parent/child fan-out plus queued-child drain implementation.
 
 ### Verification
 
@@ -295,7 +332,7 @@ P2.4 is complete. The current implementation matches the CE21/P2.4 boundary:
 
 ### Boundary
 
-Remaining work belongs to P2.5/P2.6, not P2.4: queued-work draining/claim outside the original browser request, Screening parent/child fan-out, durable Screening report/retry polish, paid-call retry state, Accio approval-to-memory promotion, Screening handoff consumption, and later load smoke.
+Remaining work belongs to P2.5/P2.6, not P2.4: durable Screening report/retry polish, paid-call retry state, Accio approval-to-memory promotion, Screening handoff consumption, and later load smoke. Queued-work drain/claim and Screening parent/child fan-out were implemented on 2026-06-24.
 
 ## Latest Live Audit
 
@@ -459,4 +496,4 @@ The latest task intentionally changed code, agent workspace files, setup scripts
    - Backend actually returned a valid marker; the old UI wait path timed out too early.
    - Live MCP env lacked Google key references until setup was rerun; now fixed and verified with a real Google Places smoke.
    - Tests passed; restart Gateway/MCP and Dashboard dev server before retesting.
-4. Remaining Phase 2 work also includes Screening parent/child queue fan-out/draining, paid-call retry state, durable Screening report UX polish, Accio approval-to-memory promotion, and Screening handoff consumption.
+4. Remaining Phase 2 work includes paid-call retry state, durable Screening report UX polish, Accio approval-to-memory promotion, and Screening handoff consumption. Screening parent/child queue fan-out/draining was implemented on 2026-06-24.

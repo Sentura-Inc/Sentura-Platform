@@ -174,7 +174,7 @@ export async function createAgentRun(
 export async function markAgentRunRunning(
   db: CbeDb,
   context: TenantContext,
-  input: { agentRunId: string; sessionKey?: string; currentStage?: string },
+  input: { agentRunId: string; sessionKey?: string; currentStage?: string; leaseOwner?: string; leaseUntil?: string },
 ) {
   const result = await db.query<AgentRunRow>(
     `
@@ -183,12 +183,22 @@ export async function markAgentRunRunning(
         status = 'running',
         session_key = coalesce($3, session_key),
         current_stage = coalesce($4, current_stage),
+        queued_at = null,
+        lease_owner = coalesce($5, lease_owner),
+        lease_until = coalesce($6::timestamptz, lease_until),
         last_activity_at = now()
       where tenant_id = $1
         and id = $2
       returning *
     `,
-    [context.tenantId, input.agentRunId, input.sessionKey ?? null, input.currentStage ?? null],
+    [
+      context.tenantId,
+      input.agentRunId,
+      input.sessionKey ?? null,
+      input.currentStage ?? null,
+      input.leaseOwner ?? null,
+      input.leaseUntil ?? null,
+    ],
   );
   return result.rows[0] ? toAgentRunRecord(result.rows[0]) : null;
 }

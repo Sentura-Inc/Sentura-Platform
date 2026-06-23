@@ -2,10 +2,18 @@ import type { PoolClient } from "pg";
 import { queryCbe, withCbeTransaction } from "./db";
 import { CbeStoreError } from "./errors";
 import { createCbeId } from "./ids";
-import { completeAgentRun, createAgentRunActivityEvent, failAgentRun, insertAgentRun } from "./agent-runs";
+import {
+  completeAgentRun,
+  createAgentRunActivityEvent,
+  failAgentRun,
+  insertAgentRun,
+  markAgentRunRunning,
+  type AgentRunRecord,
+} from "./agent-runs";
 import { createAuditEvent } from "./audit";
 import { scopedOwnerClause } from "./tenant-context";
 import type {
+  ClaimQueuedScreeningRunsRequest,
   CompleteScreeningRunRequest,
   CreateScreeningRunRequest,
   ScreeningEvidenceMarker,
@@ -14,7 +22,7 @@ import type {
   ScreeningTargetMarker,
   TenantContext,
 } from "./schemas";
-import { CreateScreeningRunRequestSchema } from "./schemas";
+import { ClaimQueuedScreeningRunsRequestSchema, CreateScreeningRunRequestSchema } from "./schemas";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
 import { admitCbeWorkload, assertScreeningSessionShape, getCbeWorkloadSettings, workloadMetadata } from "./workload-coordinator";
 
@@ -60,6 +68,34 @@ export interface ScreeningAddressLocationRecord {
   sourceType: string;
   fetchedAt: string | null;
   createdAt: string;
+}
+
+export interface ScreeningBatchRecord {
+  id: string;
+  parentAgentRunId: string;
+  requestedTargetCount: number;
+  executionMode: string;
+  status: string;
+  aggregate: ScreeningBatchAggregate;
+}
+
+export interface ScreeningChildRunRecord {
+  batchTargetId: string;
+  targetOrder: number;
+  status: string;
+  agentRun: AgentRunRecord;
+  target: ScreeningTargetMarker;
+}
+
+export interface ScreeningBatchAggregate {
+  total: number;
+  queued: number;
+  running: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  retryable: number;
+  terminal: number;
 }
 
 export interface ListScreeningAddressLocationsQuery {
@@ -122,12 +158,63 @@ interface ScreeningAddressLocationRow {
   created_at: Date;
 }
 
+interface ScreeningBatchRow {
+  id: string;
+  parent_agent_run_id: string;
+  requested_target_count: number;
+  execution_mode: string;
+  status: string;
+  aggregate_json: Record<string, unknown> | null;
+}
+
+interface ScreeningBatchAggregateRow {
+  batch_id: string;
+  parent_agent_run_id: string;
+  total_count: string;
+  queued_count: string;
+  running_count: string;
+  completed_count: string;
+  failed_count: string;
+  cancelled_count: string;
+}
+
+interface QueuedScreeningChildRow {
+  agent_run_id: string;
+  screening_batch_id: string;
+  batch_target_id: string;
+  target_order: number;
+  metadata_json: Record<string, unknown>;
+}
+
 function toScreeningTargetRecord(row: ScreeningTargetRow): ScreeningTargetRecord {
   return {
     id: row.id,
     companyName: row.company_name,
     country: row.country,
     domain: row.domain,
+  };
+}
+
+function toScreeningBatchRecord(row: ScreeningBatchRow): ScreeningBatchRecord {
+  const aggregate = row.aggregate_json && typeof row.aggregate_json === "object"
+    ? row.aggregate_json as Partial<ScreeningBatchAggregate>
+    : {};
+  return {
+    id: row.id,
+    parentAgentRunId: row.parent_agent_run_id,
+    requestedTargetCount: row.requested_target_count,
+    executionMode: row.execution_mode,
+    status: row.status,
+    aggregate: {
+      total: Number(aggregate.total ?? row.requested_target_count),
+      queued: Number(aggregate.queued ?? 0),
+      running: Number(aggregate.running ?? 0),
+      completed: Number(aggregate.completed ?? 0),
+      failed: Number(aggregate.failed ?? 0),
+      cancelled: Number(aggregate.cancelled ?? 0),
+      retryable: Number(aggregate.retryable ?? 0),
+      terminal: Number(aggregate.terminal ?? 0),
+    },
   };
 }
 
@@ -297,21 +384,17 @@ async function resolveLeadCandidateId(
   return result.rows[0]?.id ?? null;
 }
 
-async function insertScreeningTarget(
+async function saveScreeningTargetMarker(
   client: PoolClient,
   context: TenantContext,
-  report: ScreeningReportMarker,
+  target: ScreeningTargetMarker,
+  fallbackCompanyName?: string,
 ) {
-  const target: ScreeningTargetMarker = report.target ?? {
-    source: report.target_source ?? "manual_input",
-    lead_id: report.lead_id,
-    company_name: report.company_name,
-    product_interest: [],
-    supplied_fields: [],
-    missing_fields: [],
-  };
-  const leadCandidateId = await resolveLeadCandidateId(client, context, target.lead_id ?? report.lead_id);
-  const companyName = target.company_name ?? report.company_name;
+  const leadCandidateId = await resolveLeadCandidateId(client, context, target.lead_id);
+  const companyName = target.company_name ?? fallbackCompanyName;
+  if (!companyName?.trim()) {
+    throw new CbeStoreError(400, "screening_target_missing_company", "Screening target requires a company name.");
+  }
   const domain = normalizeDomain(target.domain ?? target.website);
   const existingTargetId =
     target.target_id?.startsWith("screening_target") ? target.target_id :
@@ -397,7 +480,7 @@ async function insertScreeningTarget(
       context.userId,
       context.departmentId ?? null,
       context.teamName ?? null,
-      companyName,
+      companyName.trim(),
       target.country ?? null,
       domain,
       target.email ?? null,
@@ -414,6 +497,26 @@ async function insertScreeningTarget(
     record: toScreeningTargetRecord(result.rows[0]),
     leadCandidateId,
   };
+}
+
+async function insertScreeningTarget(
+  client: PoolClient,
+  context: TenantContext,
+  report: ScreeningReportMarker,
+) {
+  return saveScreeningTargetMarker(
+    client,
+    context,
+    report.target ?? {
+      source: report.target_source ?? "manual_input",
+      lead_id: report.lead_id,
+      company_name: report.company_name,
+      product_interest: [],
+      supplied_fields: [],
+      missing_fields: [],
+    },
+    report.company_name,
+  );
 }
 
 async function insertEvidence(
@@ -594,16 +697,393 @@ async function insertScoreBlock(
   );
 }
 
+function aggregateFromRow(row: ScreeningBatchAggregateRow): ScreeningBatchAggregate {
+  const total = Number(row.total_count);
+  const queued = Number(row.queued_count);
+  const running = Number(row.running_count);
+  const completed = Number(row.completed_count);
+  const failed = Number(row.failed_count);
+  const cancelled = Number(row.cancelled_count);
+  const terminal = completed + failed + cancelled;
+  return {
+    total,
+    queued,
+    running,
+    completed,
+    failed,
+    cancelled,
+    retryable: failed,
+    terminal,
+  };
+}
+
+function batchStatusFromAggregate(aggregate: ScreeningBatchAggregate): "queued" | "running" | "completed" | "failed" {
+  if (aggregate.terminal >= aggregate.total) {
+    return aggregate.completed > 0 || aggregate.total === 0 ? "completed" : "failed";
+  }
+  if (aggregate.running > 0 || aggregate.completed > 0 || aggregate.failed > 0 || aggregate.cancelled > 0) {
+    return "running";
+  }
+  return "queued";
+}
+
+async function refreshScreeningBatchAggregate(
+  client: PoolClient,
+  context: TenantContext,
+  input: { batchId?: string; childAgentRunId?: string },
+) {
+  const result = await client.query<ScreeningBatchAggregateRow>(
+    `
+      with selected_batch as (
+        select
+          sb.id,
+          sb.parent_agent_run_id
+        from screening_batches sb
+        where sb.tenant_id = $1
+          and (
+            ($2::text is not null and sb.id = $2)
+            or (
+              $3::text is not null
+              and exists (
+                select 1
+                from screening_batch_targets child_sbt
+                where child_sbt.tenant_id = sb.tenant_id
+                  and child_sbt.screening_batch_id = sb.id
+                  and child_sbt.child_agent_run_id = $3
+              )
+            )
+          )
+        limit 1
+      )
+      select
+        selected_batch.id as batch_id,
+        selected_batch.parent_agent_run_id,
+        count(*)::text as total_count,
+        count(*) filter (where sbt.status = 'queued')::text as queued_count,
+        count(*) filter (where sbt.status = 'running')::text as running_count,
+        count(*) filter (where sbt.status = 'completed')::text as completed_count,
+        count(*) filter (where sbt.status = 'failed')::text as failed_count,
+        count(*) filter (where sbt.status = 'cancelled')::text as cancelled_count
+      from selected_batch
+      join screening_batch_targets sbt
+        on sbt.tenant_id = $1
+       and sbt.screening_batch_id = selected_batch.id
+      group by selected_batch.id, selected_batch.parent_agent_run_id
+    `,
+    [context.tenantId, input.batchId ?? null, input.childAgentRunId ?? null],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+
+  const aggregate = aggregateFromRow(row);
+  const status = batchStatusFromAggregate(aggregate);
+  const metadata = {
+    screening_batch: {
+      id: row.batch_id,
+      status,
+      aggregate,
+    },
+    screening_batch_id: row.batch_id,
+    screening_batch_total: aggregate.total,
+    screening_batch_queued: aggregate.queued,
+    screening_batch_running: aggregate.running,
+    screening_batch_completed: aggregate.completed,
+    screening_batch_failed: aggregate.failed,
+    screening_batch_retryable: aggregate.retryable,
+  };
+
+  await client.query(
+    `
+      update screening_batches
+      set
+        status = $3,
+        completed_at = case when $4::boolean then coalesce(completed_at, now()) else null end
+      where tenant_id = $1
+        and id = $2
+    `,
+    [context.tenantId, row.batch_id, status, aggregate.terminal >= aggregate.total],
+  );
+
+  if (aggregate.terminal >= aggregate.total) {
+    await completeAgentRun(client, context, {
+      agentRunId: row.parent_agent_run_id,
+      currentStage: aggregate.failed > 0 ? "screening_batch_completed_with_failures" : "screening_batch_completed",
+      metadataJson: metadata,
+    });
+  } else {
+    await client.query(
+      `
+        update agent_runs
+        set
+          status = 'running',
+          current_stage = $3,
+          last_activity_at = now(),
+          metadata_json = metadata_json || $4::jsonb
+        where tenant_id = $1
+          and id = $2
+      `,
+      [
+        context.tenantId,
+        row.parent_agent_run_id,
+        status === "queued" ? "screening_children_queued" : "screening_children_running",
+        JSON.stringify(metadata),
+      ],
+    );
+  }
+
+  return {
+    batchId: row.batch_id,
+    parentAgentRunId: row.parent_agent_run_id,
+    status,
+    aggregate,
+  };
+}
+
+async function loadScreeningBatchRecord(client: PoolClient, context: TenantContext, batchId: string) {
+  const aggregate = await refreshScreeningBatchAggregate(client, context, { batchId });
+  const result = await client.query<ScreeningBatchRow>(
+    `
+      select
+        sb.id,
+        sb.parent_agent_run_id,
+        sb.requested_target_count,
+        sb.execution_mode,
+        sb.status,
+        $3::jsonb as aggregate_json
+      from screening_batches sb
+      where sb.tenant_id = $1
+        and sb.id = $2
+      limit 1
+    `,
+    [context.tenantId, batchId, JSON.stringify(aggregate?.aggregate ?? {})],
+  );
+  return result.rows[0] ? toScreeningBatchRecord(result.rows[0]) : null;
+}
+
+function targetForChildRun(target: ScreeningTargetMarker, targetRecord: ScreeningTargetRecord) {
+  return {
+    ...target,
+    target_id: targetRecord.id,
+    company_name: target.company_name ?? targetRecord.companyName,
+    country: target.country ?? targetRecord.country ?? undefined,
+    domain: target.domain ?? targetRecord.domain ?? undefined,
+  } satisfies ScreeningTargetMarker;
+}
+
+function plannedSessionKeyForChild(input: CreateScreeningRunRequest, index: number) {
+  return input.child_session_keys?.[index] ?? (index === 0 ? input.session_key : undefined);
+}
+
+function childTargetFromMetadata(metadata: Record<string, unknown>) {
+  const target = metadata.child_target_json;
+  if (target && typeof target === "object") return target as ScreeningTargetMarker;
+  return {
+    source: "manual_input",
+    company_name: "未命名客户",
+    product_interest: [],
+    supplied_fields: [],
+    missing_fields: [],
+  } satisfies ScreeningTargetMarker;
+}
+
+async function createScreeningBatchRun(
+  client: PoolClient,
+  context: TenantContext,
+  input: CreateScreeningRunRequest,
+  targetCount: number,
+) {
+  const settings = getCbeWorkloadSettings();
+  const parentAgentRun = await insertAgentRun(client, context, {
+    agent_id: "cbe-buyer-screening",
+    task_kind: "screening",
+    status: "running",
+    target_record_type: "screening_batch",
+    target_summary: input.target_summary,
+    current_stage: "screening_children_created",
+    queue_priority: 0,
+    cost_usd_estimate: input.estimated_cost_usd,
+    visibility_scope: input.visibility_scope,
+    metadata_json: {
+      ...input.metadata_json,
+      target_count: targetCount,
+      screening_execution_mode: "single_target_fanout",
+      notification_title: "批量背调",
+      notification_message: `已拆分为 ${targetCount} 个单客户背调子任务。`,
+      notification_target_label: `${targetCount} 个客户`,
+    },
+  });
+
+  const batchId = createCbeId("screening_batch");
+  await client.query(
+    `
+      insert into screening_batches (
+        id,
+        tenant_id,
+        created_by_user_id,
+        parent_agent_run_id,
+        requested_target_count,
+        execution_mode,
+        paid_email_enabled,
+        paid_trade_enabled,
+        per_target_trade_budget_usd,
+        status
+      )
+      values ($1, $2, $3, $4, $5, 'single_target_fanout', $6, $7, $8, 'running')
+    `,
+    [
+      batchId,
+      context.tenantId,
+      context.userId,
+      parentAgentRun.id,
+      targetCount,
+      Boolean(input.metadata_json.options && typeof input.metadata_json.options === "object" && (input.metadata_json.options as Record<string, unknown>).paidEmailValidation),
+      Boolean(input.metadata_json.options && typeof input.metadata_json.options === "object" && (input.metadata_json.options as Record<string, unknown>).paidTradeData),
+      typeof (input.metadata_json.options as Record<string, unknown> | undefined)?.maxPaidSpendUsd === "number"
+        ? (input.metadata_json.options as Record<string, unknown>).maxPaidSpendUsd
+        : 0,
+    ],
+  );
+
+  const childRuns: ScreeningChildRunRecord[] = [];
+  const targets = input.targets ?? [];
+  for (const [index, target] of targets.entries()) {
+    const targetResult = await saveScreeningTargetMarker(client, context, target);
+    const childTarget = targetForChildRun(target, targetResult.record);
+    const batchTargetId = createCbeId("screening_batch_target");
+    const admission = await admitCbeWorkload(client, context, {
+      agentId: "cbe-buyer-screening",
+      taskKind: "screening",
+      requestedSessionKey: plannedSessionKeyForChild(input, index),
+      currentStageWhenRunning: "submitted_to_employee",
+      currentStageWhenQueued: "queued",
+    });
+    const childAgentRun = await insertAgentRun(client, context, {
+      agent_id: "cbe-buyer-screening",
+      task_kind: "screening",
+      parent_agent_run_id: parentAgentRun.id,
+      status: admission.status,
+      session_key: admission.sessionKey,
+      target_record_type: "screening_target",
+      target_record_id: targetResult.record.id,
+      target_summary: childTarget.company_name,
+      current_stage: admission.currentStage,
+      queue_priority: admission.queuePriority,
+      queued_at: admission.queuedAt,
+      cost_usd_estimate: input.estimated_cost_usd / Math.max(targetCount, 1),
+      visibility_scope: input.visibility_scope,
+      metadata_json: {
+        ...input.metadata_json,
+        target_count: 1,
+        screening_batch_id: batchId,
+        screening_batch_target_id: batchTargetId,
+        screening_parent_agent_run_id: parentAgentRun.id,
+        child_target_json: childTarget,
+        planned_session_key: plannedSessionKeyForChild(input, index),
+        notification_silent: true,
+        screening_execution_mode: settings.screeningExecutionMode,
+        max_targets_per_session: settings.screeningMaxTargetsPerSession,
+        ...workloadMetadata(admission),
+      },
+    });
+    await client.query(
+      `
+        insert into screening_batch_targets (
+          id,
+          tenant_id,
+          screening_batch_id,
+          screening_target_id,
+          child_agent_run_id,
+          target_order,
+          status
+        )
+        values ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        batchTargetId,
+        context.tenantId,
+        batchId,
+        targetResult.record.id,
+        childAgentRun.id,
+        index + 1,
+        childAgentRun.status,
+      ],
+    );
+    await createAgentRunActivityEvent(client, context, {
+      agentRunId: childAgentRun.id,
+      agentId: "cbe-buyer-screening",
+      taskKind: "screening",
+      targetRecordType: "screening_target",
+      targetRecordId: targetResult.record.id,
+      targetSummary: childTarget.company_name,
+      stage: childAgentRun.status,
+      eventType: "screening_child_run_created",
+      status: childAgentRun.status,
+      metadataJson: {
+        screening_batch_id: batchId,
+        screening_batch_target_id: batchTargetId,
+        parent_agent_run_id: parentAgentRun.id,
+        target_order: index + 1,
+      },
+    });
+    childRuns.push({
+      batchTargetId,
+      targetOrder: index + 1,
+      status: childAgentRun.status,
+      agentRun: childAgentRun,
+      target: childTarget,
+    });
+  }
+
+  await createAgentRunActivityEvent(client, context, {
+    agentRunId: parentAgentRun.id,
+    agentId: "cbe-buyer-screening",
+    taskKind: "screening",
+    targetRecordType: "screening_batch",
+    targetRecordId: batchId,
+    targetSummary: input.target_summary,
+    stage: "running",
+    eventType: "screening_batch_created",
+    status: "running",
+    metadataJson: {
+      screening_batch_id: batchId,
+      requested_target_count: targetCount,
+      child_run_count: childRuns.length,
+    },
+  });
+  await createAuditEvent(client, context, {
+    agentId: "cbe-buyer-screening",
+    eventType: "screening_batch_created",
+    dataTier: "T1",
+    metadataJson: {
+      agent_run_id: parentAgentRun.id,
+      screening_batch_id: batchId,
+      requested_target_count: targetCount,
+    },
+  });
+
+  const batch = await loadScreeningBatchRecord(client, context, batchId);
+  return { agentRun: parentAgentRun, batch, childRuns };
+}
+
 export async function createScreeningRun(
   context: TenantContext,
   rawInput: CreateScreeningRunRequest,
 ) {
   const input = CreateScreeningRunRequestSchema.parse(rawInput);
-  const targetCount = typeof input.metadata_json.target_count === "number"
+  const targetCount = input.targets?.length ?? (typeof input.metadata_json.target_count === "number"
     ? input.metadata_json.target_count
-    : 1;
+    : 1);
   const settings = getCbeWorkloadSettings();
-  assertScreeningSessionShape(targetCount, settings);
+  const shouldFanOut =
+    targetCount > settings.screeningMaxTargetsPerSession &&
+    !(settings.screeningAllowBatch3 && settings.screeningExecutionMode === "batch3_experiment" && targetCount <= 3);
+  if (shouldFanOut && (!input.targets || input.targets.length !== targetCount)) {
+    throw new CbeStoreError(
+      400,
+      "screening_targets_required",
+      "批量背调需要提交每个客户的结构化目标，才能拆分为单客户子任务。",
+    );
+  }
   await checkCbeCostBudgetBeforeRun(context, {
     agentId: "cbe-buyer-screening",
     taskKind: "screening",
@@ -612,6 +1092,10 @@ export async function createScreeningRun(
     metadataJson: input.metadata_json,
   });
   return withCbeTransaction(async (client) => {
+    if (shouldFanOut) {
+      return createScreeningBatchRun(client, context, input, targetCount);
+    }
+    assertScreeningSessionShape(targetCount, settings);
     const admission = await admitCbeWorkload(client, context, {
       agentId: "cbe-buyer-screening",
       taskKind: "screening",
@@ -658,6 +1142,169 @@ export async function createScreeningRun(
     });
     return { agentRun };
   });
+}
+
+export async function claimQueuedScreeningChildRuns(
+  context: TenantContext,
+  rawInput: Partial<ClaimQueuedScreeningRunsRequest> = {},
+) {
+  const input = ClaimQueuedScreeningRunsRequestSchema.parse(rawInput);
+  return withCbeTransaction(async (client) => {
+    const scopeClause = context.cbeRole === "admin"
+      ? ""
+      : "and (ar.owner_user_id = $2 or ar.user_id = $2 or ar.visibility_scope = 'tenant_shared')";
+    const batchClause = input.screening_batch_id
+      ? `and sbt.screening_batch_id = $${context.cbeRole === "admin" ? 2 : 3}`
+      : "";
+    const limitIndex = (context.cbeRole === "admin" ? 2 : 3) + (input.screening_batch_id ? 1 : 0);
+    const values: unknown[] = [context.tenantId];
+    if (context.cbeRole !== "admin") values.push(context.userId);
+    if (input.screening_batch_id) values.push(input.screening_batch_id);
+    values.push(input.limit);
+
+    const queued = await client.query<QueuedScreeningChildRow>(
+      `
+        select
+          ar.id as agent_run_id,
+          sbt.screening_batch_id,
+          sbt.id as batch_target_id,
+          sbt.target_order,
+          ar.metadata_json
+        from agent_runs ar
+        join screening_batch_targets sbt
+          on sbt.tenant_id = ar.tenant_id
+         and sbt.child_agent_run_id = ar.id
+        where ar.tenant_id = $1
+          and ar.agent_id = 'cbe-buyer-screening'
+          and ar.task_kind = 'screening'
+          and ar.status = 'queued'
+          and sbt.status = 'queued'
+          and (ar.lease_until is null or ar.lease_until < now())
+          ${scopeClause}
+          ${batchClause}
+        order by ar.queue_priority desc, ar.queued_at asc nulls last, sbt.target_order asc
+        limit $${limitIndex}
+        for update skip locked
+      `,
+      values,
+    );
+
+    const childRuns: ScreeningChildRunRecord[] = [];
+    for (const row of queued.rows) {
+      const metadata = row.metadata_json ?? {};
+      const plannedSessionKey =
+        typeof metadata.planned_session_key === "string" && metadata.planned_session_key.trim()
+          ? metadata.planned_session_key
+          : `agent:cbe-buyer-screening:dashboard:${createCbeId("session")}`;
+      const admission = await admitCbeWorkload(client, context, {
+        agentId: "cbe-buyer-screening",
+        taskKind: "screening",
+        requestedSessionKey: plannedSessionKey,
+        currentStageWhenRunning: "submitted_to_employee",
+        currentStageWhenQueued: "queued",
+      });
+      if (admission.status !== "running" || !admission.sessionKey) break;
+      const leaseUntil = new Date(Date.now() + admission.settings.queueLeaseSeconds * 1000).toISOString();
+      await client.query(
+        `
+          update agent_runs
+          set metadata_json = metadata_json || $3::jsonb
+          where tenant_id = $1
+            and id = $2
+        `,
+        [context.tenantId, row.agent_run_id, JSON.stringify({ planned_session_key: plannedSessionKey })],
+      );
+      const agentRun = await markAgentRunRunning(client, context, {
+        agentRunId: row.agent_run_id,
+        sessionKey: admission.sessionKey,
+        currentStage: admission.currentStage,
+        leaseOwner: "dashboard-route-drain",
+        leaseUntil,
+      });
+      if (!agentRun) continue;
+      await client.query(
+        `
+          update screening_batch_targets
+          set status = 'running'
+          where tenant_id = $1
+            and id = $2
+        `,
+        [context.tenantId, row.batch_target_id],
+      );
+      await createAgentRunActivityEvent(client, context, {
+        agentRunId: row.agent_run_id,
+        agentId: "cbe-buyer-screening",
+        taskKind: "screening",
+        targetRecordType: "screening_batch_target",
+        targetRecordId: row.batch_target_id,
+        targetSummary: agentRun.targetSummary ?? undefined,
+        stage: "running",
+        eventType: "screening_child_run_claimed",
+        status: "running",
+        metadataJson: {
+          screening_batch_id: row.screening_batch_id,
+          screening_batch_target_id: row.batch_target_id,
+          target_order: row.target_order,
+          lease_until: leaseUntil,
+        },
+      });
+      childRuns.push({
+        batchTargetId: row.batch_target_id,
+        targetOrder: row.target_order,
+        status: "running",
+        agentRun,
+        target: childTargetFromMetadata(metadata),
+      });
+    }
+
+    const batchId = input.screening_batch_id ?? queued.rows[0]?.screening_batch_id;
+    const batch = batchId ? await loadScreeningBatchRecord(client, context, batchId) : null;
+    return {
+      batch,
+      childRuns,
+      queuedRemaining: batch?.aggregate.queued ?? 0,
+    };
+  });
+}
+
+export async function markScreeningChildRunFailed(
+  client: PoolClient,
+  context: TenantContext,
+  input: { agentRunId: string; errorCode: string },
+) {
+  await client.query(
+    `
+      update screening_batch_targets
+      set
+        status = 'failed',
+        error_code = $3
+      where tenant_id = $1
+        and child_agent_run_id = $2
+        and status in ('queued', 'running')
+    `,
+    [context.tenantId, input.agentRunId, input.errorCode],
+  );
+  return refreshScreeningBatchAggregate(client, context, { childAgentRunId: input.agentRunId });
+}
+
+export async function markScreeningChildRunCancelled(
+  client: PoolClient,
+  context: TenantContext,
+  input: { agentRunId: string },
+) {
+  await client.query(
+    `
+      update screening_batch_targets
+      set
+        status = 'cancelled',
+        error_code = 'cancelled'
+      where tenant_id = $1
+        and child_agent_run_id = $2
+        and status in ('queued', 'running')
+    `,
+    [context.tenantId, input.agentRunId],
+  );
+  return refreshScreeningBatchAggregate(client, context, { childAgentRunId: input.agentRunId });
 }
 
 export async function saveScreeningReports(
@@ -764,6 +1411,19 @@ export async function saveScreeningReports(
     if (!agentRun) {
       throw new CbeStoreError(404, "agent_run_missing", "Agent run was not found for Screening completion.");
     }
+    await client.query(
+      `
+        update screening_batch_targets
+        set status = 'completed'
+        where tenant_id = $1
+          and child_agent_run_id = $2
+          and status in ('queued', 'running')
+      `,
+      [context.tenantId, input.agent_run_id],
+    );
+    const batchAggregate = await refreshScreeningBatchAggregate(client, context, {
+      childAgentRunId: input.agent_run_id,
+    });
     await createAgentRunActivityEvent(client, context, {
       agentRunId: input.agent_run_id,
       agentId: "cbe-buyer-screening",
@@ -777,6 +1437,7 @@ export async function saveScreeningReports(
         saved_customer_ids: affectedCustomerIds,
         saved_evidence: evidenceCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
+        screening_batch: batchAggregate,
       },
     });
     await createAuditEvent(client, context, {
@@ -801,12 +1462,26 @@ export async function failScreeningCompletion(
   input: { agentRunId: string; sessionKey?: string; message: string; details?: unknown },
 ) {
   return withCbeTransaction(async (client) => {
-    return failAgentRun(client, context, {
+    const failed = await failAgentRun(client, context, {
       agentRunId: input.agentRunId,
       sessionKey: input.sessionKey,
       errorCode: "marker_parse_failed",
       errorMessage: input.message,
       metadataJson: { validation_error: input.details },
     });
+    await client.query(
+      `
+        update screening_batch_targets
+        set
+          status = 'failed',
+          error_code = 'marker_parse_failed'
+        where tenant_id = $1
+          and child_agent_run_id = $2
+          and status in ('queued', 'running')
+      `,
+      [context.tenantId, input.agentRunId],
+    );
+    await refreshScreeningBatchAggregate(client, context, { childAgentRunId: input.agentRunId });
+    return failed;
   });
 }

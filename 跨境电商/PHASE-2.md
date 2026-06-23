@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-23
+> Last updated: 2026-06-24
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -1248,7 +1248,7 @@ Implemented Screening address-footprint enhancement:
 7. Migration `006_screening_address_locations.sql` creates the dedicated table and backfills any existing `screening_reports.report_json.address_footprint.locations[]` rows so historical reports with this object are not stranded inside JSON only.
 8. Address-footprint findings may support public footprint/domain/business-fit evidence and the scale-aware first score block. They never become formal legal registry/KYB, trade, financial, or Accio behavior proof.
 
-Planned Screening scoring redesign, requested 2026-06-23:
+Implemented scale-aware Screening scoring redesign, completed 2026-06-23:
 
 1. Add a `company_scale_assessment` step before scoring: `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
 2. Rename the first report block label from pure `公司注册` to `公司注册与线下门店/地址`; keep the JSON block id `legal_identity` unless a migration intentionally changes it.
@@ -1256,7 +1256,7 @@ Planned Screening scoring redesign, requested 2026-06-23:
 4. For listed/public and medium-large companies, fuse official registry/disclosure evidence with Google Maps address/local-presence evidence. Registry/disclosure remains primary; Maps adds address, website, phone, and operational consistency.
 5. For small local/offline companies, allow Google Maps to satisfy the first block when at least one confirmed/probable place is `OPERATIONAL`, has a physical address, has plausible category/name/location match, and has no contradictory official-site/registry/web evidence.
 6. Reports must phrase the small-company result as `线下经营真实性由 Google Maps 公开门店/地址证据支持`, not as formal legal registration or KYB proof.
-7. Implementation must update the Screening prompt/skills, deterministic `cbe_intel_score_buyer` behavior, marker/report schema if a scale object is added, report UI labels, and regression tests before this design is considered implemented.
+7. Implementation updated the Screening prompt/skills, deterministic `cbe_intel_score_buyer` behavior, marker/report schema, report UI labels, live `cbe-buyer-screening` workspace files, and regression tests.
 
 Database and policy impact:
 
@@ -1309,6 +1309,15 @@ Per-target prompt/tool contract:
 - Every evidence-bearing result must carry `source_type`, `source_url`, `fetched_at`, confidence, provider/status, and cost/price posture where known.
 - Every report should carry the dedicated `address_footprint` section when Google Maps is configured or a Maps lookup was attempted. If no address is found, the section should still show `coverage_status = "not_found"` or `unavailable_api` with a neutral coverage note.
 - The child run should emit one `SCREEN_REPORTS_JSON_START` / `SCREEN_REPORTS_JSON_END` array containing exactly one report object. Marker recovery remains useful, but the child run should be treated as failed if no traceable source URL/timestamp can be recovered for evidence-bearing claims.
+
+Implementation status, 2026-06-24:
+
+- Multi-target Screening requests now create one parent `agent_runs` record, one `screening_batches` record, and one child `agent_runs` / `screening_batch_targets` pair per target.
+- Child prompt payloads carry exactly one target. Production batch-5 and batch-10 prompts remain blocked; the old batch-3 path remains available only behind `CBE_SCREENING_ALLOW_BATCH3=true`.
+- Child runs are admitted through the existing CBE workload coordinator. Children above the active cap remain `queued` with planned session keys instead of starting OpenClaw work immediately.
+- `POST /api/client-demos/cross-border/employee/screening-runs/drain` claims queued Screening children with row locking, admission checks, leases, and aggregate parent refresh so queued work can start after earlier children finish.
+- Ordinary Employee task lists hide silent child notifications and show the parent aggregate task; child completion/failure/cancellation updates the parent batch counts.
+- Live OpenClaw validation on 2026-06-24 with operator `吴思彤` completed two real three-target bulk Screening runs. The second run ended with parent aggregate `total=3`, `completed=3`, `terminal=3`, and one saved report per child. A live-test bug where child-id aggregate refresh counted only one target was fixed by resolving the batch before aggregating all children.
 
 ### 8.2 Screening Persistence
 
@@ -1498,8 +1507,8 @@ Phase 2 implementation tests:
 | CE18 — DB migrations/store | `scripts/test-cross-border-phase2-store.ts` | Migrations run idempotently; seed tenant/users created; store writes/reads all major record families; no secrets in output. |
 | CE19 — P2.2 typed Dashboard store/API routes | `scripts/test-cross-border-phase2-store.ts` + type/lint/build | Store modules and Employee/Admin route handlers exist; Zod marker validation gates writes; Lead/Screening/Accio live PostgreSQL round-trip succeeds; parse failures mark failed `agent_runs`. |
 | CE20 — P2.3 Employee DB-backed UI migration | `scripts/test-cross-border-phase2-store.ts` + `scripts/inspect-cross-border-live-db.sql` + type/lint/build + Browser | Employee home/customers/memory render from DB; `localStorage` persists drafts/cache only; hidden Lead/Screening/Accio runs create/complete/fail DB task projections; notifications read terminal `agent_runs`; manual DB inspection queries match the physical schema. |
-| CE21 — P2.4 workload coordinator and Lead dedupe | `scripts/test-cross-border-phase2-concurrency.ts` | PASS 2026-06-21: global active-task soft/hard caps queue excess work; two exact same-scope Lead requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed scopes no longer reuse assigned rows; normal repeated same-scope requests keep the full current-request new-customer target; every executable Lead run carries tenant DB pre-search denylist; explicit top-up denylist and completion-time DB duplicate skipping work. |
-| CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; a 10-target Screening request creates one parent task and single-target child runs; no production batch-5/batch-10 Screening session starts; paid email/trade calls are capped once per target; Screening report/evidence detail UX, retry/recovery, Accio approval-to-memory promotion, and durable Screening handoff consumption work. |
+| CE21 — P2.4 workload coordinator and Lead dedupe | `scripts/test-cross-border-phase2-concurrency.ts` | PASS 2026-06-21; rechecked 2026-06-24 with 46/46 live/static coverage including the new Screening fan-out probe, parent-not-prematurely-completed check, and saved-report completion-count check. Global active-task soft/hard caps queue excess work; two exact same-scope Lead requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed scopes no longer reuse assigned rows; normal repeated same-scope requests keep the full current-request new-customer target; every executable Lead run carries tenant DB pre-search denylist; explicit top-up denylist and completion-time DB duplicate skipping work. |
+| CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; multi-target Screening requests create one parent task and single-target child runs; route-triggered drain claims queued children with leases and aggregate parent refresh; Employee completion messages count backend-saved Screening reports; no production batch-5/batch-10 Screening session starts. Live OpenClaw validation completed two real three-target bulk Screening runs under operator `吴思彤`. Remaining CE22 work: paid email/trade call retry state, Screening report/evidence retry polish, Accio approval-to-memory promotion, and durable Screening handoff consumption. |
 | CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead `find-10` requests, 5 Screening batches split into child runs, and 3 Accio imports; 24/32/48 active-task behavior, limits/backpressure/cost/audit recorded. |
 
 Minimum verification after each implementation slice:
@@ -1561,10 +1570,8 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, the Screening Google Maps address-footprint report path, and the scale-aware Google Maps first-block Screening scoring redesign are complete. Continue P2.5 with:
+P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, the Screening Google Maps address-footprint report path, the scale-aware Google Maps first-block Screening scoring redesign, and P2.5 Screening parent/child fan-out plus queued-child drain are complete. Continue P2.5 with:
 
-1. Implement Screening parent task + single-target child-run fan-out using `screening_batches` and `screening_batch_targets`.
-2. Add queue draining/claim behavior around queued `agent_runs` so queued work can start outside the original browser request path.
-3. Keep production Screening batch-5 and batch-10 blocked; allow batch-3 only behind `CBE_SCREENING_ALLOW_BATCH3=true`.
-4. Persist per-target paid email/trade call state and require explicit re-approval before paid retry repeats a lookup.
-5. Finish durable Screening/Accio workflow polish: report/evidence detail UX, retry/recovery, approval-to-memory promotion, and durable Screening handoff consumption.
+1. Persist per-target paid email/trade call state and require explicit re-approval before paid retry repeats a lookup.
+2. Finish durable Screening/Accio workflow polish: report/evidence detail UX, retry/recovery, approval-to-memory promotion, and durable Screening handoff consumption.
+3. Add the P2.6 load-smoke profile after paid retry and durable workflow paths are stable.
