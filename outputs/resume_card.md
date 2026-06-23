@@ -19,7 +19,31 @@ Completed task, 2026-06-23:
 - Verification: `pnpm --dir sentura/dashboard exec tsc --noEmit` PASS; `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` PASS 195/195; `git diff --check` PASS; authenticated desktop/mobile browser checks passed for Employee/Manager main routes, report dialogs, employee detail, and cost detail with no horizontal overflow or default-visible banned technical terms.
 - Dashboard dev server is running at `http://127.0.0.1:3000` from `/Users/purest./Documents/Sentura/Sentura-Platform`.
 
-Latest implementation, 2026-06-22:
+Completed task, 2026-06-23:
+
+- The user requested a full backup and broad UI copy simplification across the CBE Employee and Manager platforms.
+- Full backup created before edits: `/Users/purest./Documents/Sentura/backups/Sentura-Platform-before-copy-simplification-20260623-004415`.
+- Pre-change `git status --short` showed only one existing unrelated local modification: `M 启动说明.md`.
+- Scope covered Employee `个人中心`, `获客与背调`, `记忆整理`, task status, messages, employee cost card/detail, all customer/report dialogs; Manager `员工管理`, `优先跟进客户`, `费用监控`, employee detail, cost detail, approvals, and customer report dialogs.
+- Business logic, DB schemas, scoring/cost calculation, task behavior, and permissions were not intentionally changed.
+- Legacy normal sidebar entries `CBE Leads`, `CBE Screening`, and `CBE Accio` were removed from ordinary navigation.
+- Default visible copy now uses business language. Technical details remain available behind `查看技术详情`, `查看诊断信息`, `评分说明`, and `费用怎么算`.
+- Historical report text is cleaned at display time so terms such as `RDAP`, `JSON`, `API authorization failure`, `HTTP 401`, `MX`, `SPF`, `DMARC`, `provider`, and raw `URL` references do not appear by default in checked report/detail surfaces.
+- Verification: `pnpm --dir sentura/dashboard exec tsc --noEmit` PASS; `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` PASS 195/195; `git diff --check` PASS; authenticated desktop/mobile browser checks passed for Employee/Manager main routes, report dialogs, employee detail, and cost detail with no horizontal overflow or default-visible banned technical terms.
+- Dashboard dev server is running at `http://127.0.0.1:3000` from `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+Latest implementation, 2026-06-23:
+
+- Implemented the scale-aware Google Maps first-block Screening scoring redesign.
+- Screening reports now carry `company_scale_assessment` with `scale_class`, confidence, rationale, and `first_block_strategy`.
+- The first 25% block is displayed as `公司注册与线下门店/地址`; JSON keeps `legal_identity` for backward compatibility.
+- For listed/public and medium-large companies, first-block scoring fuses official registry/disclosure evidence with Google Maps local-presence/address/website/phone consistency.
+- For small local/offline companies that registry APIs cannot match, one confirmed/probable Google Maps Place with `businessStatus=OPERATIONAL`, physical address, plausible category/name/location match, and no contradictory evidence can satisfy the first block as real-company/offline-existence evidence.
+- Reports phrase this as `线下经营真实性由 Google Maps 公开门店/地址证据支持`, not formal legal registration/KYB proof.
+- Implementation touched MCP scoring schema/result propagation, hidden Employee and legacy Screening prompts, `cbe-buyer-screening` skills, Dashboard marker/store normalization, shared report UI, legacy Screening UI, diagnostic route inference, tests, docs, and live `~/.openclaw/workspace/cbe-buyer-screening` sync.
+- Verification: MCP tests 24/24, MCP build PASS, CBE static checks 409/409, Phase 2 store static 195/195, live PostgreSQL store 217/217 with `.env.local` DB injection, Dashboard `tsc --noEmit` PASS, minimal real Google Places API smoke PASS (HTTP 200, one `OPERATIONAL` candidate with place id and Maps URI), live workspace diff PASS, `git diff --check` PASS before final docs.
+
+Previous implementation, 2026-06-22:
 
 - Added the dedicated Screening company-address table requested by the user.
 - New migration: `sentura/lib/cross-border-store/migrations/006_screening_address_locations.sql`.
@@ -46,8 +70,8 @@ Latest P2.4 audit, 2026-06-22:
 - Verification rerun:
   - CE21 static: 21/21 PASS.
   - CE21 live PostgreSQL: 38/38 PASS.
-  - Phase 2 store static/live: 184/184 and 204/204 PASS at that audit; current post-address-table counts are 194/194 static and 216/216 live below.
-  - CBE agent regression at that audit: 403/403 PASS; current post-address-footprint regression is 406/406 below.
+  - Phase 2 store static/live: 184/184 and 204/204 PASS at that audit; current post-scale-aware-scoring counts are 195/195 static and 217/217 live.
+  - CBE agent regression at that audit: 403/403 PASS; current post-scale-aware-scoring regression is 409/409.
   - Dashboard `tsc --noEmit`: PASS.
   - Dashboard production build: PASS, with only the known Next multiple-lockfile workspace-root warning.
   - `git diff --check`: PASS before final memory/handoff docs.
@@ -74,7 +98,7 @@ Latest completed task, 2026-06-21:
   - `cbe_intel_google_address_validate`
 - Google config is server-side only: `GOOGLE_MAPS_API_KEY`, optional endpoint overrides, and `CBE_GOOGLE_MAPS_*` request caps. Setup scripts now read project `.env`, `~/.openclaw/.env`, and process env, then inject key/cap references into MCP env when present.
 - Lead Discovery is now Maps-first: Places Text/Nearby Search for local/storefront buyer seeds, Place Details for shortlisted enrichment, OpenClaw web search/fetch for company-owned site and mobile-accessory buyer-fit verification, then DB reconciliation for uniqueness/allocation.
-- Screening uses Google Maps only as supporting public local-presence and address/website consistency evidence. It is not registry/KYB/trade/financial/fraud/Accio proof.
+- Screening now has a 2026-06-23 design update: Google Maps remains non-KYB/legal proof, but can satisfy the first `公司注册与线下门店/地址` authenticity block for small local/offline companies when the place is operational, physical, matched, and non-contradictory.
 - Dashboard prompts, source/evidence enums, typed store schemas, report layers, diagnostic env status, and live OpenClaw workspaces were updated.
 - Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat `chat.send` timeout as recoverable when the transcript can still produce markers, and add a final 60s transcript grace window.
 - The `寻找客户` drawer now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the summary/button so the submitted payload matches the visible number.
@@ -107,11 +131,11 @@ Files intentionally edited include:
 Verification completed:
 
 - `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
-- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 23/23.
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
 - Real Google Places smoke through MCP with configured API key: PASS, HTTP 200, `status="found"`, one candidate, `place_id`, and `google_maps_uri`; no raw key/full provider response printed.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 406/406.
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 194/194.
-- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216 static + live PostgreSQL, including true `screening_address_locations` write/read through `saveScreeningReports` and typed lookup.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217 static + live PostgreSQL, including true `screening_address_locations` write/read through `saveScreeningReports` and typed lookup.
 - `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS, applied `006_screening_address_locations.sql`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 21/21.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.

@@ -97,6 +97,19 @@ export const ScoreBlockIdSchema = z.enum([
   "trade_financial",
   "conversation_behavior",
 ]);
+export const CompanyScaleClassSchema = z.enum([
+  "listed_or_public",
+  "medium_large_registered",
+  "small_local_offline",
+  "small_online_only",
+  "unknown_scale",
+]);
+export const CompanyScaleFirstBlockStrategySchema = z.enum([
+  "registry_disclosure_primary_maps_support",
+  "maps_physical_address_primary",
+  "domain_public_source_primary",
+  "try_registry_and_maps",
+]);
 
 const IsoTimestampSchema = z.string().datetime({ offset: true });
 const CountryCodeSchema = z.string().regex(/^[A-Z]{2}$/);
@@ -358,6 +371,12 @@ export const ScreeningReportMarkerSchema = z.object({
   target_source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).optional(),
   company_name: z.string().min(1),
   target: ScreeningTargetMarkerSchema.optional(),
+  company_scale_assessment: z.object({
+    scale_class: CompanyScaleClassSchema,
+    confidence: ConfidenceSchema.optional(),
+    rationale: z.string().min(1),
+    first_block_strategy: CompanyScaleFirstBlockStrategySchema,
+  }).optional(),
   risk_tier: RiskTierSchema,
   normalized_score: z.number().min(0).max(100).nullable(),
   evidence_coverage: z.number().min(0).max(1),

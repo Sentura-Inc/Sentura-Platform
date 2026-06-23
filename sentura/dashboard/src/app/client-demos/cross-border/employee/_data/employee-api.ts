@@ -7,6 +7,7 @@ import type {
   CustomerScreeningReport,
   MemoryRecordItem,
   CustomerAddressFootprint,
+  CompanyScaleAssessment,
   AddressFootprintAddressType,
   AddressFootprintCoverageStatus,
   AddressFootprintRelationshipStatus,
@@ -599,6 +600,46 @@ function normalizePhoneMatch(value: unknown): boolean | "not_checked" | "conflic
   return raw === "not_checked" || raw === "conflict" ? raw : undefined;
 }
 
+function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment | undefined {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  const scaleClass = asString(raw.scale_class ?? raw.scaleClass);
+  const firstBlockStrategy = asString(raw.first_block_strategy ?? raw.firstBlockStrategy);
+  if (
+    scaleClass !== "listed_or_public" &&
+    scaleClass !== "medium_large_registered" &&
+    scaleClass !== "small_local_offline" &&
+    scaleClass !== "small_online_only" &&
+    scaleClass !== "unknown_scale"
+  ) {
+    return undefined;
+  }
+  if (
+    firstBlockStrategy !== "registry_disclosure_primary_maps_support" &&
+    firstBlockStrategy !== "maps_physical_address_primary" &&
+    firstBlockStrategy !== "domain_public_source_primary" &&
+    firstBlockStrategy !== "try_registry_and_maps"
+  ) {
+    return undefined;
+  }
+  return {
+    scaleClass,
+    confidence: asNumber(raw.confidence),
+    rationale: asString(raw.rationale ?? raw.reason ?? raw.summary) ?? "背调员工未返回公司规模判断说明。",
+    firstBlockStrategy,
+  };
+}
+
+function companyScaleAssessmentPayload(value: CompanyScaleAssessment | undefined) {
+  if (!value) return undefined;
+  return {
+    scale_class: value.scaleClass,
+    confidence: value.confidence,
+    rationale: value.rationale,
+    first_block_strategy: value.firstBlockStrategy,
+  };
+}
+
 function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | undefined {
   const raw = asRecord(value);
   if (!isNonEmptyRecord(raw)) return undefined;
@@ -759,6 +800,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     evidenceCoverage: asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined,
     recommendedAction: simplifyDisplayText(asString(raw.recommended_action ?? raw.recommendedAction) ?? record.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: asString(raw.created_at ?? raw.createdAt) ?? record.updatedAt,
+    companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
     scoreBlocks,
     evidence,
     coverageGaps:
@@ -1293,6 +1335,9 @@ function normalizeScreeningPayload(payload: unknown) {
       const evidenceRows = Array.isArray(report.evidence) ? report.evidence : [];
       const targetWebsite = toUrl(target.website);
       const addressFootprint = normalizeAddressFootprintPayload(report.address_footprint ?? report.addressFootprint);
+      const companyScaleAssessment = normalizeCompanyScaleAssessment(
+        report.company_scale_assessment ?? report.companyScaleAssessment,
+      );
       let traceabilityGap = evidenceRows.length === 0;
       const evidence = (evidenceRows.length ? evidenceRows : [{ source_url: targetWebsite }])
         .map((evidenceItem, evidenceIndex) => {
@@ -1341,6 +1386,7 @@ function normalizeScreeningPayload(payload: unknown) {
         lead_id: targetLeadId ?? (inferredTargetSource === "accio_memory" ? targetId : null),
         target_source: inferredTargetSource,
         company_name: companyName,
+        ...(companyScaleAssessment ? { company_scale_assessment: companyScaleAssessmentPayload(companyScaleAssessment) } : {}),
         target: {
           target_id: targetId,
           source: inferredTargetSource,

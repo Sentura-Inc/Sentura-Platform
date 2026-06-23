@@ -16,10 +16,10 @@ All tools are registered with `readOnlyHint: true` and return `source_url`, `sou
 | `cbe_intel_google_places_search` | Google Maps Places API (New) Text Search and Nearby Search for local/storefront lead seeds with field-mask profiles, request caps, normalized source metadata, attribution flags, and ledger-ready call metadata. |
 | `cbe_intel_google_place_details` | Google Maps Place Details for shortlisted place IDs only, returning bounded local-presence evidence such as website, address, phone, business status, types, rating count, opening hours, and Maps URI. |
 | `cbe_intel_google_geocode` | Google Geocoding API helper for city/address coordinates used by Nearby Search preparation and address consistency checks. It is not buyer verification by itself. |
-| `cbe_intel_google_address_validate` | Google Address Validation API helper for public business address consistency in Screening. It is supporting public-footprint evidence only. |
+| `cbe_intel_google_address_validate` | Google Address Validation API helper for public business address consistency in Screening. It can support address-footprint confidence and the small-local/offline first-block rule, but is not legal ownership or formal KYB proof. |
 | `cbe_intel_sec_lookup` | SEC EDGAR company-name-to-CIK resolution through `company_tickers.json`, then submissions lookup by ten-digit CIK. |
 | `cbe_intel_trade_record_search` | Volza/ImportYeti paid search only when keys and spend caps are enabled; otherwise weak public-web fallback. |
-| `cbe_intel_score_buyer` | Deterministic contextual score with normalized score and evidence coverage separated. |
+| `cbe_intel_score_buyer` | Deterministic contextual score with normalized score and evidence coverage separated. Accepts optional `company_scale_assessment` so Screening can apply the 25% `公司注册与线下门店/地址` first-block rule: registry+Maps fusion for listed/medium-large companies, and Maps physical-address primary evidence for small local/offline companies. |
 | `cbe_intel_parse_accio_chat` | Validate and normalize an Accio JSON export fixture. |
 | `cbe_intel_summarize_accio_chat` | Extract company profile, requested goods, negotiated prices, behavior signals, and follow-up tasks. |
 
@@ -34,7 +34,7 @@ Current implemented registry/identity coverage is intentionally narrow:
 | Global fallback | OpenCorporates search only when `OPENCORPORATES_API_KEY` is configured. | Automatic jurisdiction selection beyond current search fallback. |
 | Domain/email | RDAP.org, DNS MX/SPF/DMARC, official-site same-domain email discovery, optional Abstract/Hunter verifier. | Paid WHOIS/RDAP provider adapters. |
 | Trade evidence | ImportYeti/Volza only when paid trade data and budget are enabled. | Panjiva, ImportGenius, enterprise customs APIs. |
-| Google Maps | Places Text/Nearby Search, Place Details, Geocoding, and Address Validation are implemented as read-only server-side MCP tools. | Google Maps is discovery/local-presence/address-consistency evidence only, not registry/KYB/trade proof. Reviews/photos/raw responses are not retained by default. |
+| Google Maps | Places Text/Nearby Search, Place Details, Geocoding, and Address Validation are implemented as read-only server-side MCP tools. | Google Maps is discovery/local-presence/address-consistency evidence and can support the first authenticity block for small local/offline companies. It is still not formal KYB, legal ownership, trade, or financial proof. Reviews/photos/raw responses are not retained by default. |
 
 The 2026-06-21 API research runbook in `跨境电商/API_KEYS_OPENCLAW_SETUP.md` identifies France API Recherche/API Entreprise, Japan Corporate Number Web-API, Korea OpenDART, Brazil Serpro CNPJ, Italy InfoCamere, and official web/manual routes for Germany/Spain/Mexico. These are planned country adapters or manual routes, not current MCP tools. Do not add their env vars to setup or employee prompts until the TypeScript adapter, schema, mocked tests, missing-key behavior, rate-limit policy, and evidence tags are implemented.
 
@@ -146,7 +146,7 @@ The Phase-1 default is low-cost and public:
 - `cbe_intel_trade_record_search` will not call paid trade providers unless `CBE_ENABLE_PAID_TRADE_DATA=true` and the request budget is within `CBE_MAX_PAID_SPEND_USD`.
 - Disabled paid evidence is reported as coverage gap, not as a buyer fraud penalty.
 - Google Maps tools use field masks, per-search caps, source attribution, and no default reviews/photos/raw-response retention. Tool outputs include `api_call_ledger` metadata that downstream OpenClaw/Sentura run handling can persist with tenant/run context.
-- Google Maps evidence must be reported as discovery/local-presence/address-consistency evidence only, with Google Maps URI/source attribution and no raw review/photo retention unless policy-reviewed.
+- Google Maps evidence must be reported with Google Maps URI/source attribution and no raw review/photo retention unless policy-reviewed. For small local/offline companies, an `OPERATIONAL` matched physical address can support the first `公司注册与线下门店/地址` authenticity block; for listed/public or medium-large companies, Maps must be fused with registry/disclosure evidence and cannot be formal KYB/legal ownership proof.
 
 ## Development
 

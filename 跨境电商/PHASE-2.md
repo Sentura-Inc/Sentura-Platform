@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-22
+> Last updated: 2026-06-23
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -1193,9 +1193,9 @@ Source responsibility split:
 
 | Source | Primary job | Not allowed to decide alone |
 |---|---|---|
-| Google Maps Places Text/Nearby Search | Find candidate local/storefront businesses by query, geography, and place type. | Buyer authenticity, legal registration, import history, or final customer assignment. |
-| Google Maps Place Details | Enrich shortlisted place IDs with website, address, phone, business status, type, rating count, opening hours, and Maps URI using narrow field masks. | Fraud/risk tier, official registry status, or long-term memory facts. |
-| Google Geocoding / Address Validation | Support Nearby Search coordinates and public address consistency checks. | Buyer verification, legal ownership, trade evidence, or risk tier by itself. |
+| Google Maps Places Text/Nearby Search | Find candidate local/storefront businesses by query, geography, and place type. | Formal legal registry status, import history, or final customer assignment. |
+| Google Maps Place Details | Enrich shortlisted place IDs with website, address, phone, business status, type, rating count, opening hours, and Maps URI using narrow field masks. For small local/offline companies, an `OPERATIONAL` place with a physical address can satisfy the first company-registration/authenticity score block. | Listed/public-company registry proof, legal ownership, trade evidence, financial risk, or long-term memory facts. |
+| Google Geocoding / Address Validation | Support Nearby Search coordinates and public address consistency checks. | Legal ownership, trade evidence, financial evidence, or risk tier by itself. |
 | OpenClaw `web_search` / `web_fetch` | Confirm company-owned website, product/category fit, contact page, B2B/wholesale/import/distribution language, and non-Maps public sources. | Login-gated/social/private data. |
 | CBE database reconciliation | Decide whether a candidate is tenant-new, same-owner duplicate, other-operator duplicate, possible duplicate, or needs top-up. | External discovery. |
 
@@ -1233,7 +1233,7 @@ Implemented Screening workflow:
 
 1. If a Lead has `google_place_id`, Screening may refresh Place Details once per target using `screening_local_presence`.
 2. If a manual target has only name/city/country and no website, Screening may run one Text Search to find a likely place match.
-3. Maps evidence contributes to `public_footprint` and domain/website consistency only. It does not replace registry, domain/email, trade, financial, or Accio behavior evidence.
+3. Maps evidence contributes to `public_footprint`, domain/website consistency, and the scale-aware first score block. For `small_local_offline` targets, an `OPERATIONAL` Google Maps place with a physical address can satisfy the 25% company-registration/authenticity block; for `listed_or_public` and `medium_large_registered` targets, Maps must be fused with registry/disclosure evidence rather than replacing it.
 4. `CLOSED_PERMANENTLY` is a caution/blocker for active outreach unless web evidence shows relocation/rebrand.
 5. No Maps result is neutral and should be shown as coverage gap, not risk.
 
@@ -1246,7 +1246,17 @@ Implemented Screening address-footprint enhancement:
 5. The final Screening report includes a dedicated `address_footprint` object and a visually separate `Google Maps 地址版图` report section. This section shows summary counts, operational/closed counts, country/city coverage, capped-search limitations, and grouped address rows with Maps URI, formatted address, business status, website/domain, validation verdict, confidence, and match reason.
 6. Every `address_footprint.locations[]` row is also written to `screening_address_locations`, linked to the report, target, optional Lead candidate, and agent run. `report_json` remains the full report snapshot, while the dedicated table supports later company-address management, filtering, dedupe review, and Admin/Employee lookup without JSON traversal.
 7. Migration `006_screening_address_locations.sql` creates the dedicated table and backfills any existing `screening_reports.report_json.address_footprint.locations[]` rows so historical reports with this object are not stranded inside JSON only.
-8. Address-footprint findings may support public footprint/domain/business-fit evidence, but never replace legal registry/KYB, trade, financial, or Accio behavior proof.
+8. Address-footprint findings may support public footprint/domain/business-fit evidence and the scale-aware first score block. They never become formal legal registry/KYB, trade, financial, or Accio behavior proof.
+
+Planned Screening scoring redesign, requested 2026-06-23:
+
+1. Add a `company_scale_assessment` step before scoring: `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
+2. Rename the first report block label from pure `公司注册` to `公司注册与线下门店/地址`; keep the JSON block id `legal_identity` unless a migration intentionally changes it.
+3. Keep this first block at 25 points / 25% of the primary score explanation.
+4. For listed/public and medium-large companies, fuse official registry/disclosure evidence with Google Maps address/local-presence evidence. Registry/disclosure remains primary; Maps adds address, website, phone, and operational consistency.
+5. For small local/offline companies, allow Google Maps to satisfy the first block when at least one confirmed/probable place is `OPERATIONAL`, has a physical address, has plausible category/name/location match, and has no contradictory official-site/registry/web evidence.
+6. Reports must phrase the small-company result as `线下经营真实性由 Google Maps 公开门店/地址证据支持`, not as formal legal registration or KYB proof.
+7. Implementation must update the Screening prompt/skills, deterministic `cbe_intel_score_buyer` behavior, marker/report schema if a scale object is added, report UI labels, and regression tests before this design is considered implemented.
 
 Database and policy impact:
 
@@ -1260,7 +1270,7 @@ Database and policy impact:
 Acceptance now covered:
 
 - User approved Google Maps as the primary Lead acquisition source combined with web search.
-- Docs and skills remain clear that Google Maps is not a registry/KYB authority.
+- Docs and skills remain clear that Google Maps is not a formal registry/KYB authority, while the 2026-06-23 design now permits Maps to satisfy the first authenticity block for small local/offline companies.
 - Adapter tests cover mocked Google responses, missing-key behavior, Text/Nearby/Details request shapes, quota/provider errors, field masks, source attribution, redacted query keys, and no browser-side key exposure.
 
 ### 8.1 Screening Execution Shape And API Scope
@@ -1283,7 +1293,7 @@ The API source scope for each Screening child run is:
 | Domain / email foundation | RDAP, MX, SPF, DMARC, free/disposable/role-inbox flags, and official-site same-domain contact-email discovery. | Always low-cost first. RDAP.org is low-volume only; high-volume production should move to IANA bootstrap RDAP or a budgeted WHOIS/RDAP provider. |
 | Paid email validation | Abstract and Hunter email verifier only. | Call at most once per target, only when the operator enables paid validation and a supplied or official-site same-domain email exists. Do not paid-validate random third-party or free-provider emails discovered by search. |
 | Public footprint | OpenClaw `web_search` and bounded `web_fetch` of public official pages returned by search or supplied by the operator. | Do not fetch protected/login-gated pages. Do not `web_fetch` Wikipedia for this workflow because the pressure report found it to be a reliable failure source in the sandbox. |
-| Google Maps/local presence and address footprint | Google Maps Places Text Search/Place Details, Geocoding, and Address Validation through read-only MCP. | Use for storefront/local-business existence, office/store/warehouse/service-location discovery, website/address/phone consistency, category support, Nearby coordinates, and address consistency only. Missing Maps evidence is neutral; Maps does not replace official registry or KYB evidence. |
+| Google Maps/local presence and address footprint | Google Maps Places Text Search/Place Details, Geocoding, and Address Validation through read-only MCP. | Use for storefront/local-business existence, office/store/warehouse/service-location discovery, website/address/phone consistency, category support, Nearby coordinates, and address consistency. For small local/offline companies, `OPERATIONAL` physical-address evidence can satisfy the first company-registration/authenticity score block. For listed/public or medium-large companies, Maps is fused with registry/disclosure evidence and does not replace formal registry/KYB evidence. |
 | Trade/customs evidence | ImportYeti for current paid US import evidence profile; Volza only after the customer enables a paid plan and budget; public-web fallback when paid data is off. | Paid trade search is at most once per target with `max_records <= 5` and `max_paid_spend_usd <= CBE_SCREENING_TRADE_MAX_SPEND_USD_PER_TARGET`. |
 | Financial/public filings | SEC summary fields, official annual reports found through public search, and registry filing history where available. | Do not load raw SEC `submissions` history into prompts or final markers; keep bounded summaries only. |
 | Behavior evidence | Accio summaries, approved memory facts, or supplied sales notes. | Only applies when conversation/history exists. Cold leads keep this block `not_applicable`. |
@@ -1542,7 +1552,7 @@ Phase 2 is complete when:
 | DB writes leak raw Accio chats into vector memory | Store raw files separately; persist redacted text/hash rows; require memory-fact approval before vector write. |
 | External provider costs are incomplete | Keep observed calls visible; mark free/included/unpriced accurately; do not invent USD for account-plan services. |
 | Google Maps API usage grows faster than expected | Use field masks, Text/Nearby Search before Details, per-run caps, no default reviews/photos, and `api_call_ledger` cost attribution before customer-wide rollout. |
-| Google Maps data is treated as official KYB evidence | Keep Maps evidence in public-footprint/local-presence scoring only; official registry, domain/email, trade, financial, and Accio sources remain separate evidence blocks. |
+| Google Maps data is treated as official KYB evidence | Keep Maps evidence framed as public local-presence/offline-existence evidence. It can support the scale-aware first `公司注册与线下门店/地址` block for small local/offline companies, but official registry, KYB ownership, trade, financial, and Accio behavior conclusions remain separate evidence lanes. |
 | Google Maps caching/attribution policy is violated | Store only policy-reviewed bounded metadata, preserve Maps URI/source attribution, and avoid raw review/photo/response retention unless implementation documents compliance. |
 | Long Screening context causes model timeout again | Default to one target per Screening session, block batch-5/batch-10 in production, keep MCP outputs bounded, store partial evidence, and surface backend errors directly in `agent_runs`. |
 | Retry accidentally repeats paid email/trade calls | Store per-target paid-call state and require explicit re-approval before a retry can call Abstract/Hunter/ImportYeti/Volza again. |
@@ -1551,7 +1561,7 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, and the Screening Google Maps address-footprint report path are complete. Continue P2.5 with:
+P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, the Screening Google Maps address-footprint report path, and the scale-aware Google Maps first-block Screening scoring redesign are complete. Continue P2.5 with:
 
 1. Implement Screening parent task + single-target child-run fan-out using `screening_batches` and `screening_batch_targets`.
 2. Add queue draining/claim behavior around queued `agent_runs` so queued work can start outside the original browser request path.

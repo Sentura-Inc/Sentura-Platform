@@ -7,6 +7,7 @@ import {
   coverageGapReasonForBlock,
   isGenericCoverageGapReason,
   type CustomerAddressFootprint,
+  type CompanyScaleAssessment,
   type CustomerListItem,
   type CustomerCoverageGap,
   type CustomerEvidenceItem,
@@ -834,6 +835,36 @@ function normalizePhoneMatch(value: unknown): boolean | "not_checked" | "conflic
   return raw === "not_checked" || raw === "conflict" ? raw : undefined;
 }
 
+function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment | undefined {
+  const raw = asRecord(value);
+  if (Object.keys(raw).length === 0) return undefined;
+  const scaleClass = asString(raw.scale_class) ?? asString(raw.scaleClass);
+  const firstBlockStrategy = asString(raw.first_block_strategy) ?? asString(raw.firstBlockStrategy);
+  if (
+    scaleClass !== "listed_or_public" &&
+    scaleClass !== "medium_large_registered" &&
+    scaleClass !== "small_local_offline" &&
+    scaleClass !== "small_online_only" &&
+    scaleClass !== "unknown_scale"
+  ) {
+    return undefined;
+  }
+  if (
+    firstBlockStrategy !== "registry_disclosure_primary_maps_support" &&
+    firstBlockStrategy !== "maps_physical_address_primary" &&
+    firstBlockStrategy !== "domain_public_source_primary" &&
+    firstBlockStrategy !== "try_registry_and_maps"
+  ) {
+    return undefined;
+  }
+  return {
+    scaleClass,
+    confidence: asNumber(raw.confidence),
+    rationale: asString(raw.rationale) ?? asString(raw.reason) ?? asString(raw.summary) ?? "背调员工未返回公司规模判断说明。",
+    firstBlockStrategy,
+  };
+}
+
 function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | undefined {
   const raw = asRecord(value);
   if (Object.keys(raw).length === 0) return undefined;
@@ -935,6 +966,7 @@ function screeningReportFromRaw(
     evidenceCoverage: asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage),
     recommendedAction: asString(raw.recommended_action) ?? asString(raw.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: nowLabel(),
+    companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
     scoreBlocks,
     evidence,
     coverageGaps,
@@ -1173,14 +1205,15 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司注册信息、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 本地经营足迹/地址一致性、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
 - 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- 评分前必须先输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
 - Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
 - 对地址版图候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单逐个调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"，不请求 review text、photos 或原始 Google response。
 - 对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate，并把 verdict 写入 address_footprint.locations[].address_validation。
 - 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google API 缺 key、限流或无结果，address_footprint 仍必须返回 coverage_status="unavailable_api" 或 "not_found" 以及 coverage note。
 - 每个地址候选要分类 relationship_status：confirmed_company_location、probable_company_location、possible_related_location、rejected_unrelated_location；地址角色 address_type：headquarters_or_office、storefront、warehouse_or_distribution、service_or_repair_location、unknown_business_location。
-- Google Maps / Address Validation 只计入 public_footprint、domain_email 或 business_fit 的支持证据，不要当作法律注册、KYB、贸易、财务或 Accio 行为证明。
+- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
 - SEC/财务公开文件不能留空：即使目标不是美国上市申报主体，也要调用 SEC 查询或写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
 - 如果调用了 cross-border-intel 工具，必须把工具返回的关键结果摘要写入 evidence，不要只写最终结论。
 - 使用最低成本证据阶梯，缺失 API/付费证据只能标记 coverage gap，不能当作欺诈证据。
@@ -1189,7 +1222,8 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 
 JSON 字段要求：
 - 顶层：reports。
-- reports 每项：report_id、lead_id、company_name、target、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
+- reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
+- company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
 - score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
 - evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
 - layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。

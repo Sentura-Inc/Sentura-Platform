@@ -840,6 +840,49 @@ describe("contextual score and paid evidence behavior", () => {
     expect(forced.forced_downgrades).toEqual(["domain_age_under_30_days"]);
   });
 
+  it("carries scale-aware Google Maps first-block scoring context", async () => {
+    const { client } = await connect();
+    const result = parseToolResult(
+      await client.callTool({
+        name: "cbe_intel_score_buyer",
+        arguments: {
+          profile: "phase2_scale_aware_maps_first_block",
+          company_scale_assessment: {
+            scale_class: "small_local_offline",
+            confidence: 0.86,
+            rationale: "One confirmed OPERATIONAL Google Maps storefront with physical address and no conflicting registry/web evidence.",
+            first_block_strategy: "maps_physical_address_primary",
+          },
+          blocks: [
+            {
+              block: "legal_identity",
+              status: "scored",
+              max_points: 25,
+              earned_points: 24,
+              summary: "公司注册与线下门店/地址：Google Maps 公开门店正常营业，物理地址与目标城市匹配。",
+            },
+            { block: "domain_email", status: "pending_human_input", max_points: 25 },
+            { block: "public_footprint", status: "scored", max_points: 20, earned_points: 16 },
+            { block: "business_fit", status: "scored", max_points: 20, earned_points: 17 },
+            { block: "trade_financial", status: "disabled_by_budget", max_points: 10 },
+            { block: "conversation_behavior", status: "not_applicable", max_points: 15 },
+          ],
+        },
+      }),
+    );
+
+    expect(result.profile).toBe("phase2_scale_aware_maps_first_block");
+    expect(result.company_scale_assessment).toMatchObject({
+      scale_class: "small_local_offline",
+      first_block_strategy: "maps_physical_address_primary",
+    });
+    expect(result.blocks[0]).toMatchObject({
+      block: "legal_identity",
+      max_points: 25,
+      earned_points: 24,
+    });
+  });
+
   it("keeps paid trade-data disabled by budget as coverage gap, not score penalty", async () => {
     const { client } = await connect();
     const result = parseToolResult(

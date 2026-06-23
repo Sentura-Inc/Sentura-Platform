@@ -7,7 +7,7 @@ Use after evidence collection or when recalculating a report after the operator 
 ## Procedure
 
 1. Build contextual evidence blocks:
-   - `legal_identity` max 25
+   - `legal_identity` max 25, displayed as `公司注册与线下门店/地址`
    - `domain_email` max 25
    - `public_footprint` max 20
    - `business_fit` max 20
@@ -17,13 +17,21 @@ Use after evidence collection or when recalculating a report after the operator 
    - `scored` only when evidence was actually checked.
    - `not_applicable` when the block does not apply, such as behavior for a cold lead.
    - `unavailable_api`, `disabled_by_budget`, or `pending_human_input` for relevant but missing checks.
-   - Google Maps address-footprint, local-presence Place Details, Geocoding, and Address Validation can contribute only to `public_footprint`, `domain_email` website/address consistency, or `business_fit` category/location context. Do not use Maps rating count, address validation, address count, or business status as legal-identity, trade, financial, KYB, fraud, or ownership proof.
+   - Before scoring, set `company_scale_assessment`:
+     - `scale_class`: `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
+     - `first_block_strategy`: `registry_disclosure_primary_maps_support`, `maps_physical_address_primary`, `domain_public_source_primary`, or `try_registry_and_maps`.
+     - Include `confidence` and `rationale`.
+   - For `listed_or_public` and `medium_large_registered`, score `legal_identity` from registry/disclosure/official-page evidence first, then add Google Maps address/website/phone consistency as support. Do not give full first-block credit from Maps alone.
+   - For `small_local_offline`, Google Maps address-footprint, local-presence Place Details, Geocoding, and Address Validation can satisfy `legal_identity` when at least one confirmed/probable location is `OPERATIONAL`, has a physical address, matches name/category/city/country, and has no contradictory website/registry/public evidence.
+   - For `small_online_only`, do not require Maps; use stable domain/public-source consistency and mark registry gaps as coverage gaps or pending human input.
+   - Outside the small-local/offline first-block rule, Google Maps can contribute to `public_footprint`, `domain_email` website/address consistency, or `business_fit` category/location context. Do not use Maps rating count, address count, or business status as formal KYB, ownership, trade, financial, fraud, or behavior proof.
    - `businessStatus=CLOSED_PERMANENTLY` is a public-footprint caution or forced-downgrade candidate for active outreach unless web evidence shows relocation or rebrand. No Maps result is coverage-only.
-3. Call `cross-border-intel__cbe_intel_score_buyer` with blocks and forced downgrade flags.
+3. Call `cross-border-intel__cbe_intel_score_buyer` with `company_scale_assessment`, blocks, and forced downgrade flags.
 4. Explain:
    - `normalized_score`
    - `evidence_coverage`
    - `risk_tier`
+   - `company_scale_assessment`
    - which blocks are excluded from denominator
    - which blocks reduce coverage only
 5. Apply forced downgrades after normalized score:

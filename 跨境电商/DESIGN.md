@@ -8,7 +8,7 @@
 >
 > Reorganized: 2026-06-13.
 >
-> Status: Phase-1 employee workspaces and demo routes are implemented for the three-agent MVP; Phase-2 persistence/Lead coordination is partially implemented; Google Maps Places + web search is now implemented as the primary acquisition/backcheck source route through the read-only `cross-border-intel` MCP boundary; the Screening Google Maps address-footprint workflow and dedicated report section are implemented in prompt/tool guidance, marker schema, dedicated `screening_address_locations` storage, persistence normalization, and Dashboard report UI; cloud deployment, Alibaba API integration, full Screening fan-out, and durable Accio workflow polish remain planned implementation work.
+> Status: Phase-1 employee workspaces and demo routes are implemented for the three-agent MVP; Phase-2 persistence/Lead coordination is partially implemented; Google Maps Places + web search is now implemented as the primary acquisition/backcheck source route through the read-only `cross-border-intel` MCP boundary; the Screening Google Maps address-footprint workflow and dedicated report section are implemented in prompt/tool guidance, marker schema, dedicated `screening_address_locations` storage, persistence normalization, and Dashboard report UI; the 2026-06-23 scale-aware Screening scoring redesign is implemented in Screening prompts/skills, marker/store schemas, MCP scoring input/output, Dashboard report UI, static checks, and the synced live `cbe-buyer-screening` workspace; cloud deployment, Alibaba API integration, full Screening fan-out, and durable Accio workflow polish remain planned implementation work.
 
 This file is now the shared platform and cross-agent design for the mobile-accessory cross-border e-commerce client lane. Agent-specific design, implementation status, and future work live in:
 
@@ -147,6 +147,7 @@ Scoring reference:
 
 - Long-term PDF model: authenticity 60, business fit 25, behavior signal 15.
 - Phase 1 uses contextual scoring so cold leads do not lose behavior points and disabled paid APIs reduce evidence coverage rather than producing false negative scores.
+- Current Screening redesign makes the first 25% report block `公司注册与线下门店/地址`: medium/large and listed companies fuse registry/disclosure evidence with Google Maps local-presence evidence; small local/offline companies can satisfy this block through high-confidence `OPERATIONAL` Google Maps physical-address evidence when registry APIs cannot match them.
 - Detailed scoring blocks live in [`SCREENING.md`](SCREENING.md#10-contextual-scoring-model).
 
 Outreach boundary:
@@ -553,6 +554,7 @@ Operational policy:
 - Do not call provider SDKs directly from Dashboard routes.
 - Use deterministic MCP scoring for risk tiers.
 - LLM may explain score but must not invent evidence.
+- Google Maps may satisfy the first authenticity block only under the scale-aware small-local/offline rule in `SCREENING.md`; it still must not be described as formal registry, ownership, KYB, trade, or financial proof.
 - Track tokens/cost by `tenant_id`, `agent_id`, `user_id`, and `agent_run_id`.
 - Overseas model APIs require compliance approval, data minimization/redaction, and explicit customer sign-off.
 
@@ -609,7 +611,7 @@ Security controls before production:
 |---|---|---|---|
 | 1 | Design and source tracking | Complete | Initial design, independent memory/test lane. |
 | 2 | Shared fixtures, ontology, schemas, contextual scoring | Complete | Accio fixture, mobile-accessory ontology, Zod schemas, 39-check validation. |
-| 3 | `cross-border-intel` MCP server | Complete | 14 read-only tools, 23/23 tests plus build. |
+| 3 | `cross-border-intel` MCP server | Complete | 14 read-only tools, 24/24 tests plus build. |
 | 4 | Marketing Acquisition employee | Complete after execution-path correction | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) |
 | 5 | Screening and Background employee | Complete after execution-path, visual mapping, official-source ordering fixes | [`SCREENING.md`](SCREENING.md) |
 | 6 | Accio Memory Processing employee | Complete after execution-path correction | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) |
@@ -617,8 +619,9 @@ Security controls before production:
 | 8 | End-to-end MVP smoke | Designed, still to execute in production-like environment | Scenario below. |
 | 9 | Production cloud/database/multi-agent deployment | Designed, not implemented | China cloud, managed DB, model routes, go-live checklist. |
 | 10 | Alibaba International Station API enhancement | Designed, access proof pending | Screening-specific. |
-| 11 | Concurrent Lead Discovery dedupe | Designed, implementation pending | Marketing-specific. |
+| 11 | Concurrent Lead Discovery dedupe | Implemented in P2.4/P2.5 Lead coordination | Marketing-specific. Scope-level coordination, pre-search DB denylist, completion-time DB reconciliation, duplicate skip/audit recording, and top-up behavior are implemented. |
 | 12 | Google Maps + web search primary acquisition/backcheck route | Implemented in MCP and employee prompts | Maps Places supplies local-business discovery/existence signals; Geocoding/Address Validation support coordinates/address consistency; web search/fetch confirms downstream buyer fit and official-site evidence. |
+| 13 | Scale-aware Google Maps first-block Screening scoring | Implemented | Screening-specific. First 25% block is `公司注册与线下门店/地址`; reports carry `company_scale_assessment`; medium/large/listed companies fuse registry/disclosure + Maps evidence; small local/offline companies can be treated as real through `OPERATIONAL` Google Maps physical-address evidence when registry APIs cannot match them. |
 
 End-to-end MVP smoke scenario:
 

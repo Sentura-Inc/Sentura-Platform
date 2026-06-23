@@ -8,7 +8,7 @@
 >
 > Chinese name: 跨境筛选背调员工
 >
-> Last updated: 2026-06-22
+> Last updated: 2026-06-23
 
 This document owns all design, implementation details, current status, and forward plan for the Screening and Background Investigation employee in the mobile-accessory cross-border e-commerce customer lane. Shared platform architecture, database-wide schema, cloud deployment, and cross-agent flow live in [`DESIGN.md`](DESIGN.md). Marketing Acquisition details live in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md). Accio memory details live in [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
@@ -21,7 +21,7 @@ The Screening employee investigates candidate buyers and returns authenticity/ri
 
 Phase-1 requirement: low-cost evidence route first; public web, registry, domain/email, trade, and financial evidence only where accessible and documented.
 
-Implementation status as of 2026-06-08:
+Implementation status as of 2026-06-23:
 
 - Source workspace added: `sentura/agents/cbe-buyer-screening/`.
 - Workspace uses exactly the 8 OpenClaw-native top-level files plus `config.json5` and skills.
@@ -41,6 +41,9 @@ Implementation status as of 2026-06-08:
 - Employee-produced report JSON is normalized before rendering and before local-storage restore.
 - Aliases such as `source_url`, `summary`, `detail`, `official_web`, `registry_tool`, and `marketing_lead_batch` populate the evidence timeline, missing-evidence panel, score blocks, and restored reports.
 - The page restores last manual/batch input, source toggles, employee session key, selected report, and generated reports from same-origin local storage.
+- Phase 2 typed persistence stores Screening targets, reports, evidence, score blocks, and dedicated Google Maps address locations through the CBE store/API boundary.
+- Google Maps address-footprint reporting is implemented across the hidden Employee prompt, Screening workspace skills, marker/store schemas, dedicated `screening_address_locations` table, and shared Dashboard report UI.
+- Scale-aware first-block scoring is implemented across the hidden Employee prompt, Screening workspace skills, MCP scoring schema/result shape, Dashboard normalization, shared report UI, and regression scripts. The first score block is displayed as `公司注册与线下门店/地址` while retaining `legal_identity` as the JSON block id.
 
 Live provider status from the 2026-06-08 audit:
 
@@ -162,13 +165,14 @@ Display rules:
 
 The employee must use the following ladder in order:
 
-1. Registry and legal existence.
-2. Website/domain/email credibility.
-3. Google Maps/local business presence and address footprint where relevant.
-4. Public digital footprint.
-5. Trade behavior / customs evidence.
-6. Financial/public filing evidence where applicable.
-7. Conversation behavior signals only if Accio history or sales interaction exists.
+1. Company scale assessment: classify the target as `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
+2. Company registration and offline-address authenticity: use registry/disclosure evidence plus Google Maps offline store/address evidence according to the scale-aware scoring rules in §10.
+3. Website/domain/email credibility.
+4. Google Maps address footprint and broader public local presence.
+5. Public digital footprint.
+6. Trade behavior / customs evidence.
+7. Financial/public filing evidence where applicable.
+8. Conversation behavior signals only if Accio history or sales interaction exists.
 
 Evidence source tags:
 
@@ -233,6 +237,36 @@ Implementation backlog:
 - Every new country adapter must return provider status, source URL, fetched timestamp, rate-limit metadata when available, and a confidence value that the scoring tool can consume.
 - Unsupported country or denied provider access must be `unavailable_api` / `pending_human_input`, never fraud evidence.
 
+### 5.2 Company Scale Assessment And First Score Block
+
+The first score block is now the 25% `公司注册与线下门店/地址` block. Its storage id can remain `legal_identity` for backward compatibility, but the report label and scoring explanation must make clear that the block measures practical company existence/authenticity, not only formal registry lookup.
+
+Why this change exists:
+
+- Current low-cost registry APIs are strong for listed companies, public filers, and larger registered companies, but many real small retailers, phone repair shops, accessory stores, and local distributors are absent from accessible registry APIs or are hard to match by English name.
+- Penalizing those small companies only because Companies House/SEC/OpenDART/etc. cannot match them creates false negatives.
+- Google Maps Places can provide strong offline-existence evidence for these small businesses when the listing has a physical address and an operational business status.
+
+Required scale assessment:
+
+| Scale class | Signals | First-block strategy |
+|---|---|---|
+| `listed_or_public` | SEC/DART/listed-company disclosure, public ticker, annual reports, official investor/disclosure pages. | Registry/disclosure evidence is mandatory primary evidence; Google Maps is supporting local-presence/address consistency. |
+| `medium_large_registered` | Official registry match, multiple branches, strong domain, importer/distributor scale, trade/financial evidence, or corporate office evidence. | Fuse registry evidence and Google Maps address-footprint evidence. Lack of registry/API match is a coverage gap only until the company claims regulated/listed/large scale. |
+| `small_local_offline` | One or a few stores/offices/repair/service locations, Google Maps category aligns, physical address exists, business is `OPERATIONAL`, website/domain may be weak or absent. | Google Maps can satisfy the first block as real-company/offline-existence evidence when name/category/address confidence is high. |
+| `small_online_only` | Website/social marketplace presence but no physical storefront expected. | Do not require Google Maps; first block needs official/business-domain/public source consistency and may remain `pending_human_input` if no stable source exists. |
+| `unknown_scale` | Insufficient clues. | Try both registry and Maps; report missing clues instead of forcing a negative. |
+
+For `small_local_offline`, an operational Google Maps Place with a physical address should be treated as satisfying the company-registration/authenticity block for sales-screening purposes when all of the following hold:
+
+- `businessStatus` is `OPERATIONAL`.
+- `formattedAddress` is present and Address Validation is `validated`, `complete`, or otherwise not contradictory when validation is available.
+- Display name, category/types, country/city, and product/business context plausibly match the target.
+- The place is deduped and not rejected as unrelated.
+- Any available website, phone, or official-site/store-locator evidence does not contradict the Maps listing.
+
+This does not mean Google Maps is a formal legal registry, director/shareholder proof, credit report, or KYB certificate. The report must phrase it as `线下经营真实性已由 Google Maps 公开门店/地址证据支持`, not `官方注册已验证`.
+
 ## 6. Domain And Email Checks
 
 Free checks:
@@ -281,13 +315,14 @@ Do not:
 
 ## 7.1 Google Maps / Places Checks
 
-Google Maps Places is useful for Screening when the target is a storefront, repair chain, electronics retailer, phone shop, local wholesaler, or distributor with public local presence. It is not a company registry, trade database, credit bureau, or proof of legal ownership.
+Google Maps Places is useful for Screening when the target is a storefront, repair chain, electronics retailer, phone shop, local wholesaler, or distributor with public local presence. It is not a formal company registry, trade database, credit bureau, or proof of legal ownership. However, for small local/offline businesses, a high-confidence `OPERATIONAL` Google Maps Place with a physical address can satisfy the 25% company-registration/authenticity score block as practical offline-existence evidence.
 
 Target design after Google Maps integration:
 
 | Screening question | Google Maps field/source | How to interpret |
 |---|---|---|
 | Does the business appear to operate at a real public location? | Place Details `businessStatus`, `formattedAddress`, `googleMapsUri`, `regularOpeningHours`. | Positive public-footprint signal when `OPERATIONAL`; `CLOSED_PERMANENTLY` is a caution/blocker unless web evidence shows relocation/rebrand. |
+| Can a small local/offline company be treated as real even when registry APIs do not find it? | Place Details `businessStatus`, `formattedAddress`, `types`, `googleMapsUri`; Address Validation verdict where available. | For `small_local_offline`, a matched `OPERATIONAL` place with physical address and non-contradictory name/category/address evidence can satisfy the first 25% company-registration/authenticity block. |
 | Does the Maps profile connect to the same official website/domain? | Place Details `websiteUri`, then OpenClaw `web_fetch` of that website. | Stronger domain/business-fit evidence when website domain matches operator-supplied lead or official site. |
 | Does the phone/address align with other public sources? | Place Details `internationalPhoneNumber` / `nationalPhoneNumber`, `formattedAddress`; registry/website/footer search. | Supporting evidence only; conflicts require explanation or human clue. |
 | Is the company in the right business category? | Place types plus Text Search query intent. | Use as weak category evidence; confirm with official site/product pages. |
@@ -306,7 +341,7 @@ Recommended Screening evidence mapping:
 
 | Score block | Maps contribution |
 |---|---|
-| `legal_identity` | None by default. Maps can support name/address consistency, but official registry remains the legal source. |
+| `legal_identity` / `公司注册与线下门店/地址` | For `listed_or_public` and `medium_large_registered`, Maps supports registry/disclosure evidence through name/address/website consistency. For `small_local_offline`, an `OPERATIONAL` matched place with physical address can satisfy this block as offline-existence evidence, while still not being formal legal/KYB proof. |
 | `domain_email` | Positive support when `websiteUri` matches the official domain and the site has MX/SPF/DMARC or same-domain contact email. |
 | `public_footprint` | Positive support from `OPERATIONAL` status, stable address, opening hours, Maps URI, and non-trivial rating count. |
 | `business_fit` | Weak support from place types/search query; must be strengthened by official-site category/product evidence. |
@@ -364,7 +399,8 @@ Report-display requirement:
 Scoring and safety:
 
 - Address footprint can support `public_footprint`, `domain_email`, and `business_fit` when there is domain/phone/category consistency.
-- Address footprint must not score `legal_identity` by itself.
+- For `small_local_offline` companies, address footprint can also satisfy the first `legal_identity` / `公司注册与线下门店/地址` block when at least one confirmed or probable company location is `OPERATIONAL`, has a physical address, and has no conflicting website/registry/public evidence.
+- For `listed_or_public` and `medium_large_registered` companies, address footprint is fused with registry/disclosure evidence and must not replace registry/disclosure evidence by itself.
 - Missing Google Maps addresses are neutral coverage gaps.
 - `CLOSED_PERMANENTLY` or many closed locations can create a caution flag, but the report must check official website/registry/web evidence for relocation or rebrand before treating it as a blocker.
 - Store/display only bounded normalized place metadata: place id, display name, formatted address, business status, types, website URI/domain, phone if already allowed, Maps URI, fetched timestamp, field mask, attribution, and validation verdict. Do not store raw Google responses, reviews, photos, or long user-generated text by default.
@@ -418,6 +454,7 @@ Principles:
 3. Mark unavailable paid/API evidence as `unavailable_api` or `disabled_by_budget`; do not silently penalize as fraud.
 4. Show `evidence_coverage` separately as an explanation for the final score, not as a hidden second tier.
 5. Forced downgrades must be reflected in the final score, e.g. cap at 59, so the visible score and tier stay consistent.
+6. Always run company-scale assessment before scoring the first block. Small local/offline companies must not be punished only because registry APIs cannot find them.
 
 Evidence statuses:
 
@@ -433,12 +470,36 @@ Default block library:
 
 | Block | Max points | Applicable when | Low-cost source |
 |---|---:|---|---|
-| `legal_identity` | 25 | company name or registry number exists | Companies House/SEC where applicable, official registry web result, public official page |
+| `legal_identity` (`公司注册与线下门店/地址`) | 25 | company name, registry number, Google Maps place, physical address, or stable public company identity exists | Scale-aware fusion of registry/disclosure evidence and Google Maps offline store/address evidence |
 | `domain_email` | 25 | domain, website, or email exists/can be discovered | DNS MX/SPF/DMARC, RDAP, email syntax/free-provider/disposable checks, optional Abstract/Hunter |
 | `public_footprint` | 20 | website, Maps place, social/profile URL, or public search result exists | `web_search`, `web_fetch`, Google Maps Places local-presence evidence, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
 | `business_fit` | 20 | product interest or discovered category evidence exists | website categories, search snippets, Accio product requests, lead matched products |
 | `trade_financial` | 10 | country/source supports affordable check or paid data enabled | ImportYeti/Volza/SEC/annual report/registry filings |
 | `conversation_behavior` | 15 | Accio chat or sales interaction exists | Accio Memory summary, CRM/chat transcript, manual sales notes |
+
+### 10.1 Company Scale-Aware First Block
+
+The first block is fixed at 25 points in the score model and should be displayed as `公司注册与线下门店/地址`. The implementation may keep the JSON block key `legal_identity` for backward compatibility.
+
+For `listed_or_public` and `medium_large_registered` companies:
+
+- Registry/disclosure/official-page evidence should drive the majority of the block.
+- Google Maps evidence can add confidence for office/store/address/domain consistency.
+- A claimed listed/public/large company with no registry/disclosure match should not receive a full first-block score from Maps alone.
+- Suggested allocation: registry/disclosure identity up to 15 points; Google Maps address/local-presence consistency up to 10 points.
+
+For `small_local_offline` companies:
+
+- Google Maps can be the primary source for the first block.
+- If there is at least one confirmed/probable company location with `businessStatus=OPERATIONAL`, a physical address, plausible category/type, and no contradictory website/registry evidence, score the company-registration/authenticity block as real for sales-screening purposes.
+- Full 25/25 is allowed when name/category/country-city alignment is strong and either website, phone, Address Validation, or official-site/store-locator evidence supports the listing.
+- 20-23/25 is appropriate when Maps strongly proves an operating physical business but website/phone/domain corroboration is weak.
+- 0-8/25 is appropriate for `CLOSED_PERMANENTLY`, rejected/unrelated listings, no physical address, or material contradictions unless relocation/rebrand evidence explains the issue.
+
+For `small_online_only` and `unknown_scale` companies:
+
+- Do not require a Maps listing if the business model does not imply a storefront.
+- Use domain/email/public-source stability and operator-provided clues; mark missing registry/API evidence as `pending_human_input` or `unavailable_api`, not fraud.
 
 Formula:
 
@@ -881,16 +942,17 @@ Already implemented:
 - Public adverse scoring gate.
 - CE5 and CE7 validation coverage.
 - Google Maps address-footprint workflow and the dedicated `Google Maps 地址版图` report section, including multi-query Places discovery, bounded Details/Address Validation, address classification, coverage notes, `screening_address_locations` row storage, source normalization, and distinct Dashboard UI rendering.
+- Scale-aware Google Maps first-block scoring, including `company_scale_assessment`, `公司注册与线下门店/地址` labeling, registry/disclosure + Maps fusion for medium/large/listed companies, and the small-local/offline `OPERATIONAL` physical-address rule.
 
 Still to implement:
 
-- Production persistence for `screening_*` tables.
-- `cross-border-store` typed write tool or equivalent Sentura plugin.
 - Alibaba `icbu-openapi` access validation, then read-only MCP tools.
 - Screening UI source toggle `阿里国际站内部数据`.
 - Evidence cards for Alibaba customer record/order history/customer notes.
 - Additional country-specific registry adapters beyond GB/US.
 - Production budget approval UX for paid checks.
+- Full P2.5 parent/child Screening fan-out, queued-run draining outside the original browser request, and durable retry/recovery polish.
+- Per-target paid email/trade call-state persistence for retry re-approval enforcement.
 - Automated tests for Alibaba evidence block behavior after access is proven.
 
 ## 16. Source And Test Traceability
@@ -902,6 +964,7 @@ Relevant test rows:
 - CE7 — Cross-border employee demo UIs.
 - CE10 — Production cloud/database/multi-agent operating plan.
 - CE11 — Alibaba International Station API access and Screening optimization plan.
+- CE17.29 / CE22 — scale-aware Google Maps first-block scoring implementation and P2.5 regression coverage.
 
 Key sources:
 

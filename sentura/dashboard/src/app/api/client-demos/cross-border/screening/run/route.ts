@@ -33,6 +33,19 @@ type ScoreBlockId =
   | "trade_financial"
   | "conversation_behavior";
 
+type CompanyScaleClass =
+  | "listed_or_public"
+  | "medium_large_registered"
+  | "small_local_offline"
+  | "small_online_only"
+  | "unknown_scale";
+
+type FirstBlockStrategy =
+  | "registry_disclosure_primary_maps_support"
+  | "maps_physical_address_primary"
+  | "domain_public_source_primary"
+  | "try_registry_and_maps";
+
 type EvidenceStatus =
   | "scored"
   | "not_applicable"
@@ -116,6 +129,13 @@ interface ScoreResult {
   score_denominator: number;
   coverage_denominator: number;
   forced_downgrades: string[];
+}
+
+interface CompanyScaleAssessment {
+  scale_class: CompanyScaleClass;
+  confidence: number;
+  rationale: string;
+  first_block_strategy: FirstBlockStrategy;
 }
 
 const OPENCLAW_ENV_PATH = path.join(os.homedir(), ".openclaw", ".env");
@@ -1328,6 +1348,42 @@ function recommendedAction(score: ScoreResult): string {
   return "证据不足；建议补充公司官网、注册号、公司邮箱或 Accio 聊天记录后重新背调。";
 }
 
+function inferCompanyScaleAssessment(
+  target: InvestigationTarget,
+  registry: { officialMatchFound: boolean },
+): CompanyScaleAssessment {
+  if (target.country === "US" && registry.officialMatchFound) {
+    return {
+      scale_class: "listed_or_public",
+      confidence: 0.78,
+      rationale: "SEC/公开披露路径命中，按上市或公开申报企业处理；Google Maps 仅作为地址一致性辅助。",
+      first_block_strategy: "registry_disclosure_primary_maps_support",
+    };
+  }
+  if (registry.officialMatchFound) {
+    return {
+      scale_class: "medium_large_registered",
+      confidence: 0.72,
+      rationale: "官方注册或注册页路径命中，按中大型/已注册企业处理；Google Maps 应与注册地址和官网信息融合。",
+      first_block_strategy: "registry_disclosure_primary_maps_support",
+    };
+  }
+  if (target.website || target.domain) {
+    return {
+      scale_class: "unknown_scale",
+      confidence: 0.45,
+      rationale: "legacy Screening route 未执行 Google Maps 地址版图，暂按官网/公开来源与注册路径继续核验，不能据此判定小型线下经营真实性。",
+      first_block_strategy: "try_registry_and_maps",
+    };
+  }
+  return {
+    scale_class: "unknown_scale",
+    confidence: 0.3,
+    rationale: "缺少注册命中、官网或 Google Maps 地址版图证据，规模和第一板块策略待补充。",
+    first_block_strategy: "try_registry_and_maps",
+  };
+}
+
 async function buildReport(
   target: InvestigationTarget,
   fetchedAt: string,
@@ -1339,6 +1395,7 @@ async function buildReport(
   const publicFootprint = await publicFootprintEvidence(target, fetchedAt, signal);
   const tradeFinancial = await tradeFinancialEvidence(target, fetchedAt, signal, options.enablePaidTradeData, options.maxPaidSpendUsd);
   const behavior = behaviorBlock(target);
+  const companyScaleAssessment = inferCompanyScaleAssessment(target, registry);
 
   const evidence = [
     ...registry.evidence,
@@ -1389,6 +1446,7 @@ async function buildReport(
     target_source: target.source,
     target,
     company_name: target.company_name ?? target.domain ?? target.email ?? "未命名目标",
+    company_scale_assessment: companyScaleAssessment,
     risk_tier: score.risk_tier,
     normalized_score: score.normalized_score,
     evidence_coverage: score.evidence_coverage,

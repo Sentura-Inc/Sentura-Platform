@@ -31,6 +31,14 @@ export const SCORE_BLOCKS = [
   "conversation_behavior",
 ] as const;
 
+export const COMPANY_SCALE_CLASSES = [
+  "listed_or_public",
+  "medium_large_registered",
+  "small_local_offline",
+  "small_online_only",
+  "unknown_scale",
+] as const;
+
 export const RISK_TIERS = [
   "trusted_candidate",
   "cautious",
@@ -41,6 +49,7 @@ export const RISK_TIERS = [
 export const SourceTypeSchema = z.enum(SOURCE_TYPES);
 export const EvidenceStatusSchema = z.enum(EVIDENCE_STATUSES);
 export const ScoreBlockIdSchema = z.enum(SCORE_BLOCKS);
+export const CompanyScaleClassSchema = z.enum(COMPANY_SCALE_CLASSES);
 export const RiskTierSchema = z.enum(RISK_TIERS);
 
 export const CountryCodeSchema = z
@@ -88,6 +97,17 @@ export const ScoreBlockSchema = z
 
 export const ContextualScoreResultSchema = z.object({
   profile: z.string().min(1),
+  company_scale_assessment: z.object({
+    scale_class: CompanyScaleClassSchema,
+    confidence: ConfidenceSchema.optional(),
+    rationale: z.string().min(1),
+    first_block_strategy: z.enum([
+      "registry_disclosure_primary_maps_support",
+      "maps_physical_address_primary",
+      "domain_public_source_primary",
+      "try_registry_and_maps",
+    ]),
+  }).optional(),
   normalized_score: z.number().min(0).max(100).nullable(),
   evidence_coverage: z.number().min(0).max(1),
   risk_tier: RiskTierSchema,
@@ -194,6 +214,17 @@ export const TradeRecordSearchInputShape = {
 
 export const ScoreBuyerInputShape = {
   profile: z.string().min(1).default("phase1_contextual"),
+  company_scale_assessment: z.object({
+    scale_class: CompanyScaleClassSchema,
+    confidence: ConfidenceSchema.optional(),
+    rationale: z.string().min(1),
+    first_block_strategy: z.enum([
+      "registry_disclosure_primary_maps_support",
+      "maps_physical_address_primary",
+      "domain_public_source_primary",
+      "try_registry_and_maps",
+    ]),
+  }).optional(),
   blocks: z.array(ScoreBlockSchema).min(1),
   forced_downgrades: z.array(z.string().min(1)).default([]),
 };
@@ -331,6 +362,7 @@ function riskTierForFinalScore(score: number | null): z.infer<typeof RiskTierSch
 
 export function calculateContextualScore(params: {
   profile?: string;
+  companyScaleAssessment?: z.infer<typeof ContextualScoreResultSchema>["company_scale_assessment"];
   blocks: ScoreBlock[];
   forcedDowngrades?: string[];
 }): ContextualScoreResult {
@@ -356,6 +388,7 @@ export function calculateContextualScore(params: {
 
   return ContextualScoreResultSchema.parse({
     profile: params.profile ?? "phase1_contextual",
+    company_scale_assessment: params.companyScaleAssessment,
     normalized_score: normalizedScore === null ? null : round(normalizedScore),
     evidence_coverage: round(evidenceCoverage, 4),
     risk_tier: riskTier,

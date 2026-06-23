@@ -183,6 +183,16 @@ interface ScreeningReport {
   target_source: "marketing_lead" | "marketing_lead_batch" | "manual_input";
   target: InvestigationTarget;
   company_name: string;
+  company_scale_assessment?: {
+    scale_class: "listed_or_public" | "medium_large_registered" | "small_local_offline" | "small_online_only" | "unknown_scale";
+    confidence?: number;
+    rationale: string;
+    first_block_strategy:
+      | "registry_disclosure_primary_maps_support"
+      | "maps_physical_address_primary"
+      | "domain_public_source_primary"
+      | "try_registry_and_maps";
+  };
   risk_tier: RiskTier;
   normalized_score: number | null;
   evidence_coverage: number;
@@ -237,7 +247,7 @@ const sourceTypeLabels: Record<SourceType, string> = {
 };
 
 const layerLabels: Record<EvidenceItem["layer"], string> = {
-  legal_registry: "法律注册",
+  legal_registry: "公司注册/线下地址",
   domain_email: "域名/邮箱",
   google_maps_local_presence: "Google 本地足迹",
   address_validation: "地址一致性",
@@ -255,7 +265,7 @@ const riskLabels: Record<RiskTier, string> = {
 };
 
 const scoreBlockLabels: Record<string, string> = {
-  legal_identity: "法律主体",
+  legal_identity: "公司注册与线下门店/地址",
   domain_email: "域名/邮箱",
   public_footprint: "公开足迹",
   business_fit: "业务匹配",
@@ -270,6 +280,21 @@ const scoreBlockToLayer: Record<string, EvidenceLayer> = {
   business_fit: "public_footprint",
   trade_financial: "financial_public_filing",
   conversation_behavior: "behavior",
+};
+
+const scaleClassLabels: Record<NonNullable<ScreeningReport["company_scale_assessment"]>["scale_class"], string> = {
+  listed_or_public: "上市/公开披露企业",
+  medium_large_registered: "中大型注册企业",
+  small_local_offline: "中小型线下企业",
+  small_online_only: "中小型线上企业",
+  unknown_scale: "规模待确认",
+};
+
+const firstBlockStrategyLabels: Record<NonNullable<ScreeningReport["company_scale_assessment"]>["first_block_strategy"], string> = {
+  registry_disclosure_primary_maps_support: "注册/披露为主，Maps 地址辅助",
+  maps_physical_address_primary: "Maps 物理地址和营业状态为主",
+  domain_public_source_primary: "官网/公开来源为主",
+  try_registry_and_maps: "注册与 Maps 双路径待确认",
 };
 
 const sourceTypeAliases: Record<string, SourceType> = {
@@ -554,12 +579,39 @@ function normalizeScreeningReport(value: unknown): ScreeningReport | undefined {
     : [];
   const targetSource = normalizeTargetSource(raw.target_source);
   const leadId = asString(raw.lead_id) ?? null;
+  const scaleAssessment = asRecord(raw.company_scale_assessment ?? raw.companyScaleAssessment);
+  const scaleClass = asString(scaleAssessment.scale_class ?? scaleAssessment.scaleClass);
+  const firstBlockStrategy = asString(scaleAssessment.first_block_strategy ?? scaleAssessment.firstBlockStrategy);
+  let companyScaleAssessment: ScreeningReport["company_scale_assessment"];
+  if (
+    (
+      scaleClass === "listed_or_public" ||
+      scaleClass === "medium_large_registered" ||
+      scaleClass === "small_local_offline" ||
+      scaleClass === "small_online_only" ||
+      scaleClass === "unknown_scale"
+    ) &&
+    (
+      firstBlockStrategy === "registry_disclosure_primary_maps_support" ||
+      firstBlockStrategy === "maps_physical_address_primary" ||
+      firstBlockStrategy === "domain_public_source_primary" ||
+      firstBlockStrategy === "try_registry_and_maps"
+    )
+  ) {
+    companyScaleAssessment = {
+      scale_class: scaleClass,
+      confidence: typeof scaleAssessment.confidence === "number" ? scaleAssessment.confidence : undefined,
+      rationale: asString(scaleAssessment.rationale ?? scaleAssessment.reason ?? scaleAssessment.summary) ?? "背调员工未返回公司规模判断说明。",
+      first_block_strategy: firstBlockStrategy,
+    };
+  }
   return {
     report_id: reportId,
     lead_id: leadId,
     target_source: targetSource,
     target: normalizeInvestigationTarget(raw.target, targetSource, reportId, leadId),
     company_name: companyName,
+    company_scale_assessment: companyScaleAssessment,
     risk_tier: normalizeRiskTier(raw.risk_tier),
     normalized_score: typeof raw.normalized_score === "number" ? raw.normalized_score : null,
     evidence_coverage: asNumber(raw.evidence_coverage, 0),
@@ -840,17 +892,19 @@ export default function CrossBorderScreeningPage() {
 你是 OpenClaw 员工 \`${SCREENING_AGENT_ID}\`。请你真实执行跨境买家背调，不要使用 Dashboard mock 数据，不要臆造证据。
 
 执行要求：
-1. 按你的 skills 走低成本证据阶梯：registry/legal identity -> domain/email -> Google Maps local presence/address consistency -> public footprint -> trade/customs -> SEC/financial/public filing -> behavior only if supplied.
+1. 按你的 skills 走低成本证据阶梯：company scale assessment -> 公司注册与线下门店/地址 -> domain/email -> Google Maps address footprint/local presence -> public footprint -> trade/customs -> SEC/financial/public filing -> behavior only if supplied.
 2. 对 GB 目标必须先调用 Companies House / cross-border-intel registry tools；无命中、401/403、歧义或公司不适用时，再用官方 Companies House public page / web_search/fetch 补证。
 3. 对 US 目标必须先调用 SEC no-key public data：有 CIK 传 CIK，没有 CIK 就把 company_name 传给 cross-border-intel SEC tool 解析 company_tickers.json；SEC not_found 只说明可能是私营/非申报主体，然后再查州 registry / 官方网页。
 4. 如果 enable_paid_email_validation=true 且输入没有 email，先从目标官网公开 contact/about/sales/wholesale/support 页面寻找同域邮箱，再用 cross-border-intel email_domain_check 对找到的同域邮箱做 Abstract/Hunter paid validation；如果官网没有同域邮箱，才做 domain-only DNS 并记录 direct_contact_validation 缺口。
 5. 每个目标都必须尝试 Google Maps 地址版图：用 company/legal/brand、country、city/region、website domain、phone 和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询，调用 cross-border-intel__cbe_intel_google_places_search 找办公室/总部、门店、仓库/分销点、服务/维修点候选。
-6. 对地址候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"；对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate。Google Maps 只计入 public_footprint/domain consistency/business_fit，不要当作法律注册或 KYB 证明。
-7. address_footprint 是必填报告对象；即使 Google API 不可用、无结果或搜索触发上限，也要写 coverage_status、limitations 和 open_questions。
-8. 可用时调用 cross-border-intel MCP 工具；工具或 API key 不可用时标记为 coverage gap，不要当成负面证据。
-9. 公开 scam/fraud/complaint 结果只有在命中目标公司名或目标域名时才可作为负面证据；通用消费者警示页只能作为 coverage_only。
-10. 最终 normalized_score 必须把证据覆盖率纳入分数：证据质量分 80% + 证据覆盖率分 20%；risk_tier 只按最终分判断，80-100 为 trusted_candidate，60-79 为 cautious，60 以下为 high_risk；完全无法计算时才用 insufficient_evidence。
-11. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
+6. 对地址候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"；对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate。
+7. 评分前必须输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
+8. legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
+9. address_footprint 是必填报告对象；即使 Google API 不可用、无结果或搜索触发上限，也要写 coverage_status、limitations 和 open_questions。
+10. 可用时调用 cross-border-intel MCP 工具；工具或 API key 不可用时标记为 coverage gap，不要当成负面证据。
+11. 公开 scam/fraud/complaint 结果只有在命中目标公司名或目标域名时才可作为负面证据；通用消费者警示页只能作为 coverage_only。
+12. 最终 normalized_score 必须把证据覆盖率纳入分数：证据质量分 80% + 证据覆盖率分 20%；risk_tier 只按最终分判断，80-100 为 trusted_candidate，60-79 为 cautious，60 以下为 high_risk；完全无法计算时才用 insufficient_evidence。
+13. 不允许自动外联，不允许登录态社媒抓取，不允许泄露 API key。
 
 背调输入 JSON：
 ${JSON.stringify(payload, null, 2)}
@@ -866,6 +920,12 @@ ${REPORT_JSON_START}
     "target_source": "manual_input",
     "target": {},
     "company_name": "...",
+    "company_scale_assessment": {
+      "scale_class": "unknown_scale",
+      "confidence": 0,
+      "rationale": "",
+      "first_block_strategy": "try_registry_and_maps"
+    },
     "risk_tier": "trusted_candidate|cautious|insufficient_evidence|high_risk",
     "normalized_score": 0,
     "evidence_coverage": 0,
@@ -1218,6 +1278,23 @@ ${REPORT_JSON_END}`;
                     {selectedReport.normalized_score ?? "N/A"}/100 · 证据覆盖 {percent(selectedReport.evidence_coverage)}
                   </div>
                 </div>
+
+                {selectedReport.company_scale_assessment ? (
+                  <div className="rounded-md border bg-muted/20 px-3 py-3">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">公司规模评估</span>
+                      <Badge variant="outline">
+                        {scaleClassLabels[selectedReport.company_scale_assessment.scale_class]}
+                      </Badge>
+                      <Badge variant="outline">
+                        {firstBlockStrategyLabels[selectedReport.company_scale_assessment.first_block_strategy]}
+                      </Badge>
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {selectedReport.company_scale_assessment.rationale}
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-muted-foreground">证据覆盖</div>

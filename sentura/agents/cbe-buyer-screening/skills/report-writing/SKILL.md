@@ -16,6 +16,7 @@ Use at the end of every Screening run.
    - `lead_id`
    - `target_source`
    - `company_name`
+   - `company_scale_assessment`
    - `risk_tier`
    - `normalized_score`
    - `evidence_coverage`
@@ -51,9 +52,15 @@ Use at the end of every Screening run.
    - `locations`: one row per discovered Google Maps place kept after dedupe. Each row includes `google_place_id`, `display_name`, `address_type`, `relationship_status`, `formatted_address`, `city`, `region`, `country`, `business_status`, `types`, `website_uri`, `domain_match`, `phone_match`, `address_validation`, `google_maps_uri`, `match_confidence`, `match_reasons`, `source_type`, and `fetched_at`.
    - `open_questions`: include coverage limitations such as capped search, ambiguous franchise/brand matches, missing store locator, or API unavailability.
    - Do not merge this object into generic evidence cards; the Dashboard renders it as a standalone section before evidence details.
-6. Address-footprint evidence may support `public_footprint`, `domain_email`, and `business_fit`, but it must not score `legal_identity` by itself and must not replace registry/KYB/trade/financial/Accio evidence.
-7. If coverage is low, say "证据不足，建议补充..." rather than "客户很差".
-8. Mask personal emails in customer-facing summaries unless the operator explicitly requests the internal full report.
+6. Add `company_scale_assessment`:
+   - `scale_class`: `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
+   - `confidence`: 0-1.
+   - `rationale`: concise Chinese explanation of why this scale class was chosen.
+   - `first_block_strategy`: `registry_disclosure_primary_maps_support`, `maps_physical_address_primary`, `domain_public_source_primary`, or `try_registry_and_maps`.
+7. Address-footprint evidence may support `public_footprint`, `domain_email`, `business_fit`, and the first `legal_identity` / `公司注册与线下门店/地址` block for `small_local_offline` companies with an `OPERATIONAL` matched physical address and no contradictory evidence. For listed/public or medium-large companies, address-footprint evidence must be fused with registry/disclosure evidence and must not replace formal KYB/trade/financial/Accio evidence.
+8. When Maps satisfies the first block for a small local/offline company, phrase it as `线下经营真实性由 Google Maps 公开门店/地址证据支持`; do not write `官方注册已验证`.
+9. If coverage is low, say "证据不足，建议补充..." rather than "客户很差".
+10. Mask personal emails in customer-facing summaries unless the operator explicitly requests the internal full report.
 
 ## Safety
 

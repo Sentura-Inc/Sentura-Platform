@@ -845,6 +845,12 @@ check("seed writes cbe_user_profiles", seedTs.includes("insert into cbe_user_pro
 check("schemas define customer role enum", schemasTs.includes('z.enum(["admin", "operator"])'));
 const dashboardSchemasTs = read(path.join(DASHBOARD_STORE_DIR, "schemas.ts"));
 check("dashboard store declares customer role boundary", (dashboardStore + dashboardSchemasTs).includes("CBE_PRODUCT_ROLES") && dashboardSchemasTs.includes("admin") && dashboardSchemasTs.includes("operator"));
+check("dashboard store accepts scale-aware Screening assessment in report JSON", [
+  "CompanyScaleClassSchema",
+  "company_scale_assessment",
+  "maps_physical_address_primary",
+  "registry_disclosure_primary_maps_support",
+].every((needle) => dashboardSchemasTs.includes(needle)));
 check("root package declares pg dependency", rootPackage.includes('"pg"') && rootPackage.includes('"@types/pg"'));
 check("sentura/lib package exports cross-border-store", senturaLibPackage.includes('"./cross-border-store"'));
 check("sentura/lib typecheck includes cross-border-store", senturaLibTsconfig.includes("cross-border-store/**/*.ts"));

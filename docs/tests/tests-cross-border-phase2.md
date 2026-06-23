@@ -8,7 +8,7 @@ Detailed test cases for Phase 2 of the mobile-accessory Cross-border e-commerce 
 
 ## CE17 — Cross-Border Phase 2 Execution Plan
 
-Status: PASS (2026-06-16; rechecked 2026-06-17; report-driven concurrency/API-scope design updated 2026-06-21; Google Maps + web-search source route implemented 2026-06-21; Dashboard Lead timeout/runtime env fix verified 2026-06-21; Screening Google Maps address-footprint report path and dedicated address table implemented 2026-06-22)
+Status: PASS (2026-06-16; rechecked 2026-06-17; report-driven concurrency/API-scope design updated 2026-06-21; Google Maps + web-search source route implemented 2026-06-21; Dashboard Lead timeout/runtime env fix verified 2026-06-21; Screening Google Maps address-footprint report path and dedicated address table implemented 2026-06-22; scale-aware Google Maps first-block scoring implemented and verified 2026-06-23)
 
 Scope:
 
@@ -76,8 +76,9 @@ Latest recheck, 2026-06-17:
 | CE17.24 | Screening employee config alignment | Static review | `sentura/agents/cbe-buyer-screening/config.json5`, `TOOLS.md`, and related skills state `single_target_fanout`, `maxTargetsPerSession=1`, batch-5+ block, batch-3 feature flag, and per-target paid call caps without granting mutation tools. |
 | CE17.25 | P2.6 load-smoke recalibration | Manual review | `PHASE-2.md` updates load smoke to 50 sessions, 10 Lead `find-10` requests, Screening batches split into child runs, 3 Accio imports, and a controlled C=40/48 queue validation rather than unbounded active-session starts. |
 | CE17.26 | Country-aware API runbook | Static/manual review | `API_KEYS_OPENCLAW_SETUP.md`, `SCREENING.md`, `registry-verification/SKILL.md`, and `cross-border-intel/README.md` distinguish implemented GB/US/RDAP/email/trade/OpenCorporates routes from planned France/Japan/Korea/Brazil/Italy adapters and Germany/Spain/Mexico official-page/manual routes; registration steps are documented without adding unimplemented env vars to MCP setup. |
-| CE17.27 | Google Maps + web-search source route | Static/manual review + mocked MCP tests | `MARKET_ACQUISITION.md`, `SCREENING.md`, `DESIGN.md`, `PHASE-2.md`, `API_KEYS_OPENCLAW_SETUP.md`, and `cross-border-intel/README.md` make Google Maps Places + OpenClaw web search the implemented primary acquisition/backcheck route while preserving OpenClaw runtime boundaries; Google Maps is documented as discovery/local-presence/address-consistency evidence, not registry/KYB proof; `GOOGLE_MAPS_API_KEY` remains server-side/secret-only current MCP capability with setup env references; field-mask profiles, attribution/caching guardrails, request caps, ledger-ready metadata, mocked adapter tests, and no browser-side key exposure are covered. |
+| CE17.27 | Google Maps + web-search source route | Static/manual review + mocked MCP tests | `MARKET_ACQUISITION.md`, `SCREENING.md`, `DESIGN.md`, `PHASE-2.md`, `API_KEYS_OPENCLAW_SETUP.md`, and `cross-border-intel/README.md` make Google Maps Places + OpenClaw web search the implemented primary acquisition/backcheck route while preserving OpenClaw runtime boundaries; Google Maps is documented as discovery/local-presence/address-consistency evidence and, after CE17.29, as allowed first-block authenticity support for small local/offline companies, but never as formal registry/KYB/legal ownership proof; `GOOGLE_MAPS_API_KEY` remains server-side/secret-only current MCP capability with setup env references; field-mask profiles, attribution/caching guardrails, request caps, ledger-ready metadata, mocked adapter tests, and no browser-side key exposure are covered. |
 | CE17.28 | Screening Google Maps address-footprint report path | Static/manual review + regression tests | `SCREENING.md`, `PHASE-2.md`, `DESIGN.md`, `cbe-buyer-screening` skills, `cross-border-intel`, Dashboard marker normalization, store schemas, completion writes, `screening_address_locations`, and shared report UI require Screening to run bounded multi-query Google Places discovery for company-related offices/stores/warehouses/service locations, dedupe and classify address candidates, validate addresses where possible, persist normalized address rows, and render a dedicated `Google Maps 地址版图` / `address_footprint` report section that is visually separate from ordinary evidence and does not act as legal/KYB proof. |
+| CE17.29 | Scale-aware Google Maps first-block scoring redesign | Static/manual review + runtime regression | `SCREENING.md`, `PHASE-2.md`, `DESIGN.md`, `cbe-buyer-screening` skills, `cross-border-intel`, Dashboard marker/store schemas, hidden runner normalization, shared report UI, legacy Screening page, and regression scripts implement the new first 25% block as `公司注册与线下门店/地址`, require company scale assessment before scoring, fuse registry/disclosure + Google Maps for listed/medium-large companies, and allow small local/offline companies to satisfy the first block through an `OPERATIONAL` Google Maps physical address when registry APIs cannot match them; docs and UI clearly state this is sales-screening authenticity evidence, not formal KYB/legal ownership proof. |
 
 ## CE18 — Phase 2 P2.1 Business Database Foundation
 
@@ -334,7 +335,7 @@ Assertions:
 | CE21.15 | Screening batch block | Static check | Production `createScreeningRun` calls `assertScreeningSessionShape` before `insertAgentRun`, blocking multi-target single-session runs unless explicitly feature-flagged. |
 | CE21.16 | Employee start gating and auto top-up | Static/typecheck | Employee Lead/Screening/Accio UI does not call hidden OpenClaw runner for queued, joined, or near-duplicate responses; executable Lead runs pass DB pre-search denylist into the hidden prompt, and Lead completion uses DB reconciliation to automatically launch bounded top-up rounds when unique saved customers are below the current request target. |
 | CE21.17 | Lead strict-target prompt | Static review | Hidden Lead prompt and Lead workspace skills support `run_mode = "top_up_unique_leads"`, `existing_identity_keys`, `already_covered_queries`, pre-search exclusion of tenant DB identities in every run mode, strict `target_count` net-new output semantics, over-collection before dedupe, and search-result evidence fallback when `web_fetch` is blocked. |
-| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 192/192; live store checks are 213/213; CBE agent checks are 406/406; Dashboard typecheck/build and repo hygiene pass. |
+| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 195/195; live store checks are 217/217; CBE agent checks are 409/409; Dashboard typecheck/build and repo hygiene pass. |
 
 Latest verification, 2026-06-21:
 
@@ -353,7 +354,7 @@ Latest verification, 2026-06-21:
 
 ## CE22 — Lead Reconciliation, Google Maps Source Redesign, Screening Fan-Out/API Scope, And Accio Durable Workflow
 
-Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; Screening fan-out/API-scope and durable Accio workflow remain PEND.
+Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening fan-out/API-scope and durable Accio workflow remain PEND.
 
 Implemented Lead scope:
 
@@ -368,8 +369,29 @@ Implemented Google Maps source route:
 
 - `cross-border-intel` implements Google Maps Places Text Search, Nearby Search, Place Details, Geocoding, and Address Validation with field-mask profiles, request caps, attribution/caching guardrails, provider-status handling, key redaction, and ledger-ready `api_call_ledger` metadata without exposing `GOOGLE_MAPS_API_KEY` to browser/client/prompt code.
 - Lead Discovery defaults to Google Maps Places candidate discovery plus OpenClaw `web_search` / `web_fetch` official-site/product-fit validation; web-only search remains fallback when Maps is unavailable.
-- Screening can refresh one Place Details lookup per target, run one Text Search for manual storefront targets lacking a website, and validate public addresses for local-presence evidence, while Maps remains public-footprint/domain/address-consistency support rather than registry/KYB proof.
+- Screening can refresh one Place Details lookup per target, run one Text Search for manual storefront targets lacking a website, and validate public addresses for local-presence evidence. After the 2026-06-23 design, Maps can also support the first authenticity block for small local/offline companies, while still never acting as formal registry/KYB/legal ownership proof.
 - Screening now discovers all bounded Google Maps address-footprint candidates for a company, classifies office/store/warehouse/service locations, validates unique addresses where possible, normalizes/persists `address_footprint`, writes every location to `screening_address_locations`, and renders a dedicated `Google Maps 地址版图` report section with summary counts, capped-search limitations, Maps URIs, validation verdicts, confidence, and match reasons.
+
+Implemented scale-aware Screening scoring checks:
+
+- `company_scale_assessment` is present before scoring and classifies targets as `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
+- The first score block is displayed as `公司注册与线下门店/地址`, remains 25 points, and is explained as the first 25% authenticity block.
+- For listed/public or medium-large companies, the scoring path fuses official registry/disclosure evidence with Google Maps address/local-presence consistency and does not allow Maps alone to claim formal registration.
+- For small local/offline companies, one confirmed/probable `OPERATIONAL` Google Maps Place with physical address, plausible category/name/location match, and no contradictory official/web evidence can score the first block as real-company/offline-existence evidence.
+- Report wording distinguishes `线下经营真实性由 Google Maps 公开门店/地址证据支持` from formal legal/KYB registration proof.
+- Regression coverage now checks that MCP scoring carries `company_scale_assessment`, Dashboard store schemas preserve it in `report_json`, hidden and legacy Screening prompts require it, report labels render `公司注册与线下门店/地址`, and live workspace files contain the small-local/offline Maps first-block rule. Future behavior fixtures should still add concrete end-to-end examples for: small shop no registry API match but operational Maps address earns first-block credit; listed/public company with Maps but no registry/disclosure match does not earn full first-block credit; closed Maps location triggers caution; online-only small company does not get penalized solely for missing Maps.
+
+Latest verification, 2026-06-23:
+
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
+- `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217 static + live PostgreSQL checks, including `screening_address_locations` write/read and store-schema acceptance of scale-aware report JSON.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Minimal real Google Places API (New) smoke with configured `GOOGLE_MAPS_API_KEY`: PASS, HTTP 200, one candidate, place id present, Maps URI present, `business_status="OPERATIONAL"`; key and full provider response were not printed.
+- `git diff --check`: PASS before documentation updates.
+- Live `~/.openclaw/workspace/cbe-buyer-screening` sync check: `AGENTS.md`, `BOOTSTRAP.md`, `TOOLS.md`, `evidence-collection`, `buyer-scoring`, and `report-writing` match source; no `RULES.md` / `CONTEXT.md`.
 
 Latest verification, 2026-06-22:
 

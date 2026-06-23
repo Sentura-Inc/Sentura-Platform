@@ -33,7 +33,8 @@ Use first for every Screening request.
    - `missing_fields`
 3. Preserve Marketing provenance: `source_run_id`, source URLs, query strings, matched products, contact candidates, and discovery confidence.
 4. Build an evidence plan in this order:
-   - registry/legal identity,
+   - company scale assessment,
+   - company registration and offline-address authenticity,
    - domain/email credibility,
    - Google Maps address footprint and local presence,
    - public digital footprint,
@@ -50,7 +51,11 @@ Use first for every Screening request.
    - Classify every place as `confirmed_company_location`, `probable_company_location`, `possible_related_location`, or `rejected_unrelated_location`.
    - Classify address role as `headquarters_or_office`, `storefront`, `warehouse_or_distribution`, `service_or_repair_location`, or `unknown_business_location`.
    - Treat no result, missing key, provider error, or rate limit as a coverage gap. Missing Maps evidence is neutral. Return an `address_footprint` object even for `not_found` or `unavailable_api`.
-6. Mark missing clues as `pending_human_input`; do not score them as negative.
+6. Use address-footprint results in scale assessment:
+   - `listed_or_public` or `medium_large_registered`: Maps supports registry/disclosure address consistency.
+   - `small_local_offline`: one confirmed/probable `OPERATIONAL` physical address can satisfy the first `公司注册与线下门店/地址` block when no contradiction exists.
+   - `small_online_only`: missing Maps is neutral.
+7. Mark missing clues as `pending_human_input`; do not score them as negative.
 
 ## Safety
 

@@ -1199,6 +1199,7 @@ async function scoreBuyer(ctx: ToolContext, rawArgs: unknown) {
   const args = z.object(ScoreBuyerInputShape).parse(rawArgs);
   const score = calculateContextualScore({
     profile: args.profile,
+    companyScaleAssessment: args.company_scale_assessment,
     blocks: args.blocks,
     forcedDowngrades: args.forced_downgrades,
   });

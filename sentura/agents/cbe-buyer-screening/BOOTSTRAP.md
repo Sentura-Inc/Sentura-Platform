@@ -14,4 +14,4 @@ Phase 1 uses OpenClaw/Sentura as configured employee workspaces plus the read-on
 - `SEC_USER_AGENT` for SEC EDGAR public data.
 - `CBE_ENABLE_PAID_TRADE_DATA`, `CBE_MAX_PAID_SPEND_USD`, and `CBE_INTEL_REQUEST_TIMEOUT_MS` for cost and timeout control.
 
-Secrets are never printed. Missing or disabled sources are coverage gaps, not fraud evidence. Google Maps evidence is public-footprint/local-presence support only; it does not replace company registry, domain/email, trade, financial, or behavior evidence.
+Secrets are never printed. Missing or disabled sources are coverage gaps, not fraud evidence. Google Maps is not formal KYB, legal ownership, trade, financial, or behavior proof. For small local/offline companies, an `OPERATIONAL` matched Google Maps physical address may satisfy the first `公司注册与线下门店/地址` authenticity block as offline-existence evidence when no contradictory source exists; for listed/public and medium-large companies, fuse Maps with registry/disclosure evidence.

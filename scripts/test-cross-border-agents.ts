@@ -464,10 +464,23 @@ check("domain skill calls RDAP/email checks and paid validation only when enable
 check("domain skill discovers official-site emails before paid validation", domainSkill.includes("cbe_intel_official_contact_email_search") && domainSkill.includes("same-domain business emails") && domainSkill.includes("best same-domain public contact email"));
 check("trade skill preserves budget and missing-data semantics", tradeSkill.includes("ImportYeti") && tradeSkill.includes("disabled_by_budget") && tradeSkill.includes("coverage gap"));
 check("scoring skill uses contextual score blocks and forced downgrades", scoringSkill.includes("not_applicable") && scoringSkill.includes("cross-border-intel__cbe_intel_score_buyer") && scoringSkill.includes("forced downgrades"));
+check("scoring skill applies scale-aware Google Maps first-block rule", [
+  "company_scale_assessment",
+  "small_local_offline",
+  "maps_physical_address_primary",
+  "公司注册与线下门店/地址",
+  "OPERATIONAL",
+].every((needle) => scoringSkill.includes(needle)));
 check("report skill defines ScreeningReport JSON output", reportSkill.includes("ScreeningReport") && reportSkill.includes("missing_or_unavailable_evidence") && reportSkill.includes("evidence_coverage"));
 check("screening Hard Rules forbid invented evidence and missing-data fraud claims", screeningAgents.includes("NEVER invent registry records") && screeningAgents.includes("NEVER treat missing paid/API evidence as proof of fraud"));
+check("screening Hard Rules allow small-local Maps first-block support without KYB overclaim", [
+  "公司注册与线下门店/地址",
+  "small local/offline",
+  "OPERATIONAL",
+  "NEVER describe Google Maps evidence as formal KYB",
+].every((needle) => screeningAgents.includes(needle)));
 check("screening TOOLS.md lists read-only MCP tools", screeningTools.includes("cross-border-intel__cbe_intel_company_registry_search") && screeningTools.includes("cross-border-intel__cbe_intel_official_contact_email_search") && screeningTools.includes("cross-border-intel__cbe_intel_score_buyer"));
-check("screening workspace uses Google Maps as local-presence evidence only", screeningTools.includes("cbe_intel_google_place_details") && evidenceSkill.includes("google_place_id") && scoringSkill.includes("local-presence"));
+check("screening workspace uses Google Maps for address footprint and scale-aware first-block support", screeningTools.includes("cbe_intel_google_place_details") && evidenceSkill.includes("google_place_id") && scoringSkill.includes("maps_physical_address_primary"));
 check("screening workspace requires Google Maps address footprint", [
   "Google Maps 地址版图",
   "address-footprint",
@@ -766,6 +779,13 @@ check("employee screening address footprint is saved and restored", [
   "AddressFootprintPanel",
   "Google Maps 地址版图",
 ].every((needle) => cbeStoreSchemas.includes(needle) || employeeApi.includes(needle) || screeningStore.includes(needle) || customerReportDialog.includes(needle)));
+check("employee screening company scale assessment is saved and displayed", [
+  "company_scale_assessment",
+  "CompanyScaleAssessment",
+  "公司规模评估",
+  "公司注册与线下门店/地址",
+  "maps_physical_address_primary",
+].every((needle) => cbeStoreSchemas.includes(needle) || employeeApi.includes(needle) || employeeTaskRunner.includes(needle) || customerReportDialog.includes(needle)));
 check("employee screening missing evidence is saved as insufficient evidence", ["missingEvidenceUrl", "traceabilityGap", '"insufficient_evidence"', "外部可追溯证据 URL"].every((needle) => employeeApi.includes(needle)) && !employeeApi.includes("背调报告缺少可追溯证据 URL"));
 check("employee Accio normalization accepts preview aliases and derives report facts", ["memory_write_preview", "derivedIntent", "derivedPrice", "behavior_signals", "screening_handoff_target"].every((needle) => employeeApi.includes(needle)));
 check("employee memory task notifications keep highlighted rows until click", ["highlightTaskId", "item.latestAgentRunId === highlightTaskId", "outline-sky-300", "setHighlightedRecordIds", "clearMemoryHighlight", "onMouseDown"].every((needle) => employeeMemoryPage.includes(needle)) && !employeeMemoryPage.includes("3000"));
@@ -810,7 +830,7 @@ check("employee task completion metadata carries affected customer ids", ["saved
 check("employee report evidence hides scoring calculation layer", !employeeCustomersPage.includes("评分计算") && !employeeCustomersPage.includes('scoring: "评分计算"') && !employeeData.includes('| "scoring"') && !employeeTaskRunner.includes('raw === "scoring"'));
 check("employee report detail sheet resets scroll to top", ["contentRef", "scrollTo({ top: 0, left: 0 })", "activeCustomer?.customerId"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer deletion requires confirmation", ["requestDeleteCustomers", "确认删除客户", "确认删除", "deleteTargets", "onDeleteConfirm"].every((needle) => employeeCustomersPage.includes(needle)));
-check("employee evidence gaps use concrete searched-source reasons", ["coverageGapReasonForBlock", "coverageGapsFromScoreBlocks", "公司注册信息或官方注册页未搜索到", "RDAP、DNS、官网联系邮箱", "贸易/海关记录、SEC 或财务公开文件"].every((needle) => employeeData.includes(needle)) && employeeTaskRunner.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && employeeApi.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && !employeeTaskRunner.includes("\"缺少该维度证据。\"") && !employeeApi.includes("\"缺少该维度证据。\""));
+check("employee evidence gaps use concrete searched-source reasons", ["coverageGapReasonForBlock", "coverageGapsFromScoreBlocks", "Google Maps 线下门店/地址", "RDAP、DNS、官网联系邮箱", "贸易/海关记录、SEC 或财务公开文件"].every((needle) => employeeData.includes(needle)) && employeeTaskRunner.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && employeeApi.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && !employeeTaskRunner.includes("\"缺少该维度证据。\"") && !employeeApi.includes("\"缺少该维度证据。\""));
 check("employee lead budget estimate is calibrated to recent sentura-cost records", ["leadSourceLabel: \"近期真实成本 + 已定价调用\"", "observedSearchRequestUsd", "observedRetainedCandidateUsd", "pricedExternalUsd", "模型美元成本按 sentura-cost 真实回填校准"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("advanced 2 credits × US$0.008/credit"));
 check("employee screening budget estimate does not treat trade-data cap as spend", ["estimateScreeningTaskCost", "observedTargetUsd", "paidTradeDataExpectedUsd: 0", "tradeDataBudgetCapUsd", "贸易数据硬上限", "不当作预计支出", "ImportYeti requestCost=0"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("tradeDataReservedUsd"));
 check("sentura-cost schema supports external API cost rows", ["external_api", "local_tool", "CostPricingStatus", "externalUsage", "external_tool_log"].every((needle) => senturaCostTypes.includes(needle)));

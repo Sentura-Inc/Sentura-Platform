@@ -12,6 +12,7 @@ import type {
   CustomerListItem,
   CustomerScoreBlock,
   CustomerScreeningReport,
+  CompanyScaleAssessment,
   AddressFootprintAddressType,
   AddressFootprintRelationshipStatus,
   CustomerAddressFootprint,
@@ -245,6 +246,42 @@ function statusText(status: CustomerScoreBlock["status"]) {
     pending_human_input: "待补充",
   };
   return labels[status];
+}
+
+const scaleClassLabels: Record<CompanyScaleAssessment["scaleClass"], string> = {
+  listed_or_public: "上市/公开披露企业",
+  medium_large_registered: "中大型注册企业",
+  small_local_offline: "中小型线下企业",
+  small_online_only: "中小型线上企业",
+  unknown_scale: "规模待确认",
+};
+
+const firstBlockStrategyLabels: Record<CompanyScaleAssessment["firstBlockStrategy"], string> = {
+  registry_disclosure_primary_maps_support: "注册/披露为主，Maps 地址辅助",
+  maps_physical_address_primary: "Maps 物理地址和营业状态为主",
+  domain_public_source_primary: "官网/公开来源为主",
+  try_registry_and_maps: "注册与 Maps 双路径待确认",
+};
+
+function CompanyScalePanel({ assessment }: { assessment?: CompanyScaleAssessment }) {
+  if (!assessment) return null;
+  return (
+    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-slate-800">公司规模评估</span>
+        <Badge variant="outline" className="bg-white text-slate-700">
+          {scaleClassLabels[assessment.scaleClass]}
+        </Badge>
+        <Badge variant="outline" className="bg-white text-slate-700">
+          {firstBlockStrategyLabels[assessment.firstBlockStrategy]}
+        </Badge>
+        {typeof assessment.confidence === "number" ? (
+          <span className="text-xs text-muted-foreground">置信度 {Math.round(assessment.confidence * 100)}%</span>
+        ) : null}
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">{assessment.rationale}</p>
+    </div>
+  );
 }
 
 function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
@@ -652,6 +689,7 @@ export function CustomerReportDialog({
                 <div className={cn("rounded-md border px-3 py-2 text-sm leading-6", statusBadgeClass(customer))}>
                   {simplifyDisplayText(report?.recommendedAction ?? customer.recommendedAction) ?? "暂无报告，等待背调结果。"}
                 </div>
+                <CompanyScalePanel assessment={report?.companyScaleAssessment} />
               </ReportPanel>
 
               {report ? (

@@ -165,6 +165,46 @@ Conversation language: answer the user in Chinese. Keep handoff updates concise 
 
 Current active product area: Sentura cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
+## Latest Implementation Update
+
+Date: 2026-06-23
+
+Task: Implement the user's approved Google Maps scoring redesign for the Screening/背调 Agent.
+
+### Result
+
+The scale-aware Screening scoring redesign is now implemented:
+
+- Screening reports carry `company_scale_assessment` with `scale_class`, confidence, rationale, and `first_block_strategy`.
+- The first 25% block is displayed as `公司注册与线下门店/地址`; JSON keeps `legal_identity` for backward compatibility.
+- For listed/public and medium-large companies, the scoring path fuses official registry/disclosure evidence with Google Maps address/local-presence consistency.
+- For small local/offline companies, an `OPERATIONAL` Google Maps Place with physical address, plausible name/category/location match, and no contradictory evidence can satisfy the first block as real-company/offline-existence evidence when registry APIs cannot match the company.
+- Reports must distinguish this from formal legal registration/KYB proof.
+
+### Files Updated
+
+- MCP scoring schema/result path: `sentura/mcp-servers/cross-border-intel/src/{schemas.ts,tools.ts,server.test.ts}`.
+- Dashboard report persistence/display path: `sentura/dashboard/src/lib/cross-border-store/schemas.ts`, Employee data/API/task-runner files, shared `CustomerReportDialog`, Employee customers page, legacy `/screening` page, and legacy diagnostic Screening route.
+- Screening workspace source files: `sentura/agents/cbe-buyer-screening/{AGENTS.md,BOOTSTRAP.md,TOOLS.md,skills/evidence-collection/SKILL.md,skills/buyer-scoring/SKILL.md,skills/report-writing/SKILL.md}`.
+- Live OpenClaw workspace: synced the same behavior files into `~/.openclaw/workspace/cbe-buyer-screening/`.
+- Static regression scripts and docs/handoff/memory were updated.
+
+### Verification
+
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
+- `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Minimal real Google Places API (New) smoke with configured `GOOGLE_MAPS_API_KEY`: PASS, HTTP 200, one `OPERATIONAL` candidate with place id and Maps URI; key/full response not printed.
+- Live workspace diff and `RULES.md`/`CONTEXT.md` scan: PASS.
+- `git diff --check`: PASS before final docs.
+
+### Boundary
+
+This completes the Google Maps scoring fusion requested in this round. Remaining CBE Phase 2 work is P2.5 queue draining/claim behavior, Screening parent/child fan-out, paid-call retry state, durable Screening/Accio workflow polish, and later P2.6 load smoke.
+
 ## Latest Implementation
 
 Date: 2026-06-22
@@ -217,7 +257,7 @@ Previous implementation in this thread also completed `Google Maps 地址版图`
 
 ### Boundary
 
-Maps can support public footprint/domain/business-fit evidence, but not legal identity or registry/KYB proof. A fresh live Dashboard Screening run still needs to be inspected after deployment/restart to confirm persisted reports now include `address_footprint` rows from real Google calls.
+Maps is still not formal legal/KYB proof. Under the 2026-06-23 design, it can satisfy the first `公司注册与线下门店/地址` authenticity block only for small local/offline companies with an operational matched physical address and no contradictory evidence. A fresh live Dashboard Screening run still needs to be inspected after deployment/restart to confirm persisted reports now include `address_footprint` rows from real Google calls.
 
 ## Latest P2.4 Audit
 
@@ -244,10 +284,10 @@ P2.4 is complete. The current implementation matches the CE21/P2.4 boundary:
 
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 21/21.
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 38/38.
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 194/194.
-- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216 static + live PostgreSQL, including true `screening_address_locations` write/read through `saveScreeningReports` and typed lookup.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217 static + live PostgreSQL, including true `screening_address_locations` write/read through `saveScreeningReports` and typed lookup.
 - `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS, applied `006_screening_address_locations.sql`.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 406/406.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
 - `pnpm --dir sentura/dashboard build`: PASS; only the known Next multiple-lockfile workspace-root warning appeared.
 - `git diff --check`: PASS before final docs update.
@@ -382,11 +422,11 @@ Setup/docs:
 Passed:
 
 - `pnpm --filter @sentura/mcp-cross-border-intel build`
-- `pnpm --filter @sentura/mcp-cross-border-intel test`: 23/23
+- `pnpm --filter @sentura/mcp-cross-border-intel test`: 24/24
 - Real Google Places smoke through MCP with configured API key: HTTP 200, `status="found"`, one candidate, `place_id`, `google_maps_uri`; no key/full response printed
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: 406/406
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: 194/194
-- `CBE_DATABASE_URL=$CBE_DATABASE_URL pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: 216/216
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: 409/409
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: 195/195
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: 217/217
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: 21/21
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`
 - `bash -n scripts/sentura-setup.sh`
@@ -407,11 +447,16 @@ The latest task intentionally changed code, agent workspace files, setup scripts
 
 ## Next Steps
 
-1. Rerun final hygiene after handoff updates:
+1. Implement the 2026-06-23 Screening scoring redesign:
+   - update runtime-facing `cbe-buyer-screening` prompt/skills;
+   - update deterministic scoring behavior and report normalization/schema if needed;
+   - update report UI labels from pure `公司注册` to `公司注册与线下门店/地址`;
+   - add regression fixtures for small-local Maps-only authenticity, listed/public Maps-without-registry, closed-location caution, and online-only no-Maps-neutral cases.
+2. Rerun final hygiene after handoff updates:
    - `git diff --check`
    - optionally `git status --short`
-2. In the final user response, note:
+3. In the final user response, note:
    - Backend actually returned a valid marker; the old UI wait path timed out too early.
    - Live MCP env lacked Google key references until setup was rerun; now fixed and verified with a real Google Places smoke.
    - Tests passed; restart Gateway/MCP and Dashboard dev server before retesting.
-3. Remaining Phase 2 work is separate: Screening parent/child queue fan-out/draining, paid-call retry state, durable Screening report UX polish, Accio approval-to-memory promotion, and Screening handoff consumption.
+4. Remaining Phase 2 work also includes Screening parent/child queue fan-out/draining, paid-call retry state, durable Screening report UX polish, Accio approval-to-memory promotion, and Screening handoff consumption.

@@ -128,6 +128,26 @@ export interface CustomerAddressFootprint {
   openQuestions: string[];
 }
 
+export type CompanyScaleClass =
+  | "listed_or_public"
+  | "medium_large_registered"
+  | "small_local_offline"
+  | "small_online_only"
+  | "unknown_scale";
+
+export type CompanyScaleFirstBlockStrategy =
+  | "registry_disclosure_primary_maps_support"
+  | "maps_physical_address_primary"
+  | "domain_public_source_primary"
+  | "try_registry_and_maps";
+
+export interface CompanyScaleAssessment {
+  scaleClass: CompanyScaleClass;
+  confidence?: number;
+  rationale: string;
+  firstBlockStrategy: CompanyScaleFirstBlockStrategy;
+}
+
 export interface CustomerScreeningReport {
   reportId: string;
   riskTier: ScreeningRiskTier;
@@ -135,6 +155,7 @@ export interface CustomerScreeningReport {
   evidenceCoverage?: number;
   recommendedAction: string;
   createdAt?: string;
+  companyScaleAssessment?: CompanyScaleAssessment;
   scoreBlocks: CustomerScoreBlock[];
   evidence: CustomerEvidenceItem[];
   coverageGaps: CustomerCoverageGap[];
@@ -181,7 +202,7 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
   }
   switch (block) {
     case "legal_identity":
-      return "公司注册信息或官方注册页未搜索到可核验主体记录。";
+      return "公司注册信息、官方注册页或可确认的 Google Maps 线下门店/地址未形成足够真实性证据。";
     case "domain_email":
       return "官网域名、邮箱记录或邮箱验证未搜索到足够依据。";
     case "public_footprint":
@@ -203,7 +224,7 @@ export function coverageGapActionForBlock(block: string, status?: ScreeningEvide
   if (status === "not_applicable") return "如后续产生聊天或销售记录，可再补充行为依据。";
   switch (block) {
     case "legal_identity":
-      return "补充公司注册号、法定名称或官方注册地区后重新查询。";
+      return "补充公司注册号、法定名称、官方注册地区，或提供门店/办公地址线索后重新查询。";
     case "domain_email":
       return "补充官网域名、业务邮箱或联系人邮箱后重新验证。";
     case "trade_financial":
