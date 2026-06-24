@@ -1,0 +1,21 @@
+{
+  "stamp": "mqs0t118",
+  "db_only": true,
+  "seeded_users": 50,
+  "simulated_sessions": 50,
+  "p95_dashboard_api_latency_ms": 0.88,
+  "lead_requests": 10,
+  "lead_active_sessions_after_dedupe": 5,
+  "screening_batches": 5,
+  "screening_child_runs": 25,
+  "screening_running_children_initial": 12,
+  "screening_queued_children_initial": 13,
+  "accio_imports": 3,
+  "soft_cap_active_after_pressure": 24,
+  "hard_guard_status": "queued",
+  "go_live_readiness": "db_only_preflight_passed",
+  "backup_restore_drill": "passed",
+  "open_risks": [
+    "Run this smoke against the actual target deployment with Dashboard/Gateway processes and approved provider quotas before labeling production_go_live_ready."
+  ]
+}

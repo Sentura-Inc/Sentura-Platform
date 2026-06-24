@@ -14,9 +14,10 @@ import type {
   AccioSummaryMarker,
   CompleteAccioImportRequest,
   CreateAccioImportRequest,
+  ReviewMemoryFactsRequest,
   TenantContext,
 } from "./schemas";
-import { CreateAccioImportRequestSchema } from "./schemas";
+import { CreateAccioImportRequestSchema, ReviewMemoryFactsRequestSchema } from "./schemas";
 
 export interface AccioImportRecord {
   id: string;
@@ -1105,6 +1106,69 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
     [context.tenantId, context.cbeRole === "admin", context.userId, context.teamName ?? null],
   );
   return { items: result.rows.map(toMemoryRecord) };
+}
+
+export async function reviewEmployeeMemoryFacts(
+  context: TenantContext,
+  rawInput: ReviewMemoryFactsRequest,
+) {
+  const input = ReviewMemoryFactsRequestSchema.parse(rawInput);
+  const requestedIds = Array.from(new Set(input.ids.map((id) => id.trim()).filter(Boolean)));
+  return withCbeTransaction(async (client) => {
+    const scope = scopedOwnerClause(context, "mf", 7);
+    const result = await client.query<{ id: string; source_record_id: string; status: string }>(
+      `
+        update memory_facts mf
+        set
+          status = $3,
+          reviewed_by_user_id = $4,
+          reviewed_at = now(),
+          review_note = $5,
+          vector_memory_ref = case when $3 = 'approved' then coalesce($6, vector_memory_ref) else vector_memory_ref end
+        where mf.tenant_id = $1
+          and (
+            mf.id = any($2::text[])
+            or (
+              mf.source_record_type = 'accio_summary'
+              and mf.source_record_id = any($2::text[])
+            )
+          )
+          and mf.status = 'pending_review'
+          ${scope.sql}
+        returning mf.id, mf.source_record_id, mf.status
+      `,
+      [
+        context.tenantId,
+        requestedIds,
+        input.decision,
+        context.userId,
+        input.review_note ?? null,
+        input.vector_memory_ref ?? null,
+        ...scope.values,
+      ],
+    );
+    if (result.rows.length === 0) {
+      throw new CbeStoreError(404, "memory_fact_missing", "No pending memory facts were found for review.");
+    }
+    await createAuditEvent(client, context, {
+      agentId: "cbe-accio-memory",
+      eventType: input.decision === "approved" ? "memory_facts_approved" : "memory_facts_rejected",
+      dataTier: "T2",
+      metadataJson: {
+        requested_ids: requestedIds,
+        reviewed_memory_fact_ids: result.rows.map((row) => row.id),
+        source_record_ids: result.rows.map((row) => row.source_record_id),
+        vector_memory_ref: input.decision === "approved" ? input.vector_memory_ref ?? null : null,
+      },
+    });
+    return {
+      reviewed: result.rows.map((row) => ({
+        id: row.id,
+        sourceRecordId: row.source_record_id,
+        status: row.status,
+      })),
+    };
+  });
 }
 
 export async function deleteEmployeeMemoryRecords(context: TenantContext, ids: string[]) {

@@ -8,6 +8,16 @@ Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production h
 
 Completed task, 2026-06-24:
 
+- User asked to finish all work and tests needed before delivering the Cross-border e-commerce / 跨境电商 customer pilot to production.
+- Completed remaining CE22/P2.5 production blockers: per-target paid email/trade retry state, explicit paid-source re-approval, retry-safe child Screening reruns, Accio memory fact approval/rejection, and durable Accio-to-Screening handoff accepted/completed transitions.
+- Added migration `007_screening_retry_memory_approval.sql`, new retry and memory-facts API routes, typed Employee API calls, child paid-source policy enforcement in `获客与背调`, and `批准写入` approval UI in `记忆整理`.
+- Completed CE23/P2.6 local preflight: DB-only load-smoke tooling, guarded backup/restore drill with Docker PostgreSQL client fallback, P2.6 runbook, local readiness report, Dashboard production build, and Browser memory-approval smoke.
+- Latest report `outputs/cbe-phase2-load-smoke-report.json`: 50 sessions, 10 Lead requests / 5 active sessions after dedupe, 25 Screening child runs with 12 running and 13 queued initially, 3 Accio imports, soft-cap active count 24, hard guard queued, `go_live_readiness="db_only_preflight_passed"`, `backup_restore_drill="passed"`.
+- Verification: Dashboard `tsc --noEmit` PASS; Dashboard `build` PASS; CBE static regression PASS 410/410; store static/live PASS 211/211 and 238/238; concurrency static/live PASS 23/23 and 46/46; load-smoke static/live PASS 16/16 and 48/48; backup/restore drill PASS against disposable `sentura_cbe_restore_drill` with restored-store checks 238/238; Browser memory approval PASS with temporary record cleaned up; `git diff --check` PASS.
+- Local pre-production implementation/testing is complete. The only remaining `production_go_live_ready` gate is target-environment evidence: run the same load smoke and restore drill on the actual target deployment, then record provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+
+Completed task, 2026-06-24:
+
 - User asked to start the next task from `跨境电商/PHASE-2.md` P2.5 and strictly follow the plan, then inspect the implementation.
 - Implemented Screening parent/child fan-out: multi-target Screening requests now create one parent `agent_runs` row, one `screening_batches` row, one pre-created `screening_targets` row per target, one child `agent_runs` row per target, and one `screening_batch_targets` row per child.
 - Child Screening prompt payloads carry exactly one target. Production batch-5 and batch-10 remain blocked; batch-3 remains behind `CBE_SCREENING_ALLOW_BATCH3=true`.
@@ -15,7 +25,7 @@ Completed task, 2026-06-24:
 - Employee bulk Screening now starts one parent task, runs claimed single-target child sessions, records child completion/failure/cancellation, and drains another queued wave after each wave completes. Ordinary task lists hide silent child notifications and show the parent aggregate.
 - Live-test fixes: parent aggregate refresh now resolves the batch before counting all child targets, preventing one terminal child from completing the parent early; Employee completion messages count backend-saved Screening reports from `completeEmployeeScreeningRun().reports.length`.
 - Verification so far: Dashboard `tsc --noEmit` PASS; Phase 2 store static PASS 196/196; Phase 2 store live PostgreSQL PASS 218/218; Phase 2 concurrency static PASS 23/23; Phase 2 concurrency live PostgreSQL PASS 46/46 with a three-target fan-out/drain probe; live OpenClaw/Dashboard bulk Screening under operator `吴思彤` PASS across two real three-target runs.
-- Broad legacy `scripts/test-cross-border-agents.ts` currently FAILS 398/410 because of stale UI/copy assertions outside the P2.5 fan-out path; do not treat those 12 failures as fan-out regressions without re-reading the failing assertions.
+- Broad CBE static regression `scripts/test-cross-border-agents.ts` now PASSes 410/410 after aligning the current navigation/status/cost/filter assertions and tightening concrete evidence-gap wording.
 - Remaining P2.5 work: per-target paid email/trade retry state with explicit re-approval, durable Screening report/evidence retry polish, Accio approval-to-memory promotion, and durable Screening handoff consumption. Then proceed to P2.6 load smoke.
 
 Completed task, 2026-06-23:

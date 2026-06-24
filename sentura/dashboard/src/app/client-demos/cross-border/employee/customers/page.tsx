@@ -97,6 +97,7 @@ import {
   failEmployeeTaskInDb,
   fetchEmployeeCustomers,
   fetchEmployeeTasks,
+  type ApiScreeningChildRun,
 } from "../_data/employee-api";
 import {
   clearCbeEmployeeTaskAbortSignal,
@@ -674,6 +675,22 @@ function screeningOptionsFromState(options: ScreeningOptionState): EmployeeScree
     paidEmailValidation: options.paidEmailValidation,
     paidTradeData: options.paidTradeData,
     maxPaidSpendUsd: options.maxPaidSpendUsd,
+  };
+}
+
+function screeningOptionsForChild(
+  options: EmployeeScreeningTaskOptions | undefined,
+  child: ApiScreeningChildRun,
+): EmployeeScreeningTaskOptions | undefined {
+  const policy = child.paidSourcePolicy;
+  if (!policy) return options;
+  return {
+    ...options,
+    paidEmailValidation: Boolean(options?.paidEmailValidation && policy.paidEmailValidation?.allowed),
+    paidTradeData: Boolean(options?.paidTradeData && policy.paidTradeData?.allowed),
+    maxPaidSpendUsd: policy.paidTradeData?.allowed
+      ? Math.min(options?.maxPaidSpendUsd ?? 0, policy.paidTradeData.budgetUsd ?? options?.maxPaidSpendUsd ?? 0)
+      : 0,
   };
 }
 
@@ -1451,11 +1468,12 @@ function CrossBorderCustomersPageContent() {
         const activeSessionKey = child.agentRun.sessionKey;
         if (child.agentRun.status === "queued" || !activeSessionKey) return { status: "queued" as const, count: 0 };
         const childLabel = child.target.company_name ?? child.agentRun.targetSummary ?? `第 ${child.targetOrder} 个客户`;
+        const childOptions = screeningOptionsForChild(options, child);
         try {
           const result = await runScreeningTask(
             client,
             [child.target],
-            options,
+            childOptions,
             (progress) => {
               createProgressHandler(localTaskId)({
                 ...progress,

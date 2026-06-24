@@ -68,6 +68,7 @@ import {
   fetchEmployeeAccioImportPayload,
   fetchEmployeeMemoryRecords,
   fetchEmployeeTasks,
+  reviewEmployeeMemoryFacts,
 } from "../_data/employee-api";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
@@ -106,6 +107,12 @@ const sourceLabels: Record<MemoryRecordItem["source"], string> = {
   demo_data: "演示数据",
   other: "其他",
 };
+
+function memoryPreviewStatusLabel(status: MemoryRecordItem["memoryPreviewStatus"]) {
+  if (status === "approved") return "已批准";
+  if (status === "rejected") return "已拒绝";
+  return "仅预览";
+}
 
 const memorySourceChoices = ["聊天工具", "平台聊天", "手动导入"] as const;
 const memoryStatusFilterChoices = ["all", "not_started", "analyzed"] as const;
@@ -272,6 +279,7 @@ function CrossBorderMemoryPageContent() {
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [deleteIntentIds, setDeleteIntentIds] = useState<string[]>([]);
   const [deletingMemory, setDeletingMemory] = useState(false);
+  const [reviewingMemoryFact, setReviewingMemoryFact] = useState(false);
   const handledHighlightRequestRef = useRef<string | null>(null);
   const memoryHighlightScope = normalizeMemoryHighlightScope(searchParams.get("highlight"));
   const highlightRecordId = searchParams.get("highlightRecord");
@@ -726,6 +734,29 @@ function CrossBorderMemoryPageContent() {
     showNotice("已定位聊天记录移交客户行，可在获客与背调中继续调研。", "success");
   };
 
+  const approveMemoryFact = async (record: MemoryRecordItem) => {
+    if (record.analysisStatus !== "analyzed" || record.memoryPreviewStatus !== "preview_only") return;
+    setReviewingMemoryFact(true);
+    try {
+      await reviewEmployeeMemoryFacts({
+        ids: [record.reportId ?? record.recordId],
+        decision: "approved",
+        reviewNote: "Operator approved concise Accio memory preview for future Screening context.",
+      });
+      await refreshDbBackedMemory();
+      setActiveRecord((current) =>
+        current && current.recordId === record.recordId
+          ? { ...current, memoryPreviewStatus: "approved" }
+          : current,
+      );
+      showNotice("已批准写入简洁事实；原始聊天不会写入长期记忆。", "success", 6000);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "记忆审批失败。", "error", 8000);
+    } finally {
+      setReviewingMemoryFact(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -964,6 +995,8 @@ function CrossBorderMemoryPageContent() {
           activeRecord={activeRecord}
           onClose={() => setSheetMode(null)}
           onCreateHandoff={sendToScreening}
+          onApproveMemory={approveMemoryFact}
+          approving={reviewingMemoryFact}
         />
       ) : null}
 
@@ -1037,7 +1070,7 @@ function MemoryMobileCard({
         </div>
         <div>
           <div className="text-muted-foreground">写入状态</div>
-          <div>{item.memoryPreviewStatus === "preview_only" ? "仅预览" : item.memoryPreviewStatus}</div>
+          <div>{memoryPreviewStatusLabel(item.memoryPreviewStatus)}</div>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1342,10 +1375,14 @@ function MemoryReportDialog({
   activeRecord,
   onClose,
   onCreateHandoff,
+  onApproveMemory,
+  approving,
 }: {
   activeRecord: MemoryRecordItem;
   onClose: () => void;
   onCreateHandoff: (record: MemoryRecordItem) => void;
+  onApproveMemory: (record: MemoryRecordItem) => void;
+  approving: boolean;
 }) {
   return (
     <Dialog open onOpenChange={(open) => {
@@ -1417,7 +1454,7 @@ function MemoryReportDialog({
                   <div>
                     <dt className="text-xs text-muted-foreground">写入状态</dt>
                     <dd className="mt-1 font-medium">
-                      {activeRecord.memoryPreviewStatus === "preview_only" ? "仅预览" : activeRecord.memoryPreviewStatus}
+                      {memoryPreviewStatusLabel(activeRecord.memoryPreviewStatus)}
                     </dd>
                   </div>
                   <div>
@@ -1431,6 +1468,15 @@ function MemoryReportDialog({
                   </div>
                 </dl>
               </section>
+
+              <Button
+                className="w-full justify-start"
+                disabled={activeRecord.analysisStatus !== "analyzed" || activeRecord.memoryPreviewStatus !== "preview_only" || approving}
+                onClick={() => onApproveMemory(activeRecord)}
+              >
+                {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                批准写入
+              </Button>
 
               <Button
                 className="w-full justify-start"

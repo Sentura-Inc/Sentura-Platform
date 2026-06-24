@@ -143,6 +143,10 @@ const CUSTOMER_REPORT_DIALOG = path.join(
   ROOT,
   "sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx",
 );
+const CUSTOMER_LABELS = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/customer-labels.ts",
+);
 const EMPLOYEE_COST_BUDGET_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-budget/route.ts",
@@ -267,6 +271,7 @@ const screeningStore = read(CBE_SCREENING_STORE);
 const cbeAdminStore = read(CBE_ADMIN_STORE);
 const employeeTaskStatus = read(EMPLOYEE_TASK_STATUS);
 const customerReportDialog = read(CUSTOMER_REPORT_DIALOG);
+const customerLabels = read(CUSTOMER_LABELS);
 const employeeTaskCancelApi = read(EMPLOYEE_TASK_CANCEL_API);
 const employeeCost = read(EMPLOYEE_COST);
 const employeeCostBudgetApi = read(EMPLOYEE_COST_BUDGET_API);
@@ -417,7 +422,7 @@ check("lead page persists search state and employee session", page.includes("LEA
 check("lead page has one-click and per-result Screening copy", page.includes("一键复制到背调") && page.includes("复制 ${lead.company_name} 到背调输入格式") && page.includes("navigator.clipboard.writeText"));
 check("lead copy payload matches Screening batch input", page.includes("buildScreeningBatchPayload") && page.includes("JSON.stringify({ leads: nextLeads.map(leadToScreeningInput) }") && page.includes("matched_products") && page.includes("contact_candidates"));
 check("page shows live source status from env", page.includes("实时来源状态") && page.includes("Tavily 搜索") && page.includes("Companies House") && page.includes("ImportYeti / 贸易数据"));
-check("sidebar links to CBE lead demo", sidebar.includes('href: "/client-demos/cross-border/lead-discovery"') && sidebar.includes("CBE Leads"));
+check("main sidebar keeps standalone CBE lead demo out of ordinary enterprise nav", !sidebar.includes('href: "/client-demos/cross-border/lead-discovery"') && !sidebar.includes("CBE Leads") && appShell.includes('label: "获客与背调"'));
 check("page does not expose external outreach send action", !page.includes("自动联系客户") && !page.includes("发送邮件"));
 
 section("CE5 workspace convention");
@@ -521,7 +526,7 @@ check("screening employee prompt requires address footprint marker", ["Google Ma
 check("screening UI supports JSON report export", screeningPage.includes("导出报告 JSON") && screeningPage.includes("Blob([JSON.stringify(selectedReport"));
 check("screening page persists investigation state", screeningPage.includes("SCREENING_STORAGE_KEY") && screeningPage.includes("sentura:cbe:screening:v1") && screeningPage.includes("localStorage.setItem") && screeningPage.includes("localStorage.getItem") && screeningPage.includes("reports"));
 check("screening UI maps employee report JSON into visual panels", ["normalizeScreeningReport", "normalizeEvidenceItem", "normalizeMissingEvidence", "normalizeScreeningReports(stored.reports)", "source_url", "summary", "detail", "scoreBlockToLayer", "official_web", "registry_tool"].every((needle) => screeningPage.includes(needle)));
-check("sidebar links to CBE Screening demo", sidebar.includes('href: "/client-demos/cross-border/screening"') && sidebar.includes("CBE Screening"));
+check("main sidebar keeps standalone CBE Screening demo out of ordinary enterprise nav", !sidebar.includes('href: "/client-demos/cross-border/screening"') && !sidebar.includes("CBE Screening") && appShell.includes('label: "获客与背调"'));
 check("screening route reads OpenClaw env fallback", screeningApiRoute.includes(".openclaw") && screeningApiRoute.includes("envValue("));
 check("screening route calls Tavily Search API", screeningApiRoute.includes("https://api.tavily.com/search") && screeningApiRoute.includes("Authorization: `Bearer ${apiKey}`"));
 check("screening route calls Companies House API with Basic auth", screeningApiRoute.includes("api.company-information.service.gov.uk/search/companies") && screeningApiRoute.includes("companiesHouseAuthHeader"));
@@ -640,7 +645,7 @@ check("accio employee prompt requires tool analysis and JSON markers", accioPage
 check("accio UI parses employee summaries from markers", accioPage.includes("extractSummariesFromEmployeeText") && accioPage.includes("normalizeSummary") && accioPage.includes("setSummaries(parsed)"));
 check("accio UI preserves local T2/T3 and preview-only memory behavior", accioPage.includes("memory_write_preview 已复制，仍未写入长期记忆") && accioPage.includes("preview_only") && !accioPage.includes("自动联系客户"));
 check("accio UI persists last upload/report/session state", accioPage.includes("ACCIO_STORAGE_KEY") && accioPage.includes("sentura:cbe:accio-memory:v2") && accioPage.includes("localStorage.setItem") && accioPage.includes("localStorage.getItem") && accioPage.includes("accioSessionKey"));
-check("sidebar links to CBE Accio demo", sidebar.includes('href: "/client-demos/cross-border/accio-memory"') && sidebar.includes("CBE Accio"));
+check("main sidebar keeps standalone CBE Accio demo out of ordinary enterprise nav", !sidebar.includes('href: "/client-demos/cross-border/accio-memory"') && !sidebar.includes("CBE Accio") && appShell.includes('label: "记忆整理"'));
 
 section("CE8 Employee hidden runner");
 check("employee hidden runner exists", exists(EMPLOYEE_TASK_RUNNER));
@@ -651,9 +656,9 @@ check("gateway client honors long task timeoutMs locally", gatewayClient.include
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee Accio prompt requires concrete deal facts", ["purchase_intent", "negotiated_prices", "behavior_signals", "source=\"accio_memory\"", "memory_write_preview"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
-check("employee runner recovers marker after gateway send timeout", ["isGatewayTimeout", "readHiddenTaskPayload", "提交请求已超过前端等待窗口", "HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner recovers marker after gateway send timeout", ["isGatewayTimeout", "readHiddenTaskPayload", "提交请求等待时间较长，系统正在改为读取任务记录。", "HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner continues after recoverable LLM idle timeout retries", ["transcriptFailureMessage", "LLM idle timeout", "recoverable", "lastRecoverableFailureMessage", "continue"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
-check("employee runner still surfaces terminal backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "backend_error", "后台 AI 员工执行失败"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
+check("employee runner still surfaces terminal backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "backend_error", "任务处理失败："].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
 check("employee lead prompt follows requested target count instead of 1-5 cap", [
   "target_count 是本次任务必须新增的净新客户硬目标",
   "max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限",
@@ -682,7 +687,7 @@ check("CBE employee store keeps seed rows behind explicit demo flag", cbeEmploye
 check("CBE employee store tracks terminal failures and cancellations with session keys", cbeEmployeeStore.includes("failTask") && cbeEmployeeStore.includes("cancelTask") && cbeEmployeeStore.includes('"cancelled"') && cbeEmployeeStore.includes("sessionKey: sessionKey ?? task.sessionKey") && cbeEmployeeStore.includes("recoverStaleTasks"));
 check("employee task status bar exists", exists(EMPLOYEE_TASK_STATUS));
 check("employee task status bar shows planned duration, wait window, and progress", ["计划耗时", "最长等待", "剩余等待", "最后活动", "progressPercent", "关闭任务状态"].every((needle) => employeeTaskStatus.includes(needle)) && !employeeTaskStatus.includes("倒计时"));
-check("employee task status bar can show concurrent lead and screening tasks", ["visibleTasks", "active.slice(0, 2)", "正在同时运行", "visibleTasks.map"].every((needle) => employeeTaskStatus.includes(needle)));
+check("employee task status bar can show concurrent lead and screening tasks", ["visibleTasks", "active.slice(0, 2)", "正在处理 {visibleTasks.length} 个任务", "visibleTasks.map"].every((needle) => employeeTaskStatus.includes(needle)));
 check("employee task status bar and API expose active task cancel action", [
   "取消任务",
   "cancelCbeEmployeeRuntimeTask",
@@ -735,9 +740,8 @@ check("admin cost amounts are capped at two decimals across UI and store", [
 check("admin employee cost details live under cost monitoring", [
   "fetchAdminOperator",
   "selectedCostUserId",
-  "员工成本明细",
+  "员工费用明细",
   "costDetail.costEvents.map",
-  "与成本监控汇总使用同一员工和账本范围",
 ].every((needle) => adminCostsPage.includes(needle)) && !adminEmployeesPage.includes("成本明细") && !adminEmployeesPage.includes("costEvents.map"));
 check("employee cost card syncs manager-updated quota from server budget", [
   "fetchEmployeeCostBudget",
@@ -818,7 +822,7 @@ check("CBE employee store supports page-cache and DB-backed customer deletion", 
 check("employee customers page gates lead and screening tasks independently", ["leadRunning", "screeningRunning", "task.kind === \"lead\"", "task.kind === \"screening\"", "leadRunning ? <Loader2", "screeningRunning ? <Loader2"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("taskRunning !== null"));
 check("employee customers page no longer uses page-local taskRunning state", !employeeCustomersPage.includes("setTaskRunning") && !employeeCustomersPage.includes("useState<\"lead\" | \"screening\" | null>"));
 check("employee customers page refreshes DB-backed lists after task writes", employeeCustomersPage.includes("refreshDbBackedLists") && employeeCustomersPage.includes("await refreshDbBackedLists()"));
-check("employee customer filters use canonical values with Chinese labels", ["canonicalBuyerType", "canonicalProduct", "buyerTypeLabel", "productLabel", "USB-C 充电器", "OLED 屏幕", "filters.products.includes(product.value)", "filters.buyerTypes.includes(buyerType.value)"].every((needle) => employeeCustomersPage.includes(needle)));
+check("employee customer filters use canonical values with Chinese labels", ["canonicalBuyerType", "canonicalProduct", "buyerTypeLabel", "productLabel", "filters.products.includes(product.value)", "filters.buyerTypes.includes(buyerType.value)"].every((needle) => employeeCustomersPage.includes(needle)) && ["USB-C 充电器", "OLED 屏幕"].every((needle) => customerLabels.includes(needle)));
 check("employee customer date filters use current date, not stale fixture date", employeeCustomersPage.includes("const end = new Date();") && !employeeCustomersPage.includes('new Date("2026-06-14T23:59:59")'));
 check("employee customer filters remove running status option", employeeCustomersPage.includes('const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const') && employeeCustomersPage.includes('const sheetStatusFilters = ["all", "not_started", "screened", "insufficient_evidence", "failed"] as const'));
 check("employee customer list uses one compact score sort dropdown", ["scoreSortLabels", "评分高到低", "评分低到高", "评分排序", "select", "comparableScore", "setScoreSort"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("ArrowUpNarrowWide") && !employeeCustomersPage.includes("onClick={() => setScoreSort((current) => (current === \"score_asc\""));
@@ -831,11 +835,11 @@ check("employee report evidence hides scoring calculation layer", !employeeCusto
 check("employee report detail sheet resets scroll to top", ["contentRef", "scrollTo({ top: 0, left: 0 })", "activeCustomer?.customerId"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer deletion requires confirmation", ["requestDeleteCustomers", "确认删除客户", "确认删除", "deleteTargets", "onDeleteConfirm"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee evidence gaps use concrete searched-source reasons", ["coverageGapReasonForBlock", "coverageGapsFromScoreBlocks", "Google Maps 线下门店/地址", "RDAP、DNS、官网联系邮箱", "贸易/海关记录、SEC 或财务公开文件"].every((needle) => employeeData.includes(needle)) && employeeTaskRunner.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && employeeApi.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && !employeeTaskRunner.includes("\"缺少该维度证据。\"") && !employeeApi.includes("\"缺少该维度证据。\""));
-check("employee lead budget estimate is calibrated to recent sentura-cost records", ["leadSourceLabel: \"近期真实成本 + 已定价调用\"", "observedSearchRequestUsd", "observedRetainedCandidateUsd", "pricedExternalUsd", "模型美元成本按 sentura-cost 真实回填校准"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("advanced 2 credits × US$0.008/credit"));
-check("employee screening budget estimate does not treat trade-data cap as spend", ["estimateScreeningTaskCost", "observedTargetUsd", "paidTradeDataExpectedUsd: 0", "tradeDataBudgetCapUsd", "贸易数据硬上限", "不当作预计支出", "ImportYeti requestCost=0"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("tradeDataReservedUsd"));
+check("employee lead budget estimate is calibrated to recent actual cost assumptions", ["leadSourceLabel: \"近期实际费用记录\"", "observedSearchRequestUsd", "observedRetainedCandidateUsd", "pricedExternalUsd", "按近期实际找客户费用校准"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("advanced 2 credits × US$0.008/credit"));
+check("employee screening budget estimate does not treat trade-data cap as spend", ["estimateScreeningTaskCost", "observedTargetUsd", "paidTradeDataExpectedUsd: 0", "tradeDataBudgetCapUsd", "tradeDataExpectedUsd", "贸易数据硬上限", "不当作预计支出"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("tradeDataReservedUsd"));
 check("sentura-cost schema supports external API cost rows", ["external_api", "local_tool", "CostPricingStatus", "externalUsage", "external_tool_log"].every((needle) => senturaCostTypes.includes(needle)));
 check("sentura-cost backfills external CBE tool costs from session logs", ["eventFromToolResultRow", "ImportYeti", "Abstract Email Reputation", "Hunter Email Verifier", "Tavily / web_search", "Companies House", "SEC EDGAR"].every((needle) => senturaCostBackfill.includes(needle)));
-check("employee cost mini opens scoped model and external API cost details", ["aria-label=\"查看本月 API 成本明细\"", "hover:scale-[1.03]", "本月 API 成本明细", "模型与外部资料服务调用", "costPricingLabels", "外部回填", "fetchEmployeeTasks", "outsideScopeCount", "当前工作台只统计已写入 CBE 数据库的任务 session"].every((needle) => employeeCost.includes(needle)));
+check("employee cost mini opens scoped model and external tool cost details", ["aria-label=\"查看本月工具成本明细\"", "hover:scale-[1.03]", "本月工具成本明细", "智能处理和外部资料查询费用", "costPricingLabels", "外部回填", "fetchEmployeeTasks", "outsideScopeCount", "只统计已关联到当前跨境电商客户库任务的处理编号"].every((needle) => employeeCost.includes(needle)));
 check("cross-border SEC lookup returns compact submission summaries", ["secRecentFilingsSummary", "recent_filings: recentFilings", "submissions_summary", "forms.slice(0, 8)"].every((needle) => crossBorderIntelTools.includes(needle)) && !crossBorderIntelTools.includes("submissions: body"));
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);

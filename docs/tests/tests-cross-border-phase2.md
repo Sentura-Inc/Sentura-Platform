@@ -335,7 +335,7 @@ Assertions:
 | CE21.15 | Screening batch block | Static check | Production `createScreeningRun` calls `assertScreeningSessionShape` before `insertAgentRun`, blocking multi-target single-session runs unless explicitly feature-flagged. |
 | CE21.16 | Employee start gating and auto top-up | Static/typecheck | Employee Lead/Screening/Accio UI does not call hidden OpenClaw runner for queued, joined, or near-duplicate responses; executable Lead runs pass DB pre-search denylist into the hidden prompt, and Lead completion uses DB reconciliation to automatically launch bounded top-up rounds when unique saved customers are below the current request target. |
 | CE21.17 | Lead strict-target prompt | Static review | Hidden Lead prompt and Lead workspace skills support `run_mode = "top_up_unique_leads"`, `existing_identity_keys`, `already_covered_queries`, pre-search exclusion of tenant DB identities in every run mode, strict `target_count` net-new output semantics, over-collection before dedupe, and search-result evidence fallback when `web_fetch` is blocked. |
-| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 195/195; live store checks are 217/217; CBE agent checks are 409/409; Dashboard typecheck/build and repo hygiene pass. |
+| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 211/211; live store checks are 238/238; CBE agent checks are 410/410; Dashboard typecheck/build and repo hygiene pass. |
 
 Latest verification, 2026-06-21:
 
@@ -354,7 +354,7 @@ Latest verification, 2026-06-21:
 
 ## CE22 — Lead Reconciliation, Google Maps Source Redesign, Screening Fan-Out/API Scope, And Accio Durable Workflow
 
-Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening parent/child fan-out and route-triggered queued-child drain PASS 2026-06-24; paid retry state and durable Accio/Screening workflow polish remain PEND.
+Status: PASS — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening parent/child fan-out and route-triggered queued-child drain PASS 2026-06-24; paid retry state, explicit re-approval, Accio approval-to-memory, and durable Screening handoff consumption PASS 2026-06-24.
 
 Implemented Lead scope:
 
@@ -392,21 +392,32 @@ Implemented Screening fan-out/drain checks:
 - Employee bulk Screening execution now starts the parent task, runs claimed single-target children, fails individual child runs when marker/runtime errors occur, and drains another queued wave after each child wave completes.
 - Parent aggregate refresh first resolves the batch id before counting all batch targets, so one terminal child cannot prematurely mark the parent completed. Employee completion messages use the backend-saved `reports.length`, not only the hidden runner's local marker count.
 
+Implemented paid retry and durable Accio/Screening workflow checks:
+
+- `007_screening_retry_memory_approval.sql` adds per-target paid email/trade status, call counts, spend, retry timestamps, memory review metadata, and handoff consumption timestamps.
+- Failed Screening children move available paid email/trade lookups to `reapproval_required`.
+- `POST /api/client-demos/cross-border/employee/screening-runs/[id]/retry` can rerun a failed child without rerunning completed siblings. Normal retry disables paid email/trade sources; explicit re-approval reopens paid lookup for that child only.
+- Employee hidden Screening execution applies child `paid_source_policy` before building the child prompt, so stale UI paid options cannot repeat a paid lookup without server approval.
+- Screening completion records observed paid email/trade evidence into per-target state and `api_call_ledger`.
+- `PATCH /api/client-demos/cross-border/employee/memory/facts` approves or rejects pending Accio memory facts with reviewer metadata; it does not write raw chat text to vector memory.
+- Accio-to-Screening handoffs are marked `accepted` on Screening task creation and `completed` when a report is saved for the Accio summary target.
+
 Latest verification, 2026-06-24:
 
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196.
-- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218 static + live PostgreSQL checks.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 211/211.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 238/238 static + live PostgreSQL checks. The live probe verifies memory approval, Accio handoff accepted/completed transitions, and paid retry disabling paid sources without explicit re-approval.
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
 - `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46 static + live PostgreSQL checks. The live probe creates a three-target Screening batch with an active-target cap of 1, verifies parent/child rows, queued excess children, one-child failure, parent remains running after one terminal child, drain claim of one queued child, aggregate counts, and completion-count source checks.
+- Browser smoke against `http://localhost:3000/client-demos/cross-border/employee/memory`: PASS. A synthetic Accio memory record loaded from the DB, the report dialog showed `仅预览`, `PATCH /api/client-demos/cross-border/employee/memory/facts` completed through the `批准写入` action, the UI changed to `已批准`, and the temporary record was removed.
 - Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Two real three-target bulk Screening submissions split into one parent plus three child sessions, updated six customer scores/reports, showed no production batch-5/batch-10 single-session path, and the second run finished with parent aggregate `total=3/completed=3/terminal=3`.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410. The failures are stale legacy static/UI-copy assertions outside the P2.5 fan-out path, including removed ordinary sidebar demo links, older terminal/status copy, older cost/detail locations, older Chinese label expectations, evidence-gap wording, and historical budget-copy assumptions.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410 after aligning current UI/cost/status assertions and adding concrete searched-source evidence-gap wording for RDAP/DNS/contact email plus trade/customs/SEC/financial sources.
 
 Previous verification, 2026-06-23:
 
 - `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
 - `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
 - `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217 static + live PostgreSQL checks, including `screening_address_locations` write/read and store-schema acceptance of scale-aware report JSON.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
@@ -431,21 +442,64 @@ Latest verification, 2026-06-22:
 
 Remaining scope:
 
-- Paid email and paid trade checks are capped once per target and require explicit re-approval on retry.
 - Default Screening API scope stays read-only and source/budget-gated.
 - Country-aware registry routing is documented and tested as a static contract before any new country adapter is exposed to agents.
-- Screening writes targets/reports/evidence/score blocks.
-- Accio writes import/conversations/redacted messages/summaries.
-- Memory facts require approval before promotion.
-- Extend beyond P2.2 completion writes into the full P2.5 workflow: report/evidence detail UI, approval-to-memory promotion, retry/recovery, and durable Screening handoff consumption.
+- Target-deployment smoke and provider quota checks belong to CE23/P2.6, not CE22.
 
 ## CE23 — Load Smoke
 
-Status: PEND
+Status: PASS for local DB-only preflight — executable DB-only smoke tooling is implemented; CE22 prerequisites, local backup/restore drill, Dashboard production build, and Browser memory-approval smoke are complete. Full `production_go_live_ready` still requires target-deployment smoke, target restore drill, and provider quota/source-rate confirmation.
 
-Planned scope:
+Primary files:
 
-- 30-50 user readiness checks.
-- 24 soft / 32 hard active-task behavior and controlled C=40/48 queue validation on the target deployment.
-- Queued/running task counts across Lead, Screening child runs, and Accio imports.
-- Cost/audit/load-smoke records.
+- `scripts/test-cross-border-phase2-load-smoke.ts`
+- `scripts/cross-border-phase2-backup-restore-drill.sh`
+- `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md`
+
+Commands:
+
+```bash
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts
+
+set -a
+source sentura/dashboard/.env.local
+set +a
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json
+
+export CBE_RESTORE_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sentura_cbe_restore_drill"
+# Optional when local pg_dump/pg_restore are unavailable or older than the source server:
+# export CBE_POSTGRES_CLIENT_IMAGE="postgres:18"
+bash scripts/cross-border-phase2-backup-restore-drill.sh
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE23.1 | Static P2.6 plan contract | Static script | `PHASE-2.md` includes the 50-session, 10 Lead request, 5 Screening batch / 25 target, 3 Accio import, C=40/48 pressure, p95 latency, cost/audit, DB-only preflight, and target-deployment go-live boundary clauses. |
+| CE23.2 | Workload cap defaults | Static script | `workload-coordinator.ts` keeps 24 soft / 32 hard global active defaults, 12 Screening active child target cap, and 3 Accio active import cap. |
+| CE23.3 | Runbook and result labels | Static script | `P2.6-LOAD-SMOKE-RUNBOOK.md` documents static, DB-only, `db_only_preflight_passed`, target-deployment, provider-soak, and `production_go_live_ready` labels, and reserves `production_go_live_ready` for the target checklist. |
+| CE23.4 | Backup/restore drill guard | Static script | `scripts/cross-border-phase2-backup-restore-drill.sh` requires `CBE_DATABASE_URL` and separate `CBE_RESTORE_DATABASE_URL`, refuses identical source/restore URLs, and requires a restore/drill target unless explicitly overridden. |
+| CE23.5 | Backup/restore commands | Static script + live drill | The drill uses `pg_dump --format=custom --no-owner --no-privileges`, restores with `pg_restore --clean --if-exists --no-owner --no-privileges`, supports `CBE_POSTGRES_CLIENT_IMAGE` for matching Docker client tools, then runs migration seed and Phase 2 store checks against the restored database. Local run PASS 2026-06-24 with `postgres:18` and restored-store checks 238/238. |
+| CE23.6 | 50-user/session smoke | Live PostgreSQL DB-only smoke | The script seeds 50 temporary `operator` users/profiles, resolves 50 tenant contexts through the Employee API path, records p95 context/API latency, and cleans the probe users afterward. |
+| CE23.7 | Lead duplicate load shape | Live PostgreSQL DB-only smoke | 10 Lead `find-10` requests produce 5 active OpenClaw session records after 3 exact duplicate joins and 2 near-duplicate choice responses. |
+| CE23.8 | Screening fan-out load shape | Live PostgreSQL DB-only smoke | 5 Screening batches create 5 parent runs and 25 child runs; every child has `target_count = 1`, parents have no OpenClaw session key, 12 children run under the active-target cap, and at least 13 children queue. |
+| CE23.9 | Screening child retry/drain | Live PostgreSQL DB-only smoke | Failing one running child marks it retryable and allows a queued sibling to be claimed without rerunning successful siblings. |
+| CE23.10 | Accio import cap | Live PostgreSQL DB-only smoke | 3 Accio imports with redacted fixture messages are admitted under the default active import cap. |
+| CE23.11 | C=48 soft-cap pressure | Live PostgreSQL DB-only smoke | Additional DB-only pressure requests keep active sessions at 24 and queue excess work rather than starting more hidden sessions. |
+| CE23.12 | 32 hard-cap guard | Live PostgreSQL DB-only smoke | A labeled DB-only hard-guard probe at 32 active slots queues a new request with `workload_admission.reason = "global_hard_cap"`. |
+| CE23.13 | Cost/audit/load-smoke records | Live PostgreSQL DB-only smoke | `api_call_ledger` probe rows are attributable to `agent_run_id`; an `audit_events` row records p95 latency, DB-only label, and `go_live_readiness = "db_only_preflight_passed"`. |
+
+Latest verification, 2026-06-24:
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; CBE_BACKUP_RESTORE_DRILL_PASSED=1 pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48 static + live PostgreSQL DB-only smoke checks.
+- `scripts/cross-border-phase2-backup-restore-drill.sh`: PASS against disposable local `sentura_cbe_restore_drill` using `CBE_POSTGRES_CLIENT_IMAGE=postgres:18`; restored migration seed skipped existing migrations and restored Phase 2 store checks passed 238/238.
+- `pnpm --dir sentura/dashboard build`: PASS; route manifest includes `employee/memory/facts` and `employee/screening-runs/[id]/retry`.
+- `outputs/cbe-phase2-load-smoke-report.json` records `go_live_readiness = "db_only_preflight_passed"` and `backup_restore_drill = "passed"`.
+- `git diff --check`: PASS after final documentation/handoff updates.
+
+Boundary:
+
+- CE23 DB-only smoke does not start real OpenClaw sessions and does not call paid or external providers.
+- Target-deployment load smoke and `production_go_live_ready` are separate from the local DB-only preflight and require the target Dashboard/Gateway, target disposable restore database, and provider/source-rate quota confirmation.

@@ -113,6 +113,24 @@ export interface ApiScreeningChildRun {
   status: string;
   agentRun: ApiAgentRun;
   target: ScreeningTarget;
+  paidSourcePolicy?: {
+    paidEmailValidation?: {
+      enabled?: boolean;
+      allowed?: boolean;
+      reapprovalRequired?: boolean;
+      callCount?: number;
+      callStatus?: string;
+    };
+    paidTradeData?: {
+      enabled?: boolean;
+      allowed?: boolean;
+      reapprovalRequired?: boolean;
+      callCount?: number;
+      callStatus?: string;
+      budgetUsd?: number;
+      spendUsd?: number;
+    };
+  };
 }
 
 export interface CreateEmployeeScreeningRunResponse {
@@ -308,6 +326,7 @@ const ALLOWED_SOURCE_TYPES = new Set([
   "google_maps_places",
   "google_maps_geocoding",
   "google_maps_address_validation",
+  "paid_email_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -387,6 +406,13 @@ async function fetchEmployeeJson<T>(path: string, init: RequestInit = {}): Promi
 function jsonPost<T>(path: string, body: unknown): Promise<T> {
   return fetchEmployeeJson<T>(path, {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+function jsonPatch<T>(path: string, body: unknown): Promise<T> {
+  return fetchEmployeeJson<T>(path, {
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }
@@ -1222,6 +1248,40 @@ export async function claimEmployeeQueuedScreeningRuns(input: {
   }>("/api/client-demos/cross-border/employee/screening-runs/drain", {
     screening_batch_id: input.screeningBatchId,
     limit: input.limit ?? 3,
+  });
+}
+
+export async function retryEmployeeScreeningChildRun(input: {
+  agentRunId: string;
+  sessionKey?: string;
+  reapprovePaidEmail?: boolean;
+  reapprovePaidTrade?: boolean;
+  approvalReason?: string;
+}) {
+  return jsonPost<{
+    batch: ApiScreeningBatch | null;
+    childRun: ApiScreeningChildRun;
+  }>(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/retry`, {
+    session_key: input.sessionKey,
+    reapprove_paid_email: Boolean(input.reapprovePaidEmail),
+    reapprove_paid_trade: Boolean(input.reapprovePaidTrade),
+    approval_reason: input.approvalReason,
+  });
+}
+
+export async function reviewEmployeeMemoryFacts(input: {
+  ids: string[];
+  decision: "approved" | "rejected";
+  reviewNote?: string;
+  vectorMemoryRef?: string;
+}) {
+  return jsonPatch<{
+    reviewed: Array<{ id: string; sourceRecordId: string; status: string }>;
+  }>("/api/client-demos/cross-border/employee/memory/facts", {
+    ids: input.ids,
+    decision: input.decision,
+    review_note: input.reviewNote,
+    vector_memory_ref: input.vectorMemoryRef,
   });
 }
 

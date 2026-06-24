@@ -204,13 +204,13 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     case "legal_identity":
       return "公司注册信息、官方注册页或可确认的 Google Maps 线下门店/地址未形成足够真实性证据。";
     case "domain_email":
-      return "官网域名、邮箱记录或邮箱验证未搜索到足够依据。";
+      return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够依据。";
     case "public_footprint":
       return "公开网页或线下地址线索未找到足够业务足迹。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
     case "trade_financial":
-      return "贸易记录或财务公开信息未搜索到可用结果。";
+      return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
     case "conversation_behavior":
       return "没有聊天或销售对话记录可用于行为判断。";
     default:

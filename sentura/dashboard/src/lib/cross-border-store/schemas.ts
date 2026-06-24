@@ -71,6 +71,7 @@ export const SourceTypeSchema = z.enum([
   "google_maps_places",
   "google_maps_geocoding",
   "google_maps_address_validation",
+  "paid_email_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -253,6 +254,14 @@ export const ClaimQueuedScreeningRunsRequestSchema = z.object({
   limit: z.number().int().min(1).max(10).default(3),
 });
 export type ClaimQueuedScreeningRunsRequest = z.infer<typeof ClaimQueuedScreeningRunsRequestSchema>;
+
+export const RetryScreeningChildRunRequestSchema = z.object({
+  session_key: z.string().min(1).optional(),
+  reapprove_paid_email: z.boolean().default(false),
+  reapprove_paid_trade: z.boolean().default(false),
+  approval_reason: z.string().min(1).max(500).optional(),
+});
+export type RetryScreeningChildRunRequest = z.infer<typeof RetryScreeningChildRunRequestSchema>;
 
 export const ScreeningEvidenceMarkerSchema = z.object({
   layer: z.string().min(1).default("public_footprint"),
@@ -500,6 +509,14 @@ export const DeleteMemoryRecordsRequestSchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(100),
 });
 export type DeleteMemoryRecordsRequest = z.infer<typeof DeleteMemoryRecordsRequestSchema>;
+
+export const ReviewMemoryFactsRequestSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(100),
+  decision: z.enum(["approved", "rejected"]),
+  review_note: z.string().min(1).max(500).optional(),
+  vector_memory_ref: z.string().min(1).optional(),
+});
+export type ReviewMemoryFactsRequest = z.infer<typeof ReviewMemoryFactsRequestSchema>;
 
 export const DeleteCustomerRecordsRequestSchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(100),

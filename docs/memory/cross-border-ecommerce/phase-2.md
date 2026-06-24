@@ -44,6 +44,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring design | Documented the new 25% `公司注册与线下门店/地址` first block, company-scale assessment, medium/large registry+Maps fusion, and small-local/offline Maps-only authenticity rule; implementation remains pending. |
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring implementation | Implemented `company_scale_assessment`, `公司注册与线下门店/地址` labeling, MCP scoring propagation, Dashboard report rendering, static/live store validation, and live `cbe-buyer-screening` workspace sync. |
 | 2026-06-24 | Phase 2 Screening parent/child fan-out and queue drain | Implemented P2.5 parent batch plus single-target child run fan-out, queued child claim/drain, parent aggregate updates, Employee execution path, live CE22 PostgreSQL probe, and live OpenClaw validation with operator `吴思彤`. |
+| 2026-06-24 | Phase 2 P2.6 load-smoke tooling and readiness drill | Implemented CE23 DB-only load-smoke script, guarded backup/restore drill, runbook/checklist, 50-session/10-Lead/25-Screening/3-Accio/24-soft/32-hard checks, and verified static/live PostgreSQL smoke with cleanup; target go-live remains conditional on remaining CE22/P2.5 work. |
+| 2026-06-24 | Phase 2 local production preflight completion | Closed remaining CE22/P2.5 paid retry and durable Accio/Screening workflow blockers, ran CE23 local DB-only smoke, local backup/restore drill, Dashboard build, 410/410 CBE static regression, and Browser memory-approval smoke; only target-environment go-live evidence remains. |
 
 ## Current Phase 2 Ground Truth
 
@@ -65,7 +67,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
-- Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup.
+- P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 410/410. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+- Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup. The durable per-target paid retry state is implemented under CE22/P2.5.
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
 - Google Maps Places + OpenClaw web search is implemented as the primary Lead Discovery acquisition route. `cross-border-intel` now exposes read-only `cbe_intel_google_places_search`, `cbe_intel_google_place_details`, `cbe_intel_google_geocode`, and `cbe_intel_google_address_validate`; setup scripts pass `GOOGLE_MAPS_API_KEY` and conservative request caps from env into the MCP server.
 - Lead Discovery is Maps-first: Text Search/Nearby Search create storefront/local buyer seeds, Place Details is reserved for shortlists, web search/fetch verifies company-owned site and mobile-accessory buyer fit, and CBE DB reconciliation remains the source of truth for uniqueness/allocation.
@@ -1310,3 +1313,77 @@ After P2.3, the user tested manual PostgreSQL queries against `sentura_cbe_dev` 
 ### Boundary and next
 
 The physical schema was not changed. The fix is a correct inspection/runbook layer plus test coverage. P2.4 Lead Discovery coordinator concurrency remains the next implementation task.
+
+## 2026-06-24 — Phase 2 P2.6 load-smoke tooling and readiness drill
+
+### Context
+
+The user asked to start the next stage from `跨境电商/PHASE-2.md` P2.6, follow the plan strictly, and inspect the implementation. The P2.6 scope is multi-user/load smoke against the calibrated 24/32/48 active-task envelope, backup/restore drill, and a production-readiness report. Remaining CE22/P2.5 paid retry and durable Screening/Accio polish were kept as explicit go-live blockers instead of being treated as complete.
+
+### Implementation
+
+- Added `scripts/test-cross-border-phase2-load-smoke.ts`.
+- Static CE23 checks validate the P2.6 plan, workload-cap defaults, CE23 test docs, P2.6 runbook, and backup/restore drill contract.
+- Live PostgreSQL checks run through the typed CBE store boundary and direct migration-safe SQL, but do not start real OpenClaw AgentChat sessions or external provider calls.
+- The live smoke seeds and later cleans 50 temporary `operator` users/profiles under tenant `cross-border-ecommerce`, resolves 50 Dashboard session contexts, records p95 context/API latency, creates 10 Lead `find-10` requests with 3 exact duplicate scopes and 2 near-duplicate scopes, creates 5 Screening batches totaling 25 single-target child runs, verifies retry/drain after one child failure, creates 3 Accio imports, validates C=48 soft-cap queueing, validates a DB-only 32-active hard guard, writes cost/audit probe rows, and optionally writes a JSON report.
+- Added `scripts/cross-border-phase2-backup-restore-drill.sh`, guarded by required `CBE_DATABASE_URL` and separate `CBE_RESTORE_DATABASE_URL`, refusing identical source/restore URLs and defaulting to restore/drill-looking disposable targets. It runs custom-format `pg_dump`, `pg_restore --clean --if-exists`, migration seed, and Phase 2 store checks against the restored DB.
+- Added `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` with commands, expected results, backup/restore drill steps, result labels, and conditional go-live checklist.
+- Updated `跨境电商/PHASE-2.md`, `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `README.md`, and `AGENTS.md` so CE23 and the runbook are discoverable.
+- Generated `outputs/cbe-phase2-load-smoke-report.json` from the local live DB-only smoke. The report recorded 50 seeded users/simulated sessions, p95 latency 0.76 ms, 10 Lead requests / 5 active sessions after dedupe, 25 Screening child runs with 12 running and 13 queued initially, 3 Accio imports, soft-cap active count 24, hard guard queued, and `go_live_readiness = "conditional"`.
+
+### Verification
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16 static checks, live skipped when `CBE_DATABASE_URL` is not in the shell.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48 static + live PostgreSQL DB-only smoke checks.
+- CE23 cleanup probe after the live smoke: PASS, `ce23_users=0`, `ce23_agent_runs=0`, `ce23_audits=0`.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218 static + live PostgreSQL checks.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46 static + live PostgreSQL checks.
+- `bash -n scripts/cross-border-phase2-backup-restore-drill.sh`: PASS.
+- `git diff --check`: PASS.
+
+### Boundary
+
+P2.6 DB-only smoke tooling is implemented and verified. The guarded backup/restore drill entrypoint exists but was not run end-to-end because no disposable `CBE_RESTORE_DATABASE_URL` was provided in this session. Full target-deployment go-live remains conditional until CE22/P2.5 closes per-target paid email/trade retry state with explicit re-approval, durable Screening report/evidence retry UX, Accio approval-to-memory promotion, and durable Screening handoff consumption.
+
+## 2026-06-24 — Phase 2 local production preflight completion
+
+### Context
+
+The user asked to complete all remaining work and tests needed before delivering the Cross-border e-commerce / 跨境电商 customer pilot to production. This session closed the remaining local P2.5/P2.6 blockers instead of leaving them as go-live conditions.
+
+### Implementation
+
+- Added `sentura/lib/cross-border-store/migrations/007_screening_retry_memory_approval.sql`.
+- Persisted per-target Screening paid email/trade status, call counts, spend, retry count, retry timestamps, and re-approval metadata on `screening_batch_targets`.
+- Added failed-child retry support through `POST /api/client-demos/cross-border/employee/screening-runs/[id]/retry`. Normal retry disables paid sources when re-approval is required; explicit re-approval reopens paid lookup for that child only.
+- Updated Screening completion to detect observed paid email/trade evidence, update per-target paid state, and write `api_call_ledger` rows.
+- Added Accio memory fact review through `PATCH /api/client-demos/cross-border/employee/memory/facts`, including reviewer metadata and raw-chat exclusion from vector memory.
+- Marked Accio-to-Screening handoffs `accepted` on Screening creation and `completed` when the Screening report is saved for the Accio summary target.
+- Updated the Employee UI so child Screening execution honors server `paidSourcePolicy`, and `记忆整理` exposes `批准写入` for preview-only memory facts.
+- Updated `scripts/cross-border-phase2-backup-restore-drill.sh` to support `CBE_POSTGRES_CLIENT_IMAGE` for matching Docker PostgreSQL clients when local `pg_dump` / `pg_restore` are unavailable or too old for the source server.
+- Updated `scripts/test-cross-border-phase2-load-smoke.ts` so reports can record `backup_restore_drill = "passed"` when `CBE_BACKUP_RESTORE_DRILL_PASSED=1`.
+- Tightened Employee evidence-gap wording so missing domain/email evidence names RDAP/DNS/official contact-email searches, and missing trade/financial evidence names trade/customs, SEC, and public financial-file sources.
+- Updated `scripts/test-cross-border-agents.ts` to match the current Employee/Admin navigation, task status, cost-detail, customer-label, budget, and evidence-gap contracts.
+- Updated `跨境电商/PHASE-2.md`, `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md`, `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `outputs/resume_card.md`, and `outputs/task_handoff.md` to reflect the completed local preflight.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm --dir sentura/dashboard build`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 211/211.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 238/238.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16.
+- `set -a; source sentura/dashboard/.env.local; set +a; CBE_BACKUP_RESTORE_DRILL_PASSED=1 pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410.
+- Backup/restore drill: PASS against disposable local `sentura_cbe_restore_drill` using `CBE_POSTGRES_CLIENT_IMAGE=postgres:18`; restored migration seed skipped already-applied migrations and restored-store checks passed 238/238.
+- Browser smoke: PASS. With `CBE_DEMO_USER_ID=cbe-user-operator-001`, `http://localhost:3000/client-demos/cross-border/employee/memory` loaded a synthetic Accio memory record, report dialog showed `仅预览`, `批准写入` PATCH succeeded, UI showed `已批准`, and the temporary record/import was deleted.
+- `git diff --check`: PASS after final documentation/handoff updates.
+
+### Boundary
+
+Local production-shaped preflight for P2.1-P2.6 is complete. Do not label a customer deployment `production_go_live_ready` from local-only evidence. The remaining gate is target-environment evidence: run the same load-smoke profile on the actual target deployment with Dashboard/Gateway processes, run the restore drill against a target disposable restore DB, and record provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.

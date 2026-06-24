@@ -10,6 +10,44 @@ Conversation language: answer the user in Chinese. Keep handoff updates concise 
 
 Current active product area: Sentura cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
+Latest task, 2026-06-24: complete all Cross-border e-commerce / 跨境电商 local pre-production work and tests before customer delivery.
+
+### Result
+
+- Closed the remaining CE22/P2.5 production blockers: paid email/trade retry state is persisted per Screening child target; failed children move paid sources to `reapproval_required`; normal retry disables paid calls; explicit re-approval reopens a paid source for that child only.
+- Added `007_screening_retry_memory_approval.sql`, retry route `employee/screening-runs/[id]/retry`, memory review route `employee/memory/facts`, typed schemas/API helpers, child `paidSourcePolicy` enforcement in `获客与背调`, and `批准写入` approval UI in `记忆整理`.
+- Screening completion now records observed paid email/trade evidence into per-target state and `api_call_ledger`. Accio memory facts can be approved/rejected without raw chat vector promotion. Accio-to-Screening handoffs are marked accepted on Screening creation and completed when the Screening report is saved.
+- Completed CE23/P2.6 local preflight: `scripts/test-cross-border-phase2-load-smoke.ts`, `scripts/cross-border-phase2-backup-restore-drill.sh`, `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md`, and refreshed `outputs/cbe-phase2-load-smoke-report.json`.
+- The backup/restore drill supports `CBE_POSTGRES_CLIENT_IMAGE` for a matching Docker PostgreSQL client when local `pg_dump/pg_restore` are unavailable or older than the source server.
+- Browser smoke verified the Employee `记忆整理` approval flow with a synthetic Accio record: list loaded from DB, report showed `仅预览`, `批准写入` PATCH succeeded, UI showed `已批准`, and the temporary record/import was deleted.
+- Latest report: 50 simulated sessions, p95 API/context latency captured, 10 Lead requests / 5 active sessions after dedupe, 25 Screening child runs with 12 running and 13 queued initially, 3 Accio imports, soft cap 24, hard guard queued, `go_live_readiness="db_only_preflight_passed"`, `backup_restore_drill="passed"`.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm --dir sentura/dashboard build`: PASS. Next still warns about multiple lockfiles/root inference, but build completed and route manifest includes new retry/memory routes.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 211/211.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 238/238.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; CBE_BACKUP_RESTORE_DRILL_PASSED=1 pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48 static + live PostgreSQL DB-only smoke checks.
+- Backup/restore drill: PASS with disposable `sentura_cbe_restore_drill`, `CBE_POSTGRES_CLIENT_IMAGE=postgres:18`, migration seed on restored DB, and restored-store checks 238/238.
+- Browser smoke: PASS for `http://localhost:3000/client-demos/cross-border/employee/memory` with `CBE_DEMO_USER_ID=cbe-user-operator-001`; temporary DB record was cleaned up.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410.
+- `git diff --check`: PASS.
+
+### Boundary
+
+- Local pre-production implementation/testing is complete for P2.1-P2.6.
+- Do not label the customer environment `production_go_live_ready` from local-only evidence. That label still requires the same smoke profile on the actual target deployment with Dashboard/Gateway processes, a target-environment disposable restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior recorded.
+
+### Next Steps
+
+1. Run the P2.6 load-smoke profile on the actual target deployment with Dashboard/Gateway processes.
+2. Run the backup/restore drill against a disposable restore database in the target environment.
+3. Record provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior before applying `production_go_live_ready`.
+
 Latest task, 2026-06-24: implement P2.5 Screening parent/child fan-out and queued-child drain from `跨境电商/PHASE-2.md`.
 
 ### Result
@@ -29,7 +67,7 @@ Latest task, 2026-06-24: implement P2.5 Screening parent/child fan-out and queue
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
 - `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46. The live probe verifies a three-target Screening batch under active-target cap 1, queued excess children, child failure, parent remains running after one terminal child, drain claim, aggregate counts, and saved-report completion count sourcing.
 - Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Two real three-target bulk Screening runs completed; the second ended with parent aggregate `total=3/completed=3/terminal=3` and one saved report per child.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410 due to stale legacy static/UI-copy assertions outside the P2.5 fan-out path.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410 after aligning current navigation/status/cost/filter assertions and concrete evidence-gap wording.
 
 ### Next Steps
 
