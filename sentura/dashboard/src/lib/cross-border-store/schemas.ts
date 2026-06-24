@@ -446,8 +446,24 @@ export const AccioSupplementTargetSchema = z.object({
 });
 export type AccioSupplementTarget = z.infer<typeof AccioSupplementTargetSchema>;
 
+export const AccioImportSourceKindSchema = z.enum([
+  "manual_json",
+  "manual_text",
+  "manual_image",
+  "alibaba_international",
+  "demo_data",
+  "other",
+]);
+export type AccioImportSourceKind = z.infer<typeof AccioImportSourceKindSchema>;
+
+export const AccioImportInputFormatSchema = z.enum(["json", "pasted_text", "image"]);
+export type AccioImportInputFormat = z.infer<typeof AccioImportInputFormatSchema>;
+
 export const CreateAccioImportRequestSchema = z.object({
   source_file_name: z.string().min(1).optional(),
+  source_kind: AccioImportSourceKindSchema.default("manual_json"),
+  input_format: AccioImportInputFormatSchema.default("json"),
+  attachment_metadata: z.array(JsonRecordSchema).default([]),
   file_hash: z.string().min(16),
   storage_key: z.string().min(1).optional(),
   classification: CbeDataTierSchema.default("T2"),

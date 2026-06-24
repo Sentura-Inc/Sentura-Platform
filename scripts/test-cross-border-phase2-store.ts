@@ -991,6 +991,7 @@ check("002 lead scope coordinator migration exists", migrationFiles.includes("00
 check("005 workload queue and Screening fan-out migration exists", migrationFiles.includes("005_workload_queue_and_screening_batches.sql"));
 check("006 Screening address locations migration exists", migrationFiles.includes("006_screening_address_locations.sql"));
 check("007 Screening retry and memory approval migration exists", migrationFiles.includes("007_screening_retry_memory_approval.sql"));
+check("008 Accio manual import formats migration exists", migrationFiles.includes("008_accio_manual_import_formats.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -1024,6 +1025,14 @@ check("schema persists memory review and handoff consumption timestamps", [
   "accepted_at",
   "completed_at",
   "consumed_by_agent_run_id",
+].every((needle) => migrationSql.includes(needle)));
+check("schema persists Accio manual import source/input/attachment metadata", [
+  "source_kind",
+  "input_format",
+  "attachment_metadata_json",
+  "manual_text",
+  "manual_image",
+  "accio_imports_source_kind_idx",
 ].every((needle) => migrationSql.includes(needle)));
 check(
   "migration SQL does not embed obvious connection secrets",
@@ -1099,6 +1108,7 @@ check("dashboard package declares server store dependencies", dashboardPackage.i
 check("P2.2 store uses environment-backed pg pool", read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("CBE_DATABASE_URL") && read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("application_name"));
 check("P2.2 tenant context resolves seeded CBE profiles", read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts")).includes("cbe_user_profiles") && read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts")).includes("x-cbe-user-id"));
 check("P2.2 schemas require source URLs and fetched timestamps", p22AllStoreText.includes("source_url: z.string().url()") && p22AllStoreText.includes("fetched_at: IsoTimestampSchema"));
+check("P2.2 Accio import schemas include manual source/input metadata", ["AccioImportSourceKindSchema", "AccioImportInputFormatSchema", "source_kind", "input_format", "attachment_metadata"].every((needle) => dashboardSchemasTs.includes(needle)));
 check("P2.2 completion routes fail agent_runs on validation errors", completionRouteText.includes("safeParse") && completionRouteText.includes("failLeadCompletion") && completionRouteText.includes("failScreeningCompletion") && completionRouteText.includes("failAccioCompletion"));
 check("P2.2 writes audit events for major store actions", p22AllStoreText.includes("createAuditEvent") && p22AllStoreText.includes("lead_run_completed") && p22AllStoreText.includes("screening_reports_saved") && p22AllStoreText.includes("accio_summaries_saved"));
 check("P2.2 store writes Screening address-footprint rows", p22AllStoreText.includes("insert into screening_address_locations") && p22AllStoreText.includes("address_footprint") && p22AllStoreText.includes("saved_address_footprint_locations"));
@@ -1202,6 +1212,7 @@ check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLea
 check("P2.3 customers page applies child paid-source policy before Screening execution", ["screeningOptionsForChild", "paidSourcePolicy", "policy.paidEmailValidation?.allowed", "policy.paidTradeData?.allowed"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 memory page exposes approval-to-memory action", ["reviewEmployeeMemoryFacts", "批准写入", "原始聊天不会写入长期记忆", "memoryPreviewStatusLabel"].every((needle) => employeeMemoryPageTs.includes(needle)));
+check("P2.3 memory page supports JSON/text/image manual imports through normalizer", ["normalizeJsonMemoryImport", "normalizeTextMemoryImport", "normalizeImageMemoryImport", "toGatewayChatAttachments", "截图导入需要立即分析"].every((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 employee header keeps DB task refresh and task notification links", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && appShellTs.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargetsTs.includes("employee-messages"));
 check("P2.3 employee and manager notifications use scrollable targeted message lists", appShellTs.includes("notificationListMaxHeight") && appShellTs.includes("overflow-y-auto") && appShellTs.includes("previewMessages.map((item)") && appShellTs.includes("employeeTaskNotificationHref(item)") && appShellTs.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShellTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargetsTs.includes("highlightTask=") && employeeNotificationTargetsTs.includes("employeeCostHighlightHref") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
 check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includes("fetchEmployeeCostBudget") && employeeApiTs.includes("/api/client-demos/cross-border/employee/cost-budget") && read(path.join(DASHBOARD_API_DIR, "employee/cost-budget/route.ts")).includes("getEmployeeCostBudget") && p22AllStoreText.includes("export async function getEmployeeCostBudget") && p22AllStoreText.includes("limitUsd = limitEnabled ? moneyUsd(baseLimitUsd + activeAllowanceUsd) : 0") && p22AllStoreText.includes("if (scopedEvents.length === 0) return null") && p22AllStoreText.includes('const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]') && p22AllStoreText.includes("period = any($3::text[])"));
@@ -1209,6 +1220,7 @@ check("P2.3 employee login uses manager-set name/password session", authLoginPag
 check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));
 check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
 check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));
+check("P2.3 Accio store persists and projects import source/input metadata", ["source_kind", "input_format", "attachment_metadata_json", "sourceKind", "inputFormat", "attachmentMetadata"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
 check("P2.3 live DB inspection SQL exists", exists(CBE_DB_INSPECTION_SQL));
 check("P2.3 live DB inspection SQL derives website from physical schema", dbInspectionSql.includes("lrr.source_snapshot_json->>'website'") && dbInspectionSql.includes("supplied_fields_json->>'website'"));
 check("P2.3 live DB inspection SQL joins through real FK path", dbInspectionSql.includes("left join lead_runs lr") && dbInspectionSql.includes("lc.lead_run_id = lr.id") && dbInspectionSql.includes("join screening_targets st"));

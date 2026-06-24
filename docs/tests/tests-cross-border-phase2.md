@@ -503,3 +503,60 @@ Boundary:
 
 - CE23 DB-only smoke does not start real OpenClaw sessions and does not call paid or external providers.
 - Target-deployment load smoke and `production_go_live_ready` are separate from the local DB-only preflight and require the target Dashboard/Gateway, target disposable restore database, and provider/source-rate quota confirmation.
+
+## CE24 — Accio Manual Memory Import Formats
+
+Status: PASS — `agent-memory` branch merged into `ecommerce` and integrated with Phase 2 DB/store/UI boundaries on 2026-06-24.
+
+Scope:
+
+- `memory-import-normalizer.ts` supports JSON, pasted text, and screenshot import preparation for Employee `记忆整理`.
+- The Dashboard Gateway client forwards image attachments through OpenClaw-compatible `chat.send` payloads.
+- The hidden Accio task runner batches screenshot preflight transcription turns before requesting the final structured memory summary.
+- `008_accio_manual_import_formats.sql` adds source/input/attachment metadata to `accio_imports`.
+- Employee `记忆整理` exposes JSON/text/image modes. Screenshot raw images are not persisted and cannot be replayed from DB.
+
+Primary files:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/memory-import-normalizer.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/lib/gateway/{types.ts,client.ts,index.ts}`
+- `sentura/dashboard/src/lib/cross-border-store/{schemas.ts,accio.ts}`
+- `sentura/lib/cross-border-store/migrations/008_accio_manual_import_formats.sql`
+- `scripts/test-cross-border-phase2-store.ts`
+- `scripts/test-cross-border-agents.ts`
+
+Commands:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+pnpm exec tsx scripts/test-cross-border-agents.ts
+git diff --check
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE24.1 | Import normalizer contract | Static script + typecheck | JSON import preserves parsed Accio export structure; pasted text becomes a line/message-based export; image import validates image MIME/size, computes attachment hashes, and keeps base64 only in browser/task state. |
+| CE24.2 | Gateway attachment contract | Static script + local OpenClaw source review | `GatewayChatAttachment` supports OpenClaw `source: { type: "base64", media_type, data }`, and `sendChat`/`sendChatMessage` forward `attachments` without changing existing text-only calls. |
+| CE24.3 | Screenshot preflight transcription | Static script | The Accio runner splits image attachments into bounded preflight batches, waits for batch markers, then sends the final summary prompt with transcript context instead of storing raw screenshots. |
+| CE24.4 | Source/input metadata persistence | Static store script | `accio_imports` stores `source_kind`, `input_format`, and `attachment_metadata_json`; typed store/API projections return the metadata on imports, memory records, and analysis payloads. |
+| CE24.5 | Employee UI modes | Static script + typecheck | `记忆整理` presents JSON upload, pasted text, and screenshot upload modes with matching import/analyze actions and source labels. |
+| CE24.6 | Screenshot no-replay boundary | Static script | Screenshot mode cannot use import-only storage; queued/no-session screenshot analysis is failed immediately because raw images are intentionally not persisted; stored image-format records cannot be directly re-analyzed from DB. |
+| CE24.7 | Chinese operator-ready summary prompt | Static script | Accio prompts require Chinese operator-ready deal summaries, product/price context, follow-up fields, and explicit distinction between unit price and total price. |
+| CE24.8 | Regression commands | Automated scripts | Dashboard typecheck, Phase 2 store static checks, broad CBE static checks, and whitespace checks pass after the merge. |
+
+Latest verification, 2026-06-24:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 416/416.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- CE24 does not add a direct Alibaba International Station API integration. It only broadens manual Accio intake sources while preserving OpenClaw employee execution and Phase 2 persistence boundaries.
+- Screenshot raw image bytes are not written into the CBE business database. Re-analysis of image-sourced records requires the operator to upload the screenshots again.

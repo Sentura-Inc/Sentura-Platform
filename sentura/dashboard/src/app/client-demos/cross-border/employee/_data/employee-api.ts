@@ -223,6 +223,9 @@ interface ApiAccioImport {
   id: string;
   agentRunId: string | null;
   sourceFileName: string | null;
+  sourceKind?: string | null;
+  inputFormat?: string | null;
+  attachmentMetadata?: JsonRecord[];
   validationStatus: string;
   classification: string;
   uploadedAt: string;
@@ -259,6 +262,9 @@ interface ApiMemoryRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind?: string | null;
+  inputFormat?: string | null;
+  attachmentMetadata?: JsonRecord[];
   companyName: string | null;
   country: string | null;
   conversationCount: number;
@@ -1014,6 +1020,16 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   };
 }
 
+function memorySourceFromKind(sourceKind?: string | null, sourceFileName?: string | null): MemoryRecordItem["source"] {
+  if (sourceKind === "manual_json" || sourceKind === "manual_text" || sourceKind === "manual_image") {
+    return "manual_import";
+  }
+  if (sourceKind === "alibaba_international") return "alibaba_international";
+  if (sourceKind === "demo_data") return "demo_data";
+  if (sourceFileName?.toLowerCase().includes("alibaba")) return "alibaba_international";
+  return "accio";
+}
+
 function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
   const pendingSupplementRefresh = Boolean(
     record.summaryId &&
@@ -1030,7 +1046,7 @@ function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
   return {
     recordId: pendingSupplementRefresh ? record.importId : record.summaryId ?? record.importId,
     name: record.companyName ?? record.sourceFileName ?? "未命名聊天记录",
-    source: record.sourceFileName?.toLowerCase().includes("alibaba") ? "alibaba_international" : "accio",
+    source: memorySourceFromKind(record.sourceKind, record.sourceFileName),
     importedAt: record.uploadedAt,
     analysisStatus: analyzed
       ? "analyzed"
@@ -1357,6 +1373,9 @@ export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, ses
     "/api/client-demos/cross-border/employee/memory/imports",
     {
       source_file_name: input.recordName,
+      source_kind: input.sourceKind ?? "manual_json",
+      input_format: input.inputFormat ?? "json",
+      attachment_metadata: input.attachmentMetadata ?? [],
       file_hash: await sha256Hex(serialized),
       storage_key: `local-browser-cache://${await sha256Hex(`${input.recordName}:${serialized.length}`)}`,
       classification: "T3",

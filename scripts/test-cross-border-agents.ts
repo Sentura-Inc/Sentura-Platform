@@ -55,6 +55,10 @@ const EMPLOYEE_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts",
 );
+const MEMORY_IMPORT_NORMALIZER = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/memory-import-normalizer.ts",
+);
 const EMPLOYEE_NOTIFICATION_TARGETS = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-notification-targets.ts",
@@ -251,6 +255,7 @@ const accioSampleRoute = read(ACCIO_SAMPLE_ROUTE);
 const employeeTaskRunner = read(EMPLOYEE_TASK_RUNNER);
 const employeeTaskCancellation = read(EMPLOYEE_TASK_CANCELLATION);
 const employeeApi = read(EMPLOYEE_API);
+const memoryImportNormalizer = read(MEMORY_IMPORT_NORMALIZER);
 const employeeNotificationTargets = read(EMPLOYEE_NOTIFICATION_TARGETS);
 const employeeData = read(EMPLOYEE_DATA);
 const employeeHomePage = read(EMPLOYEE_HOME_PAGE);
@@ -651,7 +656,7 @@ section("CE8 Employee hidden runner");
 check("employee hidden runner exists", exists(EMPLOYEE_TASK_RUNNER));
 check("employee runner creates session before long task send", employeeTaskRunner.includes("client.createSession(agentId, undefined, {"));
 check("employee runner creates user-attributed/planned session keys", employeeTaskRunner.includes("createPlannedEmployeeSessionKey") && employeeTaskRunner.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
-check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs })"));
+check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs, attachments })"));
 check("gateway client honors long task timeoutMs locally", gatewayClient.includes("LONG_RUNNING_RPC_GRACE_MS") && gatewayClient.includes("requestedTimeoutMs") && gatewayClient.includes("params?.timeoutMs"));
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee Accio prompt requires concrete deal facts", ["purchase_intent", "negotiated_prices", "behavior_signals", "source=\"accio_memory\"", "memory_write_preview"].every((needle) => employeeTaskRunner.includes(needle)));
@@ -659,6 +664,12 @@ check("employee runner reads full structured task output from chat history", ["H
 check("employee runner recovers marker after gateway send timeout", ["isGatewayTimeout", "readHiddenTaskPayload", "提交请求等待时间较长，系统正在改为读取任务记录。", "HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner continues after recoverable LLM idle timeout retries", ["transcriptFailureMessage", "LLM idle timeout", "recoverable", "lastRecoverableFailureMessage", "continue"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
 check("employee runner still surfaces terminal backend model failures instead of generic marker timeouts", ["transcriptFailureMessage", "backend_error", "任务处理失败："].every((needle) => employeeTaskRunner.includes(needle)) && gatewayTypes.includes("errorMessage?: string") && gatewayTypes.includes("stopReason?: string"));
+check("employee memory import normalizer supports JSON, pasted text, and screenshots", ["normalizeJsonMemoryImport", "normalizeTextMemoryImport", "normalizeImageMemoryImport", "toGatewayChatAttachments", "raw_image_retention", "not_persisted", "sha256Hex", "dataBase64"].every((needle) => memoryImportNormalizer.includes(needle)));
+check("employee memory UI exposes three manual import modes", ["ImportMode = \"json\" | \"text\" | \"image\"", "JSON 文件", "粘贴文字", "聊天截图", "onPastedTextChange", "onImageFiles"].every((needle) => employeeMemoryPage.includes(needle)));
+check("employee memory UI prevents screenshot import-only and DB replay without raw image", ["截图导入需要立即分析", "系统不会保存原始图片", "这条记录来自截图导入，系统未保存原图，无法直接重新分析"].every((needle) => employeeMemoryPage.includes(needle)));
+check("gateway chat client forwards image attachments to OpenClaw chat.send", ["GatewayChatAttachment", "attachments?: GatewayChatAttachment[]", "attachments: options.attachments"].every((needle) => gatewayClient.includes(needle) || gatewayTypes.includes(needle)) && gatewayTypes.includes("media_type") && gatewayTypes.includes("type: \"base64\""));
+check("employee Accio runner batches screenshot preflight before final summary", ["IMAGE_TRANSCRIPT_BATCH_PREFIX", "CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS", "HiddenTaskPreflightTurn", "buildImageTranscriptBatchPrompt", "waitForHiddenTaskMarker", "preflightTurns"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee Accio prompt requires Chinese operator-ready deal summaries", ["report_zh", "product_zh", "price_context_zh", "必须区分“单价”和“总价”", "next_actions 必须是中文字符串数组"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee lead prompt follows requested target count instead of 1-5 cap", [
   "target_count 是本次任务必须新增的净新客户硬目标",
   "max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限",

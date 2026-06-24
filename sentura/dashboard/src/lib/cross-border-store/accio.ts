@@ -24,6 +24,9 @@ export interface AccioImportRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind: string;
+  inputFormat: string;
+  attachmentMetadata: Record<string, unknown>[];
   validationStatus: string;
   classification: string;
   uploadedAt: string;
@@ -46,6 +49,9 @@ export interface EmployeeMemoryRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind: string;
+  inputFormat: string;
+  attachmentMetadata: Record<string, unknown>[];
   companyName: string | null;
   country: string | null;
   conversationCount: number;
@@ -67,6 +73,9 @@ interface AccioImportRow {
   agent_run_id: string | null;
   agent_run_status: string | null;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   validation_status: string;
   classification: string;
   uploaded_at: Date;
@@ -99,6 +108,9 @@ interface MemoryRow {
   agent_run_id: string | null;
   agent_run_status: string | null;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   company_name: string | null;
   country: string | null;
   conversation_count: string;
@@ -117,6 +129,9 @@ interface MemoryRow {
 interface AccioImportPayloadRow {
   import_id: string;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   classification: string;
   uploaded_at: Date;
   conversation_id: string | null;
@@ -211,6 +226,9 @@ function toAccioImportRecord(row: AccioImportRow): AccioImportRecord {
     agentRunId: row.agent_run_id,
     agentRunStatus: row.agent_run_status,
     sourceFileName: row.source_file_name,
+    sourceKind: row.source_kind,
+    inputFormat: row.input_format,
+    attachmentMetadata: Array.isArray(row.attachment_metadata_json) ? row.attachment_metadata_json : [],
     validationStatus: row.validation_status,
     classification: row.classification,
     uploadedAt: row.uploaded_at.toISOString(),
@@ -233,6 +251,9 @@ function toMemoryRecord(row: MemoryRow): EmployeeMemoryRecord {
     agentRunId: row.agent_run_id,
     agentRunStatus: row.agent_run_status,
     sourceFileName: row.source_file_name,
+    sourceKind: row.source_kind,
+    inputFormat: row.input_format,
+    attachmentMetadata: Array.isArray(row.attachment_metadata_json) ? row.attachment_metadata_json : [],
     companyName: row.company_name,
     country: row.country,
     conversationCount: Number(row.conversation_count),
@@ -469,6 +490,9 @@ export async function saveAccioImport(
     estimatedCostUsd: input.estimated_cost_usd,
     metadataJson: {
       source_file_name: input.source_file_name,
+      source_kind: input.source_kind,
+      input_format: input.input_format,
+      attachment_count: input.attachment_metadata.length,
       conversation_count: input.conversations.length,
       ...(supplementTarget ? { supplement_target: supplementTarget } : {}),
     },
@@ -577,6 +601,9 @@ export async function saveAccioImport(
         visibility_scope: input.visibility_scope,
         metadata_json: {
           source_file_name: input.source_file_name,
+          source_kind: input.source_kind,
+          input_format: input.input_format,
+          attachment_count: input.attachment_metadata.length,
           supplement_target: supplementTarget,
           supplement_mode: "merge_existing_accio_summary",
           ...(target.summary_id ? { reused_summary_id: target.summary_id } : {}),
@@ -590,11 +617,22 @@ export async function saveAccioImport(
           set
             agent_run_id = $3,
             source_file_name = coalesce($4, source_file_name),
+            source_kind = $5,
+            input_format = $6,
+            attachment_metadata_json = $7::jsonb,
             uploaded_at = now()
           where tenant_id = $1
             and id = $2
         `,
-        [context.tenantId, target.import_id, agentRun.id, input.source_file_name ?? null],
+        [
+          context.tenantId,
+          target.import_id,
+          agentRun.id,
+          input.source_file_name ?? null,
+          input.source_kind,
+          input.input_format,
+          JSON.stringify(input.attachment_metadata),
+        ],
       );
       let primaryConversationId = target.conversation_id;
       for (const [index, conversation] of input.conversations.entries()) {
@@ -661,7 +699,13 @@ export async function saveAccioImport(
         stage: agentRun.status,
         eventType: "accio_import_supplemented",
         status: agentRun.status,
-        metadataJson: { supplement_target: supplementTarget, conversation_count: input.conversations.length },
+        metadataJson: {
+          supplement_target: supplementTarget,
+          conversation_count: input.conversations.length,
+          source_kind: input.source_kind,
+          input_format: input.input_format,
+          attachment_count: input.attachment_metadata.length,
+        },
       });
       await createAuditEvent(client, context, {
         agentId: "cbe-accio-memory",
@@ -672,6 +716,8 @@ export async function saveAccioImport(
           accio_import_id: target.import_id,
           replaced_summary_id: target.summary_id,
           supplement_target: supplementTarget,
+          source_kind: input.source_kind,
+          input_format: input.input_format,
         },
       });
       const importResult = await client.query<AccioImportRow>(
@@ -681,6 +727,9 @@ export async function saveAccioImport(
             ai.agent_run_id,
             ar.status as agent_run_status,
             ai.source_file_name,
+            ai.source_kind,
+            ai.input_format,
+            ai.attachment_metadata_json,
             ai.validation_status,
             ai.classification,
             ai.uploaded_at,
@@ -724,6 +773,9 @@ export async function saveAccioImport(
       visibility_scope: input.visibility_scope,
       metadata_json: {
         source_file_name: input.source_file_name,
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+        attachment_count: input.attachment_metadata.length,
         ...(supplementTarget ? { supplement_target: supplementTarget } : {}),
         ...workloadMetadata(admission),
       },
@@ -741,17 +793,23 @@ export async function saveAccioImport(
           visibility_scope,
           agent_run_id,
           source_file_name,
+          source_kind,
+          input_format,
+          attachment_metadata_json,
           file_hash,
           storage_key,
           validation_status,
           classification
         )
-        values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, 'validated', $11)
+        values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 'validated', $14)
         returning
           id,
           agent_run_id,
           null::text as agent_run_status,
           source_file_name,
+          source_kind,
+          input_format,
+          attachment_metadata_json,
           validation_status,
           classification,
           uploaded_at,
@@ -767,6 +825,9 @@ export async function saveAccioImport(
         input.visibility_scope,
         agentRun.id,
         input.source_file_name ?? null,
+        input.source_kind,
+        input.input_format,
+        JSON.stringify(input.attachment_metadata),
         input.file_hash,
         input.storage_key ?? null,
         input.classification,
@@ -785,13 +846,23 @@ export async function saveAccioImport(
       stage: agentRun.status,
       eventType: "accio_import_created",
       status: agentRun.status,
-      metadataJson: { conversation_count: input.conversations.length },
+      metadataJson: {
+        conversation_count: input.conversations.length,
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+        attachment_count: input.attachment_metadata.length,
+      },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-accio-memory",
       eventType: "accio_import_created",
       dataTier: "T2",
-      metadataJson: { agent_run_id: agentRun.id, accio_import_id: importId },
+      metadataJson: {
+        agent_run_id: agentRun.id,
+        accio_import_id: importId,
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+      },
     });
     return {
       agentRun,
@@ -813,6 +884,9 @@ export async function saveAccioSummaries(
           ai.agent_run_id,
           ar.status as agent_run_status,
           ai.source_file_name,
+          ai.source_kind,
+          ai.input_format,
+          ai.attachment_metadata_json,
           ai.validation_status,
           ai.classification,
           ai.uploaded_at,
@@ -991,6 +1065,8 @@ export async function saveAccioSummaries(
       currentStage: "accio_summaries_saved",
       metadataJson: {
         accio_import_id: importId,
+        source_kind: importRows.rows[0].source_kind,
+        input_format: importRows.rows[0].input_format,
         saved_summaries: summaries.length,
         memory_fact_ids: memoryFactIds,
         handoff_ids: handoffIds,
@@ -1036,6 +1112,9 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
         ai.agent_run_id,
         ar.status as agent_run_status,
         ai.source_file_name,
+        ai.source_kind,
+        ai.input_format,
+        ai.attachment_metadata_json,
         coalesce(ac.company_name, asum.customer_profile_json->>'company_name') as company_name,
         coalesce(ac.country, asum.customer_profile_json->>'country') as country,
         count(ac.id) over (partition by ai.id)::text as conversation_count,
@@ -1346,6 +1425,9 @@ export async function getAccioImportAnalysisPayload(context: TenantContext, impo
       select
         ai.id as import_id,
         ai.source_file_name,
+        ai.source_kind,
+        ai.input_format,
+        ai.attachment_metadata_json,
         ai.classification,
         ai.uploaded_at,
         ac.id as conversation_id,
@@ -1433,6 +1515,9 @@ export async function getAccioImportAnalysisPayload(context: TenantContext, impo
       source_file: first.source_file_name ?? importId,
       data_classification: first.classification,
       import_id: first.import_id,
+      source_kind: first.source_kind,
+      input_format: first.input_format,
+      attachment_metadata: first.attachment_metadata_json ?? [],
       supplement_target: first.supplement_target_json ?? undefined,
     },
     conversations: Array.from(conversations.values()),

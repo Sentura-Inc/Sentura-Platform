@@ -9,7 +9,9 @@ import {
   Database,
   Eye,
   FileJson,
+  FileText,
   Filter,
+  Image as ImageIcon,
   Loader2,
   RotateCcw,
   Search,
@@ -70,9 +72,19 @@ import {
   fetchEmployeeTasks,
   reviewEmployeeMemoryFacts,
 } from "../_data/employee-api";
+import {
+  normalizeImageMemoryImport,
+  normalizeJsonMemoryImport,
+  normalizeTextMemoryImport,
+  toGatewayChatAttachments,
+  type MemoryImageAttachment,
+  type MemoryImportInputFormat,
+  type MemoryImportSourceKind,
+} from "../_data/memory-import-normalizer";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
 type SheetMode = "add" | "supplement" | "detail" | "filters" | null;
+type ImportMode = "json" | "text" | "image";
 type ImportRange = "all" | "today" | "7d" | "30d";
 type MemoryHighlightScope = "memory-results";
 type MemorySupplementSource = "lead_discovery" | "manual_screening" | "accio_handoff";
@@ -114,7 +126,36 @@ function memoryPreviewStatusLabel(status: MemoryRecordItem["memoryPreviewStatus"
   return "仅预览";
 }
 
-const memorySourceChoices = ["聊天工具", "平台聊天", "手动导入"] as const;
+const importModeLabels: Record<ImportMode, string> = {
+  json: "JSON 文件",
+  text: "粘贴文字",
+  image: "聊天截图",
+};
+
+const importModeDescriptions: Record<ImportMode, string> = {
+  json: "上传 Accio 或平台聊天导出的 JSON 文件。",
+  text: "粘贴微信、Accio 或阿里聊天片段。",
+  image: "上传聊天截图，系统会用当前记忆员工模型读取图片。",
+};
+
+const importModeSourceLabels: Record<ImportMode, string> = {
+  json: "手动 JSON",
+  text: "手动文字",
+  image: "手动图片",
+};
+
+const importModeSourceKinds: Record<ImportMode, MemoryImportSourceKind> = {
+  json: "manual_json",
+  text: "manual_text",
+  image: "manual_image",
+};
+
+const importModeInputFormats: Record<ImportMode, MemoryImportInputFormat> = {
+  json: "json",
+  text: "pasted_text",
+  image: "image",
+};
+
 const memoryStatusFilterChoices = ["all", "not_started", "analyzed"] as const;
 const memoryStatusFilterValues: Array<MemoryRecordItem["analysisStatus"] | "all"> = ["all", "not_started", "analyzed"];
 const memorySourceValues: MemoryRecordItem["source"][] = ["accio", "alibaba_international", "manual_import", "demo_data", "other"];
@@ -273,8 +314,12 @@ function CrossBorderMemoryPageContent() {
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
   const [activeRecord, setActiveRecord] = useState<MemoryRecordItem | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+  const [importMode, setImportMode] = useState<ImportMode>("json");
   const [uploadName, setUploadName] = useState("");
   const [uploadPayload, setUploadPayload] = useState<unknown | null>(null);
+  const [rawImportText, setRawImportText] = useState("");
+  const [imageAttachments, setImageAttachments] = useState<MemoryImageAttachment[]>([]);
+  const [attachmentMetadata, setAttachmentMetadata] = useState<Array<Record<string, unknown>>>([]);
   const [highlightedRecordIds, setHighlightedRecordIds] = useState<Set<string>>(() => new Set());
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [deleteIntentIds, setDeleteIntentIds] = useState<string[]>([]);
@@ -332,8 +377,12 @@ function CrossBorderMemoryPageContent() {
     const requestKey = `${supplementContext.customerId}|${supplementContext.companyName}|${supplementContext.source}`;
     if (handledSupplementRequestRef.current === requestKey) return;
     handledSupplementRequestRef.current = requestKey;
+    setImportMode("json");
     setUploadName("");
     setUploadPayload(null);
+    setRawImportText("");
+    setImageAttachments([]);
+    setAttachmentMetadata([]);
     setQuery("");
     setFilters(emptyFilters);
     setStatusFilter("not_started");
@@ -454,6 +503,15 @@ function CrossBorderMemoryPageContent() {
     }
   };
 
+  const resetImportState = (mode: ImportMode = "json") => {
+    setImportMode(mode);
+    setUploadName("");
+    setUploadPayload(null);
+    setRawImportText("");
+    setImageAttachments([]);
+    setAttachmentMetadata([]);
+  };
+
   const refreshDbBackedMemory = async () => {
     const [memory, latestTasks] = await Promise.all([
       fetchEmployeeMemoryRecords(),
@@ -544,13 +602,52 @@ function CrossBorderMemoryPageContent() {
   const handleUploadFile = async (file: File | undefined) => {
     if (!file) return;
     setUploadName(file.name);
+    setImageAttachments([]);
+    setAttachmentMetadata([]);
+    setRawImportText("");
     try {
-      const parsed = JSON.parse(await file.text()) as unknown;
-      setUploadPayload(parsed);
-      showNotice(`已读取 ${file.name}，可以导入或提交分析。`, "info");
+      const prepared = normalizeJsonMemoryImport(JSON.parse(await file.text()) as unknown, file.name);
+      setUploadPayload(prepared.chatExport);
+      showNotice(`已读取 ${file.name}，可以导入或提交记忆员工分析。`, "info");
     } catch (error) {
       setUploadPayload(null);
       showNotice(error instanceof Error ? error.message : "聊天记录文件解析失败。", "error", 8000);
+    }
+  };
+
+  const handlePastedTextChange = (value: string) => {
+    setRawImportText(value);
+    setUploadName(value.trim() ? "粘贴聊天记录.txt" : "");
+    setImageAttachments([]);
+    setAttachmentMetadata([]);
+    try {
+      if (!value.trim()) {
+        setUploadPayload(null);
+        return;
+      }
+      const prepared = normalizeTextMemoryImport(value);
+      setUploadPayload(prepared.chatExport);
+    } catch {
+      setUploadPayload(null);
+    }
+  };
+
+  const handleImageFiles = async (files: FileList | null | undefined) => {
+    if (!files || files.length === 0) return;
+    setRawImportText("");
+    setUploadPayload(null);
+    try {
+      const prepared = await normalizeImageMemoryImport(files);
+      setUploadName(prepared.recordName);
+      setUploadPayload(prepared.chatExport);
+      setImageAttachments(prepared.attachments ?? []);
+      setAttachmentMetadata(prepared.attachmentMetadata ?? []);
+      showNotice(`已读取 ${prepared.attachments?.length ?? 0} 张聊天截图，导入并分析时会分批提交给当前记忆员工模型。`, "info", 6000);
+    } catch (error) {
+      setUploadName("");
+      setImageAttachments([]);
+      setAttachmentMetadata([]);
+      showNotice(error instanceof Error ? error.message : "聊天截图读取失败。", "error", 8000);
     }
   };
 
@@ -559,18 +656,26 @@ function CrossBorderMemoryPageContent() {
       showNotice("请先上传系统可读取的聊天记录文件。", "error");
       return;
     }
+    if (importMode === "image") {
+      showNotice("截图导入需要立即分析；系统不会保存原始图片用于之后重新分析。", "error", 8000);
+      return;
+    }
     const isSupplementImport = sheetMode === "supplement" && Boolean(supplementContext);
     const finalRecordName =
       recordName.trim() ||
       (supplementContext ? supplementRecordName(supplementContext.companyName) : "") ||
-      uploadName.replace(/\.json$/i, "") ||
+      uploadName.replace(/\.(json|txt)$/i, "") ||
       "未命名记录";
     setSheetMode(null);
     try {
       const created = await createEmployeeAccioImport({
         recordName: finalRecordName,
         sourceLabel,
+        inputFormat: importModeInputFormats[importMode],
+        sourceKind: importModeSourceKinds[importMode],
         chatExport: uploadPayload,
+        rawText: importMode === "text" ? rawImportText : undefined,
+        attachmentMetadata,
         supplementTarget: supplementContext
           ? {
               customerId: supplementContext.customerId,
@@ -581,6 +686,9 @@ function CrossBorderMemoryPageContent() {
       });
       setUploadName("");
       setUploadPayload(null);
+      setRawImportText("");
+      setImageAttachments([]);
+      setAttachmentMetadata([]);
       setStatusFilter("not_started");
       setFilters(emptyFilters);
       await refreshDbBackedMemory();
@@ -610,13 +718,27 @@ function CrossBorderMemoryPageContent() {
       return;
     }
     const plannedSessionKey = createPlannedEmployeeSessionKey(ACCIO_AGENT_ID);
-    const estimatedMs = 180_000;
+    const estimatedMs = input.inputFormat === "image"
+      ? Math.min(1_200_000, 300_000 + Math.max(1, input.attachments?.length ?? 0) * 45_000)
+      : 180_000;
     let taskId: string | undefined;
     let createdImport: Awaited<ReturnType<typeof createEmployeeAccioImport>> | null = null;
     setSheetMode(null);
     try {
       createdImport = await createEmployeeAccioImport(input, plannedSessionKey);
       if (createdImport.agentRun.status === "queued" || !createdImport.agentRun.sessionKey) {
+        if (input.inputFormat === "image") {
+          const message = "当前后台容量不足，截图任务不能排队执行；系统不会保存原始图片，请稍后重新上传并分析。";
+          await failEmployeeTaskInDb({
+            agentRunId: createdImport.agentRun.id,
+            sessionKey: plannedSessionKey,
+            error: new EmployeeTaskError("gateway", message, { sessionKey: plannedSessionKey }),
+            message,
+          }).catch(() => undefined);
+          await refreshDbBackedMemory().catch(() => undefined);
+          showNotice(message, "error", 8000);
+          return;
+        }
         showNotice("当前任务较多，记忆整理已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedMemory().catch(() => undefined);
         return;
@@ -688,9 +810,21 @@ function CrossBorderMemoryPageContent() {
       return;
     }
     await submitMemoryTask({
-      recordName: recordName.trim() || uploadName.replace(/\.json$/i, "") || "未命名记录",
+      recordName: recordName.trim() || uploadName.replace(/\.(json|txt)$/i, "") || "未命名记录",
       sourceLabel,
+      inputFormat: importModeInputFormats[importMode],
+      sourceKind: importModeSourceKinds[importMode],
       chatExport: uploadPayload,
+      rawText: importMode === "text" ? rawImportText : undefined,
+      attachments: importMode === "image" ? toGatewayChatAttachments(imageAttachments) : undefined,
+      attachmentMetadata,
+      supplementTarget: supplementContext
+        ? {
+            customerId: supplementContext.customerId,
+            companyName: supplementContext.companyName,
+            source: supplementContext.source,
+          }
+        : undefined,
     });
   };
 
@@ -712,10 +846,45 @@ function CrossBorderMemoryPageContent() {
       showNotice(error instanceof Error ? error.message : "无法读取已导入聊天记录。", "error", 8000);
       return;
     }
+    const metadata = storedPayload && typeof storedPayload === "object" && !Array.isArray(storedPayload)
+      ? ((storedPayload as { export_metadata?: unknown }).export_metadata ?? {})
+      : {};
+    const metadataRecord = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? metadata as Record<string, unknown>
+      : {};
+    const rawInputFormat = metadataRecord.input_format;
+    const inputFormat: AccioMemoryTaskInput["inputFormat"] =
+      rawInputFormat === "pasted_text" || rawInputFormat === "image" ? rawInputFormat : "json";
+    const rawSourceKind = metadataRecord.source_kind;
+    const sourceKind: AccioMemoryTaskInput["sourceKind"] =
+      rawSourceKind === "manual_text" || rawSourceKind === "manual_image" || rawSourceKind === "manual_json"
+        ? rawSourceKind
+        : inputFormat === "pasted_text"
+          ? "manual_text"
+          : inputFormat === "image"
+            ? "manual_image"
+            : "manual_json";
+    const storedAttachmentMetadata = Array.isArray(metadataRecord.attachment_metadata)
+      ? metadataRecord.attachment_metadata.filter(
+          (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item),
+        )
+      : [];
+    if (inputFormat === "image") {
+      setRows((current) =>
+        current.map((item) =>
+          item.recordId === record.recordId ? { ...item, analysisStatus: "failed" } : item,
+        ),
+      );
+      showNotice("这条记录来自截图导入，系统未保存原图，无法直接重新分析；请重新上传截图。", "error", 8000);
+      return;
+    }
     await submitMemoryTask({
       recordName: record.name,
       sourceLabel: sourceLabels[record.source],
+      inputFormat,
+      sourceKind,
       chatExport: storedPayload,
+      attachmentMetadata: storedAttachmentMetadata,
       supplementTarget: record.supplementCustomerId && record.supplementCompanyName
         ? {
             customerId: record.supplementCustomerId,
@@ -978,10 +1147,16 @@ function CrossBorderMemoryPageContent() {
         filterOptions={filterOptions}
         activeFilterCount={activeFilterCount}
         supplementContext={supplementContext}
+        importMode={importMode}
+        setImportMode={resetImportState}
         uploadName={uploadName}
         setUploadName={setUploadName}
         uploadPayload={uploadPayload}
+        rawImportText={rawImportText}
+        imageAttachments={imageAttachments}
         onUploadFile={handleUploadFile}
+        onPastedTextChange={handlePastedTextChange}
+        onImageFiles={handleImageFiles}
         canRun={canRun}
         agentLoading={agentLoading}
         gatewayConnected={state === "connected"}
@@ -1099,10 +1274,16 @@ function MemorySheet({
   filterOptions,
   activeFilterCount,
   supplementContext,
+  importMode,
+  setImportMode,
   uploadName,
   setUploadName,
   uploadPayload,
+  rawImportText,
+  imageAttachments,
   onUploadFile,
+  onPastedTextChange,
+  onImageFiles,
   canRun,
   agentLoading,
   gatewayConnected,
@@ -1121,10 +1302,16 @@ function MemorySheet({
   };
   activeFilterCount: number;
   supplementContext: MemorySupplementContext | null;
+  importMode: ImportMode;
+  setImportMode: (mode: ImportMode) => void;
   uploadName: string;
   setUploadName: (name: string) => void;
   uploadPayload: unknown | null;
+  rawImportText: string;
+  imageAttachments: MemoryImageAttachment[];
   onUploadFile: (file: File | undefined) => void;
+  onPastedTextChange: (value: string) => void;
+  onImageFiles: (files: FileList | null | undefined) => void;
   canRun: boolean;
   agentLoading: boolean;
   gatewayConnected: boolean;
@@ -1133,14 +1320,14 @@ function MemorySheet({
   onAnalyzeUpload: (recordName: string, sourceLabel: string) => void;
 }) {
   const [recordName, setRecordName] = useState("");
-  const [sourceLabel, setSourceLabel] = useState("聊天工具");
   const isSupplementMode = mode === "supplement" && Boolean(supplementContext);
-  const effectiveRecordName = recordName || uploadName.replace(/\.json$/i, "");
+  const effectiveRecordName = recordName || uploadName.replace(/\.(json|txt)$/i, "");
   const uploadConversationCount = useMemo(() => {
+    if (importMode === "image") return Math.max(1, imageAttachments.length);
     if (!uploadPayload || typeof uploadPayload !== "object" || Array.isArray(uploadPayload)) return 1;
     const conversations = (uploadPayload as { conversations?: unknown }).conversations;
     return Array.isArray(conversations) ? conversations.length : 1;
-  }, [uploadPayload]);
+  }, [imageAttachments.length, importMode, uploadPayload]);
   const uploadEstimate = useMemo(
     () => estimateMemoryTaskCost(uploadConversationCount),
     [uploadConversationCount],
@@ -1149,13 +1336,11 @@ function MemorySheet({
   useEffect(() => {
     if (mode !== "supplement" || !supplementContext) return;
     setRecordName(supplementRecordName(supplementContext.companyName));
-    setSourceLabel("聊天工具");
   }, [mode, supplementContext]);
 
   useEffect(() => {
     if (mode !== "add") return;
     setRecordName("");
-    setSourceLabel("聊天工具");
   }, [mode]);
 
   return (
@@ -1240,7 +1425,7 @@ function MemorySheet({
               <SheetDescription>
                 {isSupplementMode && supplementContext
                   ? `为 ${supplementContext.companyName} 上传补充聊天记录，提交后会绑定到原客户并进入未分析状态。`
-                  : "导入聊天工具、平台聊天或手动整理的聊天记录。"}
+                  : "导入手动聊天记录，支持 JSON、粘贴文字和聊天截图。"}
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4">
@@ -1252,46 +1437,103 @@ function MemorySheet({
                   </div>
                 </div>
               ) : null}
-              <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground hover:bg-muted/40">
-                <FileJson className="mb-2 h-5 w-5" />
-                {uploadName || "上传聊天记录文件"}
-                <Input
-                  className="hidden"
-                  type="file"
-                  accept="application/json,.json"
+              <div className="grid grid-cols-3 gap-2">
+                {(["json", "text", "image"] as const).map((modeValue) => {
+                  const Icon = modeValue === "json" ? FileJson : modeValue === "text" ? FileText : ImageIcon;
+                  return (
+                    <Button
+                      key={modeValue}
+                      type="button"
+                      variant={importMode === modeValue ? "default" : "outline"}
+                      className="h-auto min-h-16 flex-col gap-1 whitespace-normal px-2 py-2 text-center"
+                      onClick={() => setImportMode(modeValue)}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span className="text-xs">{importModeLabels[modeValue]}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                {importModeDescriptions[importMode]}
+              </div>
+              {importMode === "json" ? (
+                <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground hover:bg-muted/40">
+                  <FileJson className="mb-2 h-5 w-5" />
+                  {uploadName || "上传聊天记录 JSON 文件"}
+                  <Input
+                    className="hidden"
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      setUploadName(file?.name ?? "");
+                      if (file && !recordName && !isSupplementMode) setRecordName(file.name.replace(/\.json$/i, ""));
+                      onUploadFile(file);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {importMode === "text" ? (
+                <textarea
+                  className="min-h-44 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={rawImportText}
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    setUploadName(file?.name ?? "");
-                    if (file && !recordName && !isSupplementMode) setRecordName(file.name.replace(/\.json$/i, ""));
-                    onUploadFile(file);
+                    onPastedTextChange(event.target.value);
+                    if (!recordName && event.target.value.trim() && !isSupplementMode) {
+                      setRecordName("手动聊天记录");
+                    }
                   }}
+                  placeholder={"粘贴聊天记录，例如：\nIt's in stock and ships within 1 business day.\n2026-06-22 19:05\n多久可以发货？是现货吗？"}
                 />
-              </label>
+              ) : null}
+              {importMode === "image" ? (
+                <div className="space-y-3">
+                  <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 px-4 py-5 text-sm text-muted-foreground hover:bg-muted/40">
+                    <ImageIcon className="mb-2 h-5 w-5" />
+                    {imageAttachments.length > 0 ? `已选择 ${imageAttachments.length} 张聊天截图` : "上传聊天截图图片"}
+                    <Input
+                      className="hidden"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.png,.jpg,.jpeg,.webp,.heic,.heif"
+                      multiple
+                      onChange={(event) => {
+                        const files = event.target.files;
+                        if (files?.length && !recordName && !isSupplementMode) setRecordName(`聊天截图 ${files.length} 张`);
+                        void onImageFiles(files);
+                      }}
+                    />
+                  </label>
+                  {imageAttachments.length > 0 ? (
+                    <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                      {imageAttachments.map((attachment) => (
+                        <div key={`${attachment.sha256}-${attachment.fileName}`} className="flex items-center justify-between gap-3">
+                          <span className="truncate">{attachment.fileName}</span>
+                          <span className="shrink-0 text-muted-foreground">{(attachment.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <Input
                 value={effectiveRecordName}
                 onChange={(event) => setRecordName(event.target.value)}
                 placeholder="记录名称"
               />
-              <FilterGroup title="记录来源">
-                {memorySourceChoices.map((source) => (
-                  <Button
-                    key={source}
-                    type="button"
-                    variant={sourceLabel === source ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSourceLabel(source)}
-                  >
-                    {source}
-                  </Button>
-                ))}
-              </FilterGroup>
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                记录来源：{importModeSourceLabels[importMode]}
+              </div>
               <div
                 className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
                 title="这是内部安全分级，表示这类数据是业务聊天记录，默认只展示摘要和预览。"
               >
-                安全处理：只整理摘要，不展示完整原文
+                数据安全：业务聊天记录，只生成摘要和写入预览；截图原图不写入长期记忆
               </div>
               <TaskCostNotice {...uploadEstimate} />
+              {importMode === "image" ? (
+                <SystemNotice text="截图任务需要立即导入并分析；系统只保存图片 hash/元数据和结构化结果，不保存原图用于之后重新分析。" />
+              ) : null}
               {uploadName && !uploadPayload ? (
                 <SystemNotice text="当前文件尚未成功读取，请重新选择聊天记录文件。" />
               ) : null}
@@ -1300,20 +1542,22 @@ function MemorySheet({
               ) : null}
             </div>
             <SheetFooter>
-              {isSupplementMode ? (
-                <Button disabled={!uploadPayload || taskRunning} onClick={() => onImportOnly(effectiveRecordName, sourceLabel)}>
+              {isSupplementMode && importMode !== "image" ? (
+                <Button disabled={!uploadPayload || taskRunning} onClick={() => onImportOnly(effectiveRecordName, importModeSourceLabels[importMode])}>
                   <Database className="h-4 w-4" />
                   提交补充记录
                 </Button>
               ) : (
                 <>
-                  <Button variant="outline" disabled={!uploadPayload || taskRunning} onClick={() => onImportOnly(effectiveRecordName, sourceLabel)}>
-                    <Database className="h-4 w-4" />
-                    仅导入
-                  </Button>
-                  <Button disabled={!canRun || agentLoading || !uploadPayload || taskRunning} onClick={() => onAnalyzeUpload(effectiveRecordName, sourceLabel)}>
+                  {importMode !== "image" ? (
+                    <Button variant="outline" disabled={!uploadPayload || taskRunning} onClick={() => onImportOnly(effectiveRecordName, importModeSourceLabels[importMode])}>
+                      <Database className="h-4 w-4" />
+                      仅导入
+                    </Button>
+                  ) : null}
+                  <Button disabled={!canRun || agentLoading || !uploadPayload || taskRunning} onClick={() => onAnalyzeUpload(effectiveRecordName, importModeSourceLabels[importMode])}>
                     {agentLoading || taskRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    导入并分析
+                    {isSupplementMode ? "提交并分析" : "导入并分析"}
                   </Button>
                 </>
               )}

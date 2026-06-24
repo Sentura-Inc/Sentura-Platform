@@ -1,4 +1,4 @@
-import type { GatewayClient, TranscriptMessage } from "@/lib/gateway";
+import type { GatewayChatAttachment, GatewayClient, TranscriptMessage } from "@/lib/gateway";
 import {
   employeeProfile,
   MAX_LEAD_TARGET_COUNT,
@@ -93,7 +93,12 @@ export interface ScreeningTarget {
 export interface AccioMemoryTaskInput {
   recordName: string;
   sourceLabel: string;
+  inputFormat?: "json" | "pasted_text" | "image";
+  sourceKind?: "manual_json" | "manual_text" | "manual_image";
   chatExport: unknown;
+  rawText?: string;
+  attachments?: GatewayChatAttachment[];
+  attachmentMetadata?: Array<Record<string, unknown>>;
   supplementTarget?: {
     customerId: string;
     companyName: string;
@@ -113,6 +118,8 @@ const REPORT_JSON_START = "SCREENING_REPORTS_JSON_START";
 const REPORT_JSON_END = "SCREENING_REPORTS_JSON_END";
 const SUMMARY_JSON_START = "ACCIO_SUMMARIES_JSON_START";
 const SUMMARY_JSON_END = "ACCIO_SUMMARIES_JSON_END";
+const IMAGE_TRANSCRIPT_BATCH_PREFIX = "ACCIO_IMAGE_TRANSCRIPT_BATCH";
+const CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS = 9_000_000;
 const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
 const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 300_000;
 const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
@@ -375,6 +382,85 @@ async function readHiddenTaskPayload(options: {
   return { messages, lastAssistantText, payload: null, parseError };
 }
 
+interface HiddenTaskPreflightTurn {
+  prompt: string;
+  startMarker: string;
+  endMarker: string;
+  attachments?: GatewayChatAttachment[];
+  progressMessage: string;
+}
+
+async function waitForHiddenTaskMarker(options: {
+  client: GatewayClient;
+  sessionKey: string;
+  startMarker: string;
+  endMarker: string;
+  timeoutMs: number;
+  pollMs: number;
+  signal?: AbortSignal;
+  startedAt: number;
+  estimatedMs: number;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+  progressMessage: string;
+}) {
+  const {
+    client,
+    sessionKey,
+    startMarker,
+    endMarker,
+    timeoutMs,
+    pollMs,
+    signal,
+    startedAt,
+    estimatedMs,
+    onProgress,
+    progressMessage: baseMessage,
+  } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastAssistantText = "";
+  let parseError: Error | null = null;
+  let pollCount = 0;
+
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    throwIfTaskCancelled(signal, sessionKey);
+    pollCount += 1;
+    const fields = progressFields(startedAt, timeoutMs);
+    onProgress?.({
+      status: "polling",
+      sessionKey,
+      startedAt,
+      estimatedMs,
+      ...fields,
+      message: progressMessage(baseMessage, startedAt, timeoutMs, pollCount),
+    });
+
+    const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+    if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+    if (payloadRead.payload !== null) {
+      return { assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+    }
+    parseError = payloadRead.parseError;
+    if (parseError) {
+      throw new EmployeeTaskError(
+        "parse_error",
+        `员工已返回结果，但系统无法解析结构化数据：${parseError.message}`,
+        { sessionKey, lastAssistantText },
+      );
+    }
+
+    const failure = transcriptFailureMessage(payloadRead.messages);
+    if (failure && !failure.recoverable) {
+      throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
+    }
+  }
+
+  throw new EmployeeTaskError("timeout", "等待后台 AI 员工返回结构化结果超时。", {
+    sessionKey,
+    lastAssistantText,
+  });
+}
+
 async function runHiddenEmployeeTask(options: {
   client: GatewayClient;
   agentId: string;
@@ -382,6 +468,8 @@ async function runHiddenEmployeeTask(options: {
   prompt: string;
   startMarker: string;
   endMarker: string;
+  attachments?: GatewayChatAttachment[];
+  preflightTurns?: HiddenTaskPreflightTurn[];
   sessionKey?: string;
   estimatedMs?: number;
   timeoutMs?: number;
@@ -396,6 +484,8 @@ async function runHiddenEmployeeTask(options: {
     prompt,
     startMarker,
     endMarker,
+    attachments,
+    preflightTurns = [],
     sessionKey: plannedSessionKey,
     estimatedMs: rawEstimatedMs,
     timeoutMs = 180_000,
@@ -448,8 +538,28 @@ async function runHiddenEmployeeTask(options: {
       }
       emitProgress("running", "任务已创建，正在提交。", sessionKey);
       throwIfTaskCancelled(signal, sessionKey);
+      for (const [index, turn] of preflightTurns.entries()) {
+        emitProgress("running", turn.progressMessage, sessionKey);
+        await client.sendChatMessage(sessionKey, turn.prompt, undefined, {
+          timeoutMs,
+          attachments: turn.attachments,
+        });
+        await waitForHiddenTaskMarker({
+          client,
+          sessionKey,
+          startMarker: turn.startMarker,
+          endMarker: turn.endMarker,
+          timeoutMs,
+          pollMs,
+          signal,
+          startedAt,
+          estimatedMs,
+          onProgress,
+          progressMessage: `正在读取第 ${index + 1} 批截图转写结果。`,
+        });
+      }
       try {
-        await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs });
+        await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs, attachments });
       } catch (error) {
         if (!isGatewayTimeout(error)) throw error;
         emitProgress(
@@ -1145,6 +1255,78 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
   });
 }
 
+function attachmentBase64Length(attachment: GatewayChatAttachment) {
+  const source = attachment.source && typeof attachment.source === "object" ? attachment.source : undefined;
+  return (
+    (typeof attachment.content === "string" ? attachment.content.length : 0) ||
+    (source && typeof source.data === "string" ? source.data.length : 0)
+  );
+}
+
+function imageAttachmentBatches(attachments: GatewayChatAttachment[]) {
+  const batches: GatewayChatAttachment[][] = [];
+  let current: GatewayChatAttachment[] = [];
+  let currentSize = 0;
+  for (const attachment of attachments) {
+    const size = Math.max(1, attachmentBase64Length(attachment));
+    if (current.length > 0 && currentSize + size > CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS) {
+      batches.push(current);
+      current = [];
+      currentSize = 0;
+    }
+    current.push(attachment);
+    currentSize += size;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function imageBatchMarker(index: number) {
+  return {
+    start: `${IMAGE_TRANSCRIPT_BATCH_PREFIX}_${index}_JSON_START`,
+    end: `${IMAGE_TRANSCRIPT_BATCH_PREFIX}_${index}_JSON_END`,
+  };
+}
+
+function buildImageTranscriptBatchPrompt(
+  input: AccioMemoryTaskInput,
+  batchIndex: number,
+  totalBatches: number,
+  batch: GatewayChatAttachment[],
+) {
+  const marker = imageBatchMarker(batchIndex);
+  const files = batch.map((attachment, index) => ({
+    batch_image_index: index + 1,
+    file_name: attachment.fileName,
+    mime_type: attachment.mimeType,
+  }));
+  return `[CBE Accio Memory Image Transcript Batch]
+
+请作为 cbe-accio-memory 员工读取本批聊天截图附件。不要分析客户真伪，不要写最终摘要；本轮只做截图转写。
+
+转写要求：
+- 逐张读取图片中可见的聊天消息，保留可见联系人名、时间、发送方向、语言和消息文本。
+- 如果图片中字段看不清、被遮挡或聊天不完整，写入 uncertainties，不要猜测。
+- 对中文买家问题、英文卖家回复、系统翻译提示都要保留。
+- 不要输出原始图片 base64、文件内容、API key 或无关解释。
+- 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
+
+JSON 字段：
+- batch_index、total_batches
+- record_name
+- images[]：file_name、visible_contact_name、visible_platform、visible_local_time、messages[]、uncertainties[]
+- messages[] 每项：sender="buyer|seller|system|unknown"、timestamp_text、text、language、confidence
+
+最终格式：
+${marker.start}
+<replace this line with the JSON object only>
+${marker.end}
+
+记录名称：${input.recordName}
+本批文件：
+${JSON.stringify(files, null, 2)}`;
+}
+
 function buildLeadPrompt(input: EmployeeLeadTaskInput) {
   const payload = {
     task_type: "lead_discovery",
@@ -1257,6 +1439,9 @@ ${JSON.stringify(
 }
 
 function buildAccioPrompt(input: AccioMemoryTaskInput) {
+  const inputFormat = input.inputFormat ?? "json";
+  const isImageInput = inputFormat === "image";
+  const isTextInput = inputFormat === "pasted_text";
   const supplementInstruction = input.supplementTarget
     ? `
 补充目标：
@@ -1268,26 +1453,48 @@ ${JSON.stringify({
 
 重要：这是补充到既有客户的聊天记录，不要把聊天里的其他公司另建为新客户。summary.customer_profile.company_name 和 screening_handoff_target.company_name 必须优先使用补充目标 company_name；screening_handoff_target.lead_id 必须使用补充目标 customer_id。`
     : "";
+  const sourceInstruction = isImageInput
+    ? `
+图片输入说明：
+- 本任务前面的 assistant turn 已经按 ${IMAGE_TRANSCRIPT_BATCH_PREFIX}_*_JSON_START/END 返回截图转写批次。
+- 请读取这些批次转写结果，并与下面的占位 chatExport 元数据合并成一个或多个 conversation summary。
+- 如果截图中没有公司名、国家、联系人或网站，使用“待确认客户”“待确认联系人”和 country="ZZ"，并在 screening_handoff_target.missing_fields 写出缺失项。
+- 图片原件只用于本轮视觉读取，不要把原始图片内容写入 memory_preview。`
+    : isTextInput
+      ? `
+粘贴文字输入说明：
+- 粘贴内容可能不完整、顺序可能混乱、发送人可能缺失。
+- 请优先依据文字原文抽取客户咨询内容、商品、价格、库存、交期和下一步。
+- 无法确认的公司名、国家、联系人、网站、邮箱必须写入 missing_fields，不要编造。`
+      : `
+JSON 输入说明：
+- 请按 Accio-compatible chatExport 处理。`;
+
   return `[CBE Employee Accio Memory Task]
 
-请作为 cbe-accio-memory 员工处理以下 Accio/阿里国际站聊天 JSON。这是后台自动化任务，不是聊天。
+请作为 cbe-accio-memory 员工处理以下手动导入聊天记录。这是后台自动化任务，不是聊天。
 
 执行契约：
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
-- 必须使用可用的 cross-border-intel Accio/对话解析或摘要工具；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
-- 先验证 JSON，再为每条 conversation 生成结构化摘要、记忆写入预览和背调 handoff。
+- 能使用 cross-border-intel Accio/对话解析或摘要工具时优先使用；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
+- 先整理 conversation，再为每条 conversation 生成结构化摘要、记忆写入预览和背调 handoff。
 - 不写入长期记忆，只返回 preview_only。
+- 对缺失、不清楚、被遮挡或无法确认的信息，写入 missing_fields 或 behavior_signals.inference_notes，不要编造。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：
 - 顶层：summaries。
 - summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、screening_handoff_target、memory_preview、source_references。
-- purchase_intent 每项尽量包含 product、quantity、target_price_usd、seller_best_price_usd、incoterm、payment_terms；聊天中没有出现的字段不要编造。
-- negotiated_prices 每项尽量包含 product、target_price_usd、quoted_price_usd 或 agreed_or_best_price_usd，以及 price_context；聊天中没有出现的字段不要编造。
-- behavior_signals 必须包含 summary，尽量包含 urgency、price_sensitivity、decision_role、risk_flags。
-- screening_handoff_target 必须包含 source="accio_memory"、company_name、country、website/email/contact_person（如有）、product_interest、supplied_fields、missing_fields。
-- memory_preview.status 必须是 "preview_only"。如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 写入。
+- 报告必须面向中文业务操作员可读：保留公司名、网址、邮箱、订单编号等原文，同时为英文聊天内容补充中文总结/翻译。
+- 每个 summary 必须额外包含 report_zh，对象字段尽量包括 executive_summary、customer_profile_summary、inquiry_summary、purchase_intent_summary、pricing_terms_summary、shipping_timeline_summary、payment_terms_summary、sample_status_summary、follow_up_summary、risk_or_missing_info。
+- purchase_intent 每项尽量包含 product、product_zh、quantity、unit、target_price_usd、seller_best_price_usd、incoterm、incoterm_zh、payment_terms、payment_terms_zh、packaging、customization、lead_time、sample_status、summary_zh；聊天中没有出现的字段不要编造。
+- negotiated_prices 每项尽量包含 product、quantity_context、currency、target_price_usd、quoted_price_usd、agreed_or_best_price_usd、quoted_total_usd、agreed_total_usd、agreed_or_best_total_usd、final_total_usd、all_in_unit_price_usd、price_context、price_context_zh；聊天中没有出现的字段不要编造。必须区分“单价”和“总价”：如果金额是 500pcs/800pcs 的总价，不要只放进 *_price_usd，应同时写 *_total_usd 或在 price_context_zh 说明。
+- behavior_signals 必须包含 summary 和 summary_zh，尽量包含 urgency、price_sensitivity、decision_role、risk_flags、inference_notes。
+- negotiation_summary 优先用中文总结；如需保留原文英文说明，可放入 negotiation_summary_source 或 behavior_signals.summary。
+- next_actions 必须是中文字符串数组；如果先生成对象，必须包含 action_zh，并保证最终 next_actions 可被直接展示为中文行动项。
+- screening_handoff_target 必须包含 source="accio_memory"、company_name、country、website/email/contact_person（如有）、product_interest、supplied_fields、missing_fields。缺国家时 country 用 "ZZ"。
+- memory_preview.status 必须是 "preview_only"。memory_preview.summary 和 memory_preview.summary_zh 必须只包含简洁事实；如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 写入。
 - source_references 每项包含 source_type、source_file、conversation_id。
 
 最终格式：
@@ -1297,10 +1504,17 @@ ${SUMMARY_JSON_END}
 
 记录名称：${input.recordName}
 来源：${input.sourceLabel}
+输入格式：${inputFormat}
+来源类型：${input.sourceKind ?? "manual_json"}
+${sourceInstruction}
 ${supplementInstruction}
 
-Accio JSON:
-${JSON.stringify(input.chatExport, null, 2)}`;
+任务输入：
+${JSON.stringify({
+  chat_export: input.chatExport,
+  raw_text: input.rawText,
+  attachment_metadata: input.attachmentMetadata ?? [],
+}, null, 2)}`;
 }
 
 export function customersToScreeningTargets(customers: CustomerListItem[]): ScreeningTarget[] {
@@ -1435,6 +1649,24 @@ export async function runAccioMemoryTask(
   onProgress?: (progress: EmployeeTaskProgress) => void,
   options: { sessionKey?: string; signal?: AbortSignal } = {},
 ): Promise<EmployeeTaskResult<MemoryRecordItem[]>> {
+  const imageBatches = input.inputFormat === "image" && input.attachments?.length
+    ? imageAttachmentBatches(input.attachments)
+    : [];
+  const preflightTurns = imageBatches.map((batch, index) => {
+    const batchIndex = index + 1;
+    const marker = imageBatchMarker(batchIndex);
+    return {
+      prompt: buildImageTranscriptBatchPrompt(input, batchIndex, imageBatches.length, batch),
+      startMarker: marker.start,
+      endMarker: marker.end,
+      attachments: batch,
+      progressMessage: `正在提交第 ${batchIndex}/${imageBatches.length} 批聊天截图给视觉模型。`,
+    };
+  });
+  const estimatedMs = imageBatches.length > 0
+    ? clamp(180_000 + imageBatches.length * 90_000, 300_000, 1_200_000)
+    : 180_000;
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   const result = await runHiddenEmployeeTask({
     client,
     agentId: ACCIO_AGENT_ID,
@@ -1442,8 +1674,11 @@ export async function runAccioMemoryTask(
     prompt: buildAccioPrompt(input),
     startMarker: SUMMARY_JSON_START,
     endMarker: SUMMARY_JSON_END,
+    preflightTurns,
     sessionKey: options.sessionKey,
     signal: options.signal,
+    estimatedMs,
+    timeoutMs,
     onProgress,
   });
   const records = memoryRowsFromPayload(result.payload, result.sessionKey);

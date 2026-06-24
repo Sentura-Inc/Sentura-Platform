@@ -46,6 +46,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-24 | Phase 2 Screening parent/child fan-out and queue drain | Implemented P2.5 parent batch plus single-target child run fan-out, queued child claim/drain, parent aggregate updates, Employee execution path, live CE22 PostgreSQL probe, and live OpenClaw validation with operator `吴思彤`. |
 | 2026-06-24 | Phase 2 P2.6 load-smoke tooling and readiness drill | Implemented CE23 DB-only load-smoke script, guarded backup/restore drill, runbook/checklist, 50-session/10-Lead/25-Screening/3-Accio/24-soft/32-hard checks, and verified static/live PostgreSQL smoke with cleanup; target go-live remains conditional on remaining CE22/P2.5 work. |
 | 2026-06-24 | Phase 2 local production preflight completion | Closed remaining CE22/P2.5 paid retry and durable Accio/Screening workflow blockers, ran CE23 local DB-only smoke, local backup/restore drill, Dashboard build, 410/410 CBE static regression, and Browser memory-approval smoke; only target-environment go-live evidence remains. |
+| 2026-06-24 | Agent-memory branch merge and Accio manual import formats | Merged `agent-memory` into `ecommerce`, integrated JSON/text/screenshot Accio manual imports, OpenClaw-compatible image attachments, source/input metadata persistence, and CE24 verification without changing Phase 2 production/go-live boundaries. |
 
 ## Current Phase 2 Ground Truth
 
@@ -67,7 +68,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
-- P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 410/410. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+- P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 416/416. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+- Accio `记忆整理` manual intake now supports JSON files, pasted chat text, and screenshot images. Screenshot images are passed to OpenClaw through Gateway `chat.send` attachments for immediate hidden preflight transcription, but raw image bytes are not persisted in the CBE business database; image-sourced records cannot be replayed from DB without re-uploading screenshots. Accio import rows carry `source_kind`, `input_format`, and `attachment_metadata_json` via `008_accio_manual_import_formats.sql`. Current broad CBE static regression is 416/416 and current Accio manual-format store regression is 216/216.
 - Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup. The durable per-target paid retry state is implemented under CE22/P2.5.
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
 - Google Maps Places + OpenClaw web search is implemented as the primary Lead Discovery acquisition route. `cross-border-intel` now exposes read-only `cbe_intel_google_places_search`, `cbe_intel_google_place_details`, `cbe_intel_google_geocode`, and `cbe_intel_google_address_validate`; setup scripts pass `GOOGLE_MAPS_API_KEY` and conservative request caps from env into the MCP server.
@@ -76,6 +78,40 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
 - Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
+
+## 2026-06-24 — Agent-memory branch merge and Accio manual import formats
+
+### Context
+
+The user asked to pull the teammate's `agent-memory` branch locally, merge it into the `ecommerce` customer branch, resolve conflicts, and integrate the memory-agent work with the existing CBE Phase 2 design.
+
+### Merge Resolution
+
+- Fetched `origin/agent-memory` and merged local `agent-memory` into `ecommerce`.
+- The branch conflicted with current Phase 2 production-hardening files. Resolution kept the existing `ecommerce` P2.5/P2.6 boundaries first, then manually integrated the useful Accio memory import improvements.
+- The branch's import-format migration was renamed from the conflicting `007_accio_manual_import_formats.sql` concept to `008_accio_manual_import_formats.sql`, preserving the existing `007_screening_retry_memory_approval.sql` paid retry / memory approval migration.
+
+### Implementation
+
+- Added `memory-import-normalizer.ts` for Employee `记忆整理` JSON, pasted text, and screenshot import preparation.
+- Extended the Dashboard Gateway client/types so hidden task calls can pass OpenClaw-compatible image attachments through `chat.send`.
+- Extended the hidden Accio runner with screenshot preflight transcription batches. The final Accio prompt receives transcript context plus attachment metadata and asks for Chinese operator-ready deal summaries, product context, price context, follow-up fields, and explicit unit-price versus total-price distinction.
+- Updated Employee `记忆整理` to expose JSON/text/image import modes. JSON/text imports can be imported-only or analyzed; screenshots require immediate analysis because raw image bytes are intentionally not stored.
+- Extended Accio store schemas and persistence with `source_kind`, `input_format`, and `attachment_metadata_json`. Imports, memory records, analysis payloads, activity/audit metadata, and API projections carry those fields.
+- Added output samples under `outputs/memory-agent-samples/` for the teammate's complete Accio case fixtures.
+- Expanded static regression coverage in `scripts/test-cross-border-phase2-store.ts` and `scripts/test-cross-border-agents.ts` for manual import formats, image attachments, no raw-image DB replay, screenshot preflight, and Chinese operator summary prompts.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 216/216.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 416/416.
+- `git diff --check`: PASS.
+
+### Boundary
+
+- This merge does not change CBE role boundaries, workload caps, P2.6 go-live labels, or the OpenClaw runtime model.
+- Screenshot raw images are transient task inputs only. Re-analysis of screenshot-sourced imports requires a fresh upload.
 
 ## 2026-06-24 — Phase 2 Screening parent/child fan-out and queue drain
 
