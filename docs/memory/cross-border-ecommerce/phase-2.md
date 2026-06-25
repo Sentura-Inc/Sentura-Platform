@@ -56,12 +56,15 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | Production Employee/Admin route split | Locally changed CBE public routes to canonical `/employee`, `/employee/login`, `/admin`, `/admin/login`, `/api/employee/*`, `/api/admin/*`, and `/api/session`, while keeping legacy implementation files behind Next rewrites and old page URLs as redirects. |
 | 2026-06-26 | Production route split ECS rollout | Rebuilt the pulled route split on Alibaba ECS, restarted Dashboard, updated Nginx root redirects to canonical `/employee` and `/admin/login`, and verified live RDS, public HTTPS page/API smoke, and public WSS Gateway. |
 | 2026-06-26 | Admin SSR rewrite hotfix | Fixed `admin.sentura.ai/admin/login` rendering the Employee shell despite HTTP 200 by recognizing Next rewrite destination paths in route helpers and tenant context; deployed the hotfix to ECS and verified manager shell plus login-to-employees. |
+| 2026-06-26 | ECS Lead task sandbox readiness fix | Built the missing OpenClaw Docker sandbox image on ECS after the first production `寻找客户` run failed before reply, restarted Gateway, verified sandboxed Lead startup plus Google Places tool execution, marked the stale DB Lead run failed through the store layer, released the active Lead scope, and cleaned diagnostic session artifacts. |
+| 2026-06-26 | Screening fenced-JSON timeout recovery | Fixed a production `背调` timeout where OpenClaw completed the CPR report but returned fenced JSON without `SCREENING_REPORTS_JSON` markers; added a guarded whole-response JSON fallback, deployed/rebuilt/restarted ECS Dashboard, and backfilled the CPR report through the normal completion API/store path. |
+| 2026-06-26 | Hidden task structured-output repair loop | Added a one-shot no-tools/no-reinvestigation JSON repair turn for malformed or completed non-marker Lead/Screening/Accio/image hidden-task replies, timestamp-scoped transcript reads, local/ECS 420/420 static verification, ECS Dashboard rebuild/restart, and public app/admin shell smoke. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
 - Dashboard code and the Alibaba ECS target now use production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. Route helpers also recognize the internal rewrite destination paths so SSR renders Admin pages with the manager shell even when Next resolves `/admin/login` through `/client-demos/cross-border/admin/login`.
-- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, and public WSS Gateway. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
+- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, and hidden-task structured-output repair deployed to ECS with CBE static 420/420 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
@@ -89,7 +92,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Lead Discovery is Maps-first: Text Search/Nearby Search create storefront/local buyer seeds, Place Details is reserved for shortlists, web search/fetch verifies company-owned site and mobile-accessory buyer fit, and CBE DB reconciliation remains the source of truth for uniqueness/allocation.
 - Screening uses Google Maps for public local-presence, address/website consistency, the dedicated address-footprint report section, and the implemented scale-aware first `公司注册与线下门店/地址` score block. Google Maps can satisfy that 25% authenticity block for small local/offline companies when an `OPERATIONAL` physical address is confirmed and no contradictory evidence exists. For listed/public and medium-large companies, Maps must be fused with registry/disclosure evidence and still is not formal KYB, legal ownership, trade, financial, fraud, or Accio behavior proof. `GOOGLE_MAPS_API_KEY` must stay server-side/secret-only; Google API calls require field masks, request caps, source attribution, redacted source URLs, and `api_call_ledger` metadata.
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
-- Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
+- Dashboard hidden Lead/Screening/Accio/image tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Structured-output parsing is marker-first, then whole-response JSON/code-fenced JSON fallback with expected top-level array guards (`leads`, `reports`, `summaries`, image `images`), then one no-tools/no-reinvestigation repair turn for malformed or completed non-marker replies. Transcript reads are timestamp-scoped so old preflight/final/repair messages do not satisfy later turns. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
 
 ## 2026-06-24 — Agent-memory branch merge and Accio manual import formats
@@ -1778,3 +1781,198 @@ After the route split deployment, `https://app.sentura.ai` opened the Employee s
 
 - ECS currently carries this hotfix as uncommitted changes in the two source files until the local branch is pushed and the server is aligned with `origin/ecommerce`.
 - This is a route-shell correctness fix, not a change to Nginx, DNS, ALB, credentials, or RDS schema.
+
+## 2026-06-26 — ECS Lead task sandbox readiness fix
+
+### Context
+
+After the production domain/server setup succeeded, the first `app.sentura.ai` Employee `寻找客户` run failed with:
+
+`未写入客户：本地页面超过等待时间仍未收到结构化结果，请查看任务编号或重新提交。`
+
+The failed session key was `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:0deacf0e-2189-48a5-a26d-fb8056b592c2`.
+
+### Root Cause
+
+The OpenClaw session transcript and Gateway journal showed the run failed before the model/tool workflow could begin:
+
+`Sandbox image not found: openclaw-sandbox:bookworm-slim. Build it with scripts/sandbox-setup.sh before enabling Docker sandboxing.`
+
+Docker itself was installed and active, but the required upstream OpenClaw sandbox image did not exist on the ECS host. Because `cbe-lead-discovery` runs with sandboxing enabled, Gateway returned an assistant-side failure before any `LEAD_CANDIDATES_JSON` marker could be produced. The Dashboard's local task recovery then reported a structured-result timeout.
+
+A second operational issue was found in RDS: the failed `agent_runs` row and its `lead_runs` row still had `status = 'running'`, leaving an active Lead scope lease that could block or join later retries for the same `phone case / GB` scope.
+
+### Fix
+
+- Built the upstream OpenClaw sandbox image on ECS:
+  - `bash openclaw/scripts/sandbox-setup.sh`
+  - Result: `openclaw-sandbox:bookworm-slim` present in Docker images.
+- Restarted root's user Gateway service:
+  - `systemctl --user restart openclaw-gateway`
+  - Gateway returned to `active` and `ready`.
+- Verified sandboxed `cbe-lead-discovery` startup with a temporary `READY` session, then removed its diagnostic artifacts.
+- Ran a non-writing smoke that reached `cross-border-intel__cbe_intel_google_places_search`; Google Places returned HTTP 200. The smoke was intentionally not completed into the production customer table, and diagnostic session artifacts were removed.
+- Marked the stale RDS run failed through the existing store path `failEmployeeTask()` so it updated:
+  - `agent_runs.status = 'failed'`
+  - `lead_runs.status = 'failed'`
+  - `lead_discovery_scopes.active_agent_run_id = null`
+  - audit/activity metadata with the sandbox root cause.
+
+### Verification
+
+- `docker image ls` includes `openclaw-sandbox:bookworm-slim`.
+- `systemctl --user is-active openclaw-gateway`: `active`.
+- OpenClaw Gateway logs after the fix show no new `Sandbox image not found` errors during the diagnostic Lead startup.
+- Temporary sandbox startup probe returned `READY` from `cbe-lead-discovery`.
+- Lead tool smoke called `cross-border-intel__cbe_intel_google_places_search` and received Google Places HTTP 200 candidates.
+- RDS check for the original failed session:
+  - `agent_runs.status = failed`
+  - `agent_runs.error_code = gateway`
+  - `lead_runs.status = failed`
+  - active `cbe-lead-discovery` run count = `0`
+  - lingering scopes for the failed run = `[]`
+- Removed diagnostic session files for the temporary `READY` and tool-smoke runs. The user's original failed session remains as an audit record.
+
+### Boundary
+
+- No application source code changed for this fix.
+- The user should now retry the `寻找客户` task from `app.sentura.ai`; the previous failed task can be dismissed in the UI.
+- This proves the missing sandbox dependency and stale Lead lease are fixed. It is still not a full `production_go_live_ready` label; target load-smoke, restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS remain separate readiness evidence.
+
+## 2026-06-26 — Screening fenced-JSON timeout recovery
+
+### Context
+
+After the Lead task succeeded in production, the user ran a `背调` task and saw another failure that appeared to happen when the estimated wait time expired. The failed production run was:
+
+- RDS run: `run_bd41a833-f84b-4b20-930d-65732ffab564`
+- OpenClaw session key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:f70c7296-85d5-4f1c-b4d5-ba0bf659c81b`
+- OpenClaw session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/bb9127f8-5645-4e06-9c57-93ca8f6fa220.jsonl`
+- Target: `CPR Cell Phone Repair`
+
+### Root Cause
+
+This was not a sandbox or DNS/RDS connectivity problem. The OpenClaw session completed successfully in about 195 seconds and returned a long, valid JSON Screening report. The model did not follow the final output contract exactly: it omitted `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and wrapped the JSON in a ```json fenced block.
+
+The Dashboard hidden runner only accepted explicit marker-delimited payloads. Since no marker was found, it kept polling until the 6-minute local wait window ended and then wrote:
+
+`error_code = timeout`
+
+### Fix
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Kept marker extraction as the primary path.
+  - Added `stripJsonCodeFence()`.
+  - Added `expectedPayloadKeyForMarker()`.
+  - Added `parseWholeJsonPayload()` fallback.
+  - Fallback only accepts a whole JSON object when the expected top-level key is present as an array:
+    - Lead: `leads`
+    - Screening: `reports`
+    - Accio memory: `summaries`
+    - Image transcription preflight: `images`
+- Updated `scripts/test-cross-border-agents.ts` with a static regression for the fenced JSON fallback.
+- Applied the same patch on ECS via `git apply`, rebuilt Dashboard, restarted `sentura-dashboard.service`, and restored build-generated `next-env.d.ts`.
+- Backfilled the already-generated CPR Screening report through the normal Dashboard completion API/store path:
+  - Parsed the existing OpenClaw transcript payload.
+  - Let Dashboard normalization handle schema differences such as string confidence labels.
+  - Called the existing completion path instead of hand-writing raw SQL.
+
+### Verification
+
+- Local:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm --dir sentura/dashboard build`: PASS, with the existing Next multiple-lockfile workspace-root warning only.
+  - `systemctl is-active sentura-dashboard nginx`: both `active`.
+  - `systemctl --user is-active openclaw-gateway`: `active`.
+  - Public HTTPS:
+    - `https://app.sentura.ai/employee`: 200.
+    - `https://admin.sentura.ai/admin/login`: 200.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `RPT-20260625-CPR-001`.
+  - risk tier `cautious`.
+  - normalized score `78.67`.
+  - address-footprint locations = 16.
+  - active Screening run count = 0.
+- Employee API smoke for `query=CPR` returned `CPR Cell Phone Repair` with:
+  - `screeningStatus = cautious`
+  - `normalizedScore = 78.67`
+  - `latestScreeningReportId = RPT-20260625-CPR-001`
+  - `screeningAgentRunId = run_bd41a833-f84b-4b20-930d-65732ffab564`
+
+### Boundary
+
+- The prompt contract still requires markers; this fallback is a runtime resilience path for model formatting drift.
+- The fallback is intentionally narrow and does not parse arbitrary prose.
+- The production backfill did not rerun the agent and did not insert a synthetic test customer.
+- ECS now intentionally has two source hotfix changes for this issue until the local branch is pushed and the server is aligned with `origin/ecommerce`.
+
+## 2026-06-26 — Hidden task structured-output repair loop
+
+### Context
+
+After CE28, the user asked whether future tasks could still timeout due to output format drift and whether there is an enforcement path to ensure the Dashboard receives structured JSON.
+
+CE28 made the common successful-but-unmarked case recoverable by accepting whole-response JSON and fenced JSON. The remaining format-only risk was a completed assistant reply that still cannot be parsed, such as malformed JSON, prose wrapped around the payload, or a missing marker response that is not a clean full JSON object.
+
+### Fix
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Added `HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000`.
+  - Added timestamp-scoped transcript filtering with `minMessageTimestampMs`.
+  - Added `buildStructuredOutputRepairPrompt()` and `requestHiddenTaskFormatRepair()`.
+  - The repair prompt tells the employee that the Dashboard could not read the JSON and requires a pure marker-wrapped JSON object.
+  - The repair prompt explicitly forbids re-investigation, tool calls, adding/deleting evidence, or inventing facts.
+  - The expected top-level array is derived from the original task marker: `leads`, `reports`, `summaries`, or image `images`.
+  - Repair polling only reads transcript messages after the repair request timestamp.
+- Wired the repair path into:
+  - screenshot preflight turns after the preflight `chat.send` completes;
+  - final Lead/Screening/Accio turns on JSON parse errors;
+  - final Lead/Screening/Accio turns when a completed `chat.send` produces non-marker assistant output;
+  - the final transcript grace window after a long `chat.send` timeout.
+- Kept the parsing order conservative:
+  - explicit markers first;
+  - whole-response JSON/code-fenced JSON fallback second;
+  - one format-repair turn third;
+  - explicit parse/timeout/backend failure only after those paths fail.
+- Updated `scripts/test-cross-border-agents.ts` with a static regression for the repair loop.
+
+### ECS Rollout
+
+- Applied the local two-file source patch on `/root/Sentura-Platform`.
+- Rebuilt the Dashboard on ECS.
+- Restarted `sentura-dashboard.service`.
+- Restored build-generated `sentura/dashboard/next-env.d.ts`.
+- ECS repo status after cleanup intentionally shows only:
+  - `scripts/test-cross-border-agents.ts`
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+
+### Verification
+
+- Local:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS.
+- ECS:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm --dir sentura/dashboard build`: PASS, with the existing Next multiple-lockfile workspace-root warning only.
+  - `systemctl is-active sentura-dashboard`: `active`.
+  - `systemctl is-active nginx`: `active`.
+  - `systemctl --user is-active openclaw-gateway`: `active`.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200; contains `跨境电商员工操作系统` and not `跨境电商管理者系统`.
+  - `https://admin.sentura.ai/admin/login`: 200; contains `跨境电商管理者系统` and not `跨境电商员工操作系统`.
+
+### Boundary
+
+- This is a format enforcement and recovery layer, not a guarantee that every AI task succeeds.
+- If the model never reaches a final answer, a tool/provider/backend failure occurs, or the repair turn itself cannot produce parseable JSON, the task still fails explicitly.
+- The repair turn is intentionally not a second investigation pass; it may only reformat the prior assistant result.

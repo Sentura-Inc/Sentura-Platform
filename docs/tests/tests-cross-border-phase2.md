@@ -717,3 +717,238 @@ Boundary:
 
 - This route split changes public/canonical Dashboard paths only. The source implementation files remain under `src/app/client-demos/cross-border/**` for now and are reached through Next rewrites to avoid a high-risk file move.
 - Existing standalone historical demo pages such as `/client-demos/cross-border/lead-discovery`, `/screening`, and `/accio-memory` are not promoted to production entrypoints in this pass.
+
+## CE27 — ECS Lead Sandbox Readiness
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Alibaba ECS target `/root/Sentura-Platform`.
+- Root user OpenClaw Gateway systemd user service.
+- Docker sandbox image `openclaw-sandbox:bookworm-slim`.
+- `cbe-lead-discovery` hidden OpenClaw task startup.
+- RDS `agent_runs`, `lead_runs`, and `lead_discovery_scopes` cleanup for failed Lead runs.
+
+Validation method:
+
+```bash
+cd /root/Sentura-Platform
+docker image ls | grep openclaw-sandbox
+systemctl --user restart openclaw-gateway
+systemctl --user is-active openclaw-gateway
+```
+
+Plus targeted Gateway/RDS probes:
+
+- Temporary `cbe-lead-discovery` sandbox startup session returns `READY`.
+- Non-writing Lead smoke reaches `cross-border-intel__cbe_intel_google_places_search` and receives Google Places HTTP 200.
+- Original failed session is terminal in RDS and has no lingering active Lead scope.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE27.1 | Sandbox image prerequisite | ECS shell | Docker is active and `openclaw-sandbox:bookworm-slim` exists after `bash openclaw/scripts/sandbox-setup.sh`. |
+| CE27.2 | Gateway restart | systemd user service | Root `openclaw-gateway` restarts cleanly, returns `active`, and Gateway reaches `ready` without repeating `Sandbox image not found`. |
+| CE27.3 | Sandboxed Lead startup | Temporary Gateway session | `cbe-lead-discovery` starts in its sandbox and returns `READY`; diagnostic transcript/session artifacts are removed after the probe. |
+| CE27.4 | Lead tool availability | Non-writing Gateway smoke | `cross-border-intel__cbe_intel_google_places_search` is available to `cbe-lead-discovery` and returns Google Places HTTP 200 candidates. |
+| CE27.5 | Failed-run terminal state | RDS query | The original failed run has `agent_runs.status = failed`, `agent_runs.error_code = gateway`, and its `lead_runs.status = failed`. |
+| CE27.6 | Scope release | RDS query | Active `cbe-lead-discovery` run count is `0` and no `lead_discovery_scopes` row keeps `active_agent_run_id` pointing to the failed run. |
+| CE27.7 | Diagnostic cleanup | ECS filesystem | Temporary diagnostic `READY` and smoke session artifacts are removed; the user's original failed session remains as an audit record. |
+
+Latest verification, 2026-06-26:
+
+- Built `openclaw-sandbox:bookworm-slim` with `bash openclaw/scripts/sandbox-setup.sh`.
+- Restarted root `openclaw-gateway`; service returned `active` and Gateway logged `ready`.
+- Temporary `cbe-lead-discovery` startup probe returned `READY`.
+- Non-writing tool smoke called `cross-border-intel__cbe_intel_google_places_search`; Google Places returned HTTP 200 and candidates.
+- RDS check for the original failed session:
+  - `agent_runs.status = failed`.
+  - `agent_runs.error_code = gateway`.
+  - `lead_runs.status = failed`.
+  - active Lead run count = `0`.
+  - lingering scopes = `[]`.
+- Removed temporary diagnostic session files from `/root/.openclaw/agents/cbe-lead-discovery/sessions`.
+
+Boundary:
+
+- CE27 is a target operational readiness check, not an application-code change.
+- It does not insert test customers into the production customer table.
+- Full `production_go_live_ready` still requires target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS evidence.
+
+## CE28 — Screening Fenced JSON Recovery And Backfill
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner structured-result parsing.
+- Production `cbe-buyer-screening` task recovery on Alibaba ECS.
+- RDS `agent_runs`, `screening_reports`, `screening_evidence`, `screening_score_blocks`, and `screening_address_locations` completion state.
+
+Context:
+
+- Production `背调` for `CPR Cell Phone Repair` failed in the Dashboard as `timeout`.
+- RDS run: `run_bd41a833-f84b-4b20-930d-65732ffab564`.
+- OpenClaw session key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:f70c7296-85d5-4f1c-b4d5-ba0bf659c81b`.
+- OpenClaw session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/bb9127f8-5645-4e06-9c57-93ca8f6fa220.jsonl`.
+
+Root cause:
+
+- The OpenClaw session itself completed in about 195 seconds and returned a valid JSON object in a ```json fenced block.
+- The assistant response omitted `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END`.
+- The Dashboard parser only accepted explicit markers, so it continued polling until the local 6-minute wait window expired and wrote `error_code = timeout`.
+
+Fix:
+
+- `extractMarkerPayload()` still prefers explicit markers.
+- When markers are absent, it now tries a whole-response JSON fallback after removing an optional ```json code fence.
+- The fallback is accepted only when the parsed object contains the expected top-level array for the current task:
+  - Lead: `leads`.
+  - Screening: `reports`.
+  - Accio memory: `summaries`.
+  - Image preflight: `images`.
+- Added static regression coverage in `scripts/test-cross-border-agents.ts`.
+- Applied the same hotfix on ECS, rebuilt Dashboard, and restarted `sentura-dashboard.service`.
+- Backfilled the already-generated CPR Screening report through the existing completion API/store path, using the transcript payload and the normal Dashboard normalization layer.
+
+Validation method:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm --dir sentura/dashboard build
+```
+
+Target ECS checks:
+
+```bash
+systemctl is-active sentura-dashboard nginx
+systemctl --user is-active openclaw-gateway
+curl -I https://app.sentura.ai/employee
+curl -I https://admin.sentura.ai/admin/login
+```
+
+RDS checks:
+
+```sql
+select id, status, current_stage, error_code, error_message
+from agent_runs
+where id = 'run_bd41a833-f84b-4b20-930d-65732ffab564';
+
+select id, risk_tier, normalized_score
+from screening_reports
+where agent_run_id = 'run_bd41a833-f84b-4b20-930d-65732ffab564';
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE28.1 | Whole-response JSON fallback | Static script | Hidden runner contains `parseWholeJsonPayload`, `stripJsonCodeFence`, expected-key routing, and `Array.isArray(record[expectedKey])` guard. |
+| CE28.2 | Marker-first behavior | Static review | Explicit marker extraction remains the primary path; fallback runs only when `startMarker` is absent. |
+| CE28.3 | Typecheck | Local + ECS | `pnpm --dir sentura/dashboard exec tsc --noEmit` passes after the parser change. |
+| CE28.4 | Static regression | Local + ECS | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 419/419. |
+| CE28.5 | ECS rollout | Target build/service | `pnpm --dir sentura/dashboard build` passes; `sentura-dashboard.service`, `nginx`, and root `openclaw-gateway` are active. |
+| CE28.6 | Production report backfill | API/store path | The CPR transcript payload is normalized and completed through the existing API/store path, not hand-written with raw SQL. |
+| CE28.7 | RDS terminal state | RDS query | `run_bd41a833-f84b-4b20-930d-65732ffab564` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE28.8 | Report visibility | Employee API smoke | `GET /api/employee/customers?query=CPR` shows `CPR Cell Phone Repair` with `screeningStatus = cautious`, `normalizedScore = 78.67`, and `latestScreeningReportId = RPT-20260625-CPR-001`. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `RPT-20260625-CPR-001`.
+  - risk tier `cautious`.
+  - normalized score `78.67`.
+  - address-footprint locations = 16.
+  - active Screening run count = 0.
+- Employee API smoke returned CPR with `screeningStatus = cautious`, `normalizedScore = 78.67`, and `screeningAgentRunId = run_bd41a833-f84b-4b20-930d-65732ffab564`.
+
+Boundary:
+
+- CE28 does not relax the prompt contract; agents are still instructed to output markers.
+- The fallback is deliberately narrow and only accepts full JSON/code-fenced JSON with the expected top-level array.
+- The production backfill used the existing completion route/store normalization path and did not create a synthetic test customer.
+
+## CE29 — Hidden Task Structured Output Repair Loop
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner structured-output enforcement for Lead, Screening, Accio, and screenshot preflight tasks.
+- Local and Alibaba ECS rollout of the format-repair path.
+- Public Employee/Admin reachability after the rebuilt Dashboard restart.
+
+Context:
+
+- CE28 fixed the production CPR Screening timeout by accepting valid whole-response fenced JSON when markers are omitted.
+- The remaining risk was malformed or prose-wrapped structured output that still cannot be parsed after marker and fenced-JSON fallback.
+- The user asked whether future tasks could still timeout because of formatting and whether there is an enforcement path to ensure a return.
+
+Fix:
+
+- Added `HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000`.
+- Added timestamp-scoped transcript reads:
+  - Normal task polling can pass `minMessageTimestampMs` so preflight or previous turns are not parsed as current output.
+  - Repair polling reads only messages after the repair request timestamp.
+- Added `buildStructuredOutputRepairPrompt()`:
+  - Instructs the employee that the Dashboard could not read the JSON.
+  - Forbids new investigation, tool calls, added evidence, deleted evidence, or invented evidence.
+  - Requires only the existing result, rewritten as strict `JSON.parse`-compatible JSON.
+  - Requires the original task markers and the expected top-level array key.
+- Added `requestHiddenTaskFormatRepair()`:
+  - Sends one repair turn on malformed JSON or completed non-marker output.
+  - Polls the repair transcript for 90s.
+  - Preserves terminal backend failures separately from repair parse/timeout failures.
+- Wired repair into:
+  - screenshot preflight turns, where `chat.send` normally returns after the preflight turn completes;
+  - final Lead/Screening/Accio turns;
+  - final transcript grace handling after long `chat.send` timeouts.
+- Kept CE28's marker-first and fenced-JSON fallback path before the repair loop.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE29.1 | Repair prompt contract | Static script | `scripts/test-cross-border-agents.ts` asserts `buildStructuredOutputRepairPrompt`, `requestHiddenTaskFormatRepair`, `HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS`, and the no-reinvestigation/no-tool repair wording exist. |
+| CE29.2 | Timestamp-scoped transcript reads | Static script + code review | Hidden runner contains `minMessageTimestampMs` and uses it for preflight, final-task, and repair polling so stale transcript messages do not satisfy a later task. |
+| CE29.3 | Expected key enforcement | Static/code review | Repair prompt and fallback derive the expected top-level key from the original marker: `leads`, `reports`, `summaries`, or image `images`. |
+| CE29.4 | Preflight repair | Static/code review | Screenshot preflight calls `waitForHiddenTaskMarker()` with `repairOnAssistantText: true` only after the preflight `chat.send` completes. |
+| CE29.5 | Final task repair | Static/code review | Final Lead/Screening/Accio polling calls one repair round for parse errors, and for non-marker assistant output only when the send completed or the normal wait/grace window has elapsed. |
+| CE29.6 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 420/420; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE29.7 | ECS rollout | Target commands | ECS static 420/420, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, and generated `next-env.d.ts` is restored. |
+| CE29.8 | Public smoke | Public HTTPS | `https://app.sentura.ai/employee` returns 200 with the Employee shell; `https://admin.sentura.ai/admin/login` returns 200 with the Admin shell and not the Employee shell. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Local `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200; contains `跨境电商员工操作系统` and not `跨境电商管理者系统`.
+  - `https://admin.sentura.ai/admin/login`: 200; contains `跨境电商管理者系统` and not `跨境电商员工操作系统`.
+
+Boundary:
+
+- CE29 is not a guarantee that every task will succeed. It prevents format-only failures from being reported as local timeouts when the employee has already produced usable structured content or can rewrite it.
+- If the employee never reaches a final result, a provider/tool/backend failure occurs, or the repair turn also fails to produce parseable JSON, the task still fails explicitly with the corresponding error.
+- The repair prompt intentionally forbids new facts and tool calls, so it is a formatting guard rather than a second investigation pass.

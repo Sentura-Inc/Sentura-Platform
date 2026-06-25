@@ -661,6 +661,17 @@ check("employee runner creates user-attributed/planned session keys", employeeTa
 check("employee runner sends hidden task with extended timeout", employeeTaskRunner.includes("client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs, attachments })"));
 check("gateway client honors long task timeoutMs locally", gatewayClient.includes("LONG_RUNNING_RPC_GRACE_MS") && gatewayClient.includes("requestedTimeoutMs") && gatewayClient.includes("params?.timeoutMs"));
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner accepts fenced JSON when model omits markers", ["parseWholeJsonPayload", "stripJsonCodeFence", "expectedPayloadKeyForMarker", "Array.isArray(record[expectedKey])"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner repairs malformed structured output before timing out", [
+  "HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS",
+  "buildStructuredOutputRepairPrompt",
+  "requestHiddenTaskFormatRepair",
+  "不要重新调查",
+  "格式修复请求提交失败",
+  "minMessageTimestampMs",
+  "repairOnAssistantText",
+  "员工已返回结果但格式不合规",
+].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee Accio prompt requires concrete deal facts without handoff", ["purchase_intent", "negotiated_prices", "behavior_signals", "memory_preview"].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes('source="accio_memory"'));
 check("employee runner reads full structured task output from chat history", ["HIDDEN_TASK_TRANSCRIPT_MAX_CHARS", "300_000", "client.getTranscript(", "HIDDEN_TASK_TRANSCRIPT_LIMIT"].every((needle) => employeeTaskRunner.includes(needle)) && gatewayClient.includes("maxChars?: number") && gatewayClient.includes("...(maxChars ? { maxChars } : {})"));
 check("employee runner recovers marker after gateway send timeout", ["isGatewayTimeout", "readHiddenTaskPayload", "提交请求等待时间较长，系统正在改为读取任务记录。", "HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS"].every((needle) => employeeTaskRunner.includes(needle)));

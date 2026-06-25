@@ -118,6 +118,7 @@ const CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS = 9_000_000;
 const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
 const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 300_000;
 const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
+const HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000;
 
 const COUNTRY_NAMES: Record<string, string> = {
   BR: "巴西",
@@ -307,6 +308,20 @@ function assistantTexts(messages: TranscriptMessage[]) {
     .filter(Boolean);
 }
 
+function messageTimestampMs(message: TranscriptMessage) {
+  if (!message.timestamp) return undefined;
+  const parsed = Date.parse(message.timestamp);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function transcriptMessagesSince(messages: TranscriptMessage[], minTimestampMs?: number) {
+  if (!minTimestampMs) return messages;
+  return messages.filter((message) => {
+    const timestampMs = messageTimestampMs(message);
+    return typeof timestampMs === "number" && timestampMs >= minTimestampMs;
+  });
+}
+
 function transcriptFailureMessage(messages: TranscriptMessage[]): { message: string; recoverable: boolean } | undefined {
   for (const message of [...messages].reverse()) {
     const raw = asRecord(message);
@@ -329,17 +344,37 @@ function transcriptFailureMessage(messages: TranscriptMessage[]): { message: str
   return undefined;
 }
 
-function extractMarkerPayload(text: string, startMarker: string, endMarker: string): unknown | null {
-  const start = text.lastIndexOf(startMarker);
-  if (start === -1) return null;
-  const end = text.indexOf(endMarker, start + startMarker.length);
-  if (end === -1 || end <= start) return null;
-  const raw = text
-    .slice(start + startMarker.length, end)
+function expectedPayloadKeyForMarker(startMarker: string) {
+  if (startMarker === LEADS_JSON_START) return "leads";
+  if (startMarker === REPORT_JSON_START) return "reports";
+  if (startMarker === SUMMARY_JSON_START) return "summaries";
+  if (startMarker.startsWith(IMAGE_TRANSCRIPT_BATCH_PREFIX)) return "images";
+  return undefined;
+}
+
+function stripJsonCodeFence(text: string) {
+  return text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function parseWholeJsonPayload(text: string, expectedKey?: string) {
+  const raw = stripJsonCodeFence(text);
+  if (!raw.startsWith("{") || !raw.endsWith("}")) return null;
+  const payload = JSON.parse(raw) as unknown;
+  if (!expectedKey) return payload;
+  const record = asRecord(payload);
+  return Array.isArray(record[expectedKey]) ? payload : null;
+}
+
+function extractMarkerPayload(text: string, startMarker: string, endMarker: string): unknown | null {
+  const start = text.lastIndexOf(startMarker);
+  if (start === -1) return parseWholeJsonPayload(text, expectedPayloadKeyForMarker(startMarker));
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  if (end === -1 || end <= start) return null;
+  const raw = stripJsonCodeFence(text.slice(start + startMarker.length, end));
   if (!raw) return null;
   return JSON.parse(raw) as unknown;
 }
@@ -356,12 +391,14 @@ async function readHiddenTaskPayload(options: {
   sessionKey: string;
   startMarker: string;
   endMarker: string;
+  minMessageTimestampMs?: number;
 }) {
-  const messages = await options.client.getTranscript(
+  const allMessages = await options.client.getTranscript(
     options.sessionKey,
     HIDDEN_TASK_TRANSCRIPT_LIMIT,
     HIDDEN_TASK_TRANSCRIPT_MAX_CHARS,
   );
+  const messages = transcriptMessagesSince(allMessages, options.minMessageTimestampMs);
   const texts = assistantTexts(messages);
   let lastAssistantText = "";
   let parseError: Error | null = null;
@@ -385,6 +422,135 @@ interface HiddenTaskPreflightTurn {
   progressMessage: string;
 }
 
+function buildStructuredOutputRepairPrompt(options: {
+  startMarker: string;
+  endMarker: string;
+  parseError?: Error | null;
+}) {
+  const expectedKey = expectedPayloadKeyForMarker(options.startMarker);
+  const expectedKeyRule = expectedKey
+    ? `- 顶层对象必须包含 "${expectedKey}" 数组，且不要改成其他顶层字段。`
+    : "- 顶层必须是本任务原始要求的 JSON 对象。";
+  const parseReason = options.parseError?.message
+    ? `\n系统解析错误：${options.parseError.message}`
+    : "";
+  return `[CBE Structured Output Repair]
+
+系统已经收到你上一条回复，但 Dashboard 没有成功读取结构化 JSON。${parseReason}
+
+本轮只做格式修复：
+- 不要重新调查。
+- 不要调用任何工具。
+- 不要新增、删除或编造证据。
+- 只读取你上一条 assistant 回复里的已有结果，把它改写成严格 JSON。
+- 不要输出 Markdown、代码块、解释、引用脚注或自然语言总结。
+${expectedKeyRule}
+- JSON 必须可被 JSON.parse 直接解析，不能有尾逗号、注释、undefined、NaN 或单引号字符串。
+
+最终只输出：
+${options.startMarker}
+<JSON object only>
+${options.endMarker}`;
+}
+
+async function requestHiddenTaskFormatRepair(options: {
+  client: GatewayClient;
+  sessionKey: string;
+  startMarker: string;
+  endMarker: string;
+  pollMs: number;
+  signal?: AbortSignal;
+  startedAt: number;
+  estimatedMs: number;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+  parseError?: Error | null;
+}) {
+  const repairTimeoutMs = HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS;
+  const repairStartedAt = Date.now() - 1_000;
+  const fields = progressFields(options.startedAt, repairTimeoutMs);
+  options.onProgress?.({
+    status: "running",
+    sessionKey: options.sessionKey,
+    startedAt: options.startedAt,
+    estimatedMs: options.estimatedMs,
+    ...fields,
+    message: "员工已返回结果但格式不合规，正在要求员工只修复 JSON 输出。",
+  });
+
+  try {
+    await options.client.sendChatMessage(
+      options.sessionKey,
+      buildStructuredOutputRepairPrompt({
+        startMarker: options.startMarker,
+        endMarker: options.endMarker,
+        parseError: options.parseError,
+      }),
+      undefined,
+      { timeoutMs: repairTimeoutMs },
+    );
+  } catch (error) {
+    if (!isGatewayTimeout(error)) {
+      throw new EmployeeTaskError(
+        "gateway",
+        `格式修复请求提交失败：${unknownErrorMessage(error, "未知错误")}`,
+        { sessionKey: options.sessionKey },
+      );
+    }
+  }
+
+  const deadline = Date.now() + repairTimeoutMs;
+  let lastAssistantText = "";
+  let parseError = options.parseError ?? null;
+  let pollCount = 0;
+
+  while (Date.now() < deadline) {
+    await sleep(options.pollMs);
+    throwIfTaskCancelled(options.signal, options.sessionKey);
+    pollCount += 1;
+    const progress = progressFields(options.startedAt, repairTimeoutMs);
+    options.onProgress?.({
+      status: "polling",
+      sessionKey: options.sessionKey,
+      startedAt: options.startedAt,
+      estimatedMs: options.estimatedMs,
+      ...progress,
+      message: progressMessage("正在读取格式修复结果。", options.startedAt, repairTimeoutMs, pollCount),
+    });
+
+    const payloadRead = await readHiddenTaskPayload({
+      client: options.client,
+      sessionKey: options.sessionKey,
+      startMarker: options.startMarker,
+      endMarker: options.endMarker,
+      minMessageTimestampMs: repairStartedAt,
+    });
+    if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+    if (payloadRead.payload !== null) {
+      return { assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+    }
+    if (payloadRead.parseError) parseError = payloadRead.parseError;
+    const failure = transcriptFailureMessage(payloadRead.messages);
+    if (failure && !failure.recoverable) {
+      throw new EmployeeTaskError("backend_error", failure.message, {
+        sessionKey: options.sessionKey,
+        lastAssistantText,
+      });
+    }
+  }
+
+  if (parseError) {
+    throw new EmployeeTaskError(
+      "parse_error",
+      `员工已返回结果，但格式修复后仍无法解析结构化数据：${parseError.message}`,
+      { sessionKey: options.sessionKey, lastAssistantText },
+    );
+  }
+  throw new EmployeeTaskError("timeout", "员工已返回结果，但格式修复超时，仍未收到可写入 JSON。", {
+    sessionKey: options.sessionKey,
+    lastAssistantText,
+  });
+}
+
 async function waitForHiddenTaskMarker(options: {
   client: GatewayClient;
   sessionKey: string;
@@ -392,6 +558,8 @@ async function waitForHiddenTaskMarker(options: {
   endMarker: string;
   timeoutMs: number;
   pollMs: number;
+  minMessageTimestampMs?: number;
+  repairOnAssistantText?: boolean;
   signal?: AbortSignal;
   startedAt: number;
   estimatedMs: number;
@@ -405,6 +573,8 @@ async function waitForHiddenTaskMarker(options: {
     endMarker,
     timeoutMs,
     pollMs,
+    minMessageTimestampMs,
+    repairOnAssistantText = false,
     signal,
     startedAt,
     estimatedMs,
@@ -415,6 +585,7 @@ async function waitForHiddenTaskMarker(options: {
   let lastAssistantText = "";
   let parseError: Error | null = null;
   let pollCount = 0;
+  let repairAttempted = false;
 
   while (Date.now() < deadline) {
     await sleep(pollMs);
@@ -430,24 +601,53 @@ async function waitForHiddenTaskMarker(options: {
       message: progressMessage(baseMessage, startedAt, timeoutMs, pollCount),
     });
 
-    const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+    const payloadRead = await readHiddenTaskPayload({
+      client,
+      sessionKey,
+      startMarker,
+      endMarker,
+      minMessageTimestampMs,
+    });
     if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
     if (payloadRead.payload !== null) {
       return { assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
     }
     parseError = payloadRead.parseError;
-    if (parseError) {
-      throw new EmployeeTaskError(
-        "parse_error",
-        `员工已返回结果，但系统无法解析结构化数据：${parseError.message}`,
-        { sessionKey, lastAssistantText },
-      );
+    if ((parseError || (repairOnAssistantText && payloadRead.lastAssistantText)) && !repairAttempted) {
+      repairAttempted = true;
+      return requestHiddenTaskFormatRepair({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        pollMs,
+        signal,
+        startedAt,
+        estimatedMs,
+        onProgress,
+        parseError,
+      });
     }
 
     const failure = transcriptFailureMessage(payloadRead.messages);
     if (failure && !failure.recoverable) {
       throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
     }
+  }
+
+  if (lastAssistantText && !repairAttempted) {
+    return requestHiddenTaskFormatRepair({
+      client,
+      sessionKey,
+      startMarker,
+      endMarker,
+      pollMs,
+      signal,
+      startedAt,
+      estimatedMs,
+      onProgress,
+      parseError,
+    });
   }
 
   throw new EmployeeTaskError("timeout", "等待后台 AI 员工返回结构化结果超时。", {
@@ -518,6 +718,8 @@ async function runHiddenEmployeeTask(options: {
   };
   signal?.addEventListener("abort", abortGatewaySession, { once: true });
   try {
+    let finalTurnStartedAt = 0;
+    let finalSendCompleted = false;
     try {
       const created = await client.createSession(agentId, undefined, {
         label,
@@ -535,6 +737,7 @@ async function runHiddenEmployeeTask(options: {
       throwIfTaskCancelled(signal, sessionKey);
       for (const [index, turn] of preflightTurns.entries()) {
         emitProgress("running", turn.progressMessage, sessionKey);
+        const turnStartedAt = Date.now() - 1_000;
         await client.sendChatMessage(sessionKey, turn.prompt, undefined, {
           timeoutMs,
           attachments: turn.attachments,
@@ -546,6 +749,8 @@ async function runHiddenEmployeeTask(options: {
           endMarker: turn.endMarker,
           timeoutMs,
           pollMs,
+          minMessageTimestampMs: turnStartedAt,
+          repairOnAssistantText: true,
           signal,
           startedAt,
           estimatedMs,
@@ -553,8 +758,11 @@ async function runHiddenEmployeeTask(options: {
           progressMessage: `正在读取第 ${index + 1} 批截图转写结果。`,
         });
       }
+      finalTurnStartedAt = Date.now() - 1_000;
+      finalSendCompleted = false;
       try {
         await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs, attachments });
+        finalSendCompleted = true;
       } catch (error) {
         if (!isGatewayTimeout(error)) throw error;
         emitProgress(
@@ -578,6 +786,25 @@ async function runHiddenEmployeeTask(options: {
     let lastRecoverableFailureMessage = "";
     let parseError: Error | null = null;
     let pollCount = 0;
+    let repairAttempted = false;
+    const repairAndReturn = async (reason?: Error | null) => {
+      repairAttempted = true;
+      const repaired = await requestHiddenTaskFormatRepair({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        pollMs,
+        signal,
+        startedAt,
+        estimatedMs,
+        onProgress,
+        parseError: reason ?? parseError,
+      });
+      emitProgress("completed", "任务已返回结果。", sessionKey);
+      throwIfTaskCancelled(signal, sessionKey);
+      return { sessionKey, assistantText: repaired.assistantText, payload: repaired.payload };
+    };
 
     while (Date.now() < deadline) {
       await sleep(pollMs);
@@ -593,7 +820,13 @@ async function runHiddenEmployeeTask(options: {
         message: progressMessage("正在读取任务状态。", startedAt, timeoutMs, pollCount),
       });
 
-      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+      const payloadRead = await readHiddenTaskPayload({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        minMessageTimestampMs: finalTurnStartedAt,
+      });
       throwIfTaskCancelled(signal, sessionKey);
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
@@ -603,13 +836,8 @@ async function runHiddenEmployeeTask(options: {
       }
       parseError = payloadRead.parseError;
 
-      if (parseError) {
-        emitProgress("failed", `任务已返回结果，但系统无法读取：${parseError.message}`, sessionKey);
-        throw new EmployeeTaskError(
-          "parse_error",
-          `任务已返回结果，但系统无法读取：${parseError.message}`,
-          { sessionKey, lastAssistantText },
-        );
+      if ((parseError || (finalSendCompleted && payloadRead.lastAssistantText)) && !repairAttempted) {
+        return repairAndReturn(parseError);
       }
 
       const failure = transcriptFailureMessage(payloadRead.messages);
@@ -627,17 +855,31 @@ async function runHiddenEmployeeTask(options: {
     while (Date.now() < finalDeadline) {
       await sleep(pollMs);
       throwIfTaskCancelled(signal, sessionKey);
-      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+      const payloadRead = await readHiddenTaskPayload({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        minMessageTimestampMs: finalTurnStartedAt,
+      });
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
         emitProgress("completed", "任务已返回结果。", sessionKey);
         return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+      }
+      parseError = payloadRead.parseError;
+      if ((parseError || payloadRead.lastAssistantText) && !repairAttempted) {
+        return repairAndReturn(parseError);
       }
       const failure = transcriptFailureMessage(payloadRead.messages);
       if (failure && !failure.recoverable) {
         emitProgress("failed", failure.message, sessionKey);
         throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
       }
+    }
+
+    if (lastAssistantText && !repairAttempted) {
+      return repairAndReturn(parseError);
     }
 
     const timeoutMessage = lastRecoverableFailureMessage

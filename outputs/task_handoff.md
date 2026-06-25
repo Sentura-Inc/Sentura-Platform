@@ -10,7 +10,95 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user issue: Admin domain opened incorrectly after route split. User reported `app.sentura.ai` opens Employee but `admin.sentura.ai` does not open Admin correctly.
+Latest user request: Add an enforcement path so future Lead/Screening/Accio hidden tasks do not fail as local timeouts only because the model returned malformed or non-marker structured output.
+
+Latest operational fix:
+
+- Implemented a one-shot structured-output repair loop in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`.
+- Parsing order is now:
+  - explicit markers first;
+  - whole-response JSON/code-fenced JSON fallback second, guarded by expected top-level arrays (`leads`, `reports`, `summaries`, image `images`);
+  - one repair turn third for malformed JSON or completed non-marker assistant output.
+- Repair prompt requirements:
+  - no new investigation;
+  - no tool calls;
+  - no added/deleted/invented evidence;
+  - only rewrite the prior assistant result as strict marker-wrapped JSON.
+- Timestamp scoping:
+  - normal task polling can pass `minMessageTimestampMs` so previous preflight/final messages do not satisfy the current turn;
+  - repair polling only reads messages after the repair request timestamp.
+- Repair is wired into screenshot preflight turns and final Lead/Screening/Accio turns. For long `chat.send` timeouts, non-marker assistant text is repaired only after the normal wait/grace window; parse errors can repair immediately.
+- Static regression added in `scripts/test-cross-border-agents.ts`: `employee runner repairs malformed structured output before timing out`.
+- Verification:
+  - Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - Local `git diff --check`: PASS.
+  - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - ECS `pnpm --dir sentura/dashboard build`: PASS.
+  - ECS services after restart: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+  - Public HTTPS: `https://app.sentura.ai/employee` 200 with Employee shell; `https://admin.sentura.ai/admin/login` 200 with Admin shell.
+- Docs/tests updated:
+  - CE29 in `docs/TESTS.md` and `docs/tests/tests-cross-border-phase2.md`.
+  - Matrix row in `docs/MEMORY.md`.
+  - Detailed section in `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Boundary: this is a format repair guard, not a guaranteed task-success mechanism. If the employee never reaches a result, a backend/provider/tool failure occurs, or the repair turn also fails to produce parseable JSON, the task still fails explicitly.
+
+Previous operational fix:
+
+- Root cause on ECS: OpenClaw `cbe-buyer-screening` completed the `CPR Cell Phone Repair` report in about 195s, but the final assistant response omitted `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and returned a valid ```json fenced object. The Dashboard hidden runner only accepted marker-delimited output, so it polled until the 6-minute local wait window and then wrote `error_code = timeout`.
+- Evidence:
+  - RDS run `run_bd41a833-f84b-4b20-930d-65732ffab564` was `failed`, `error_code = timeout`, `error_message = 等待任务返回结果超时。`.
+  - Session key `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:f70c7296-85d5-4f1c-b4d5-ba0bf659c81b`.
+  - OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/bb9127f8-5645-4e06-9c57-93ca8f6fa220.jsonl` had `status=done`, runtime about 195s, no markers, and a whole fenced JSON payload with `reports`.
+- Code fix:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts` now keeps explicit marker parsing first.
+  - If markers are absent, it strips optional JSON code fences and accepts only a whole JSON object whose expected top-level array matches the current task (`leads`, `reports`, `summaries`, or image preflight `images`).
+  - `scripts/test-cross-border-agents.ts` adds the static regression `employee runner accepts fenced JSON when model omits markers`.
+- ECS rollout:
+  - Applied the same two-file hotfix via `git apply`.
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm --dir sentura/dashboard build`: PASS.
+  - Restarted `sentura-dashboard.service`; `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active.
+  - Restored generated `sentura/dashboard/next-env.d.ts`; server repo now has only the two intentional hotfix source changes.
+- Production backfill:
+  - Parsed the existing OpenClaw transcript and completed it through the normal Dashboard completion API/store path, using Dashboard normalization rather than raw SQL.
+  - RDS now has run `completed`, stage `screening_reports_saved`, no error code/message.
+  - Saved report `RPT-20260625-CPR-001`, risk `cautious`, score `78.67`, 29 evidence rows, 6 score blocks, 16 address locations.
+  - Active Screening run count is `0`.
+  - Employee API `query=CPR` returns CPR with `screeningStatus=cautious`, `normalizedScore=78.67`, and `screeningAgentRunId=run_bd41a833-f84b-4b20-930d-65732ffab564`.
+- Public checks:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+- Docs/tests updated:
+  - CE28 in `docs/TESTS.md` and `docs/tests/tests-cross-border-phase2.md`.
+  - Matrix row in `docs/MEMORY.md`.
+  - Detailed section in `docs/memory/cross-border-ecommerce/phase-2.md`.
+
+Previous operational fix:
+
+- Root cause on ECS: OpenClaw Gateway failed before reply because Docker sandbox image `openclaw-sandbox:bookworm-slim` was missing. Docker service was active, but the upstream OpenClaw sandbox image had not been built after deployment.
+- Evidence:
+  - OpenClaw session transcript `/root/.openclaw/agents/cbe-lead-discovery/sessions/8707fd3e-e456-4e4b-b480-785fa131d51c.jsonl` contains `Agent failed before reply: Sandbox image not found: openclaw-sandbox:bookworm-slim`.
+  - Gateway journal at `2026-06-26 05:24:20 +08:00` logs the same sandbox image error for the failed session.
+  - RDS still had the corresponding `agent_runs` and `lead_runs` rows in `running`, which left an active Lead scope and could block/rejoin retries.
+- Fix completed on ECS:
+  - Ran `bash openclaw/scripts/sandbox-setup.sh`; Docker image `openclaw-sandbox:bookworm-slim` now exists.
+  - Restarted root `systemctl --user openclaw-gateway`; service is active and Gateway reached ready.
+  - Verified a temporary `cbe-lead-discovery` sandbox startup session returned `READY`.
+  - Ran a non-writing Lead tool smoke: `cross-border-intel__cbe_intel_google_places_search` reached Google Places HTTP 200 and returned candidates. This smoke intentionally did not write customers.
+  - Used the existing store function `failEmployeeTask()` to mark stale run `run_3d2c0614-713a-4906-a9b9-5b9c6cc25879` failed, fail lead run `lead_run_c2679c8b-b354-4f87-8b4c-0dad2434fc14`, and release the active Lead scope.
+  - Removed temporary diagnostic session files; the user's original failed session remains as audit evidence.
+- RDS verification after cleanup:
+  - original `agent_runs.status = failed`, `error_code = gateway`.
+  - original `lead_runs.status = failed`.
+  - active `cbe-lead-discovery` run count = `0`.
+  - lingering `lead_discovery_scopes` for the failed run = `[]`.
+- No application source code changed for this fix. Docs/tests updated with CE27 ECS Lead sandbox readiness.
+- Next user action: retry `寻找客户` from `app.sentura.ai`; the prior failed task can be dismissed in the UI.
+
+Previous user issue: Admin domain opened incorrectly after route split. User reported `app.sentura.ai` opens Employee but `admin.sentura.ai` does not open Admin correctly.
 
 Current state:
 
