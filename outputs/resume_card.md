@@ -6,6 +6,29 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
+Latest operational fix in progress, 2026-06-26:
+
+- User reported another production `背调` failure for `Adorama` from `app.sentura.ai`:
+  - task key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
+  - RDS run: `run_0ce71f21-efbc-43be-909d-6309c7039548`
+  - failure: `员工已返回结果，但格式修复超时，仍未收到可写入 JSON。`
+- ECS session file proved the employee and repair turn both produced usable output:
+  - `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl`
+  - original assistant output had prose before a ```json fenced `reports` object;
+  - repair assistant output had `SCREENING_REPORTS_JSON_START/END` with top-level `reports`.
+- Root cause: the session JSONL was about 333KB, while Dashboard hidden runner requested only `300_000` chars from `chat.history`; the final repair marker payload lived beyond that cap and was truncated away.
+- Local fix:
+  - `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` raised to `2_000_000`.
+  - Added `parseFencedJsonPayload()` for prose + embedded ```json report blocks.
+  - Added final full transcript reread before repair timeout.
+  - Static checks added in `scripts/test-cross-border-agents.ts`.
+- Local verification complete:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS.
+- Docs/tests updated with CE31 in `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `docs/MEMORY.md`, and `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Next steps in this same turn: commit/push, pull/build/restart on ECS, recover the Adorama report through the normal completion API/store path, verify RDS/public pages, then update docs from PASS-local to full PASS.
+
 Latest operational fix, 2026-06-26:
 
 - User reported another production `背调` from `app.sentura.ai` still failed with the same timeout after CE29.

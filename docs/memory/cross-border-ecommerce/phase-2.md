@@ -60,12 +60,13 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | Screening fenced-JSON timeout recovery | Fixed a production `背调` timeout where OpenClaw completed the CPR report but returned fenced JSON without `SCREENING_REPORTS_JSON` markers; added a guarded whole-response JSON fallback, deployed/rebuilt/restarted ECS Dashboard, and backfilled the CPR report through the normal completion API/store path. |
 | 2026-06-26 | Hidden task structured-output repair loop | Added a one-shot no-tools/no-reinvestigation JSON repair turn for malformed or completed non-marker Lead/Screening/Accio/image hidden-task replies, timestamp-scoped transcript reads, local/ECS 420/420 static verification, ECS Dashboard rebuild/restart, and public app/admin shell smoke. |
 | 2026-06-26 | Nested OpenClaw transcript recovery | Fixed the latest production `背调` timeout where OpenClaw produced a valid marker-wrapped Cellairis report but Dashboard missed it because `chat.history` returned raw nested `message.role/message.content`; deployed the transcript parser fix and recovered the Cellairis report through the normal completion API/store path. |
+| 2026-06-26 | Long transcript repair-result recovery | Fixed the Adorama production `背调` repair-timeout path where the valid repair marker payload was beyond the 300KB transcript read cap; added 2MB transcript reads, embedded fenced-JSON parsing, and final full-transcript reread before repair timeout. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
 - Dashboard code and the Alibaba ECS target now use production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. Route helpers also recognize the internal rewrite destination paths so SSR renders Admin pages with the manager shell even when Next resolves `/admin/login` through `/client-demos/cross-border/admin/login`.
-- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, and hidden-task structured-output repair plus nested transcript recovery deployed to ECS with CBE static 422/422 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
+- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, and hidden-task structured-output repair plus nested transcript recovery deployed to ECS with CBE static 422/422 plus Dashboard typecheck/build pass. CE31 local verification raises hidden transcript reads to 2MB and adds embedded fenced-JSON parsing/final repair reread; target deployment/backfill verification is pending in the current session. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
@@ -2085,3 +2086,76 @@ RDS verification after recovery:
 - The marker contract remains required.
 - CE28's whole-response JSON fallback and CE29's no-tools repair loop remain the two recovery layers after marker parsing.
 - If OpenClaw never writes a final assistant result, or the final result has no usable structured payload after fallback/repair, the task still fails explicitly.
+
+## 2026-06-26 — Long transcript repair-result recovery
+
+### Context
+
+After CE30 was deployed and a new Screening run succeeded, the user ran another production `背调` task from `app.sentura.ai` for `Adorama`. The UI failed with:
+
+- `员工已返回结果，但格式修复超时，仍未收到可写入 结构化结果。`
+- task key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
+
+RDS showed:
+
+- `agent_run_id`: `run_0ce71f21-efbc-43be-909d-6309c7039548`
+- `agent_id`: `cbe-buyer-screening`
+- `status`: `failed`
+- `current_stage`: `submitted_to_employee`
+- `error_code`: `timeout`
+- `error_message`: `员工已返回结果，但格式修复超时，仍未收到可写入 JSON。`
+- `target_summary`: `Adorama`
+- `target_record_id`: `lead_21e69a32-27a9-4180-ad28-7e68f0bf2524`
+
+The OpenClaw session map pointed to:
+
+- session id: `8f062995-9c46-43ce-bf7a-5eb985b760d3`
+- session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl`
+- trajectory file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.trajectory.jsonl`
+- session JSONL size: about 333KB
+
+### Root Cause
+
+The employee did complete the work and the repair turn also succeeded.
+
+The session JSONL showed:
+
+- original final assistant row: prose before a ```json fenced object with top-level `reports`;
+- repair user row: `[CBE Structured Output Repair]`;
+- repair assistant row: `SCREENING_REPORTS_JSON_START` followed by a strict JSON object with top-level `reports`, then `SCREENING_REPORTS_JSON_END`.
+
+The Dashboard hidden runner requested only `300_000` characters from `chat.history`. The Adorama session was about 333KB because the Screening task gathered many tool results and a long report. The valid repair marker payload lived at the end of the transcript, beyond the 300KB cap, so the Dashboard polling loop could not see it and incorrectly reported a repair timeout.
+
+This was a Dashboard transcript-read bug, not a missing employee result.
+
+### Fix
+
+Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+
+- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`.
+- Added `parseJsonPayloadCandidate()` to share expected-key validation between whole-object and fenced-object parsing.
+- Added `parseFencedJsonPayload()` so a marker-less response with prose before a ```json fenced object can still be parsed when it contains the expected top-level array.
+- Kept marker parsing first; fallback parsing remains guarded by the expected task key (`leads`, `reports`, `summaries`, or image `images`).
+- Added a final unscoped `readHiddenTaskPayload()` inside `requestHiddenTaskFormatRepair()` before throwing the repair-timeout error.
+
+Updated `scripts/test-cross-border-agents.ts`:
+
+- Added `employee runner accepts embedded fenced JSON when model adds prose`.
+- Added `employee runner rereads full transcript before declaring repair timeout`.
+- Updated `employee runner reads full structured task output from chat history` to assert the 2MB cap.
+
+### Verification
+
+Local:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `git diff --check`: PASS.
+
+ECS rollout and Adorama backfill are pending in the current session after commit/push/pull.
+
+### Boundary
+
+- CE31 fixes transcript truncation and embedded fenced-JSON parsing for completed hidden tasks.
+- It still requires an actual parseable payload to exist in the transcript.
+- The transcript cap is now larger, not unbounded; pathological sessions that exceed the cap and do not include a returned recent payload may still fail explicitly.

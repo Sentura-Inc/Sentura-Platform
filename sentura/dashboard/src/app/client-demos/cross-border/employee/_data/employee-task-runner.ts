@@ -116,7 +116,7 @@ const SUMMARY_JSON_END = "ACCIO_SUMMARIES_JSON_END";
 const IMAGE_TRANSCRIPT_BATCH_PREFIX = "ACCIO_IMAGE_TRANSCRIPT_BATCH";
 const CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS = 9_000_000;
 const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
-const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 300_000;
+const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 2_000_000;
 const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
 const HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000;
 
@@ -402,7 +402,7 @@ function stripJsonCodeFence(text: string) {
     .trim();
 }
 
-function parseWholeJsonPayload(text: string, expectedKey?: string) {
+function parseJsonPayloadCandidate(text: string, expectedKey?: string) {
   const raw = stripJsonCodeFence(text);
   if (!raw.startsWith("{") || !raw.endsWith("}")) return null;
   const payload = JSON.parse(raw) as unknown;
@@ -411,9 +411,33 @@ function parseWholeJsonPayload(text: string, expectedKey?: string) {
   return Array.isArray(record[expectedKey]) ? payload : null;
 }
 
+function parseWholeJsonPayload(text: string, expectedKey?: string) {
+  return parseJsonPayloadCandidate(text, expectedKey);
+}
+
+function parseFencedJsonPayload(text: string, expectedKey?: string) {
+  const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  let parseError: Error | null = null;
+  for (const fence of fences.reverse()) {
+    const raw = fence[1]?.trim();
+    if (!raw || !raw.startsWith("{")) continue;
+    try {
+      const payload = parseJsonPayloadCandidate(raw, expectedKey);
+      if (payload !== null) return payload;
+    } catch (error) {
+      parseError = error instanceof Error ? error : new Error("JSON parse failed");
+    }
+  }
+  if (parseError) throw parseError;
+  return null;
+}
+
 function extractMarkerPayload(text: string, startMarker: string, endMarker: string): unknown | null {
+  const expectedKey = expectedPayloadKeyForMarker(startMarker);
   const start = text.lastIndexOf(startMarker);
-  if (start === -1) return parseWholeJsonPayload(text, expectedPayloadKeyForMarker(startMarker));
+  if (start === -1) {
+    return parseWholeJsonPayload(text, expectedKey) ?? parseFencedJsonPayload(text, expectedKey);
+  }
   const end = text.indexOf(endMarker, start + startMarker.length);
   if (end === -1 || end <= start) return null;
   const raw = stripJsonCodeFence(text.slice(start + startMarker.length, end));
@@ -579,6 +603,18 @@ async function requestHiddenTaskFormatRepair(options: {
       });
     }
   }
+
+  const finalPayloadRead = await readHiddenTaskPayload({
+    client: options.client,
+    sessionKey: options.sessionKey,
+    startMarker: options.startMarker,
+    endMarker: options.endMarker,
+  });
+  if (finalPayloadRead.lastAssistantText) lastAssistantText = finalPayloadRead.lastAssistantText;
+  if (finalPayloadRead.payload !== null) {
+    return { assistantText: finalPayloadRead.lastAssistantText, payload: finalPayloadRead.payload };
+  }
+  if (finalPayloadRead.parseError) parseError = finalPayloadRead.parseError;
 
   if (parseError) {
     throw new EmployeeTaskError(

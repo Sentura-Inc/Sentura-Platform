@@ -10,9 +10,45 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user request: Diagnose and fix another production `背调` timeout from `app.sentura.ai` after CE29.
+Latest user request: Diagnose and fix another production `背调` timeout from `app.sentura.ai` after CE30, where `Adorama` failed with `员工已返回结果，但格式修复超时，仍未收到可写入 结构化结果。`
 
-Latest operational fix:
+Latest operational fix in progress:
+
+- Root cause on ECS: the employee produced both an original report and a repair result, but Dashboard did not read the final repair payload because the OpenClaw session was about 333KB and the hidden runner requested only 300KB from `chat.history`.
+- Failed production run:
+  - `agent_run_id`: `run_0ce71f21-efbc-43be-909d-6309c7039548`
+  - `target_summary`: `Adorama`
+  - `session_key`: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
+  - session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl`
+- Evidence:
+  - original assistant output included prose followed by a ```json fenced object with top-level `reports`;
+  - repair assistant output included `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and top-level `reports`;
+  - failure was local Dashboard transcript truncation, not missing employee output.
+- Code fix in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`;
+  - added `parseJsonPayloadCandidate()` and `parseFencedJsonPayload()` so prose + embedded fenced JSON can be parsed when the expected key matches;
+  - added a final full `readHiddenTaskPayload()` before repair-timeout is thrown.
+- Static regressions added in `scripts/test-cross-border-agents.ts`:
+  - `employee runner accepts embedded fenced JSON when model adds prose`;
+  - `employee runner rereads full transcript before declaring repair timeout`;
+  - updated full transcript cap check to `2_000_000`.
+- Local verification:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS.
+- Docs/tests updated with CE31:
+  - `docs/TESTS.md`;
+  - `docs/tests/tests-cross-border-phase2.md`;
+  - `docs/MEMORY.md`;
+  - `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Remaining steps:
+  - commit/push local branch;
+  - pull on ECS, run static/typecheck/build, restart `sentura-dashboard`;
+  - recover Adorama via the normal Dashboard `completeEmployeeScreeningRun()`/API store path, not raw SQL;
+  - verify RDS report, active Screening count, and public app/admin pages;
+  - update CE31 docs/handoff from PASS-local to full PASS after ECS rollout.
+
+Previous operational fix:
 
 - Root cause on ECS: OpenClaw produced the Cellairis Screening report before Dashboard timeout, but `chat.history`/session JSONL exposed raw nested transcript rows shaped like `{ message: { role, content } }`. The hidden runner only read top-level `role/content`, so it saw no assistant text and never parsed the marker payload or triggered CE29 repair.
 - Failed/recovered production run:

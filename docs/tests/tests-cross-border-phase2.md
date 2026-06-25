@@ -1022,3 +1022,53 @@ Boundary:
 
 - CE30 fixes transcript-shape compatibility. It does not change the marker contract, CE28 fallback scope, or CE29 repair behavior.
 - If OpenClaw never writes a final assistant message, or the final assistant message lacks a valid payload after fallback/repair, the task still fails explicitly.
+
+## CE31 — Long Transcript and Repair-Result Recovery
+
+Status: PASS-local (2026-06-26; ECS rollout/backfill pending in this session)
+
+Scope:
+
+- Employee hidden runner transcript size and embedded fenced-JSON fallback.
+- Production Screening recovery for the Adorama run on Alibaba ECS/RDS.
+- Local regression coverage for long Screening sessions that produce a valid repair marker payload near the end of the transcript.
+
+Context:
+
+- The user ran another production `背调` task for `Adorama`.
+- RDS showed failed run `run_0ce71f21-efbc-43be-909d-6309c7039548` with `error_code = timeout` and error text `员工已返回结果，但格式修复超时，仍未收到可写入 JSON。`
+- The OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl` proved the employee produced:
+  - an original prose + ```json fenced Screening report;
+  - a repair response with `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and top-level `reports`.
+- The session JSONL was about 333KB; the hidden runner requested only 300KB from `chat.history`, so the final repair marker payload was truncated away before parsing.
+
+Fix:
+
+- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`.
+- Added `parseJsonPayloadCandidate()` and `parseFencedJsonPayload()` so marker-less assistant replies that contain prose before a ```json fenced object can still be parsed when the expected top-level key matches.
+- Kept marker parsing first and expected-key guarded fallback second.
+- Added a final unscoped `readHiddenTaskPayload()` before `requestHiddenTaskFormatRepair()` declares repair timeout, so timestamp filtering cannot be the last reason a valid repair payload is missed.
+- Added static regressions in `scripts/test-cross-border-agents.ts` for embedded fenced JSON, full repair reread, and the 2MB transcript cap.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE31.1 | Larger transcript cap | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `2_000_000` and still passed to `client.getTranscript()`. |
+| CE31.2 | Embedded fenced JSON fallback | Static script/code review | Hidden runner contains `parseFencedJsonPayload()`, `parseJsonPayloadCandidate()`, and falls back from whole JSON to embedded fenced JSON when markers are absent. |
+| CE31.3 | Repair final reread | Static script/code review | `requestHiddenTaskFormatRepair()` performs a final full transcript read and returns a payload if found before throwing the repair-timeout error. |
+| CE31.4 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE31.5 | ECS rollout | Target commands | ECS static/typecheck/build pass, `sentura-dashboard` restarts, and public `app.sentura.ai/employee` plus `admin.sentura.ai/admin/login` remain HTTP 200. |
+| CE31.6 | Production report recovery | API/store path | The existing Adorama repair payload is completed through `completeEmployeeScreeningRun()` / the Dashboard API/store normalization path, not hand-written with raw SQL. |
+
+Latest local verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- CE31 prevents long completed transcripts from hiding valid final structured output.
+- It does not make `chat.history` unbounded and does not fabricate missing reports.
+- If a transcript exceeds the new cap and the final payload is still outside the returned history, or if the employee never writes a parseable payload after fallback/repair, the task still fails explicitly.
