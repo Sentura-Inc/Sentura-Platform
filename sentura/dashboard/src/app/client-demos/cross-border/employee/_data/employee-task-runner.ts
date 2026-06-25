@@ -303,23 +303,65 @@ function contentToText(content: TranscriptMessage["content"]): string {
 
 function assistantTexts(messages: TranscriptMessage[]) {
   return messages
-    .filter((message) => message.role === "assistant")
-    .map((message) => contentToText(message.content))
+    .filter((message) => messageRole(message) === "assistant")
+    .map((message) => contentToText(messageContent(message)))
     .filter(Boolean);
 }
 
-function messageTimestampMs(message: TranscriptMessage) {
-  if (!message.timestamp) return undefined;
-  const parsed = Date.parse(message.timestamp);
+function transcriptMessageRecord(message: TranscriptMessage) {
+  return asRecord(asRecord(message).message);
+}
+
+function messageRole(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return asString(raw.role) ?? asString(nested.role);
+}
+
+function messageContent(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return "content" in raw ? raw.content : nested.content;
+}
+
+function coerceTimestampMs(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (Number.isFinite(numeric)) {
+    return numeric < 10_000_000_000 ? numeric * 1_000 : numeric;
+  }
+  const text = asString(value);
+  if (!text) return undefined;
+  const parsed = Date.parse(text);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function messageTimestampMs(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return (
+    coerceTimestampMs(raw.timestamp) ??
+    coerceTimestampMs(nested.timestamp) ??
+    coerceTimestampMs(raw.createdAt) ??
+    coerceTimestampMs(nested.createdAt) ??
+    coerceTimestampMs(raw.created_at) ??
+    coerceTimestampMs(nested.created_at) ??
+    coerceTimestampMs(raw.updatedAt) ??
+    coerceTimestampMs(nested.updatedAt) ??
+    coerceTimestampMs(raw.ts) ??
+    coerceTimestampMs(nested.ts)
+  );
 }
 
 function transcriptMessagesSince(messages: TranscriptMessage[], minTimestampMs?: number) {
   if (!minTimestampMs) return messages;
-  return messages.filter((message) => {
+  let sawComparableTimestamp = false;
+  const filtered = messages.filter((message) => {
     const timestampMs = messageTimestampMs(message);
-    return typeof timestampMs === "number" && timestampMs >= minTimestampMs;
+    if (typeof timestampMs !== "number") return false;
+    sawComparableTimestamp = true;
+    return timestampMs >= minTimestampMs;
   });
+  return sawComparableTimestamp ? filtered : messages;
 }
 
 function transcriptFailureMessage(messages: TranscriptMessage[]): { message: string; recoverable: boolean } | undefined {
@@ -337,7 +379,7 @@ function transcriptFailureMessage(messages: TranscriptMessage[]): { message: str
       return { message: `任务处理失败：${errorMessage}`, recoverable: false };
     }
     const stopReason = asString(raw.stopReason) ?? asString(nested.stopReason);
-    if (message.role === "assistant" && stopReason === "aborted" && !contentToText(message.content)) {
+    if (messageRole(message) === "assistant" && stopReason === "aborted" && !contentToText(messageContent(message))) {
       return { message: "任务被中止，未返回报告。", recoverable: true };
     }
   }

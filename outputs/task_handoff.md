@@ -10,39 +10,50 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user request: Add an enforcement path so future Lead/Screening/Accio hidden tasks do not fail as local timeouts only because the model returned malformed or non-marker structured output.
+Latest user request: Diagnose and fix another production `背调` timeout from `app.sentura.ai` after CE29.
 
 Latest operational fix:
 
-- Implemented a one-shot structured-output repair loop in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`.
-- Parsing order is now:
-  - explicit markers first;
-  - whole-response JSON/code-fenced JSON fallback second, guarded by expected top-level arrays (`leads`, `reports`, `summaries`, image `images`);
-  - one repair turn third for malformed JSON or completed non-marker assistant output.
-- Repair prompt requirements:
-  - no new investigation;
-  - no tool calls;
-  - no added/deleted/invented evidence;
-  - only rewrite the prior assistant result as strict marker-wrapped JSON.
-- Timestamp scoping:
-  - normal task polling can pass `minMessageTimestampMs` so previous preflight/final messages do not satisfy the current turn;
-  - repair polling only reads messages after the repair request timestamp.
-- Repair is wired into screenshot preflight turns and final Lead/Screening/Accio turns. For long `chat.send` timeouts, non-marker assistant text is repaired only after the normal wait/grace window; parse errors can repair immediately.
-- Static regression added in `scripts/test-cross-border-agents.ts`: `employee runner repairs malformed structured output before timing out`.
+- Root cause on ECS: OpenClaw produced the Cellairis Screening report before Dashboard timeout, but `chat.history`/session JSONL exposed raw nested transcript rows shaped like `{ message: { role, content } }`. The hidden runner only read top-level `role/content`, so it saw no assistant text and never parsed the marker payload or triggered CE29 repair.
+- Failed/recovered production run:
+  - `agent_run_id`: `run_230efb76-4442-4e46-a5d0-0467dea30b8f`
+  - `target_summary`: `Cellairis`
+  - `session_key`: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:18ac43d8-10b0-4812-8b98-e82504b0dbdd`
+  - session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/2cd1d554-f500-41d4-927b-8aa225f3d96c.jsonl`
+- Code fix in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - added `transcriptMessageRecord()`, `messageRole()`, and `messageContent()` so assistant text extraction accepts both flat transcript messages and nested OpenClaw raw entries;
+  - added `coerceTimestampMs()` for ISO strings, numeric epoch seconds/milliseconds, and alternate timestamp fields;
+  - `transcriptMessagesSince()` now falls back to the full transcript when no rows have comparable timestamps.
+- Static regressions added in `scripts/test-cross-border-agents.ts`:
+  - `employee runner reads nested OpenClaw transcript messages`;
+  - `employee runner falls back when transcript timestamps are not comparable`.
 - Verification:
-  - Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
   - Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - Local `git diff --check`: PASS.
-  - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+  - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
   - ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - ECS `pnpm --dir sentura/dashboard build`: PASS.
   - ECS services after restart: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
-  - Public HTTPS: `https://app.sentura.ai/employee` 200 with Employee shell; `https://admin.sentura.ai/admin/login` 200 with Admin shell.
+  - Public HTTPS: `https://app.sentura.ai/employee` 200; `https://admin.sentura.ai/admin/login` 200.
+- Production recovery:
+  - recovered the existing Cellairis payload through `completeEmployeeScreeningRun()` and the existing Dashboard API/store normalization path, not raw SQL report insertion;
+  - RDS now has `agent_runs.status = completed`, `current_stage = screening_reports_saved`, no error code/message;
+  - saved report `SR-20260625-CELLAIRIS-001`, risk `trusted_candidate`, score `88.44`, 29 evidence rows, 6 score blocks, 14 address locations;
+  - active Screening run count is `0`.
 - Docs/tests updated:
-  - CE29 in `docs/TESTS.md` and `docs/tests/tests-cross-border-phase2.md`.
+  - CE30 in `docs/TESTS.md` and `docs/tests/tests-cross-border-phase2.md`.
   - Matrix row in `docs/MEMORY.md`.
   - Detailed section in `docs/memory/cross-border-ecommerce/phase-2.md`.
-- Boundary: this is a format repair guard, not a guaranteed task-success mechanism. If the employee never reaches a result, a backend/provider/tool failure occurs, or the repair turn also fails to produce parseable JSON, the task still fails explicitly.
+- Boundary: this fixes transcript-shape compatibility. The marker contract, CE28 fenced-JSON fallback, and CE29 repair loop still apply; if OpenClaw never writes a final assistant result or no usable payload exists after fallback/repair, the task still fails explicitly.
+
+Previous operational fix:
+
+- Implemented a one-shot structured-output repair loop in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`.
+- Parsing order is now explicit markers first, whole-response JSON/code-fenced JSON fallback second, and one repair turn third for malformed JSON or completed non-marker assistant output.
+- Repair prompt forbids new investigation, tool calls, added/deleted/invented evidence, and only rewrites the prior assistant result as strict marker-wrapped JSON.
+- Verification before CE30: local/ECS CBE static 420/420, Dashboard typecheck/build PASS, services active, public app/admin HTTPS 200.
+- Docs/tests updated with CE29.
 
 Previous operational fix:
 

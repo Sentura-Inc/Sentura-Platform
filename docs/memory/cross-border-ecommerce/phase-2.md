@@ -59,12 +59,13 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | ECS Lead task sandbox readiness fix | Built the missing OpenClaw Docker sandbox image on ECS after the first production `寻找客户` run failed before reply, restarted Gateway, verified sandboxed Lead startup plus Google Places tool execution, marked the stale DB Lead run failed through the store layer, released the active Lead scope, and cleaned diagnostic session artifacts. |
 | 2026-06-26 | Screening fenced-JSON timeout recovery | Fixed a production `背调` timeout where OpenClaw completed the CPR report but returned fenced JSON without `SCREENING_REPORTS_JSON` markers; added a guarded whole-response JSON fallback, deployed/rebuilt/restarted ECS Dashboard, and backfilled the CPR report through the normal completion API/store path. |
 | 2026-06-26 | Hidden task structured-output repair loop | Added a one-shot no-tools/no-reinvestigation JSON repair turn for malformed or completed non-marker Lead/Screening/Accio/image hidden-task replies, timestamp-scoped transcript reads, local/ECS 420/420 static verification, ECS Dashboard rebuild/restart, and public app/admin shell smoke. |
+| 2026-06-26 | Nested OpenClaw transcript recovery | Fixed the latest production `背调` timeout where OpenClaw produced a valid marker-wrapped Cellairis report but Dashboard missed it because `chat.history` returned raw nested `message.role/message.content`; deployed the transcript parser fix and recovered the Cellairis report through the normal completion API/store path. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
 - Dashboard code and the Alibaba ECS target now use production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. Route helpers also recognize the internal rewrite destination paths so SSR renders Admin pages with the manager shell even when Next resolves `/admin/login` through `/client-demos/cross-border/admin/login`.
-- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, and hidden-task structured-output repair deployed to ECS with CBE static 420/420 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
+- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, and hidden-task structured-output repair plus nested transcript recovery deployed to ECS with CBE static 422/422 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
@@ -1976,3 +1977,111 @@ CE28 made the common successful-but-unmarked case recoverable by accepting whole
 - This is a format enforcement and recovery layer, not a guarantee that every AI task succeeds.
 - If the model never reaches a final answer, a tool/provider/backend failure occurs, or the repair turn itself cannot produce parseable JSON, the task still fails explicitly.
 - The repair turn is intentionally not a second investigation pass; it may only reformat the prior assistant result.
+
+## 2026-06-26 — Nested OpenClaw transcript recovery
+
+### Context
+
+After the CE29 repair-loop hotfix was deployed, the user ran another production `背调` task from `app.sentura.ai` and saw the same local timeout behavior.
+
+RDS showed latest failed Screening run:
+
+- `agent_run_id`: `run_230efb76-4442-4e46-a5d0-0467dea30b8f`
+- `target_summary`: `Cellairis`
+- `session_key`: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:18ac43d8-10b0-4812-8b98-e82504b0dbdd`
+- failure: `status = failed`, `current_stage = submitted_to_employee`, `error_code = timeout`, `error_message = 等待任务返回结果超时。`
+
+The OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/2cd1d554-f500-41d4-927b-8aa225f3d96c.jsonl` showed the actual agent completed the Cellairis report before the Dashboard timed out:
+
+- final report timestamp: `2026-06-25T23:03:59.697Z`
+- Dashboard timeout timestamp: `2026-06-25T23:06:34.074Z`
+- final assistant text included `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END`
+
+### Root Cause
+
+CE29's parser still assumed `chat.history` returned flat `TranscriptMessage` rows with top-level `role` and `content`.
+
+The production OpenClaw transcript exposed raw nested entries shaped like:
+
+```json
+{
+  "type": "message",
+  "timestamp": "2026-06-25T23:03:59.697Z",
+  "message": {
+    "role": "assistant",
+    "content": [{ "type": "text", "text": "SCREENING_REPORTS_JSON_START..." }]
+  }
+}
+```
+
+Because the hidden runner filtered for `message.role === "assistant"` on the top-level row, it never saw the assistant result. This also explained why CE29's repair path did not activate: the Dashboard thought there was no assistant text to repair.
+
+### Fix
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Added `transcriptMessageRecord()`.
+  - Added `messageRole()` to read top-level `role` or nested `message.role`.
+  - Added `messageContent()` to read top-level `content` or nested `message.content`.
+  - Updated `assistantTexts()` and terminal failure detection to use those helpers.
+  - Added `coerceTimestampMs()` and expanded timestamp parsing to top-level/nested `timestamp`, `createdAt`, `created_at`, `updatedAt`, and `ts`.
+  - Updated `transcriptMessagesSince()` to fall back to the full transcript when no comparable timestamp exists, instead of dropping every transcript row.
+- Updated `scripts/test-cross-border-agents.ts`:
+  - Added static regression for nested OpenClaw transcript messages.
+  - Added static regression for non-comparable timestamp fallback.
+
+### ECS Rollout
+
+- Applied the same two-file patch on `/root/Sentura-Platform`.
+- Rebuilt Dashboard with `pnpm --dir sentura/dashboard build`.
+- Restarted `sentura-dashboard`.
+- Restored build-generated `sentura/dashboard/next-env.d.ts`.
+- Verified services:
+  - `sentura-dashboard`: active
+  - `nginx`: active
+  - root `openclaw-gateway`: active
+
+### Production Recovery
+
+Recovered the existing Cellairis transcript through the normal Dashboard completion path:
+
+- Extracted the marker payload from the existing OpenClaw session file.
+- Reused `completeEmployeeScreeningRun()` so the existing `normalizeScreeningPayload()` and API/store validation path handled schema cleanup.
+- Did not write raw SQL reports manually.
+
+RDS verification after recovery:
+
+- `agent_runs.status = completed`
+- `current_stage = screening_reports_saved`
+- `error_code = null`
+- report id `SR-20260625-CELLAIRIS-001`
+- company `Cellairis`
+- normalized score `88.44`
+- risk tier `trusted_candidate`
+- evidence rows `29`
+- score blocks `6`
+- address-footprint locations `14`
+- active Screening run count `0`
+
+### Verification
+
+- Local:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS.
+- ECS:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm --dir sentura/dashboard build`: PASS.
+  - `systemctl is-active sentura-dashboard`: active.
+  - `systemctl is-active nginx`: active.
+  - `systemctl --user is-active openclaw-gateway`: active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+
+### Boundary
+
+- CE30 fixes transcript-shape compatibility only.
+- The marker contract remains required.
+- CE28's whole-response JSON fallback and CE29's no-tools repair loop remain the two recovery layers after marker parsing.
+- If OpenClaw never writes a final assistant result, or the final result has no usable structured payload after fallback/repair, the task still fails explicitly.

@@ -662,6 +662,8 @@ check("employee runner sends hidden task with extended timeout", employeeTaskRun
 check("gateway client honors long task timeoutMs locally", gatewayClient.includes("LONG_RUNNING_RPC_GRACE_MS") && gatewayClient.includes("requestedTimeoutMs") && gatewayClient.includes("params?.timeoutMs"));
 check("employee runner still parses all three marker contracts", ["LEAD_CANDIDATES_JSON_START", "SCREENING_REPORTS_JSON_START", "ACCIO_SUMMARIES_JSON_START"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner accepts fenced JSON when model omits markers", ["parseWholeJsonPayload", "stripJsonCodeFence", "expectedPayloadKeyForMarker", "Array.isArray(record[expectedKey])"].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner reads nested OpenClaw transcript messages", ["transcriptMessageRecord", "messageRole", "messageContent", "asRecord(raw.message)", "messageRole(message) === \"assistant\""].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee runner falls back when transcript timestamps are not comparable", ["coerceTimestampMs", "sawComparableTimestamp", "return sawComparableTimestamp ? filtered : messages", "coerceTimestampMs(nested.timestamp)"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee runner repairs malformed structured output before timing out", [
   "HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS",
   "buildStructuredOutputRepairPrompt",

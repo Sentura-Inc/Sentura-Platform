@@ -8,6 +8,27 @@ Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production h
 
 Latest operational fix, 2026-06-26:
 
+- User reported another production `背调` from `app.sentura.ai` still failed with the same timeout after CE29.
+- Root cause on ECS: OpenClaw `cbe-buyer-screening` produced a valid marker-wrapped Cellairis report before Dashboard timeout, but `chat.history`/session JSONL exposed raw nested transcript rows shaped like `{ message: { role, content } }`; the hidden runner only read flat top-level `role/content`, so it saw no assistant text and never parsed or repaired the result.
+- Failed/recovered run:
+  - RDS run: `run_230efb76-4442-4e46-a5d0-0467dea30b8f`.
+  - Session key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:18ac43d8-10b0-4812-8b98-e82504b0dbdd`.
+  - Session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/2cd1d554-f500-41d4-927b-8aa225f3d96c.jsonl`.
+- Fix in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Added transcript helpers for flat or nested OpenClaw transcript rows: `transcriptMessageRecord()`, `messageRole()`, `messageContent()`.
+  - Added robust timestamp parsing for ISO strings, numeric epoch values, and alternate top-level/nested fields.
+  - `transcriptMessagesSince()` now falls back to full transcript if no comparable timestamps exist, instead of dropping all rows.
+- Regression added in `scripts/test-cross-border-agents.ts` for nested transcript reading and timestamp fallback.
+- Verification:
+  - Local: CBE static 422/422, Dashboard typecheck PASS, `git diff --check` PASS.
+  - ECS: CBE static 422/422, Dashboard typecheck/build PASS, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active after restart.
+  - Public HTTPS: `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return 200.
+  - RDS recovery: report `SR-20260625-CELLAIRIS-001`, score `88.44`, risk `trusted_candidate`, 29 evidence rows, 6 score blocks, 14 address locations, active Screening count `0`.
+- Docs/tests updated with CE30 in `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `docs/MEMORY.md`, and `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Current local/server intentional source changes: `employee-task-runner.ts`, `scripts/test-cross-border-agents.ts`, docs/handoff files. ECS has the same two source hotfix files uncommitted until local branch is pushed and server aligned.
+
+Previous operational fix, 2026-06-26:
+
 - User asked whether future hidden Employee tasks can still timeout because of response format problems, and whether there is an enforcement path.
 - Fix added a one-shot structured-output repair loop in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`.
 - Hidden task parsing order is now explicit markers first, whole-response JSON/code-fenced JSON fallback second, then one repair turn for malformed or completed non-marker output.

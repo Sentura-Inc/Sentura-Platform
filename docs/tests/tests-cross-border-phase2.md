@@ -952,3 +952,73 @@ Boundary:
 - CE29 is not a guarantee that every task will succeed. It prevents format-only failures from being reported as local timeouts when the employee has already produced usable structured content or can rewrite it.
 - If the employee never reaches a final result, a provider/tool/backend failure occurs, or the repair turn also fails to produce parseable JSON, the task still fails explicitly with the corresponding error.
 - The repair prompt intentionally forbids new facts and tool calls, so it is a formatting guard rather than a second investigation pass.
+
+## CE30 — Nested OpenClaw Transcript Recovery
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner transcript compatibility for OpenClaw `chat.history`.
+- Production Screening recovery for the latest Cellairis run on Alibaba ECS/RDS.
+- Local and ECS rollout of the nested transcript parsing fix.
+
+Context:
+
+- After CE29 was deployed, the user ran another `背调` task from `app.sentura.ai` and saw the same local timeout.
+- RDS showed latest failed run `run_230efb76-4442-4e46-a5d0-0467dea30b8f` for `Cellairis`, with `error_code = timeout`.
+- OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/2cd1d554-f500-41d4-927b-8aa225f3d96c.jsonl` had already produced a valid marker-wrapped report at `2026-06-25T23:03:59.697Z`, before the Dashboard wrote the timeout at `2026-06-25T23:06:34.074Z`.
+- The raw session entries were shaped like `{ type, id, timestamp, message: { role, content } }`; the hidden runner only read flat `message.role` / `message.content` fields as `TranscriptMessage.role` / `TranscriptMessage.content`, so it saw no assistant text.
+
+Fix:
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Added `transcriptMessageRecord()`, `messageRole()`, and `messageContent()` helpers.
+  - Assistant text extraction now accepts both flat transcript messages and raw nested OpenClaw entries.
+  - Backend failure detection also checks nested assistant `stopReason` / content.
+  - Added `coerceTimestampMs()` to support ISO strings, numeric epoch milliseconds, numeric epoch seconds, and alternate timestamp fields such as `createdAt`, `created_at`, `updatedAt`, and `ts`.
+  - `transcriptMessagesSince()` now falls back to the full transcript when no row has a comparable timestamp, rather than dropping every row.
+- Updated `scripts/test-cross-border-agents.ts` with static regressions for nested transcript reading and timestamp fallback.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE30.1 | Nested assistant extraction | Static script | `scripts/test-cross-border-agents.ts` asserts the hidden runner contains `transcriptMessageRecord`, `messageRole`, `messageContent`, `asRecord(raw.message)`, and `messageRole(message) === "assistant"`. |
+| CE30.2 | Timestamp compatibility | Static script | Hidden runner contains `coerceTimestampMs`, nested timestamp parsing, `sawComparableTimestamp`, and the full-transcript fallback. |
+| CE30.3 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 422/422; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE30.4 | ECS rollout | Target commands | ECS static 422/422, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, and generated `next-env.d.ts` is restored. |
+| CE30.5 | Public smoke | Public HTTPS | `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return HTTP 200 after restart. |
+| CE30.6 | Production report recovery | API/store path | The Cellairis transcript payload is completed through `completeEmployeeScreeningRun()` / the existing Dashboard API/store normalization path, not hand-written with raw SQL. |
+| CE30.7 | RDS terminal state | RDS query | `run_230efb76-4442-4e46-a5d0-0467dea30b8f` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE30.8 | Report persistence | RDS query | Report `SR-20260625-CELLAIRIS-001` exists with score `88.44`, risk tier `trusted_candidate`, 29 evidence rows, 6 score blocks, and 14 address locations. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Local `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `SR-20260625-CELLAIRIS-001`.
+  - risk tier `trusted_candidate`.
+  - normalized score `88.44`.
+  - saved evidence = 29.
+  - saved score blocks = 6.
+  - address-footprint locations = 14.
+  - active Screening run count = 0.
+
+Boundary:
+
+- CE30 fixes transcript-shape compatibility. It does not change the marker contract, CE28 fallback scope, or CE29 repair behavior.
+- If OpenClaw never writes a final assistant message, or the final assistant message lacks a valid payload after fallback/repair, the task still fails explicitly.
