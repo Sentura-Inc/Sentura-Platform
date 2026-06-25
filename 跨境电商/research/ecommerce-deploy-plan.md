@@ -1,8 +1,26 @@
 # ecommerce(Phase 2)部署到服务器 — 任务记录 + Runbook
 
-> 专门针对"给服务器拉 ecommerce 最新版"这次任务的完整记录,供上下文压缩后无缝接续。状态截至 2026-06-21,未实际 reset/部署(等用户点头)。
+> 专门针对"给服务器拉 ecommerce 最新版"这次任务的完整记录。**✅ Layer 1 已部署完成(2026-06-25)**,见 §0.1。下方 §1-§6 是部署前的 runbook/决策(保留为参考)。
 
-## 0. 一句话现状
+## 0.1 ✅ 执行结果(2026-06-25,Layer 1 完成并验证)
+
+用户选**"代码+agents 先上 + PG 备好"(Layer 1)**,完整 operator 登录鉴权(Layer 2)延后。服务器现在在 `ecommerce`=`88379879`。**关键发现:MCP `cross-border-intel`(agent 工具层)不 import cross-border-store、无 pg 引用 → agent 背调/获客不依赖 PostgreSQL,openclaw 网关也 file-based;PG 只服务 dashboard 业务持久化。**
+
+执行链(每步都验证):
+1. **快照/备份**(STAMP `20260625T095923Z`):分支 `backup/pre-ecom-20260625T095923Z`(标旧 HEAD `a43feb2f` 防 GC)+ `.env.local.pre-ecom-…` + `~/.openclaw.cfgbak.…`(.env / openclaw.json / 4 个 auth-profiles.json)+ `git stash -u`(收 38 改动)。**回滚网全在,未删。**
+2. **`git reset --hard origin/ecommerce`**(88379879;544 文件 / +111829 行)→ **跳过 `git clean`**(stash 已清未跟踪,避免误删备份)。
+3. **openclaw 不重装/不重建**:版本同 `2026.6.2`、`openclaw/package.json` 与 `pnpm-lock.yaml` 没变、`dist/` 在;330 个 `openclaw/packages` 全是 "A"(只是新纳入 git 跟踪)→ 网关跑现成 dist。
+4. **根 `pnpm install`**(只增 `pg ^8.21` + `@types/pg`,5s)→ **重建 MCP**(`tsc`)→ **dashboard `pnpm build` 通过**(静态页 33/33,无报错)。
+5. **PostgreSQL = 唯一新建**:docker `postgres:16-alpine` 容器 `sentura-cbe-pg`(**仅绑 `127.0.0.1:5432`**,命名卷 `sentura-cbe-pgdata`,库 `sentura_cbe`,`postgres:postgres`)→ `CBE_DATABASE_URL` 写进 `sentura/dashboard/.env.local` → `CBE_DATABASE_URL=… pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`(**8 迁移全 applied + seed:tenant `cross-border-ecommerce` / 1 admin + 2 operator**,建 32 表)→ **DB-only load smoke `scripts/test-cross-border-phase2-load-smoke.ts --require-db` = 47/47 PASS**(`db_only_preflight_passed`)。
+6. **网关重启 `gw-restart2.sh`**(WARM,**绝不 setup**)。复核保住:`maxConcurrent=8`、付费闸 `CBE_ENABLE_PAID_TRADE_DATA=true`/`$1`、8 个数据源 key、3 个 cbe agent 的 `model.fallbacks`(GLM/Qwen)。
+7. **真实任务冒烟**(PHASE=A 真实+付费):背调 Tesco(UK→Companies House,48s/7 工具/付费 IY+1 $0.09)+ Apple(US→**SEC found** CIK 0000320193/AAPL,agent 报告写入 ✅);获客 find-10(69s,**仅 2/10**,根因缺 GOOGLE_MAPS_API_KEY 退化到纯 web_search)。dashboard 重启后 `/employee` 200、DB 路由 `401 cbe_login_required`(PG 连通 + 登录鉴权生效,无 pg 错误)。
+
+### ⚠️ 三个遗留(必须跟进)
+1. **SEC IPv4 修复在 ecommerce 上游丢了**:同事"适配"重构 MCP 时丢了我们的 `setDefaultAutoSelectFamily(false)+setDefaultResultOrder("ipv4first")`,部署后实测 `cbe_intel_sec_lookup`=**fetch failed**(curl -4 SEC=200 / -6=000,Node 默认 fetch=ETIMEDOUT)。**已热修服务器**(往 `sentura/mcp-servers/cross-border-intel/src/index.ts` 顶部插回 IPv4 pin + `CBE_INTEL_FORCE_IPV4` 开关;补丁 `/root/cbe-sec-ipv4.patch`、原文件 `/root/cbe-ecom-index.ts.orig`),重建+重启后 Apple 直连+agent 双双 found。**我们 `cbe-loadtest-and-research` 分支的 index.ts 本就有这段** → **请同事在 ecommerce 上游补回**,否则每次重拉都丢、SEC 再挂。
+2. **缺 `GOOGLE_MAPS_API_KEY`**:Phase 2 把 Google Maps 设主获客源,服务器没这 key → find-10 退化(2/10)。恢复需 `~/.openclaw/.env` 加 key + 手工往 `openclaw.json` 的 `mcp.servers.cross-border-intel.env` 加 `GOOGLE_MAPS_API_KEY: "${GOOGLE_MAPS_API_KEY}"`(禁 setup)。
+3. **Layer 2 延后**:dashboard 跑新代码+连 PG 了,但 operator 登录密码未发放 → 员工数据页 `401 cbe_login_required`。要让试点用户用,需配 operator 密码(migration 004)+ `NEXT_PUBLIC_CBE_ADMIN_USER_ID`/`NEXT_PUBLIC_CBE_USER_ID` 指向 seed 的 user id。已加随机 `SENTURA_CBE_SESSION_SECRET`+`NEXTAUTH_SECRET`(session 安全,不崩)。
+
+## 0. 一句话现状(部署前,已过时,保留)
 
 服务器 `/root/sentura` 在 `ecommerce` 分支、HEAD=`a43feb2f`;已用**浅克隆 PAT** `git fetch --depth=1 origin ecommerce` 成功(tip=`88379879`)。**尚未 reset/部署**。我们测试轮的 38 个本地改动还在服务器工作区(未提交),且**全部已 commit 在 `cbe-loadtest-and-research` 分支(GitHub),丢不了**。
 
