@@ -252,44 +252,7 @@ pnpm gateway:watch:raw
 # open the Control UI URL printed at the end
 ```
 
-### 2. Local with Ollama (Privacy-First)
-
-**macOS / Linux / WSL2:**
-
-```bash
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull llama3.3:70b
-
-git clone https://github.com/sentura/Sentura-Platform.git
-cd Sentura-Platform/openclaw
-
-pnpm install && pnpm ui:build && pnpm build
-pnpm openclaw onboard         # choose local provider
-
-cd .. && ./scripts/sentura-setup.sh
-cd openclaw && pnpm gateway:watch
-```
-
-**Windows (native PowerShell):** install Ollama from [ollama.com/download/windows](https://ollama.com/download/windows), then:
-
-```powershell
-ollama pull llama3.3:70b
-
-git clone https://github.com/sentura/Sentura-Platform.git
-cd Sentura-Platform\openclaw
-
-pnpm install
-pnpm ui:build
-pnpm build
-pnpm openclaw onboard         # choose local provider
-
-cd ..
-.\scripts\sentura-setup.ps1
-cd openclaw
-pnpm gateway:watch:raw
-```
-
-### 3. Development Setup
+### 2. Development Setup
 
 **macOS / Linux / WSL2:**
 
