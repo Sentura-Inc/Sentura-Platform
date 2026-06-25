@@ -84,7 +84,6 @@ const scoreSortLabels: Record<AdminScoreSort, string> = {
 const sourceLabels: Record<CustomerListItem["source"], string> = {
   lead_discovery: "",
   manual_screening: "手动录入",
-  accio_handoff: "来自聊天记录",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -156,7 +155,6 @@ function asNumber(value: unknown): number | undefined {
 }
 
 function sourceFromRecordType(value: string): CustomerListItem["source"] {
-  if (value.includes("accio")) return "accio_handoff";
   if (value.includes("manual")) return "manual_screening";
   return "lead_discovery";
 }
@@ -295,7 +293,7 @@ function adminCustomerToListItem(row: AdminCustomerRow): CustomerListItem {
     companyName: row.companyName,
     country,
     countryName: countryLabels[country] ?? country,
-    buyerType: row.buyerType ?? (source === "accio_handoff" ? "accio-handoff" : source === "manual_screening" ? "manual-input" : "buyer"),
+    buyerType: row.buyerType ?? (source === "manual_screening" ? "manual-input" : "buyer"),
     products,
     website: row.website ?? (row.domain ? `https://${row.domain}` : undefined),
     foundAt: row.updatedAt ?? row.createdAt,

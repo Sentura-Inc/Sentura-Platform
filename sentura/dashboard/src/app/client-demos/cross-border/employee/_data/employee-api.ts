@@ -268,17 +268,16 @@ interface ApiMemoryRecord {
   companyName: string | null;
   country: string | null;
   conversationCount: number;
+  customerProfile?: JsonRecord | null;
+  purchaseIntent?: JsonRecord[];
+  negotiatedPrices?: JsonRecord[];
+  behaviorSignals?: JsonRecord | null;
   nextActions: string[];
   summaryText: string | null;
   memoryFactStatus: string | null;
   validationStatus: string;
   classification: string;
   uploadedAt: string;
-  supplementTarget?: {
-    customerId?: string;
-    companyName?: string;
-    source?: string;
-  } | null;
 }
 
 export interface EmployeeCostBudgetSnapshot extends CostBudget {
@@ -412,13 +411,6 @@ async function fetchEmployeeJson<T>(path: string, init: RequestInit = {}): Promi
 function jsonPost<T>(path: string, body: unknown): Promise<T> {
   return fetchEmployeeJson<T>(path, {
     method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-function jsonPatch<T>(path: string, body: unknown): Promise<T> {
-  return fetchEmployeeJson<T>(path, {
-    method: "PATCH",
     body: JSON.stringify(body),
   });
 }
@@ -900,12 +892,7 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
   ].filter((url): url is string => Boolean(url))));
   return {
     customerId: record.recordId,
-    source:
-      record.recordType === "accio_summary"
-        ? "accio_handoff"
-        : record.recordType === "screening_target"
-          ? "manual_screening"
-          : "lead_discovery",
+    source: record.recordType === "screening_target" ? "manual_screening" : "lead_discovery",
     companyName: record.companyName,
     country: record.country ?? "ZZ",
     countryName: countryName(record.country),
@@ -945,15 +932,12 @@ function taskEstimateMs(kind: string) {
 }
 
 function taskAffectedCustomerIds(metadata: JsonRecord) {
-  const supplementTarget = asRecord(metadata.supplement_target);
-  const supplementCustomerId = asString(supplementTarget.customer_id ?? supplementTarget.customerId);
   return Array.from(new Set([
     ...asStringArray(metadata.affected_customer_ids),
     ...asStringArray(metadata.saved_customer_ids),
     ...asStringArray(metadata.target_customer_ids),
     ...asStringArray(metadata.lead_candidate_ids),
     ...asStringArray(metadata.screening_target_ids),
-    ...(supplementCustomerId ? [supplementCustomerId] : []),
   ]));
 }
 
@@ -1031,20 +1015,9 @@ function memorySourceFromKind(sourceKind?: string | null, sourceFileName?: strin
 }
 
 function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
-  const pendingSupplementRefresh = Boolean(
-    record.summaryId &&
-    record.supplementTarget &&
-    (
-      record.agentRunStatus === "queued" ||
-      record.agentRunStatus === "running" ||
-      record.agentRunStatus === "polling" ||
-      record.agentRunStatus === "failed"
-    ),
-  );
-  const analyzed = Boolean(record.summaryId) && !pendingSupplementRefresh;
-  const supplementSource = record.supplementTarget?.source;
+  const analyzed = Boolean(record.summaryId);
   return {
-    recordId: pendingSupplementRefresh ? record.importId : record.summaryId ?? record.importId,
+    recordId: record.summaryId ?? record.importId,
     name: record.companyName ?? record.sourceFileName ?? "未命名聊天记录",
     source: memorySourceFromKind(record.sourceKind, record.sourceFileName),
     importedAt: record.uploadedAt,
@@ -1063,20 +1036,16 @@ function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
         ? record.memoryFactStatus
         : "preview_only",
     summary:
-      pendingSupplementRefresh
-        ? "已补充聊天记录，等待记忆员工重新分析后更新客户画像和移交背调信息。"
-        : record.summaryText ??
+      record.summaryText ??
       record.nextActions[0] ??
-      (analyzed ? "记忆员工已生成结构化摘要。" : "已导入，等待记忆员工分析后生成写入预览。"),
-    handoffCompany: record.companyName ?? undefined,
-    supplementCustomerId: record.supplementTarget?.customerId,
-    supplementCompanyName: record.supplementTarget?.companyName,
-    supplementSource:
-      supplementSource === "lead_discovery" ||
-      supplementSource === "manual_screening" ||
-      supplementSource === "accio_handoff"
-        ? supplementSource
-        : undefined,
+      (analyzed ? "记忆员工已生成结构化摘要。" : "已导入，等待记忆员工分析后生成分析报告。"),
+    country: record.country ?? undefined,
+    customerProfile: record.customerProfile ?? undefined,
+    purchaseIntent: record.purchaseIntent ?? [],
+    negotiatedPrices: record.negotiatedPrices ?? [],
+    behaviorSignals: record.behaviorSignals ?? undefined,
+    nextActions: record.nextActions,
+    companyName: record.companyName ?? undefined,
   };
 }
 
@@ -1285,22 +1254,6 @@ export async function retryEmployeeScreeningChildRun(input: {
   });
 }
 
-export async function reviewEmployeeMemoryFacts(input: {
-  ids: string[];
-  decision: "approved" | "rejected";
-  reviewNote?: string;
-  vectorMemoryRef?: string;
-}) {
-  return jsonPatch<{
-    reviewed: Array<{ id: string; sourceRecordId: string; status: string }>;
-  }>("/api/client-demos/cross-border/employee/memory/facts", {
-    ids: input.ids,
-    decision: input.decision,
-    review_note: input.reviewNote,
-    vector_memory_ref: input.vectorMemoryRef,
-  });
-}
-
 function redactText(value: unknown) {
   const raw = asString(value) ?? "";
   return raw
@@ -1348,27 +1301,10 @@ async function accioConversationsFromPayload(payload: unknown) {
   );
 }
 
-function supplementTargetFromPayload(payload: unknown): AccioMemoryTaskInput["supplementTarget"] | undefined {
-  const metadata = asRecord(asRecord(payload).export_metadata);
-  const target = asRecord(metadata.supplement_target);
-  const customerId = asString(target.customer_id ?? target.customerId);
-  const companyName = asString(target.company_name ?? target.companyName);
-  const source = asString(target.source);
-  if (
-    customerId &&
-    companyName &&
-    (source === "lead_discovery" || source === "manual_screening" || source === "accio_handoff")
-  ) {
-    return { customerId, companyName, source };
-  }
-  return undefined;
-}
-
 export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, sessionKey?: string) {
   const serialized = JSON.stringify(input.chatExport);
   const conversations = await accioConversationsFromPayload(input.chatExport);
   const estimatedCost = sessionKey ? estimateMemoryTaskCost(conversations.length) : { estimatedUsd: 0 };
-  const supplementTarget = input.supplementTarget ?? supplementTargetFromPayload(input.chatExport);
   return jsonPost<{ agentRun: ApiAgentRun; accioImport: ApiAccioImport }>(
     "/api/client-demos/cross-border/employee/memory/imports",
     {
@@ -1381,13 +1317,6 @@ export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, ses
       classification: "T3",
       session_key: sessionKey,
       estimated_cost_usd: estimatedCost.estimatedUsd,
-      supplement_target: supplementTarget
-        ? {
-            customer_id: supplementTarget.customerId,
-            company_name: supplementTarget.companyName,
-            source: supplementTarget.source,
-          }
-        : undefined,
       conversations,
     },
   );
@@ -1461,14 +1390,9 @@ function normalizeScreeningPayload(payload: unknown) {
       const inferredTargetSource =
         sourceHint === "marketing_lead" ||
         sourceHint === "marketing_lead_batch" ||
-        sourceHint === "manual_input" ||
-        sourceHint === "accio_memory"
+        sourceHint === "manual_input"
           ? sourceHint
-          : targetLeadId?.startsWith("accio_summary") || targetId?.startsWith("accio_summary")
-            ? "accio_memory"
-            : targetId?.startsWith("screening_target") || targetLeadId?.startsWith("screening_target")
-              ? "manual_input"
-              : "manual_input";
+          : "manual_input";
       const score = asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
       const evidenceRows = Array.isArray(report.evidence) ? report.evidence : [];
       const targetWebsite = toUrl(target.website);
@@ -1521,14 +1445,14 @@ function normalizeScreeningPayload(payload: unknown) {
       const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
       return {
         report_id: asString(report.report_id ?? report.reportId) ?? `screening-report-${Date.now()}-${index}`,
-        lead_id: targetLeadId ?? (inferredTargetSource === "accio_memory" ? targetId : null),
+        lead_id: targetLeadId ?? null,
         target_source: inferredTargetSource,
         company_name: companyName,
         ...(companyScaleAssessment ? { company_scale_assessment: companyScaleAssessmentPayload(companyScaleAssessment) } : {}),
         target: {
           target_id: targetId,
           source: inferredTargetSource,
-          lead_id: targetLeadId ?? (inferredTargetSource === "accio_memory" ? targetId : null),
+          lead_id: targetLeadId ?? null,
           company_name: companyName,
           country: toOptionalCountryCode(target.country ?? report.country),
           website: targetWebsite,
@@ -1580,29 +1504,22 @@ function normalizeScreeningPayload(payload: unknown) {
   };
 }
 
-function normalizeAccioPayload(
-  payload: unknown,
-  sourceFileName: string,
-  supplementTarget?: AccioMemoryTaskInput["supplementTarget"],
-) {
+function normalizeAccioPayload(payload: unknown, sourceFileName: string) {
   return {
     summaries: payloadArray(payload, "summaries").map((item, index) => {
       const summary = asRecord(item);
       const profile = asRecord(summary.customer_profile);
       const memoryPreview = asRecord(summary.memory_preview ?? summary.memoryWritePreview ?? summary.memory_write_preview);
-      const handoff = asRecord(summary.screening_handoff_target ?? summary.screeningHandoffTarget);
       const behaviorSignals = asRecord(summary.behavior_signals ?? summary.behaviorSignals);
       const conversationId = asString(summary.conversation_id ?? summary.conversationId) ?? `conversation-${index + 1}`;
       const companyName =
-        supplementTarget?.companyName ??
-        firstTextValue(profile.company_name, handoff.company_name, memoryPreview.company_name, summary.company_name) ??
+        firstTextValue(profile.company_name, memoryPreview.company_name, summary.company_name) ??
         `Unknown company ${index + 1}`;
       const productInterest = firstTextValue(
         summary.product,
         summary.product_interest,
         memoryPreview.product,
         memoryPreview.product_interest,
-        handoff.product_interest,
       );
       const purchaseIntent = asRecordArray(summary.purchase_intent ?? summary.purchaseIntent);
       const negotiatedPricesFromPreview = asRecordArray(memoryPreview.negotiated_price_facts ?? memoryPreview.negotiated_prices);
@@ -1615,7 +1532,6 @@ function normalizeAccioPayload(
         memoryPreview.quantity,
         memoryPreview.target_quantity,
         memoryPreview.order_quantity,
-        handoff.quantity,
       );
       const derivedTargetPrice = firstTextValue(
         summary.target_price_usd,
@@ -1644,39 +1560,6 @@ function normalizeAccioPayload(
       const negotiationSummary =
         firstTextValue(summary.negotiation_summary, summary.summary, memoryPreview.summary, behaviorSignals.summary) ??
         "已完成聊天记录整理。";
-      const normalizedProductInterest = asStringArray(handoff.product_interest).length
-        ? asStringArray(handoff.product_interest)
-        : derivedProduct
-          ? [derivedProduct]
-          : ["mobile accessories"];
-      const hasCountry = Boolean(profile.country ?? handoff.country);
-      const hasWebsite = Boolean(profile.website ?? handoff.website);
-      const hasEmail = Boolean(profile.email ?? handoff.email);
-      const normalizedHandoff = {
-        ...handoff,
-        source:
-          supplementTarget?.source === "manual_screening"
-            ? "manual_input"
-            : asString(handoff.source) ?? "accio_memory",
-        lead_id: supplementTarget?.customerId ?? asString(handoff.lead_id ?? handoff.target_id) ?? conversationId,
-        target_id: supplementTarget?.customerId ?? asString(handoff.target_id),
-        company_name: companyName,
-        country: toOptionalCountryCode(handoff.country ?? profile.country),
-        website: toUrl(handoff.website ?? profile.website),
-        email: toEmail(handoff.email ?? profile.email),
-        contact_person: asString(handoff.contact_person ?? profile.contact_person),
-        product_interest: normalizedProductInterest,
-        supplied_fields: asStringArray(handoff.supplied_fields).length
-          ? asStringArray(handoff.supplied_fields)
-          : [
-              "company_name",
-              ...(hasCountry ? ["country"] : []),
-              ...(hasWebsite ? ["website"] : []),
-              ...(hasEmail ? ["email"] : []),
-              ...(normalizedProductInterest.length ? ["product_interest"] : []),
-            ],
-        missing_fields: asStringArray(handoff.missing_fields),
-      };
       const sourceReferences = Array.isArray(summary.source_references) && summary.source_references.length > 0
         ? summary.source_references
         : Array.isArray(memoryPreview.source_references) && memoryPreview.source_references.length > 0
@@ -1705,46 +1588,16 @@ function normalizeAccioPayload(
               ? [derivedPrice]
               : [],
         negotiation_summary: negotiationSummary,
-        next_actions: nextActions.length ? nextActions : ["复核记忆预览并决定是否移交背调"],
+        next_actions: nextActions.length ? nextActions : ["复核记忆整理报告并继续人工跟进"],
         behavior_signals: isNonEmptyRecord(behaviorSignals)
-          ? {
-              ...behaviorSignals,
-              ...(supplementTarget
-                ? {
-                    supplement_target: {
-                      customer_id: supplementTarget.customerId,
-                      company_name: supplementTarget.companyName,
-                      source: supplementTarget.source,
-                    },
-                  }
-                : {}),
-            }
+          ? behaviorSignals
           : memoryPreview.summary
             ? {
                 summary: memoryPreview.summary,
-                ...(supplementTarget
-                  ? {
-                      supplement_target: {
-                        customer_id: supplementTarget.customerId,
-                        company_name: supplementTarget.companyName,
-                        source: supplementTarget.source,
-                      },
-                    }
-                  : {}),
               }
             : {
                 summary: negotiationSummary,
-                ...(supplementTarget
-                  ? {
-                      supplement_target: {
-                        customer_id: supplementTarget.customerId,
-                        company_name: supplementTarget.companyName,
-                        source: supplementTarget.source,
-                      },
-                    }
-                  : {}),
               },
-        screening_handoff_target: normalizedHandoff,
         memory_preview: {
           ...memoryPreview,
           summary: firstTextValue(memoryPreview.summary, negotiationSummary),
@@ -1805,12 +1658,11 @@ export async function completeEmployeeAccioImport(input: {
   sessionKey: string;
   sourceFileName: string;
   payload: unknown;
-  supplementTarget?: AccioMemoryTaskInput["supplementTarget"];
 }) {
   return jsonPost(`/api/client-demos/cross-border/employee/memory/imports/${input.importId}/complete`, {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
-    payload: normalizeAccioPayload(input.payload, input.sourceFileName, input.supplementTarget),
+    payload: normalizeAccioPayload(input.payload, input.sourceFileName),
   });
 }
 

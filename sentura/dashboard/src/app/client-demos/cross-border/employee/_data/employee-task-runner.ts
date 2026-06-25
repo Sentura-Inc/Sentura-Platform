@@ -75,7 +75,7 @@ export interface ManualScreeningInput {
 
 export interface ScreeningTarget {
   target_id: string;
-  source: "marketing_lead" | "marketing_lead_batch" | "manual_input" | "accio_memory";
+  source: "marketing_lead" | "marketing_lead_batch" | "manual_input";
   lead_id: string | null;
   company_name?: string;
   country?: string;
@@ -99,11 +99,6 @@ export interface AccioMemoryTaskInput {
   rawText?: string;
   attachments?: GatewayChatAttachment[];
   attachmentMetadata?: Array<Record<string, unknown>>;
-  supplementTarget?: {
-    customerId: string;
-    companyName: string;
-    source: CustomerListItem["source"];
-  };
 }
 
 export type CbeEmployeeAgentId = "cbe-lead-discovery" | "cbe-buyer-screening" | "cbe-accio-memory";
@@ -1219,7 +1214,6 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
   return payloadArray(payload, "summaries").map((item, index) => {
     const raw = asRecord(item);
     const profile = asRecord(raw.customer_profile);
-    const handoff = asRecord(raw.screening_handoff_target);
     const preview = asRecord(raw.memory_preview ?? raw.memory_write_preview);
     const conversationId =
       asString(raw.conversation_id) ??
@@ -1228,7 +1222,6 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
     const company =
       asString(raw.company_name) ??
       asString(profile.company_name) ??
-      asString(handoff.company_name) ??
       "Unknown company";
     const nextActions = asStringArray(raw.next_actions);
     const recordId = conversationId.startsWith("mem-")
@@ -1250,7 +1243,7 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
         asString(preview.summary) ??
         nextActions[0] ??
         "已完成聊天记录整理。",
-      handoffCompany: company,
+      companyName: company,
     };
   });
 }
@@ -1442,23 +1435,12 @@ function buildAccioPrompt(input: AccioMemoryTaskInput) {
   const inputFormat = input.inputFormat ?? "json";
   const isImageInput = inputFormat === "image";
   const isTextInput = inputFormat === "pasted_text";
-  const supplementInstruction = input.supplementTarget
-    ? `
-补充目标：
-${JSON.stringify({
-  customer_id: input.supplementTarget.customerId,
-  company_name: input.supplementTarget.companyName,
-  source: input.supplementTarget.source,
-}, null, 2)}
-
-重要：这是补充到既有客户的聊天记录，不要把聊天里的其他公司另建为新客户。summary.customer_profile.company_name 和 screening_handoff_target.company_name 必须优先使用补充目标 company_name；screening_handoff_target.lead_id 必须使用补充目标 customer_id。`
-    : "";
   const sourceInstruction = isImageInput
     ? `
 图片输入说明：
 - 本任务前面的 assistant turn 已经按 ${IMAGE_TRANSCRIPT_BATCH_PREFIX}_*_JSON_START/END 返回截图转写批次。
 - 请读取这些批次转写结果，并与下面的占位 chatExport 元数据合并成一个或多个 conversation summary。
-- 如果截图中没有公司名、国家、联系人或网站，使用“待确认客户”“待确认联系人”和 country="ZZ"，并在 screening_handoff_target.missing_fields 写出缺失项。
+- 如果截图中没有公司名、国家、联系人或网站，使用“待确认客户”“待确认联系人”和 country="ZZ"，并在 behavior_signals.inference_notes 或 report_zh.risk_or_missing_info 写出缺失项。
 - 图片原件只用于本轮视觉读取，不要把原始图片内容写入 memory_preview。`
     : isTextInput
       ? `
@@ -1478,14 +1460,14 @@ JSON 输入说明：
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 能使用 cross-border-intel Accio/对话解析或摘要工具时优先使用；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
-- 先整理 conversation，再为每条 conversation 生成结构化摘要、记忆写入预览和背调 handoff。
-- 不写入长期记忆，只返回 preview_only。
+- 先整理 conversation，再为每条 conversation 生成结构化客户画像、采购需求、价格条款、沟通行为和后续事项报告。
+- 不写入长期记忆，不生成背调移交，不和获客/背调板块互通；只返回 preview_only 报告。
 - 对缺失、不清楚、被遮挡或无法确认的信息，写入 missing_fields 或 behavior_signals.inference_notes，不要编造。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：
 - 顶层：summaries。
-- summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、screening_handoff_target、memory_preview、source_references。
+- summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、memory_preview、source_references。
 - 报告必须面向中文业务操作员可读：保留公司名、网址、邮箱、订单编号等原文，同时为英文聊天内容补充中文总结/翻译。
 - 每个 summary 必须额外包含 report_zh，对象字段尽量包括 executive_summary、customer_profile_summary、inquiry_summary、purchase_intent_summary、pricing_terms_summary、shipping_timeline_summary、payment_terms_summary、sample_status_summary、follow_up_summary、risk_or_missing_info。
 - purchase_intent 每项尽量包含 product、product_zh、quantity、unit、target_price_usd、seller_best_price_usd、incoterm、incoterm_zh、payment_terms、payment_terms_zh、packaging、customization、lead_time、sample_status、summary_zh；聊天中没有出现的字段不要编造。
@@ -1493,8 +1475,8 @@ JSON 字段要求：
 - behavior_signals 必须包含 summary 和 summary_zh，尽量包含 urgency、price_sensitivity、decision_role、risk_flags、inference_notes。
 - negotiation_summary 优先用中文总结；如需保留原文英文说明，可放入 negotiation_summary_source 或 behavior_signals.summary。
 - next_actions 必须是中文字符串数组；如果先生成对象，必须包含 action_zh，并保证最终 next_actions 可被直接展示为中文行动项。
-- screening_handoff_target 必须包含 source="accio_memory"、company_name、country、website/email/contact_person（如有）、product_interest、supplied_fields、missing_fields。缺国家时 country 用 "ZZ"。
-- memory_preview.status 必须是 "preview_only"。memory_preview.summary 和 memory_preview.summary_zh 必须只包含简洁事实；如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 写入。
+- 不要输出 screening_handoff_target、handoff、lead_id 或任何背调移交字段。
+- memory_preview.status 必须是 "preview_only"。memory_preview.summary 和 memory_preview.summary_zh 必须只包含简洁事实；如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 展示。
 - source_references 每项包含 source_type、source_file、conversation_id。
 
 最终格式：
@@ -1507,7 +1489,6 @@ ${SUMMARY_JSON_END}
 输入格式：${inputFormat}
 来源类型：${input.sourceKind ?? "manual_json"}
 ${sourceInstruction}
-${supplementInstruction}
 
 任务输入：
 ${JSON.stringify({
@@ -1520,12 +1501,7 @@ ${JSON.stringify({
 export function customersToScreeningTargets(customers: CustomerListItem[]): ScreeningTarget[] {
   return customers.map((customer) => ({
     target_id: customer.customerId,
-    source:
-      customer.source === "accio_handoff"
-        ? "accio_memory"
-        : customer.source === "manual_screening"
-          ? "manual_input"
-          : "marketing_lead_batch",
+    source: customer.source === "manual_screening" ? "manual_input" : "marketing_lead_batch",
     lead_id: customer.source === "manual_screening" ? null : customer.customerId,
     company_name: customer.companyName,
     country: customer.country,

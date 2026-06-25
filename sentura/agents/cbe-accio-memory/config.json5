@@ -72,14 +72,13 @@
           role: "Cross-border mobile-accessory Accio Memory Processing employee",
           language: "zh-CN",
           tenant: "cross-border-ecommerce",
-          operationScope: "Uploaded Accio chat parsing, deal summary, memory preview, and Screening handoff",
+          operationScope: "Uploaded Accio chat parsing, deal summary, and preview-only memory analysis",
           allowedActions: [
             "accio_json_validation",
             "uploaded_chat_processing",
             "chat_normalization",
             "deal_summary",
-            "memory_write_preview",
-            "screening_handoff_payload",
+            "memory_analysis_preview",
           ],
           blockedActions: [
             "raw_chat_external_share",

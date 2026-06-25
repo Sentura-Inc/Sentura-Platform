@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowDownWideNarrow,
@@ -186,7 +186,6 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 const sourceLabels: Record<CustomerListItem["source"], string> = {
   lead_discovery: "",
   manual_screening: "手动录入",
-  accio_handoff: "来自聊天记录",
 };
 
 const scoreTierLabels: Record<ScoreTier, string> = {
@@ -607,13 +606,6 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
   };
 }
 
-function needsChatRecordSupplement(item: CustomerListItem) {
-  return (
-    (item.source === "accio_handoff" || item.source === "manual_screening") &&
-    item.screeningStatus === "insufficient_evidence"
-  );
-}
-
 function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
   const grouped = new Map<ScreeningEvidenceLayer, CustomerEvidenceItem[]>();
   for (const item of evidence) {
@@ -820,7 +812,6 @@ export default function CrossBorderCustomersPage() {
 }
 
 function CrossBorderCustomersPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const { client, state } = useGateway();
@@ -1080,7 +1071,6 @@ function CrossBorderCustomersPageContent() {
   }, [filterOptions.buyerTypes, filterOptions.countries, filterOptions.products, filters, scoreSort, statusFilter]);
 
   const selectedCustomers = rows.filter((item) => selectedIds.includes(item.customerId));
-  const selectedScreeningCustomers = selectedCustomers.filter((item) => !needsChatRecordSupplement(item));
   const deleteTargets = deleteIntent
     ? rows.filter((item) => deleteIntent.customerIds.includes(item.customerId))
     : [];
@@ -1137,27 +1127,10 @@ function CrossBorderCustomersPageContent() {
     setSheetMode("detail");
   };
 
-  const openMemoryRefresh = (item: CustomerListItem) => {
-    setSheetMode(null);
-    const params = new URLSearchParams({
-      supplementCustomer: item.customerId,
-      supplementCompany: item.companyName,
-      supplementSource: item.source,
-    });
-    if (item.source === "accio_handoff") {
-      params.set("highlightRecord", item.customerId);
-    }
-    router.push(`/client-demos/cross-border/employee/memory?${params.toString()}`);
-  };
-
   const openBulkScreening = () => {
-    const skippedCount = selectedCustomers.length - selectedScreeningCustomers.length;
-    if (selectedScreeningCustomers.length === 0) {
-      showNotice("证据不足的聊天记录或手动录入客户，需要先补充聊天记录，再送到背调。", "info", 6000);
+    if (selectedCustomers.length === 0) {
+      showNotice("请先选择至少一个客户。", "info");
       return;
-    }
-    if (skippedCount > 0) {
-      showNotice(`已跳过 ${skippedCount} 个需补充聊天记录的客户；其余客户可继续背调。`, "info", 6000);
     }
     setSheetMode("bulk");
   };
@@ -1392,11 +1365,6 @@ function CrossBorderCustomersPageContent() {
     targets: CustomerListItem[],
     options?: EmployeeScreeningTaskOptions,
   ) => {
-    const runnableTargets = targets.filter((item) => !needsChatRecordSupplement(item));
-    if (runnableTargets.length !== targets.length) {
-      showNotice("证据不足的聊天记录移交/手动录入客户需要先补充聊天记录，重新分析后再送到背调。", "info", 6000);
-    }
-    if (runnableTargets.length === 0) return;
     if (screeningRunning) {
       showNotice("已有背调任务正在运行，完成后可再次启动背调。", "info");
       return;
@@ -1410,12 +1378,12 @@ function CrossBorderCustomersPageContent() {
       );
       return;
     }
-    const screeningTargets = customersToScreeningTargets(runnableTargets);
+    const screeningTargets = customersToScreeningTargets(targets);
     if (screeningTargets.length === 0) {
       showNotice("请先选择至少一个客户。", "error");
       return;
     }
-    const ids = new Set(runnableTargets.map((item) => item.customerId));
+    const ids = new Set(targets.map((item) => item.customerId));
     const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs(screeningTargets, options);
     let taskId: string | undefined;
@@ -1442,14 +1410,14 @@ function CrossBorderCustomersPageContent() {
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
-        title: runnableTargets.length > 1 ? "批量背调" : "单个背调",
-        message: runnableTargets.length > 1
-          ? `批量背调已拆分为 ${runnableTargets.length} 个单客户任务。`
+        title: targets.length > 1 ? "批量背调" : "单个背调",
+        message: targets.length > 1
+          ? `批量背调已拆分为 ${targets.length} 个单客户任务。`
           : "背调任务已启动，正在核验客户资料。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: createdRun.agentRun.sessionKey ?? initialChildRuns.find((child) => child.agentRun.sessionKey)?.agentRun.sessionKey ?? plannedSessionKey,
-        targetLabel: `${runnableTargets.length} 个客户`,
+        targetLabel: `${targets.length} 个客户`,
       });
       taskId = localTaskId;
       abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1826,7 +1794,6 @@ function CrossBorderCustomersPageContent() {
               <div className="grid gap-3 lg:hidden">
                 {filtered.map((item) => {
                   const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
-                  const requiresMemoryRefresh = needsChatRecordSupplement(item);
                   return (
                     <CustomerMobileCard
                       key={item.customerId}
@@ -1836,7 +1803,6 @@ function CrossBorderCustomersPageContent() {
 	                      toggleSelected={toggleSelected}
 	                      openDetail={openDetail}
 	                      clearHighlight={clearCustomerHighlight}
-                        openMemoryRefresh={requiresMemoryRefresh ? () => openMemoryRefresh(item) : undefined}
 	                      startScreening={() => {
                         setSelectedIds([item.customerId]);
                         setSheetMode("bulk");
@@ -1867,7 +1833,6 @@ function CrossBorderCustomersPageContent() {
                     {filtered.map((item) => {
                       const itemWorkflowBadge = workflowBadge(item);
                       const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
-                      const requiresMemoryRefresh = needsChatRecordSupplement(item);
                       return (
 	                      <tr
 	                        key={item.customerId}
@@ -1932,12 +1897,7 @@ function CrossBorderCustomersPageContent() {
                               <Eye className="h-3.5 w-3.5" />
                               {item.screeningStatus === "screened" ? "查看报告" : item.screeningStatus === "running" ? "查看进度" : "详情"}
                             </Button>
-                              {requiresMemoryRefresh ? (
-                                <Button variant="outline" size="sm" onClick={() => openMemoryRefresh(item)}>
-                                  <Plus className="h-3.5 w-3.5" />
-                                  补充聊天记录
-                                </Button>
-                              ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+                              {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
 	                              <Button variant="outline" size="sm" onClick={() => {
 	                                setSelectedIds([item.customerId]);
 	                                setSheetMode("bulk");
@@ -1967,7 +1927,7 @@ function CrossBorderCustomersPageContent() {
 	          }
 	        }}
 	        activeCustomer={activeCustomer}
-	        selectedCustomers={selectedScreeningCustomers}
+	        selectedCustomers={selectedCustomers}
 	        deleteTargets={deleteTargets}
 	        canRunLead={canRunLead}
         canRunScreening={canRunScreening}
@@ -1999,7 +1959,6 @@ function CustomerMobileCard({
   toggleSelected,
   openDetail,
   clearHighlight,
-  openMemoryRefresh,
   startScreening,
   productsExpanded,
   toggleProductsExpanded,
@@ -2010,7 +1969,6 @@ function CustomerMobileCard({
   toggleSelected: (customerId: string) => void;
   openDetail: (item: CustomerListItem) => void;
   clearHighlight: (customerId: string) => void;
-  openMemoryRefresh?: () => void;
   startScreening: () => void;
   productsExpanded: boolean;
   toggleProductsExpanded: () => void;
@@ -2070,12 +2028,7 @@ function CustomerMobileCard({
           <Eye className="h-3.5 w-3.5" />
           {item.screeningStatus === "screened" ? "查看报告" : "详情"}
         </Button>
-        {openMemoryRefresh ? (
-          <Button variant="outline" size="sm" onClick={openMemoryRefresh}>
-            <Plus className="h-3.5 w-3.5" />
-            补充聊天记录
-          </Button>
-        ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+        {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
           <Button size="sm" onClick={startScreening}>
             <ShieldCheck className="h-3.5 w-3.5" />
             开始调研

@@ -613,11 +613,6 @@ async function runLiveDashboardStoreChecks() {
             next_actions: ["Review memory preview"],
             behavior_signals: { notes: "Professional inquiry" },
             memory_preview: { status: "preview_only", summary: "Probe memory preview" },
-            screening_handoff_target: {
-              company_name: `CE19 Probe Buyer ${stamp}`,
-              country: "GB",
-              website: `https://${leadDomain}`,
-            },
             source_references: [
               {
                 source_type: "self_reported",
@@ -630,8 +625,8 @@ async function runLiveDashboardStoreChecks() {
       },
     });
     check("dashboard store saves Accio summaries", accioResult.summaries.length === 1);
-    check("dashboard store creates pending memory facts", accioResult.memoryFactIds.length === 1);
-    check("dashboard store creates Screening handoffs", accioResult.handoffIds.length === 1);
+    check("dashboard store does not create pending memory facts from Accio", accioResult.memoryFactIds.length === 0);
+    check("dashboard store does not create Screening handoffs from Accio", accioResult.handoffIds.length === 0);
 
     const tasks = await store.listEmployeeTasks(context, { limit: 20, offset: 0 });
     check(
@@ -643,120 +638,29 @@ async function runLiveDashboardStoreChecks() {
       "employee memory read projection returns saved Accio import",
       memory.items.some((item: { importId: string }) => item.importId === accioStart.accioImport.id),
     );
-    const memoryReview = await store.reviewEmployeeMemoryFacts(context, {
-      ids: [accioResult.summaries[0].id],
-      decision: "approved",
-      review_note: "CE22 live probe approves concise Accio memory facts.",
-    });
-    check("CE22 live memory approval updates pending facts", memoryReview.reviewed.length === 1 && memoryReview.reviewed[0].status === "approved");
-
-    const accioScreeningStart = await store.createScreeningRun(context, {
-      target_summary: `CE22 Accio handoff Screening ${stamp}`,
-      session_key: `ce22-accio-screening-session-${stamp}`,
-      targets: [
-        {
-          target_id: accioResult.summaries[0].id,
-          source: "accio_memory",
-          lead_id: accioResult.summaries[0].id,
-          company_name: `CE19 Probe Buyer ${stamp}`,
-          country: "GB",
-          domain: leadDomain,
-          product_interest: ["phone case"],
-          supplied_fields: ["company_name", "domain"],
-          missing_fields: [],
-        },
-      ],
-      metadata_json: {
-        target_count: 1,
-        options: {
-          paidEmailValidation: false,
-          paidTradeData: false,
-        },
-      },
-    });
-    agentRunIds.push(accioScreeningStart.agentRun.id);
-    const acceptedHandoff = await store.getCbePool().query(
+    const accioHandoffs = await store.getCbePool().query(
       `
-        select status, accepted_at
+        select id
         from handoff_events
         where tenant_id = $1
           and source_record_id = $2
-        limit 1
       `,
       [CBE_TENANT_ID, accioResult.summaries[0].id],
     );
-    check(
-      "CE22 live Screening creation accepts durable Accio handoff",
-      acceptedHandoff.rows[0]?.status === "accepted" && Boolean(acceptedHandoff.rows[0]?.accepted_at),
-    );
-    await store.saveScreeningReports(context, {
-      agent_run_id: accioScreeningStart.agentRun.id,
-      session_key: `ce22-accio-screening-session-${stamp}`,
-      payload: {
-        reports: [
-          {
-            report_id: `ce22-accio-screening-report-${stamp}`,
-            lead_id: accioResult.summaries[0].id,
-            company_name: `CE19 Probe Buyer ${stamp}`,
-            target: {
-              source: "accio_memory",
-              lead_id: accioResult.summaries[0].id,
-              target_id: accioResult.summaries[0].id,
-              company_name: `CE19 Probe Buyer ${stamp}`,
-              country: "GB",
-              domain: leadDomain,
-              product_interest: ["phone case"],
-              supplied_fields: ["company_name", "domain"],
-              missing_fields: [],
-            },
-            risk_tier: "cautious",
-            normalized_score: 74,
-            evidence_coverage: 0.7,
-            recommended_action: "Proceed with Accio context and human review.",
-            score_blocks: [
-              {
-                block: "conversation_behavior",
-                status: "scored",
-                max_points: 15,
-                earned_points: 12,
-                source_count: 1,
-                summary: "Accio summary provides buyer behavior context.",
-              },
-            ],
-            evidence: [
-              {
-                layer: "conversation_behavior",
-                source_type: "self_reported",
-                source_url: `https://${leadDomain}/accio-summary`,
-                finding: "Approved Accio summary was consumed for Screening handoff.",
-                fetched_at: fetchedAt,
-                confidence: 0.8,
-                score_block: "conversation_behavior",
-                score_impact: "positive",
-              },
-            ],
-            coverage_gaps: [],
-            open_questions: [],
-          },
-        ],
-      },
-    });
-    const completedHandoff = await store.getCbePool().query(
-      `
-        select status, completed_at, consumed_by_agent_run_id
-        from handoff_events
-        where tenant_id = $1
-          and source_record_id = $2
-        limit 1
-      `,
-      [CBE_TENANT_ID, accioResult.summaries[0].id],
-    );
-    check(
-      "CE22 live Screening completion consumes durable Accio handoff",
-      completedHandoff.rows[0]?.status === "completed" &&
-        Boolean(completedHandoff.rows[0]?.completed_at) &&
-        completedHandoff.rows[0]?.consumed_by_agent_run_id === accioScreeningStart.agentRun.id,
-    );
+    check("CE22 live Accio summaries do not create handoff rows", accioHandoffs.rowCount === 0);
+    let accioHandoffRejected = false;
+    try {
+      await store.createHandoffEvent(context, {
+        from_agent_id: "cbe-accio-memory",
+        to_agent_id: "cbe-buyer-screening",
+        source_record_type: "accio_summary",
+        source_record_id: accioResult.summaries[0].id,
+        payload_json: { company_name: `CE19 Probe Buyer ${stamp}` },
+      });
+    } catch (error) {
+      accioHandoffRejected = (error as { code?: string }).code === "accio_handoff_disabled";
+    }
+    check("CE22 live store rejects explicit Accio-to-Screening handoff", accioHandoffRejected);
 
     const paidBatch = await store.createScreeningRun(context, {
       target_summary: `CE22 Paid Retry Probe ${stamp}`,
@@ -1091,6 +995,7 @@ for (const page of cbeManagerPages) {
   check(`manager UI file exists: ${page}`, exists(path.join(DASHBOARD_ADMIN_DIR, page)));
 }
 const p22AllStoreText = dashboardStoreSource.map(([, text]) => text).join("\n");
+const dashboardAccioStoreTs = read(path.join(DASHBOARD_STORE_DIR, "accio.ts"));
 const completionRouteText = [
   read(path.join(DASHBOARD_API_DIR, "employee/lead-runs/[id]/complete/route.ts")),
   read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/complete/route.ts")),
@@ -1119,30 +1024,28 @@ check("CE22 store enforces paid Screening retry re-approval state", [
   "screening_paid_retry_reapproved",
   "paid_source_policy",
 ].every((needle) => p22AllStoreText.includes(needle)));
-check("CE22 store approves Accio memory facts without raw chat promotion", [
-  "reviewEmployeeMemoryFacts",
-  "memory_facts_approved",
-  "pending_review",
-  "vector_memory_ref",
-].every((needle) => p22AllStoreText.includes(needle)) && !p22AllStoreText.includes("raw chat text"));
-check("CE22 store marks Accio-to-Screening handoffs accepted and completed", [
+check("CE22 Accio completion keeps memory facts and Screening handoffs disabled", [
+  "memory_fact_ids: []",
+  "handoff_ids: []",
+  "interop_disabled: true",
+  "accio_interop_disabled",
+].every((needle) => p22AllStoreText.includes(needle)) && !dashboardAccioStoreTs.includes("insertHandoffEvent"));
+check("CE22 Accio-to-Screening handoff path is removed", [
   "screening_handoff_accepted",
   "screening_handoff_consumed",
-  "accepted_at",
-  "completed_at",
-].every((needle) => p22AllStoreText.includes(needle)));
+].every((needle) => !p22AllStoreText.includes(needle)));
 check("P2.2 store writes task activity events for admin monitoring", p22AllStoreText.includes("agent_run_activity_events") && p22AllStoreText.includes("createAgentRunActivityEvent"));
 check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreText.includes("scopedOwnerClause") && p22AllStoreText.includes("owner_user_id") && p22AllStoreText.includes("tenant_shared"));
 check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)"));
 check("P2.2 route handlers use Next App Router node runtime", [...p22EmployeeRoutes, ...p22AdminRoutes].every((route) => read(path.join(DASHBOARD_API_DIR, route)).includes('runtime = "nodejs"')));
 check("P2.2 route handlers do not expose raw SQL to employees", !/\b(select|insert into|update|delete from)\b/i.test(completionRouteText));
-check("CE22 retry and memory review routes use typed store functions", [
+check("CE22 retry route uses typed store and memory review route is disabled", [
   read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/retry/route.ts")),
   read(path.join(DASHBOARD_API_DIR, "employee/memory/facts/route.ts")),
 ].join("\n").includes("retryFailedScreeningChildRun") && [
   read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/retry/route.ts")),
   read(path.join(DASHBOARD_API_DIR, "employee/memory/facts/route.ts")),
-].join("\n").includes("reviewEmployeeMemoryFacts"));
+].join("\n").includes("memory_fact_review_disabled"));
 
 section("CE21 Manager account system");
 check("manager schemas define cost limits and approval decisions", ["AdminCostLimitPatchRequestSchema", "AdminCostApprovalDecisionRequestSchema", "AdminCreateOperatorRequestSchema", "estimated_cost_usd"].every((needle) => dashboardSchemasTs.includes(needle)));
@@ -1211,7 +1114,7 @@ check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchE
 check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb", "refreshDbBackedLists"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 customers page applies child paid-source policy before Screening execution", ["screeningOptionsForChild", "paidSourcePolicy", "policy.paidEmailValidation?.allowed", "policy.paidTradeData?.allowed"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
-check("P2.3 memory page exposes approval-to-memory action", ["reviewEmployeeMemoryFacts", "批准写入", "原始聊天不会写入长期记忆", "memoryPreviewStatusLabel"].every((needle) => employeeMemoryPageTs.includes(needle)));
+check("P2.3 memory page does not expose approval-to-memory action", !["reviewEmployeeMemoryFacts", "批准写入", "memoryPreviewStatusLabel"].some((needle) => employeeMemoryPageTs.includes(needle)) && employeeMemoryPageTs.includes("不写入长期记忆"));
 check("P2.3 memory page supports JSON/text/image manual imports through normalizer", ["normalizeJsonMemoryImport", "normalizeTextMemoryImport", "normalizeImageMemoryImport", "toGatewayChatAttachments", "截图导入需要立即分析"].every((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 employee header keeps DB task refresh and task notification links", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && appShellTs.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargetsTs.includes("employee-messages"));
 check("P2.3 employee and manager notifications use scrollable targeted message lists", appShellTs.includes("notificationListMaxHeight") && appShellTs.includes("overflow-y-auto") && appShellTs.includes("previewMessages.map((item)") && appShellTs.includes("employeeTaskNotificationHref(item)") && appShellTs.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShellTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargetsTs.includes("highlightTask=") && employeeNotificationTargetsTs.includes("employeeCostHighlightHref") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
@@ -1221,6 +1124,8 @@ check("P2.3 failure route validates stable error codes", p23RouteText.includes("
 check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
 check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));
 check("P2.3 Accio store persists and projects import source/input metadata", ["source_kind", "input_format", "attachment_metadata_json", "sourceKind", "inputFormat", "attachmentMetadata"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
+check("P2.3 Accio memory projection exposes structured deal facts", ["customerProfile", "purchaseIntent", "negotiatedPrices", "behaviorSignals", "customer_profile_json", "purchase_intent_json", "negotiated_price_json"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
+check("P2.3 Accio memory projection prefers analyzed company over placeholder import company", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("nullif(asum.customer_profile_json->>'company_name'") && read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("nullif(ac.company_name"));
 check("P2.3 live DB inspection SQL exists", exists(CBE_DB_INSPECTION_SQL));
 check("P2.3 live DB inspection SQL derives website from physical schema", dbInspectionSql.includes("lrr.source_snapshot_json->>'website'") && dbInspectionSql.includes("supplied_fields_json->>'website'"));
 check("P2.3 live DB inspection SQL joins through real FK path", dbInspectionSql.includes("left join lead_runs lr") && dbInspectionSql.includes("lc.lead_run_id = lr.id") && dbInspectionSql.includes("join screening_targets st"));

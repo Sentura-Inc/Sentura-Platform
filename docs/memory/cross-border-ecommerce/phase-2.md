@@ -47,6 +47,10 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-24 | Phase 2 P2.6 load-smoke tooling and readiness drill | Implemented CE23 DB-only load-smoke script, guarded backup/restore drill, runbook/checklist, 50-session/10-Lead/25-Screening/3-Accio/24-soft/32-hard checks, and verified static/live PostgreSQL smoke with cleanup; target go-live remains conditional on remaining CE22/P2.5 work. |
 | 2026-06-24 | Phase 2 local production preflight completion | Closed remaining CE22/P2.5 paid retry and durable Accio/Screening workflow blockers, ran CE23 local DB-only smoke, local backup/restore drill, Dashboard build, 410/410 CBE static regression, and Browser memory-approval smoke; only target-environment go-live evidence remains. |
 | 2026-06-24 | Agent-memory branch merge and Accio manual import formats | Merged `agent-memory` into `ecommerce`, integrated JSON/text/screenshot Accio manual imports, OpenClaw-compatible image attachments, source/input metadata persistence, and CE24 verification without changing Phase 2 production/go-live boundaries. |
+| 2026-06-25 | Accio import migration application fix | Applied the newly merged 008 Accio import-format migration to the local CBE database after a runtime missing-column error, confirmed the three new columns, and re-ran live store checks 243/243. |
+| 2026-06-25 | Accio memory report projection fix | Diagnosed a sample report that looked empty despite useful structured extraction, fixed the store/API/UI projection so analyzed customer/profile/intent/price/behavior facts render in the Employee memory report, and verified typecheck, static/live store checks, CBE static regression, and Browser sample smoke. |
+| 2026-06-25 | Accio multi-screenshot upload explicit support | Confirmed the screenshot path accepts multiple images and batches Gateway attachments, made the Employee upload UI explicitly multi-select, added normalizer/UI/runner static regression, and verified Dashboard typecheck plus 418/418 CBE static checks. |
+| 2026-06-25 | Memory agent separation from Lead/Screening boards | Made `记忆整理` a preview-only board separated from `获客与背调`; removed write approval, Screening handoff, supplement routes, Accio customer projection, and Accio interop writes; verified typecheck, CBE static 415/415, store 218/218 static, and store 244/244 live PostgreSQL. |
 
 ## Current Phase 2 Ground Truth
 
@@ -68,8 +72,10 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
-- P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 416/416. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
-- Accio `记忆整理` manual intake now supports JSON files, pasted chat text, and screenshot images. Screenshot images are passed to OpenClaw through Gateway `chat.send` attachments for immediate hidden preflight transcription, but raw image bytes are not persisted in the CBE business database; image-sourced records cannot be replayed from DB without re-uploading screenshots. Accio import rows carry `source_kind`, `input_format`, and `attachment_metadata_json` via `008_accio_manual_import_formats.sql`. Current broad CBE static regression is 416/416 and current Accio manual-format store regression is 216/216.
+- P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 415/415. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+- Accio `记忆整理` manual intake now supports JSON files, pasted chat text, and multiple screenshot images in one analysis. Screenshot images are passed to OpenClaw through Gateway `chat.send` attachments for immediate hidden preflight transcription and are split into bounded numbered batches when needed, but raw image bytes are not persisted in the CBE business database; image-sourced records cannot be replayed from DB without re-uploading screenshots. Accio import rows carry `source_kind`, `input_format`, and `attachment_metadata_json` via `008_accio_manual_import_formats.sql`. Employee memory projections must prefer analyzed `customer_profile_json` over placeholder import company names and must expose structured `customer_profile`, `purchase_intent`, `negotiated_price`, `behavior_signals`, and `next_actions` facts to the UI report instead of only one generic summary string. As of 2026-06-25, `记忆整理` is a separate preview-only board: it must not write long-term memory, create/update customer rows, route supplement chats from `获客与背调`, or send records to Screening. Current broad CBE static regression is 415/415, current Accio manual-format store regression is 218/218, and current live PostgreSQL store regression is 244/244.
+- Historical 2026-06-24 Accio approval-to-memory and Accio-to-Screening handoff entries are audit context only. CE25 supersedes them for current product behavior.
+- Local CBE databases created before the `agent-memory` merge must run `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed` before opening Employee `记忆整理`; otherwise Dashboard routes that query `accio_imports ai.source_kind` will fail until `008_accio_manual_import_formats.sql` is applied.
 - Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup. The durable per-target paid retry state is implemented under CE22/P2.5.
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
 - Google Maps Places + OpenClaw web search is implemented as the primary Lead Discovery acquisition route. `cross-border-intel` now exposes read-only `cbe_intel_google_places_search`, `cbe_intel_google_place_details`, `cbe_intel_google_geocode`, and `cbe_intel_google_address_validate`; setup scripts pass `GOOGLE_MAPS_API_KEY` and conservative request caps from env into the MCP server.
@@ -112,6 +118,135 @@ The user asked to pull the teammate's `agent-memory` branch locally, merge it in
 
 - This merge does not change CBE role boundaries, workload caps, P2.6 go-live labels, or the OpenClaw runtime model.
 - Screenshot raw images are transient task inputs only. Re-analysis of screenshot-sourced imports requires a fresh upload.
+
+## 2026-06-25 — Accio import migration application fix
+
+### Context
+
+After the `agent-memory` merge, the user reported a runtime database error: `column ai.source_kind does not exist`. The query was valid for the merged code, but the local CBE database had not yet applied `008_accio_manual_import_formats.sql`.
+
+### Action
+
+- Loaded `CBE_DATABASE_URL` from `sentura/dashboard/.env.local`.
+- Ran `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`.
+- Migration result applied only `008_accio_manual_import_formats.sql`; migrations `001` through `007` were already skipped as applied.
+- Confirmed `accio_imports` now has:
+  - `source_kind text`
+  - `input_format text`
+  - `attachment_metadata_json jsonb`
+
+### Verification
+
+- Live column query against `information_schema.columns`: PASS.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 243/243.
+
+### Boundary
+
+- No application-code change was needed for this fix.
+- `sentura/dashboard/next-env.d.ts` was already dirty from Next type generation and was not touched.
+
+## 2026-06-25 — Accio memory report projection fix
+
+### Context
+
+The user reviewed the teammate sample output in the Employee `记忆整理` report dialog and pointed out that the report appeared to have no useful information. The sample itself contained useful deal facts, so this session checked whether the issue was extraction failure, sample quality, or branch design.
+
+### Diagnosis
+
+- The latest local Accio row for operator `吴思彤` had useful structured data in the database:
+  - `customer_profile_json`: Rossi Telecom SRL, Marco Rossi, Italy, Milan address, website, email, VAT, buyer role.
+  - `purchase_intent_json`: S25 Ultra magnetic rugged case, 500/1000 pcs quantities, sample-first process, DDP Milan / EXW context, payment terms.
+  - `negotiated_price_json`: sample cost, unit-price and total-price details including final DDP Milan total USD 1,925.
+  - `next_actions_json`: sample feedback, final quote, PI/deposit, logo/EAN/warranty follow-up.
+- The poor report was therefore not caused by an empty sample or complete Agent extraction failure.
+- The bug was in the merged projection/UI design:
+  - `listEmployeeMemoryRecords()` preferred the manual import placeholder `accio_conversations.company_name` (`待确认客户`) over the analyzed customer profile company.
+  - `buildMemorySummary()` preferred the generic English `behavior_signals.summary` before synthesizing structured deal facts.
+  - The Employee API/UI only carried a single `summary` string, so the report dialog repeated the generic sentence and did not render structured customer, purchase, price, or next-action fields.
+
+### Implementation
+
+- Updated `sentura/dashboard/src/lib/cross-border-store/accio.ts` so `EmployeeMemoryRecord` includes `customerProfile`, `purchaseIntent`, `negotiatedPrices`, and `behaviorSignals`.
+- Changed memory summary construction to synthesize useful deal facts from product, quantity, target/best prices, terms, and next action before falling back to behavior summaries.
+- Changed the memory record query to prefer analyzed `asum.customer_profile_json->>'company_name'` and `country` over placeholder import conversation values.
+- Passed the new structured fields through `employee-api.ts` and `employee-data.ts`.
+- Updated `MemoryReportDialog` in `employee/memory/page.tsx` to render:
+  - `客户画像`
+  - `采购需求`
+  - `价格与条款`
+  - `下一步`
+- Added regression checks so the store projection exposes structured deal facts, prefers analyzed company names, and the Employee report dialog contains the structured report sections.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 417/417.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 245/245.
+- API smoke against local Dashboard returned `name: "Rossi Telecom SRL"` plus structured `customerProfile`, `purchaseIntent`, `negotiatedPrices`, `behaviorSignals`, and `nextActions`.
+- Browser smoke on `http://localhost:3000/client-demos/cross-border/employee/memory` under operator `吴思彤` showed the sample record as Rossi Telecom SRL, and the report modal rendered the structured sections with Rossi/Marco, S25 Ultra magnetic rugged case, 500/1000 pcs, DDP Milan/payment context, US$1,925 in next actions, and follow-up tasks.
+
+### Boundary
+
+- This is a projection/UI repair, not a change to Accio raw image persistence or the no-raw-chat memory boundary.
+- The hidden Accio extraction prompt can still be improved later, but this sample already had enough useful data; the immediate failure was that the UI did not surface it.
+
+## 2026-06-25 — Accio multi-screenshot upload explicit support
+
+### Context
+
+The user clarified that screenshot analysis should support uploading multiple screenshots for one Accio memory analysis.
+
+### Action
+
+- Confirmed the implementation already accepts `FileList | File[]` in `normalizeImageMemoryImport()`, iterates every selected image, produces one attachment metadata row per image, and names multi-image records as `聊天截图 N 张`.
+- Confirmed the Employee file input already uses `multiple`, keeps `imageAttachments[]`, and sends all attachments through `toGatewayChatAttachments()`.
+- Confirmed the hidden Accio runner already groups multiple image attachments through `imageAttachmentBatches()` and submits numbered preflight transcription batches before the final summary prompt.
+- Made the Employee upload copy explicit: `上传聊天截图图片（可多选）`, multi-image description, and safety notice now all mention multi-image support.
+- Added static regression `employee memory screenshot import supports multiple screenshots` spanning the normalizer, UI, and runner batching.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 418/418.
+
+### Boundary
+
+- Multi-screenshot support does not change the raw-image retention boundary. Images are still transient task inputs only; the DB stores hashes/metadata and structured results, not raw image bytes.
+
+## 2026-06-25 — Memory agent separation from Lead/Screening boards
+
+### Context
+
+The user clarified that the memory Agent / `记忆整理` board must be separated from `获客与背调`: it should not provide backcheck, write, or cross-board handoff options, and the two boards should not interoperate.
+
+### Implementation
+
+- Updated Employee `记忆整理` so import/analyze flows produce structured analysis previews only. Removed `批准写入`, `发送到背调`, write-status display, supplement-target state, and Screening route actions from the report dialog and import sheet.
+- Updated Employee `获客与背调` so selected customers run Lead/Screening only. Removed `补充聊天记录` / memory refresh routing, Accio handoff source labels, and runnable target filtering that depended on memory records.
+- Updated the standalone `/client-demos/cross-border/accio-memory` page so it shows analysis preview/copy behavior only and no longer exposes Screening handoff copy/send semantics.
+- Updated typed store/API boundaries:
+  - Accio import rejects stale `supplement_target` payloads with `accio_interop_disabled`.
+  - Accio summary completion persists summaries but returns empty `memoryFactIds` and `handoffIds`.
+  - Accio summaries no longer create `memory_facts` or `handoff_events`.
+  - Accio rows no longer project into the Employee customer list.
+  - Handoff creation rejects Accio-to-Screening requests with `accio_handoff_disabled`.
+  - Screening schemas and completion paths no longer accept `accio_memory` source or consume Accio handoff events.
+  - The memory-facts route now returns `memory_fact_review_disabled` for write/review attempts.
+- Updated `cbe-accio-memory` workspace files and skills to describe preview-only Accio/chat analysis. Removed `skills/handoff-to-screening/SKILL.md`.
+- Updated static/live regression coverage in `scripts/test-cross-border-agents.ts` and `scripts/test-cross-border-phase2-store.ts`.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 415/415.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+
+### Boundary
+
+- This session intentionally supersedes the 2026-06-24 local-preflight Accio approval-to-memory and Accio-to-Screening handoff behavior. Those entries remain in memory and tests as historical audit records only.
+- Existing `memory_facts` and `handoff_events` schema objects remain for broader platform/history compatibility, but current Accio `记忆整理` does not write to them.
 
 ## 2026-06-24 — Phase 2 Screening parent/child fan-out and queue drain
 

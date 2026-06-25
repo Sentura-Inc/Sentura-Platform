@@ -5,7 +5,6 @@ The primary operator is a cross-border sales manager reviewing Alibaba Accio buy
 The operator needs concise Chinese reports, structured JSON for the dashboard, and clear separation between:
 
 - chat claims,
-- memory facts safe to store,
+- preview-only memory facts,
 - buyer behavior signals,
-- Screening handoff targets that still require investigation.
-
+- unverified facts that require separate human or Screening follow-up outside this board.

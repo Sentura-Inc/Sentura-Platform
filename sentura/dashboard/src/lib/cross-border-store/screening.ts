@@ -1052,45 +1052,6 @@ function paidTradeObserved(evidence: ScreeningEvidenceMarker) {
     haystack.includes("paid trade");
 }
 
-async function acceptScreeningHandoffsForTargets(
-  client: PoolClient,
-  context: TenantContext,
-  agentRunId: string,
-  targets: ScreeningTargetMarker[] | undefined,
-) {
-  const sourceIds = Array.from(new Set((targets ?? [])
-    .filter((target) => target.source === "accio_memory")
-    .map((target) => target.lead_id ?? target.target_id)
-    .filter((id): id is string => Boolean(id))));
-  if (sourceIds.length === 0) return;
-  const result = await client.query(
-    `
-      update handoff_events
-      set
-        status = 'accepted',
-        accepted_at = coalesce(accepted_at, now()),
-        consumed_by_agent_run_id = $3
-      where tenant_id = $1
-        and to_agent_id = 'cbe-buyer-screening'
-        and source_record_type = 'accio_summary'
-        and source_record_id = any($2::text[])
-        and status = 'pending'
-    `,
-    [context.tenantId, sourceIds, agentRunId],
-  );
-  if ((result.rowCount ?? 0) > 0) {
-    await createAuditEvent(client, context, {
-      agentId: "cbe-buyer-screening",
-      eventType: "screening_handoff_accepted",
-      dataTier: "T2",
-      metadataJson: {
-        agent_run_id: agentRunId,
-        source_record_ids: sourceIds,
-      },
-    });
-  }
-}
-
 async function createScreeningBatchRun(
   client: PoolClient,
   context: TenantContext,
@@ -1267,8 +1228,6 @@ async function createScreeningBatchRun(
     });
   }
 
-  await acceptScreeningHandoffsForTargets(client, context, parentAgentRun.id, targets);
-
   await createAgentRunActivityEvent(client, context, {
     agentRunId: parentAgentRun.id,
     agentId: "cbe-buyer-screening",
@@ -1358,7 +1317,6 @@ export async function createScreeningRun(
         ...workloadMetadata(admission),
       },
     });
-    await acceptScreeningHandoffsForTargets(client, context, agentRun.id, input.targets);
     await createAgentRunActivityEvent(client, context, {
       agentRunId: agentRun.id,
       agentId: "cbe-buyer-screening",
@@ -1955,38 +1913,6 @@ export async function saveScreeningReports(
           `,
           [context.tenantId, target.leadCandidateId],
         );
-      }
-      const handoffSourceId = report.target?.lead_id ?? report.target?.target_id ?? report.lead_id;
-      if (handoffSourceId) {
-        const handoffResult = await client.query(
-          `
-            update handoff_events
-            set
-              status = 'completed',
-              accepted_at = coalesce(accepted_at, now()),
-              completed_at = coalesce(completed_at, now()),
-              consumed_by_agent_run_id = $3
-            where tenant_id = $1
-              and to_agent_id = 'cbe-buyer-screening'
-              and source_record_type = 'accio_summary'
-              and source_record_id = $2
-              and status in ('pending', 'accepted')
-          `,
-          [context.tenantId, handoffSourceId, input.agent_run_id],
-        );
-        if ((handoffResult.rowCount ?? 0) > 0) {
-          await createAuditEvent(client, context, {
-            agentId: "cbe-buyer-screening",
-            eventType: "screening_handoff_consumed",
-            dataTier: "T2",
-            metadataJson: {
-              agent_run_id: input.agent_run_id,
-              source_record_type: "accio_summary",
-              source_record_id: handoffSourceId,
-              screening_report_id: savedReport.id,
-            },
-          });
-        }
       }
     }
 

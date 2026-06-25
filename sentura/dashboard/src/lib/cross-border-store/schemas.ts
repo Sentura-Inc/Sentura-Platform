@@ -222,7 +222,7 @@ export type CompleteLeadRunRequest = z.infer<typeof CompleteLeadRunRequestSchema
 
 export const ScreeningTargetMarkerSchema = z.object({
   target_id: z.string().min(1).optional(),
-  source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).default("manual_input"),
+  source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input"]).default("manual_input"),
   lead_id: z.string().min(1).nullable().optional(),
   company_name: z.string().min(1).optional(),
   country: CountryCodeSchema.optional(),
@@ -385,7 +385,7 @@ export type ScreeningAddressFootprint = z.infer<typeof ScreeningAddressFootprint
 export const ScreeningReportMarkerSchema = z.object({
   report_id: z.string().min(1).optional(),
   lead_id: z.string().min(1).nullable().optional(),
-  target_source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).optional(),
+  target_source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input"]).optional(),
   company_name: z.string().min(1),
   target: ScreeningTargetMarkerSchema.optional(),
   company_scale_assessment: z.object({
@@ -439,13 +439,6 @@ export const AccioConversationImportSchema = z.object({
 });
 export type AccioConversationImport = z.infer<typeof AccioConversationImportSchema>;
 
-export const AccioSupplementTargetSchema = z.object({
-  customer_id: z.string().min(1),
-  company_name: z.string().min(1),
-  source: z.enum(["lead_discovery", "manual_screening", "accio_handoff"]),
-});
-export type AccioSupplementTarget = z.infer<typeof AccioSupplementTargetSchema>;
-
 export const AccioImportSourceKindSchema = z.enum([
   "manual_json",
   "manual_text",
@@ -470,7 +463,6 @@ export const CreateAccioImportRequestSchema = z.object({
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
   estimated_cost_usd: CbeMoneyUsdSchema.default(0),
-  supplement_target: AccioSupplementTargetSchema.optional(),
   conversations: z.array(AccioConversationImportSchema).default([]),
 });
 export type CreateAccioImportRequest = z.infer<typeof CreateAccioImportRequestSchema>;
@@ -526,14 +518,6 @@ export const DeleteMemoryRecordsRequestSchema = z.object({
 });
 export type DeleteMemoryRecordsRequest = z.infer<typeof DeleteMemoryRecordsRequestSchema>;
 
-export const ReviewMemoryFactsRequestSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1).max(100),
-  decision: z.enum(["approved", "rejected"]),
-  review_note: z.string().min(1).max(500).optional(),
-  vector_memory_ref: z.string().min(1).optional(),
-});
-export type ReviewMemoryFactsRequest = z.infer<typeof ReviewMemoryFactsRequestSchema>;
-
 export const DeleteCustomerRecordsRequestSchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(100),
 });
@@ -553,7 +537,6 @@ export const AccioSummaryMarkerSchema = z.object({
   negotiation_summary: z.string().min(1),
   next_actions: z.array(z.string().min(1)).min(1),
   behavior_signals: JsonRecordSchema.default({}),
-  screening_handoff_target: JsonRecordSchema.optional(),
   memory_preview: JsonRecordSchema.default({ status: "preview_only" }),
   source_references: z.array(z.object({
     source_type: SourceTypeSchema.default("self_reported"),

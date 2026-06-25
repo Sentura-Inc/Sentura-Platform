@@ -218,6 +218,8 @@ Sentura-Platform/
 
 ### 1. Cloud API (Fastest)
 
+**macOS / Linux / WSL2:**
+
 ```bash
 git clone https://github.com/sentura/Sentura-Platform.git
 cd Sentura-Platform/openclaw
@@ -231,23 +233,28 @@ cd openclaw && pnpm gateway:watch
 # open the Control UI URL printed at the end
 ```
 
-### 2. Local with Ollama (Privacy-First)
+**Windows (native PowerShell):** PowerShell 5.1 doesn't support `&&` chaining, the setup script is `.ps1` not `.sh`, and `pnpm gateway:watch` requires `tmux` (not available on Windows) — use `gateway:watch:raw` instead.
 
-```bash
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull llama3.3:70b
-
+```powershell
 git clone https://github.com/sentura/Sentura-Platform.git
-cd Sentura-Platform/openclaw
+cd Sentura-Platform\openclaw
 
-pnpm install && pnpm ui:build && pnpm build
-pnpm openclaw onboard         # choose local provider
+pnpm install
+pnpm ui:build
+pnpm build
+pnpm openclaw onboard
+# follow prompts — provide your LLM API key (OpenAI, Anthropic, etc.)
 
-cd .. && ./scripts/sentura-setup.sh
-cd openclaw && pnpm gateway:watch
+cd ..
+.\scripts\sentura-setup.ps1   # registers Creator, Tuner, Orchestrator, MCP Builder
+cd openclaw
+pnpm gateway:watch:raw
+# open the Control UI URL printed at the end
 ```
 
-### 3. Development Setup
+### 2. Development Setup
+
+**macOS / Linux / WSL2:**
 
 ```bash
 git clone https://github.com/sentura/Sentura-Platform.git
@@ -261,6 +268,30 @@ cd openclaw && pnpm gateway:watch
 
 # In another terminal:
 cd sentura/dashboard && pnpm dev
+
+# OpenClaw Control UI → http://localhost:18789
+# Sentura Dashboard   → http://localhost:3000
+```
+
+**Windows (native PowerShell):**
+
+```powershell
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform\openclaw
+
+pnpm install
+pnpm ui:build
+pnpm build
+pnpm openclaw onboard
+
+cd ..
+.\scripts\sentura-setup.ps1
+cd openclaw
+pnpm gateway:watch:raw
+
+# In another terminal:
+cd sentura\dashboard
+pnpm dev
 
 # OpenClaw Control UI → http://localhost:18789
 # Sentura Dashboard   → http://localhost:3000

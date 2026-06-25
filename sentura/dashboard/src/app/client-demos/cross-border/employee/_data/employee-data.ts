@@ -165,7 +165,7 @@ export interface CustomerScreeningReport {
 
 export interface CustomerListItem {
   customerId: string;
-  source: "lead_discovery" | "manual_screening" | "accio_handoff";
+  source: "lead_discovery" | "manual_screening";
   companyName: string;
   country: string;
   countryName: string;
@@ -264,10 +264,13 @@ export interface MemoryRecordItem {
   latestAgentRunId?: string;
   memoryPreviewStatus: "preview_only" | "approved" | "rejected";
   summary: string;
-  handoffCompany?: string;
-  supplementCustomerId?: string;
-  supplementCompanyName?: string;
-  supplementSource?: CustomerListItem["source"];
+  country?: string;
+  customerProfile?: Record<string, unknown> | null;
+  purchaseIntent?: Record<string, unknown>[];
+  negotiatedPrices?: Record<string, unknown>[];
+  behaviorSignals?: Record<string, unknown> | null;
+  nextActions?: string[];
+  companyName?: string;
 }
 
 export interface CostBudget {
@@ -687,22 +690,6 @@ export const customerRows: CustomerListItem[] = [
     },
   },
   {
-    customerId: "cust-accio-br",
-    source: "accio_handoff",
-    companyName: "Brasil Cell Parts",
-    country: "BR",
-    countryName: "巴西",
-    city: "Sao Paulo",
-    buyerType: "来自聊天记录",
-    products: ["OLED screen", "repair parts"],
-    foundAt: "2026-06-11 17:22",
-    screeningStatus: "not_started",
-    latestAgentRunId: "run-accio-20260611-1722",
-    sourceUrls: ["accio-chat-records.sample.json"],
-    evidenceSummary: "来自聊天记录整理，已有价格和数量线索，尚未做主体背调。",
-    recommendedAction: "点击开始调研，先核验公司主体和官网。",
-  },
-  {
     customerId: "cust-low-risk",
     source: "lead_discovery",
     companyName: "Case Outlet Direct",
@@ -782,7 +769,7 @@ export const memoryRows: MemoryRecordItem[] = [
     latestAgentRunId: "run-accio-20260611-1722",
     memoryPreviewStatus: "preview_only",
     summary: "提取了 OLED 屏、维修配件、目标价和下一步报价动作。",
-    handoffCompany: "Brasil Cell Parts",
+    companyName: "Brasil Cell Parts",
   },
   {
     recordId: "mem-ali-002",

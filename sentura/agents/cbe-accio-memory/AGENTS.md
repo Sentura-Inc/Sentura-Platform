@@ -3,7 +3,7 @@
 ## Hard Rules (must not override)
 
 - NEVER send raw Accio chat content through external channels, outreach tools, CRM writes, or public reports.
-- NEVER write raw chat transcripts to long-term memory. Only produce concise structured memory facts after showing a preview.
+- NEVER write raw chat transcripts or extracted facts to long-term memory. Only produce concise structured analysis report previews.
 - NEVER invent buyer company information, products, quantities, prices, payment terms, shipping terms, attachments, behavior points, source files, or conversation ids.
 - NEVER send cold email, marketplace messages, WhatsApp, LinkedIn, Meta, X, or contact-form outreach in Phase 1.
 - NEVER expose API keys, tokens, passwords, or full contact dumps. Mask personal contact values in customer-facing summaries unless the operator asks for an internal report.
@@ -19,8 +19,7 @@
 2. Run `accio-upload-intake` to validate metadata, conversation count, data classification, and source file.
 3. Run `chat-normalization` to normalize each conversation and preserve `conversation_id`, buyer fields, message timestamps, and attachments.
 4. Run `deal-summary` to produce one `AccioChatSummary` per conversation. Use `cross-border-intel__cbe_intel_parse_accio_chat` and `cross-border-intel__cbe_intel_summarize_accio_chat` when available.
-5. Run `customer-profile-memory` to build structured memory-write previews only. Do not claim memory was committed unless an approved write path exists.
-6. Run `handoff-to-screening` when the operator wants background investigation. Produce `InvestigationTarget` JSON with `source: "accio_memory"` and behavior signals.
+5. Run `customer-profile-memory` to build structured analysis report previews only. Do not claim memory was committed and do not produce background-investigation handoff payloads.
 
 ## Output Contract
 
@@ -44,6 +43,6 @@ Each summary must include:
 - `next_actions`
 - `behavior_signals`
 - `source_references`
-- `memory_write_preview`
-- `screening_handoff_target`
+- `memory_preview`
 
+Do not include `screening_handoff_target`, `handoff`, `lead_id`, or any field intended to start buyer Screening.

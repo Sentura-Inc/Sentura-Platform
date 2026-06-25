@@ -6,11 +6,73 @@ Workspace: `/Users/henry/Desktop/Sentura-Platform`
 
 Conversation language: answer the user in Chinese. Keep exact Chinese UI labels unchanged when relevant.
 
-## Active Task
+## Current Resume Snapshot
 
-Date: 2026-06-24
+Date: 2026-06-25
 
-Task: Pull/merge teammate branch `agent-memory` into the `ecommerce` customer branch, resolve conflicts, and integrate the memory-agent optimization with existing Cross-border e-commerce / 跨境电商 Phase 2 design.
+Latest user issue: `记忆整理` must be separated from `获客与背调`; the memory Agent should not provide backcheck, write, or cross-board handoff options.
+
+Current state:
+
+- Implemented CE25 separation:
+  - Employee `记忆整理` remains a JSON/text/multi-screenshot structured report preview board.
+  - Removed `批准写入`, `发送到背调`, write-status display, supplement-target state, and Screening route actions from the memory page.
+  - Employee `获客与背调` no longer offers `补充聊天记录` or any route-back-to-memory flow; selected customers are used only for Lead/Screening work.
+  - Standalone `/client-demos/cross-border/accio-memory` no longer exposes Screening handoff copy/send behavior.
+  - Accio summaries no longer create `memory_facts` or `handoff_events`; Accio rows no longer project into the customer list.
+  - Store/API guards reject stale interop with `accio_interop_disabled`, `accio_handoff_disabled`, and `memory_fact_review_disabled`.
+  - `cbe-accio-memory` prompt/skills now describe preview-only analysis; `skills/handoff-to-screening/SKILL.md` was removed.
+- Updated docs/tests/memory:
+  - `docs/TESTS.md` adds CE25 and updates current counts.
+  - `docs/tests/tests-cross-border-phase2.md` adds detailed CE25 cases and marks CE22 Accio interop as historical audit context.
+  - `docs/MEMORY.md` and `docs/memory/cross-border-ecommerce/phase-2.md` record the separation as current ground truth.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 415/415.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+
+Previous user issue: screenshot analysis should support uploading multiple screenshots.
+
+Previous state:
+
+- Confirmed multi-image support already existed in the lower-level path:
+  - `normalizeImageMemoryImport(files)` accepts `FileList | File[]`, loops every image, and writes one metadata item per image.
+  - Employee upload input uses `multiple`, stores `imageAttachments[]`, and sends all images through `toGatewayChatAttachments()`.
+  - `runAccioMemoryTask()` groups image attachments with `imageAttachmentBatches()` and submits numbered preflight transcription batches before the final Accio summary prompt.
+- Made UI copy explicit: `上传聊天截图图片（可多选）`, multi-image image-mode description, and safety notice.
+- Added static regression `employee memory screenshot import supports multiple screenshots`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 418/418.
+- Raw-image boundary unchanged: images are transient task inputs only; DB stores hashes/metadata and structured results.
+
+Previous user issue: the teammate Accio sample report looked empty/useless in the Employee `记忆整理` report dialog.
+
+Diagnosis: not a bad sample and not a complete Agent extraction failure. The local DB row contains Rossi Telecom SRL, Marco Rossi, S25 Ultra magnetic rugged case, 500/1000 pcs, DDP Milan/payment/price context, final US$1,925, and concrete next actions. The failure was the merged store/API/UI projection: it flattened structured Accio fields into one generic `summary` and preferred manual placeholder company `待确认客户` over analyzed `customer_profile_json.company_name`.
+
+Current fix implemented:
+
+- `listEmployeeMemoryRecords()` now prefers analyzed company/country values from `accio_summaries`.
+- `buildMemorySummary()` now synthesizes useful deal facts from product/quantity/price/terms/next action before falling back to behavior summaries.
+- Employee memory records/API items now carry `customerProfile`, `purchaseIntent`, `negotiatedPrices`, `behaviorSignals`, and `nextActions`.
+- `MemoryReportDialog` now renders `客户画像`, `采购需求`, `价格与条款`, and `下一步`.
+- Regression tests were added for structured projection, analyzed-company precedence, and structured report sections.
+
+Verification completed:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 417/417 before the later multi-screenshot regression.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 245/245.
+- API smoke returned `name: "Rossi Telecom SRL"` and structured profile/intent/price/behavior/next-action fields.
+- Browser smoke confirmed the sample report modal shows useful deal facts.
+
+## Prior Task
 
 ## Merge State
 
@@ -18,7 +80,7 @@ Task: Pull/merge teammate branch `agent-memory` into the `ecommerce` customer br
 - Fetched `origin`; local `agent-memory` matched `origin/agent-memory` at `5f15ef83`.
 - Merged `agent-memory` into `ecommerce`.
 - Conflicts were resolved by keeping current `ecommerce` production-hardening behavior as the base and manually integrating the relevant memory import changes.
-- Merge is ready to commit after final checks/staging.
+- Merge commit exists locally: `8e05b434 Merge agent-memory into ecommerce`.
 
 Key conflict decision:
 
@@ -56,6 +118,7 @@ Main implementation:
 - `sentura/dashboard/src/lib/cross-border-store/schemas.ts`
 - `sentura/dashboard/src/lib/cross-border-store/accio.ts`
 - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts`
 - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
 - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/memory-import-normalizer.ts`
 - `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
@@ -85,12 +148,11 @@ Completed:
 - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 416/416.
 - `git diff --check`: PASS before final staging/commit.
 
-Recommended final checks before committing:
+Recommended final checks before reporting completion:
 
 ```bash
 git diff --check
 git status --short --branch
-git rev-parse -q --verify MERGE_HEAD
 ```
 
 ## Boundaries
