@@ -14,7 +14,7 @@ dist-runtime/
 CLAUDE.md
 
 openclaw/dist*
-openclaw/packages
+openclaw/.artifacts/
 
 # Generated TypeScript build output for in-tree MCP servers
 # (regenerable via `pnpm --filter @sentura/mcp-* build`). Glob covers
