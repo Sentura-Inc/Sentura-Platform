@@ -13,21 +13,31 @@ export const CBE_EMPLOYEE_API_BASE = "/api/employee";
 export const CBE_ADMIN_API_BASE = "/api/admin";
 export const CBE_SESSION_API_PATH = "/api/session";
 
-export const CBE_LEGACY_EMPLOYEE_BASE_PATH = "/employee";
-export const CBE_LEGACY_ADMIN_BASE_PATH = "/admin";
+export const CBE_INTERNAL_EMPLOYEE_BASE_PATH = "/client-demos/cross-border/employee";
+export const CBE_INTERNAL_ADMIN_BASE_PATH = "/client-demos/cross-border/admin";
+export const CBE_INTERNAL_EMPLOYEE_API_BASE = "/api/client-demos/cross-border/employee";
+export const CBE_INTERNAL_ADMIN_API_BASE = "/api/client-demos/cross-border/admin";
+export const CBE_INTERNAL_SESSION_API_PATH = "/api/client-demos/cross-border/session";
+
+export const CBE_LEGACY_EMPLOYEE_BASE_PATH = CBE_INTERNAL_EMPLOYEE_BASE_PATH;
+export const CBE_LEGACY_ADMIN_BASE_PATH = CBE_INTERNAL_ADMIN_BASE_PATH;
+
+function matchesPath(pathname: string, basePath: string) {
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
 
 export function isCbeEmployeePath(pathname: string) {
-  return pathname === CBE_EMPLOYEE_HOME_PATH || pathname.startsWith(`${CBE_EMPLOYEE_HOME_PATH}/`);
+  return matchesPath(pathname, CBE_EMPLOYEE_HOME_PATH) || matchesPath(pathname, CBE_INTERNAL_EMPLOYEE_BASE_PATH);
 }
 
 export function isCbeEmployeeLoginPath(pathname: string) {
-  return pathname === CBE_EMPLOYEE_LOGIN_PATH || pathname.startsWith(`${CBE_EMPLOYEE_LOGIN_PATH}/`);
+  return matchesPath(pathname, CBE_EMPLOYEE_LOGIN_PATH);
 }
 
 export function isCbeAdminPath(pathname: string) {
-  return pathname === CBE_ADMIN_HOME_PATH || pathname.startsWith(`${CBE_ADMIN_HOME_PATH}/`);
+  return matchesPath(pathname, CBE_ADMIN_HOME_PATH) || matchesPath(pathname, CBE_INTERNAL_ADMIN_BASE_PATH);
 }
 
 export function isCbeAdminLoginPath(pathname: string) {
-  return pathname === CBE_ADMIN_LOGIN_PATH || pathname.startsWith(`${CBE_ADMIN_LOGIN_PATH}/`);
+  return matchesPath(pathname, CBE_ADMIN_LOGIN_PATH) || matchesPath(pathname, `${CBE_INTERNAL_ADMIN_BASE_PATH}/login`);
 }

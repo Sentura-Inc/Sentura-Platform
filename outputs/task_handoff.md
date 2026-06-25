@@ -10,26 +10,42 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user issue: Local route/domain split before server rollout. User realized deployment has two public domains (`app.sentura.ai`, `admin.sentura.ai`) but Dashboard implementation still exposed demo-oriented employee/admin URLs and demo API endpoints. User wants two distinct entries for the two domain prefixes, with canonical `employee` and `admin` endpoint names. Local fix first; user will inspect and push, then server can pull/rebuild/reload later.
+Latest user issue: Admin domain opened incorrectly after route split. User reported `app.sentura.ai` opens Employee but `admin.sentura.ai` does not open Admin correctly.
 
 Current state:
 
-- Local Dashboard now exposes canonical production CBE routes:
+- Dashboard exposes canonical production CBE routes:
   - Employee pages: `/employee`, `/employee/login`, `/employee/customers`, `/employee/memory`.
   - Admin pages: `/admin`, `/admin/login`, `/admin/employees`, `/admin/high-value-customers`, `/admin/costs`.
   - APIs: `/api/employee/*`, `/api/admin/*`, and shared `/api/session`.
 - Existing implementation files under `src/app/client-demos/cross-border/**` were kept in place behind Next rewrites. Old demo URLs redirect to the new canonical URLs.
 - Added shared route constants in `sentura/dashboard/src/lib/cross-border-routes.ts`; runtime code and tests consume these constants rather than hardcoding demo paths.
+- Root cause of the Admin issue:
+  - Public `https://admin.sentura.ai/admin/login` returned `200`; DNS/ALB/Nginx were not the blocker.
+  - The SSR HTML still contained `跨境电商员工操作系统` because Next rewrote `/admin/login` to `/client-demos/cross-border/admin/login` and AppShell route helpers only recognized canonical `/admin*`.
+  - The Admin login form appeared inside an Employee shell, which made the Admin side look broken.
+- Hotfix:
+  - `sentura/dashboard/src/lib/cross-border-routes.ts` now recognizes canonical paths and internal rewrite destination paths for Employee/Admin.
+  - `sentura/dashboard/src/lib/cross-border-store/tenant-context.ts` now recognizes canonical and rewritten CBE API paths.
+  - Regression checks were added to `scripts/test-cross-border-agents.ts` and `scripts/test-cross-border-phase2-store.ts`.
 - `sentura/dashboard/next.config.ts` now:
   - redirects old `/client-demos/cross-border/...` and `/auth/login` URLs to canonical employee/admin URLs.
   - rewrites canonical page/API URLs back to the existing legacy implementation modules.
-- No server operation has been performed for this local fix. Alibaba ECS still needs user branch push/pull, Dashboard rebuild/restart, and Nginx redirect target updates before public domains use these canonical paths.
+- Alibaba ECS rollout/hotfix is complete:
+  - Confirmed `/root/Sentura-Platform` on `ecommerce` contains the route split.
+  - Rebuilt Dashboard with `pnpm --dir sentura/dashboard build`.
+  - Restarted `sentura-dashboard.service` on loopback `127.0.0.1:3000`.
+  - Updated `/etc/nginx/sites-available/sentura.conf` root redirects to `/employee` and `/admin/login`; backup: `/etc/nginx/sites-available/sentura.conf.bak-20260626043945`.
+  - Ran `nginx -t` and reloaded Nginx.
+  - Confirmed OpenClaw Gateway is root's systemd user service on loopback `127.0.0.1:18789`.
+  - Applied the Admin SSR hotfix on ECS with `git apply`, rebuilt Dashboard, restarted `sentura-dashboard.service`, restored build-generated `next-env.d.ts`, and cleaned temporary patch files.
+  - Server repo now intentionally has two uncommitted source changes (`cross-border-routes.ts`, `tenant-context.ts`) until the same local fix is pushed and ECS can be aligned with `origin/ecommerce`.
 
 Verification:
 
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, `417/417`.
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, `218/218`.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, `418/418`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, `219/219`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, `23/23`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, `16/16`.
 - `pnpm --dir sentura/dashboard build`: PASS. Existing Next workspace-root warnings remain.
@@ -40,13 +56,25 @@ Verification:
   - `/client-demos/cross-border/admin/login`: `307` to `/admin/login`.
   - `/auth/login`: `307` to `/employee/login`.
   - `/api/session?role=operator`, `/api/employee/customers?limit=1`, `/api/admin/operators`: reached handlers and returned expected unauthenticated `401` responses.
+- Target ECS smoke:
+  - Dashboard build PASS on ECS.
+  - `sentura-dashboard.service`, `nginx`, and root `openclaw-gateway.service` are active.
+  - Dashboard loopback `/employee` and `/admin/login`: `200`.
+  - Nginx host-header root checks: `app.sentura.ai/` -> `https://app.sentura.ai/employee`; `admin.sentura.ai/` -> `https://admin.sentura.ai/admin/login`.
+  - Live RDS store check: `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+  - Public HTTPS: `https://app.sentura.ai/` -> `/employee`; `https://admin.sentura.ai/` -> `/admin/login`; `https://app.sentura.ai/employee` 200; `https://admin.sentura.ai/admin/login` 200.
+  - Public Admin SSR after hotfix: `https://admin.sentura.ai/admin/login` contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and exposes `管理者姓名` / `密码` / `登录`.
+  - Public login smoke: `孙总` / `1234` returns `redirectTo: "/admin/employees"`; authenticated `/admin/employees` returns 200 and renders `员工管理`, `优先跟进客户`, `费用监控`.
+  - Old public demo URLs return 307 to canonical paths.
+  - Public canonical APIs return expected unauthenticated 401.
+  - Public Gateway WebSocket `wss://admin.sentura.ai/gateway` opens successfully.
 
 Operational boundaries:
 
-- Keep this as a local code fix only until the user reviews/pushes.
-- Server follow-up after pull: rebuild Dashboard, restart Dashboard service, update Nginx root redirects from the old demo paths to `/employee` and `/admin/login`, then re-smoke `https://app.sentura.ai/`, `https://admin.sentura.ai/`, canonical routes, and Gateway.
 - This route split does not rename the historical source folder yet; rewrites intentionally avoid a large file move.
-- Successful future browser access to `app.sentura.ai` and `admin.sentura.ai` means DNS/ALB reaches ECS/Nginx/Dashboard. It does not mean domains point directly to the ECS public IP.
+- Successful browser access to `app.sentura.ai` and `admin.sentura.ai` means DNS/ALB reaches ECS/Nginx/Dashboard. It does not mean domains point directly to the ECS public IP.
+- This is deployment/connectivity evidence, not a full `production_go_live_ready` label. Remaining readiness evidence: target load-smoke/restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS/runtime observations.
+- Important follow-up: push the local hotfix, then align ECS with `origin/ecommerce` so the two server source changes are no longer uncommitted hotfix drift.
 
 ## Previous Alibaba Setup Snapshot
 

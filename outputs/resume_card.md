@@ -6,30 +6,37 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
-Latest local fix, 2026-06-26:
+Latest hotfix, 2026-06-26:
 
-- User noticed deployment domains were split (`app.sentura.ai` / `admin.sentura.ai`) but CBE Dashboard still used demo-style paths. Server changes are intentionally deferred until the user reviews, pushes the branch, and pulls it on ECS.
-- Local Dashboard now has canonical CBE routes:
+- User reported `app.sentura.ai` opened Employee but `admin.sentura.ai` did not open the Admin side correctly.
+- Root cause: public `admin.sentura.ai/admin/login` returned `200`, but SSR HTML contained the Employee shell (`跨境电商员工操作系统`). Next rewrites `/admin/login` to `/client-demos/cross-border/admin/login`; AppShell route helpers only recognized canonical `/admin*`, so SSR misclassified the internal rewrite destination as Employee.
+- Dashboard has canonical CBE routes:
   - Employee: `/employee`, `/employee/login`, `/employee/customers`, `/employee/memory`.
   - Admin: `/admin`, `/admin/login`, `/admin/employees`, `/admin/high-value-customers`, `/admin/costs`.
   - APIs: `/api/employee/*`, `/api/admin/*`, `/api/session`.
+- Hotfix:
+  - `sentura/dashboard/src/lib/cross-border-routes.ts` now recognizes canonical paths and internal rewrite destination paths.
+  - `sentura/dashboard/src/lib/cross-border-store/tenant-context.ts` now recognizes canonical and rewritten CBE API paths.
+  - Added regression checks in `scripts/test-cross-border-agents.ts` and `scripts/test-cross-border-phase2-store.ts`.
 - `next.config.ts` keeps compatibility:
   - Old `/client-demos/cross-border/employee*` page URLs redirect to `/employee*`.
   - Old `/client-demos/cross-border/admin*` page URLs redirect to `/admin*`.
   - `/auth/login` redirects to `/employee/login`.
   - Canonical pages/APIs rewrite to existing implementation files/route handlers under `client-demos/cross-border/**`.
-- Updated AppShell, login/session redirects, Employee/Admin API helpers, notification links, memory import redirect, and route regression tests to use the canonical paths.
+- ECS hotfix work completed:
+  - `pnpm --dir sentura/dashboard build`: PASS on `/root/Sentura-Platform`.
+  - `sentura-dashboard.service`: active on `127.0.0.1:3000`.
+  - root `systemctl --user openclaw-gateway.service`: active on `127.0.0.1:18789`.
+  - Nginx unchanged from the previous route split rollout: root redirects point `app.sentura.ai/` to `/employee` and `admin.sentura.ai/` to `/admin/login`; backup remains `/etc/nginx/sites-available/sentura.conf.bak-20260626043945`.
+  - Server build-generated `sentura/dashboard/next-env.d.ts` restored.
+  - Server repo now has two intentional uncommitted hotfix source changes until the local branch is pushed and ECS is aligned: `cross-border-routes.ts`, `tenant-context.ts`.
 - Verification:
-  - Dashboard typecheck PASS.
-  - Dashboard build PASS, with the existing multiple-lockfile workspace-root warning only.
-  - `scripts/test-cross-border-agents.ts` PASS, 417/417.
-  - `scripts/test-cross-border-phase2-store.ts` PASS, 218/218.
-  - `scripts/test-cross-border-phase2-concurrency.ts` PASS, 23/23.
-  - `scripts/test-cross-border-phase2-load-smoke.ts` PASS, 16/16.
-  - Local HTTP smoke on `127.0.0.1:3000`: `/employee` 200, `/admin/login` 200, old demo page URLs 307 to canonical paths, new APIs reach handlers with expected unauthenticated 401.
-  - Browser smoke PASS for `/employee` and `/admin/login`.
-- Local production server is running at `http://127.0.0.1:3000` for review.
-- Next server step after user push/pull: rebuild Dashboard, restart `sentura-dashboard.service`, update Nginx redirects to `/employee` and `/admin/login`, then re-run public HTTPS/WSS smoke.
+  - Local: Dashboard typecheck PASS, Dashboard build PASS, CBE static 418/418, store 219/219.
+  - Local production HTTP smoke: `/admin/login` SSR HTML contains `跨境电商管理者系统`, not `跨境电商员工操作系统`.
+  - Public HTTPS: `https://admin.sentura.ai/` -> `/admin/login`; `https://admin.sentura.ai/admin/login` 200 and contains `跨境电商管理者系统`, not Employee shell.
+  - Public login smoke: `孙总` / `1234` returns `redirectTo: "/admin/employees"`; authenticated `/admin/employees` returns 200 and renders manager nav labels.
+  - `https://app.sentura.ai/employee` remains 200.
+- Remaining readiness work before `production_go_live_ready`: target load-smoke/restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS/runtime observations.
 
 Previous operational setup, 2026-06-26:
 

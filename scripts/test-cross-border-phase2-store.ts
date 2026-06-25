@@ -1052,6 +1052,16 @@ check("manager schemas define cost limits and approval decisions", ["AdminCostLi
 const tenantContextTs = read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts"));
 const sessionHelperTs = read(path.join(DASHBOARD_STORE_DIR, "session.ts"));
 check("tenant context resolves role-scoped session before debug headers", tenantContextTs.includes("cbeSessionFromRequest(request, role)?.userId") && tenantContextTs.includes("expectedRoleFromPath") && tenantContextTs.includes("x-cbe-user-id"));
+check("tenant context recognizes canonical and rewritten CBE API paths", [
+  "CBE_ADMIN_API_BASE",
+  "CBE_EMPLOYEE_API_BASE",
+  "CBE_INTERNAL_ADMIN_API_BASE",
+  "CBE_INTERNAL_EMPLOYEE_API_BASE",
+  "pathname.includes(`${CBE_ADMIN_API_BASE}/`)",
+  "pathname.includes(`${CBE_INTERNAL_ADMIN_API_BASE}/`)",
+  "pathname.includes(`${CBE_EMPLOYEE_API_BASE}/`)",
+  "pathname.includes(`${CBE_INTERNAL_EMPLOYEE_API_BASE}/`)",
+].every((needle) => tenantContextTs.includes(needle)));
 check("session helper uses httpOnly-compatible signed role-scoped cookies", ["CBE_SESSION_COOKIE", "CBE_EMPLOYEE_SESSION_COOKIE", "CBE_ADMIN_SESSION_COOKIE", "cbeSessionCookieNameForRole", "createHmac", "timingSafeEqual"].every((needle) => sessionHelperTs.includes(needle)));
 check("auth login resolves RBAC token and sets CBE session cookies", authRouteText.includes("sentura.rbac.users.resolveByToken") && authRouteText.includes("response.cookies.set") && authRouteText.includes("CBE_SESSION_COOKIE") && authRouteText.includes("cbeSessionCookieNameForRole"));
 check("auth login can self-heal the seeded manager preset without raw DB env access", authRouteText.includes("PRESET_MANAGER_LOGIN") && authRouteText.includes("cbe-user-admin-001") && authRouteText.includes('displayName: "孙总"') && authRouteText.includes('password: "1234"') && authRouteText.includes("hashCbePassword"));

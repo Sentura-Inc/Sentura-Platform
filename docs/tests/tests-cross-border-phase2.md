@@ -675,6 +675,8 @@ Test cases:
 | CE26.4 | Next config routing | Static script + build | `next.config.ts` redirects old demo page URLs, rewrites `/employee`, `/admin`, `/api/employee/*`, `/api/admin/*`, and `/api/session` to the existing implementation, and production build succeeds. |
 | CE26.5 | AppShell/session boundary | Static script + typecheck | AppShell role checks, login redirects, nav links, notification links, logout targets, and login API `redirectTo` values use canonical Employee/Admin routes and no longer send users back to demo URLs. |
 | CE26.6 | Regression coverage | Automated scripts | Dashboard typecheck/build, broad CBE static checks, Phase 2 store checks, concurrency checks, load-smoke static checks, browser route smoke, and whitespace checks pass. |
+| CE26.7 | Alibaba ECS rollout | Target smoke | ECS pulls the route split, rebuilds Dashboard, restarts `sentura-dashboard.service`, reloads Nginx root redirects to `/employee` and `/admin/login`, confirms loopback-only Dashboard/Gateway listeners, verifies live RDS store checks, public HTTPS canonical redirects/pages, auth-boundary API 401s, and public WSS Gateway handshake. |
+| CE26.8 | Admin SSR rewrite shell | Static + HTTP smoke | Route helpers recognize both canonical paths and Next rewrite destination paths (`/client-demos/cross-border/admin*`) so `/admin/login` server-rendered HTML shows `跨境电商管理者系统`, not `跨境电商员工操作系统`; tenant context also recognizes both canonical and rewritten API paths. |
 
 Latest verification, 2026-06-26:
 
@@ -686,8 +688,32 @@ Latest verification, 2026-06-26:
 - `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16.
 - Local HTTP smoke against `http://127.0.0.1:3000`: `/employee` returned 200; `/admin/login` returned 200; old `/client-demos/cross-border/employee` redirected to `/employee`; old `/client-demos/cross-border/admin/login` redirected to `/admin/login`; `/api/session`, `/api/employee/customers`, and `/api/admin/operators` reached handlers and returned expected unauthenticated 401 responses.
 - Browser smoke against `http://127.0.0.1:3000`: `/employee` loaded the Employee shell/login surface; `/admin/login` exposed the `管理者姓名` / `密码` login form and `登录` button.
+- Admin SSR rewrite fix:
+  - Before the fix, public `https://admin.sentura.ai/admin/login` returned `200` but its SSR HTML included `跨境电商员工操作系统` because AppShell saw the rewritten internal path `/client-demos/cross-border/admin/login` and route helpers only recognized `/admin`.
+  - Fixed `sentura/dashboard/src/lib/cross-border-routes.ts` to recognize canonical paths plus internal rewrite destination paths, and fixed `tenant-context.ts` to recognize canonical plus rewritten API paths.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 418/418.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 219/219.
+  - `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+  - Local production HTTP smoke: `/admin/login` SSR HTML contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and exposes `管理者姓名` / `密码` / `登录`.
+- Target ECS rollout:
+  - `pnpm --dir sentura/dashboard build`: PASS on `/root/Sentura-Platform`.
+  - `sentura-dashboard.service`: active after restart on `127.0.0.1:3000`.
+  - root `systemctl --user openclaw-gateway.service`: active on `127.0.0.1:18789`.
+  - `nginx -t`: PASS; Nginx reloaded after changing root redirects to `https://$host/employee` and `https://$host/admin/login`.
+  - Server host-header smoke: `app.sentura.ai/` redirects to `https://app.sentura.ai/employee`; `admin.sentura.ai/` redirects to `https://admin.sentura.ai/admin/login`.
+  - Live RDS store check: `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+  - Public HTTPS smoke: `https://app.sentura.ai/` redirects to `/employee`, `https://admin.sentura.ai/` redirects to `/admin/login`, `https://app.sentura.ai/employee` returns 200, and `https://admin.sentura.ai/admin/login` returns 200.
+  - Public compatibility smoke: old `/client-demos/cross-border/employee` and `/client-demos/cross-border/admin/login` return 307 to canonical paths.
+  - Public API smoke: `/api/session?role=operator` and `/api/admin/operators` reach handlers and return expected unauthenticated 401 responses.
+  - Public Gateway smoke: `wss://admin.sentura.ai/gateway` opens a WebSocket and closes cleanly after the probe.
+- Target ECS admin SSR hotfix:
+  - Applied the two-source-file hotfix to ECS with `git apply`, rebuilt Dashboard, restarted `sentura-dashboard.service`, and restored generated `next-env.d.ts`.
+  - Server loopback HTML smoke: `/admin/login` contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and includes `管理者姓名` / `密码` / `登录`.
+  - Public HTML smoke: `https://admin.sentura.ai/admin/login` contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and includes the manager login fields.
+  - Public login smoke with `孙总` / `1234`: `/api/auth/login` returns 200 with `redirectTo: "/admin/employees"`; authenticated `/admin/employees` returns 200 and renders manager navigation labels.
 
 Boundary:
 
-- This route split changes public/canonical Dashboard paths only. The source implementation files remain under `src/app/client-demos/cross-border/**` for now and are reached through Next rewrites to avoid a high-risk file move before server deployment.
+- This route split changes public/canonical Dashboard paths only. The source implementation files remain under `src/app/client-demos/cross-border/**` for now and are reached through Next rewrites to avoid a high-risk file move.
 - Existing standalone historical demo pages such as `/client-demos/cross-border/lead-discovery`, `/screening`, and `/accio-memory` are not promoted to production entrypoints in this pass.

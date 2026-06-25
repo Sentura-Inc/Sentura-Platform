@@ -727,6 +727,13 @@ check("CBE production routes expose employee/admin entrances without demo URLs",
   'CBE_ADMIN_API_BASE = "/api/admin"',
   'CBE_SESSION_API_PATH = "/api/session"',
 ].every((needle) => cbeRoutes.includes(needle)) && !appShell.includes('"/client-demos/cross-border/employee') && !appShell.includes('"/client-demos/cross-border/admin'));
+check("CBE route helpers recognize Next rewrite destination paths during SSR", [
+  'CBE_INTERNAL_EMPLOYEE_BASE_PATH = "/client-demos/cross-border/employee"',
+  'CBE_INTERNAL_ADMIN_BASE_PATH = "/client-demos/cross-border/admin"',
+  "matchesPath(pathname, CBE_INTERNAL_EMPLOYEE_BASE_PATH)",
+  "matchesPath(pathname, CBE_INTERNAL_ADMIN_BASE_PATH)",
+  "matchesPath(pathname, `${CBE_INTERNAL_ADMIN_BASE_PATH}/login`)",
+].every((needle) => cbeRoutes.includes(needle)) && appShell.includes("isCbeAdminPath(pathname)") && appShell.includes("isCbeAdminLoginPath(pathname)"));
 check("Next config rewrites production CBE routes to legacy implementation and redirects old demo URLs", [
   'source: "/employee"',
   'destination: "/client-demos/cross-border/employee"',

@@ -2,6 +2,12 @@ import type { CbeDb } from "./db";
 import { queryCbe } from "./db";
 import { CbeStoreError } from "./errors";
 import {
+  CBE_ADMIN_API_BASE,
+  CBE_EMPLOYEE_API_BASE,
+  CBE_INTERNAL_ADMIN_API_BASE,
+  CBE_INTERNAL_EMPLOYEE_API_BASE,
+} from "../cross-border-routes";
+import {
   CBE_TENANT_ID,
   TenantContextSchema,
   type TenantContext,
@@ -19,8 +25,12 @@ interface ProfileRow {
 }
 
 function expectedRoleFromPath(pathname: string): CbeSessionRole | undefined {
-  if (pathname.includes("/api/admin/")) return "admin";
-  if (pathname.includes("/api/employee/")) return "operator";
+  if (pathname.includes(`${CBE_ADMIN_API_BASE}/`) || pathname.includes(`${CBE_INTERNAL_ADMIN_API_BASE}/`)) {
+    return "admin";
+  }
+  if (pathname.includes(`${CBE_EMPLOYEE_API_BASE}/`) || pathname.includes(`${CBE_INTERNAL_EMPLOYEE_API_BASE}/`)) {
+    return "operator";
+  }
   return undefined;
 }
 
@@ -28,7 +38,9 @@ export function userIdFromRequest(request: Request, expectedRole?: CbeSessionRol
   const pathname = new URL(request.url).pathname;
   const role = expectedRole ?? expectedRoleFromPath(pathname);
   const adminOverrideUserId = request.headers.get("x-cbe-admin-user-id")?.trim();
-  if (adminOverrideUserId && role === "admin" && pathname.includes("/api/admin/")) {
+  const isAdminApiPath =
+    pathname.includes(`${CBE_ADMIN_API_BASE}/`) || pathname.includes(`${CBE_INTERNAL_ADMIN_API_BASE}/`);
+  if (adminOverrideUserId && role === "admin" && isAdminApiPath) {
     return adminOverrideUserId;
   }
   return (
