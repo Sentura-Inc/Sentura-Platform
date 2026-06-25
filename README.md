@@ -328,6 +328,8 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`跨境电商/MEMORY_PROCESSING.md`](跨境电商/MEMORY_PROCESSING.md) | Cross-border Accio Memory Processing employee design, fixture/upload workflow, memory policy, implementation status, and plan | On demand — for 跨境电商记忆处理 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
+| [`docs/ALIYUN-DEPLOYMENT.md`](docs/ALIYUN-DEPLOYMENT.md) | Alibaba Cloud / Aliyun deployment report: domain plan, SaaS admin/employee split, ECS/RDS/ALB/WAF sizing, DNS cutover, and production adjustments | When deploying Sentura on Alibaba Cloud |
+| [`docs/ALIYUN-FULL-STACK-RUNBOOK.md`](docs/ALIYUN-FULL-STACK-RUNBOOK.md) | Chinese Alibaba Cloud full-stack deployment runbook: Squarespace DNS `app`/`admin` CNAME records, WAF, ALB, ECS, RDS, ACR, OSS, SLS, CloudMonitor, KMS, IDaaS, Bastionhost, and go-live checks | When executing an Alibaba Cloud deployment |
 | [`docs/tests/tests-cross-border-phase2.md`](docs/tests/tests-cross-border-phase2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 detailed test cases (CE17+) | When running or updating CBE Phase 2 tests |
 | [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases; `tests-cross-border-ecommerce.md` remains CBE Phase 1/MVP regression history | When running or updating tests |
 | [`Documents/Demo.md`](Documents/Demo.md) | Demo scenarios and workflows | When designing demo flows |

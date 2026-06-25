@@ -1,15 +1,16 @@
 import type { CbeEmployeeTaskRecord } from "@/stores/use-cbe-employee-store";
+import {
+  CBE_EMPLOYEE_CUSTOMERS_PATH,
+  CBE_EMPLOYEE_HOME_PATH,
+} from "@/lib/cross-border-routes";
 
 export const EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10;
 export const EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3;
-export const EMPLOYEE_MESSAGE_CENTER_HREF = "/client-demos/cross-border/employee#employee-messages";
+export const EMPLOYEE_MESSAGE_CENTER_HREF = `${CBE_EMPLOYEE_HOME_PATH}#employee-messages`;
 export const EMPLOYEE_API_COST_ELEMENT_ID = "employee-api-cost";
 export const EMPLOYEE_API_COST_HIGHLIGHT_PARAM = "highlightCost";
 export const EMPLOYEE_NOTIFICATION_HIGHLIGHT_CLASS =
   "animate-pulse outline outline-2 -outline-offset-2 outline-sky-300 shadow-[0_0_0_3px_rgba(125,211,252,0.22)]";
-
-const employeeCustomerPagePath = "/client-demos/cross-border/employee/customers";
-const employeeHomePath = "/client-demos/cross-border/employee";
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
@@ -45,12 +46,12 @@ export function employeeCostHighlightHref(messageId?: string) {
     [EMPLOYEE_API_COST_HIGHLIGHT_PARAM]: "api",
   });
   if (messageId) params.set("highlightMessage", messageId);
-  return `${employeeHomePath}?${params.toString()}#${EMPLOYEE_API_COST_ELEMENT_ID}`;
+  return `${CBE_EMPLOYEE_HOME_PATH}?${params.toString()}#${EMPLOYEE_API_COST_ELEMENT_ID}`;
 }
 
 export function employeeTaskNotificationHref(task: CbeEmployeeTaskRecord) {
   if (isEmployeeCostNotification(task)) {
     return employeeCostHighlightHref(task.id);
   }
-  return `${employeeCustomerPagePath}?highlightTask=${encodeURIComponent(task.id)}`;
+  return `${CBE_EMPLOYEE_CUSTOMERS_PATH}?highlightTask=${encodeURIComponent(task.id)}`;
 }

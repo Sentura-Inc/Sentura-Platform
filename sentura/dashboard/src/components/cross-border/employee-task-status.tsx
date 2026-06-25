@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGateway } from "@/lib/gateway";
+import { isCbeEmployeePath } from "@/lib/cross-border-routes";
 import { cn } from "@/lib/utils";
 import {
   cancelEmployeeTaskInDb,
@@ -108,7 +109,7 @@ export function EmployeeTaskStatusBar() {
       ? active.slice(0, 2)
       : tasks.filter((task) => !task.dismissed).slice(0, 1);
 
-  if (!pathname.startsWith("/client-demos/cross-border/employee") || visibleTasks.length === 0) {
+  if (!isCbeEmployeePath(pathname) || visibleTasks.length === 0) {
     return null;
   }
 

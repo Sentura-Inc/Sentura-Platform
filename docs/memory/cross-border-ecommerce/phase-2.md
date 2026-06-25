@@ -51,10 +51,15 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-25 | Accio memory report projection fix | Diagnosed a sample report that looked empty despite useful structured extraction, fixed the store/API/UI projection so analyzed customer/profile/intent/price/behavior facts render in the Employee memory report, and verified typecheck, static/live store checks, CBE static regression, and Browser sample smoke. |
 | 2026-06-25 | Accio multi-screenshot upload explicit support | Confirmed the screenshot path accepts multiple images and batches Gateway attachments, made the Employee upload UI explicitly multi-select, added normalizer/UI/runner static regression, and verified Dashboard typecheck plus 418/418 CBE static checks. |
 | 2026-06-25 | Memory agent separation from Lead/Screening boards | Made `记忆整理` a preview-only board separated from `获客与背调`; removed write approval, Screening handoff, supplement routes, Accio customer projection, and Accio interop writes; verified typecheck, CBE static 415/415, store 218/218 static, and store 244/244 live PostgreSQL. |
+| 2026-06-25 | Phase 2 burst/concurrency audit | Checked current CBE handling for task bursts and the "8" limit; confirmed burst admission/queue paths through live PostgreSQL tests, clarified that `MAX_LEAD_COMPLETION_ATTEMPTS = 8` is Lead auto top-up round protection rather than a global task cap, and recorded CE21 46/46 plus CE23 47/47 live DB-only verification. |
+| 2026-06-26 | Alibaba Cloud target deployment setup | Completed the first Alibaba Cloud ECS/RDS/ALB target setup after onboard: Sentura setup, RDS migration/seed, Dashboard/Gateway systemd services, Nginx app/admin/gateway routing, public HTTPS/WSS checks, and cleanup of old failed deployment residue. |
+| 2026-06-26 | Production Employee/Admin route split | Locally changed CBE public routes to canonical `/employee`, `/employee/login`, `/admin`, `/admin/login`, `/api/employee/*`, `/api/admin/*`, and `/api/session`, while keeping legacy implementation files behind Next rewrites and old page URLs as redirects. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
+- Local Dashboard code now uses production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. The Alibaba Cloud server has not been updated with this route split until the branch is pushed/pulled/rebuilt/reloaded.
+- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
@@ -1558,3 +1563,122 @@ The user asked to complete all remaining work and tests needed before delivering
 ### Boundary
 
 Local production-shaped preflight for P2.1-P2.6 is complete. Do not label a customer deployment `production_go_live_ready` from local-only evidence. The remaining gate is target-environment evidence: run the same load-smoke profile on the actual target deployment with Dashboard/Gateway processes, run the restore drill against a target disposable restore DB, and record provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
+
+## 2026-06-25 — Phase 2 burst/concurrency audit
+
+### Context
+
+The user asked whether the current CBE platform can handle multi-task bursts and what happens after reaching the "8" limit.
+
+### Findings
+
+- The implemented workload caps are not 8 globally. `sentura/dashboard/src/lib/cross-border-store/workload-coordinator.ts` defaults are:
+  - `CBE_TASK_MAX_ACTIVE_TOTAL = 24`
+  - `CBE_TASK_MAX_ACTIVE_TOTAL_HARD = 32`
+  - `CBE_LEAD_MAX_ACTIVE_RUNS = 12`
+  - `CBE_SCREENING_MAX_ACTIVE_TARGETS = 12`
+  - `CBE_ACCIO_MAX_ACTIVE_IMPORTS = 3`
+- `MAX_LEAD_COMPLETION_ATTEMPTS = 8` in `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx` is the Lead Discovery automatic top-up round guard. It prevents endless automatic refetch loops when public sources keep returning duplicates or too few unique buyers. After the 8th attempt, the UI stops launching new top-up sessions and reports the partial result as `公开来源暂时不足以补齐`.
+- Workload admission uses a tenant-scoped PostgreSQL advisory transaction lock before counting active sessions. Queued rows are created without `session_key`, so no extra OpenClaw session is started once the soft/hard cap or per-agent cap is reached.
+- Lead bursts are controlled by exact-scope join, near-duplicate choice responses, DB-derived pre-search denylists, completion-time tenant dedupe, and bounded top-up runs.
+- Screening bursts are split into one parent batch plus one single-target child run per target. Child admission respects the active-target cap; excess children stay queued. `claimQueuedScreeningChildRuns()` uses `FOR UPDATE SKIP LOCKED`, re-runs admission before claiming, writes a lease/session key only for admitted children, and refreshes parent aggregate counts after child completion/failure/cancellation.
+- Accio imports also use workload admission. JSON/text imports can be queued. Screenshot image analysis is intentionally failed rather than queued if capacity is unavailable, because raw image bytes are transient and are not stored in the CBE business database.
+
+### Verification
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46 static + live PostgreSQL checks.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db`: PASS, 47/47 static + live PostgreSQL DB-only load-smoke checks.
+- A first attempt ran CE21 live and CE23 live in parallel; CE21 Screening drain and CE23 soft-cap assertions failed because the two DB-only pressure tests interfered with the same tenant-level active cap. Rerunning them sequentially passed. This is a test-orchestration caveat, not a product-path failure.
+- A focused Screening cap repro with `CBE_SCREENING_MAX_ACTIVE_TARGETS=1` showed the expected state transitions: 1 running child + 2 queued children, failing the running child drops active count to 0, drain claims exactly 1 queued child, and aggregate becomes failed=1/running=1/queued=1.
+
+### Boundary
+
+- Current local evidence supports DB-level burst handling and queue/backpressure behavior. It does not replace target-deployment go-live evidence: the same smoke must still run against the actual deployment with Dashboard/Gateway processes, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS observations.
+- No code changes were made in this audit.
+
+## 2026-06-26 — Alibaba Cloud target deployment setup
+
+### Context
+
+The user had pulled the `ecommerce` branch onto the Alibaba Cloud ECS host, completed `pnpm build`, and then completed `pnpm openclaw onboard` manually with the intended LLM and Tavily configuration. The requested follow-up was to run Sentura setup, wire the target Alibaba RDS database, expose `app.sentura.ai` and `admin.sentura.ai`, test database and external port connectivity, and remove prior failed deployment residue.
+
+### Implementation
+
+- Ran `scripts/sentura-setup.sh` in non-interactive admin bootstrap mode after onboard. The script registered Sentura meta-agents, the Sitlink agent, and the CBE agents (`cbe-lead-discovery`, `cbe-buyer-screening`, `cbe-accio-memory`) into the OpenClaw config/workspace.
+- Installed the root workspace dependencies needed by the Dashboard/store test tooling.
+- Created the Alibaba RDS PostgreSQL database `sentura`, wrote the Dashboard target env entries, and ran the CBE migration runner with seed data. The target DB now has migrations `001`-`008`, one CBE `admin` profile, and two CBE `operator` profiles.
+- Built the root workspace packages (`pnpm -r --if-present build`), including the Dashboard production build and MCP server builds.
+- Restarted the OpenClaw Gateway user service and verified it listens only on loopback `127.0.0.1:18789` / `::1:18789`.
+- Added a systemd service for the production Sentura Dashboard process on loopback `127.0.0.1:3000`.
+- Configured Nginx so `app.sentura.ai` redirects to the Employee UI, `admin.sentura.ai` redirects to the Admin login UI, and `/gateway` proxies WebSocket traffic to the loopback OpenClaw Gateway.
+- Updated Gateway allowed origins/trusted proxies for the ALB/Nginx path. OpenClaw device identity is temporarily disabled for Dashboard compatibility while keeping the Gateway loopback-only and token-protected behind Nginx/ALB.
+- Removed the prior failed `/srv/sentura` deployment directory and fixed the stale bash-completion source line in `/root/.bashrc` so new root logins no longer print a missing completion-file error.
+
+### Verification
+
+- OpenClaw Gateway service: active, listening on loopback port `18789`.
+- Sentura Dashboard service: active, listening on loopback port `3000`.
+- Nginx: active, listening on public port `80` for ALB forwarding.
+- RDS connectivity: connected to Alibaba RDS from the ECS host, created/used database `sentura`, and confirmed the migration/seed state.
+- Live CBE store check against target RDS: `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db` passed `244/244`.
+- Local Nginx host-header checks: `app.sentura.ai` root redirects to `/client-demos/cross-border/employee`; `admin.sentura.ai` root redirects to `/client-demos/cross-border/admin/login`; the Admin login route returns `200`.
+- Admin login API through Nginx returned a valid authenticated redirect to the Admin employees page.
+- Public DNS/HTTPS checks: both `app.sentura.ai` and `admin.sentura.ai` resolve through Alibaba ALB and return the expected HTTPS redirects.
+- Public Gateway WebSocket check: `wss://admin.sentura.ai/gateway` completed the OpenClaw Gateway connect handshake.
+- ECS Nginx access logs showed Alibaba SLB health checks from private VPC addresses, confirming the ALB target group is forwarding to the ECS/Nginx service.
+
+### Boundary
+
+- This setup proves the DNS/ALB/ECS/Nginx/Dashboard/Gateway/RDS path is connected and usable. It does not by itself close the full production go-live gate.
+- Remaining go-live evidence still needs a target load-smoke run, a target disposable-restore drill, and recorded provider/source-rate headroom, model concurrency behavior, DB connection-limit headroom, and Gateway RSS/runtime behavior.
+- `sentura-memory-lancedb` was configured but did not become active because the current runtime memory slot remained `memory-core` and the embedding key path was not present. This does not block Dashboard, RDS, app/admin routing, or the current CBE store checks.
+- Gateway device-auth bypass is a temporary compatibility setting for the Sentura Dashboard/OpenClaw `2026.6.2` client path. Keep port `18789` loopback-only and do not expose it directly to the internet.
+
+## 2026-06-26 — Production Employee/Admin route split
+
+### Context
+
+The user noticed that deployment had split Employee and Admin by domain prefix, but the Dashboard implementation still exposed CBE through demo-style paths such as `/client-demos/cross-border/employee` and `/client-demos/cross-border/admin/login`. The requested local fix was to give Employee and Admin separate production entrances and change runtime endpoints away from demo wording. Server changes were explicitly deferred until after the user reviews, pushes the branch, and pulls it on the ECS host.
+
+### Implementation
+
+- Added `sentura/dashboard/src/lib/cross-border-routes.ts` as the canonical CBE route source:
+  - Employee pages: `/employee`, `/employee/login`, `/employee/customers`, `/employee/memory`.
+  - Admin pages: `/admin`, `/admin/login`, `/admin/employees`, `/admin/high-value-customers`, `/admin/costs`.
+  - APIs: `/api/employee/*`, `/api/admin/*`, `/api/session`.
+- Updated `sentura/dashboard/next.config.ts`:
+  - Redirects old CBE page URLs from `/client-demos/cross-border/employee*` to `/employee*`.
+  - Redirects old CBE page URLs from `/client-demos/cross-border/admin*` to `/admin*`.
+  - Redirects `/auth/login` to `/employee/login`.
+  - Rewrites canonical `/employee*`, `/admin*`, `/api/employee/*`, `/api/admin/*`, and `/api/session` to the existing implementation files/handlers.
+- Updated AppShell navigation, role-session checks, notification links, logout targets, admin notification fetches, Employee home session fetch, memory import redirect, login pages, and login/session API `redirectTo` values to use canonical route constants.
+- Updated Employee/Admin API client helpers so user-facing runtime calls go through `/api/employee/*` and `/api/admin/*`.
+- Updated static regression scripts to assert the new canonical routes and Next rewrites, and to avoid checking old demo URLs as current runtime endpoints.
+- Updated the test matrix/detail docs and handoff files for CE26.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 417/417.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16.
+- `pnpm --dir sentura/dashboard build`: PASS, with only the existing multiple-lockfile workspace-root warning.
+- Local HTTP smoke through production `next start` on `127.0.0.1:3000`:
+  - `/employee`: `200`.
+  - `/admin/login`: `200`.
+  - `/client-demos/cross-border/employee`: `307` to `/employee`.
+  - `/client-demos/cross-border/admin/login`: `307` to `/admin/login`.
+  - `/auth/login`: `307` to `/employee/login`.
+  - `/api/session`, `/api/employee/customers`, `/api/admin/operators`: reached handlers and returned expected unauthenticated `401`, not `404`.
+- Browser smoke:
+  - `/employee` loaded the Employee shell/login surface.
+  - `/admin/login` exposed the `管理者姓名` / `密码` login form and `登录` button.
+
+### Boundary
+
+- The server deployment is intentionally not changed in this session. After the user pushes and pulls the branch on ECS, the server still needs rebuild/restart plus Nginx route changes from old targets to `/employee` and `/admin/login`.
+- The source implementation files remain under `src/app/client-demos/cross-border/**` for now. This is a transitional, lower-risk aliasing strategy; public paths and API endpoints are no longer demo-style.
+- Standalone historical demo pages under `/client-demos/cross-border/lead-discovery`, `/screening`, and `/accio-memory` are not promoted to production entrypoints in this pass.

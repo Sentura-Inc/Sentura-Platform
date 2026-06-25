@@ -19,8 +19,8 @@ interface ProfileRow {
 }
 
 function expectedRoleFromPath(pathname: string): CbeSessionRole | undefined {
-  if (pathname.includes("/api/client-demos/cross-border/admin/")) return "admin";
-  if (pathname.includes("/api/client-demos/cross-border/employee/")) return "operator";
+  if (pathname.includes("/api/admin/")) return "admin";
+  if (pathname.includes("/api/employee/")) return "operator";
   return undefined;
 }
 
@@ -28,7 +28,7 @@ export function userIdFromRequest(request: Request, expectedRole?: CbeSessionRol
   const pathname = new URL(request.url).pathname;
   const role = expectedRole ?? expectedRoleFromPath(pathname);
   const adminOverrideUserId = request.headers.get("x-cbe-admin-user-id")?.trim();
-  if (adminOverrideUserId && role === "admin" && pathname.includes("/api/client-demos/cross-border/admin/")) {
+  if (adminOverrideUserId && role === "admin" && pathname.includes("/api/admin/")) {
     return adminOverrideUserId;
   }
   return (

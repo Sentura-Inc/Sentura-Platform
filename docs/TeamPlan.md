@@ -368,6 +368,8 @@ Fourteen rounds fixed every blocker between "Forge designs fine" and "live E2E p
 - [ ] Validate Playwright browser extension works locally (for self-provisioning)
 - [ ] Implement config versioning: track before/after diffs for every `config.patch`
 - [ ] Build deployment documentation for cloud and on-premise (see [`docs/HOSTING.md`](docs/HOSTING.md) for production topology, auth modes, reverse proxy configs, and security risk analysis)
+  - 2026-06-25: added Alibaba Cloud-specific deployment report at [`docs/ALIYUN-DEPLOYMENT.md`](ALIYUN-DEPLOYMENT.md); full all-provider cloud/on-prem finalization remains open.
+  - 2026-06-25: added Chinese Alibaba Cloud full-stack deployment runbook at [`docs/ALIYUN-FULL-STACK-RUNBOOK.md`](ALIYUN-FULL-STACK-RUNBOOK.md), covering Squarespace DNS `app`/`admin` CNAME records plus WAF/ALB/ECS/RDS/ACR/OSS/SLS/CloudMonitor/KMS/IDaaS/Bastionhost execution steps; full all-provider cloud/on-prem finalization remains open.
 - [ ] **Build session management helpers for Communication Panel (capability #16)**:
   - Helper to create dashboard sessions targeting specific agents (`sessions.create` with `agentId`)
   - Helper to list/filter dashboard sessions across all agents (`sessions.list` with dashboard key prefix filtering)

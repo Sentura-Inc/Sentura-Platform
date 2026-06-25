@@ -239,7 +239,7 @@ Scope implemented:
 | CE20.11 | Failure lifecycle | Static/live store check | Gateway/model/marker failures call the task failure endpoint with stable error codes and terminal `agent_runs.status = failed`. |
 | CE20.12 | Notification center | Static script + Browser | The global notification center polls DB-backed terminal task projections and marks unread notifications through the API. |
 | CE20.13 | Projection detail fields | Static/live store check | Customer and Accio read projections expose report/source/memory fields required by existing drawers and cards. |
-| CE20.14 | Browser render check | Browser | `/client-demos/cross-border/employee`, `/employee/customers`, and `/employee/memory` render without runtime error or console error against local `sentura_cbe_dev`; empty DB lists show expected empty states. |
+| CE20.14 | Browser render check | Browser | `/employee`, `/employee/customers`, and `/employee/memory` render without runtime error or console error against local `sentura_cbe_dev`; empty DB lists show expected empty states. |
 | CE20.15 | Live DB inspection runbook | Static script + live SQL execution | `scripts/inspect-cross-border-live-db.sql` uses real physical columns and joins/JSON projection for website/company/source fields; it avoids stale table-only columns such as `lead_candidates.agent_run_id`, `lead_sources.finding`, and `screening_reports.company_name`. |
 | CE20.16 | Customer list simplification | Static script + Browser | `获客与背调` keeps the existing primary row information, lightens status row backgrounds, removes row-level delete buttons while retaining top `删除所选`, merges score sorting into one `评分排序` select, and shows business score labels such as `优先跟进`, `谨慎跟进`, `暂缓/高风险`, with `证据不足` gray. |
 | CE20.17 | Task-completion row highlight | Static script + Browser | Completed Lead/Screening task notifications link to `/employee/customers?highlightTask=...`; the customer page maps task IDs through affected customer IDs or lead/screening run IDs, clears filters as needed, scrolls to visible affected rows, and flashes a light-blue outline for 3 seconds. |
@@ -247,8 +247,8 @@ Scope implemented:
 | CE20.19 | Message/task dismissal polish | Static script + Browser | The message center dialog closes on outside pointer click, completed task-status banners persist local and DB dismiss state, and closing a terminal banner prevents older completed banners from replacing it after route switching. |
 | CE20.20 | Screening budget estimate | Static script | Background-check estimated price is itemized from configured unit assumptions for OpenAI model tokens, Tavily search, optional Abstract/Hunter email checks, and optional paid trade-data budget rather than a fixed demo per-target value. |
 | CE20.21 | Manager report-window parity | Focused lint/typecheck + Browser | Manager `查看报告` actions use the shared Employee `CustomerReportDialog` only, the report overlay is portaled outside the Manager employee-detail dialog so it is not clipped, report sections and top metrics are visible, `X` closes the report, and outside-overlay click closes only the report while leaving the Manager detail dialog open. |
-| CE20.22 | Manager login parity | Typecheck + Static script + HTTP smoke | Manager has `/client-demos/cross-border/admin/login` using the same logo/card/input/button layout as the Employee login page, submits `cbeRole: "admin"`, preset admin `孙总/1234` signs an `admin` session, wrong password returns 401, Manager APIs default to cookie session rather than a hardcoded admin header, and the seeded admin profile can self-heal from the old preset row. |
-| CE20.23 | Employee/Manager login kickout fix | Typecheck + Static script + HTTP/browser smoke | Employee and Manager sessions use role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) with legacy same-role fallback only; AppShell calls `/session?role=operator` or `/session?role=admin`; Admin cookies are rejected by Employee checks, Employee cookies are rejected by Admin checks, combined cookies keep both platforms active, and persistent UI state reads `localStorage` after mount to avoid first-render hydration mismatch. |
+| CE20.22 | Manager login parity | Typecheck + Static script + HTTP smoke | Manager has `/admin/login` using the same logo/card/input/button layout as the Employee login page, submits `cbeRole: "admin"`, preset admin `孙总/1234` signs an `admin` session, wrong password returns 401, Manager APIs default to cookie session rather than a hardcoded admin header, and the seeded admin profile can self-heal from the old preset row. |
+| CE20.23 | Employee/Manager login kickout fix | Typecheck + Static script + HTTP/browser smoke | Employee and Manager sessions use role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) with legacy same-role fallback only; AppShell calls `/api/session?role=operator` or `/api/session?role=admin`; Admin cookies are rejected by Employee checks, Employee cookies are rejected by Admin checks, combined cookies keep both platforms active, and persistent UI state reads `localStorage` after mount to avoid first-render hydration mismatch. |
 
 Verification:
 
@@ -634,3 +634,60 @@ Boundary:
 
 - CE25 intentionally supersedes the CE22 Accio approval-to-memory and Accio-to-Screening handoff UX. Historical CE22 rows remain for audit traceability only.
 - Existing database tables such as `memory_facts` and `handoff_events` remain for other platform/history needs; the current Accio `记忆整理` flow does not write to them.
+
+## CE26 — Production Employee/Admin route split
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- `sentura/dashboard/next.config.ts`
+- `sentura/dashboard/src/lib/cross-border-routes.ts`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/src/app/page.tsx`
+- `sentura/dashboard/src/app/auth/login/page.tsx`
+- `sentura/dashboard/src/app/api/auth/login/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/session/route.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/{employee,admin}/**`
+- `scripts/test-cross-border-agents.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+- `scripts/test-cross-border-phase2-concurrency.ts`
+- `scripts/test-cross-border-phase2-load-smoke.ts`
+
+Validation method:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm --dir sentura/dashboard build
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE26.1 | Canonical page routes | Static script + browser smoke | Employee entry is `/employee`; Employee login is `/employee/login`; Admin entry is `/admin`; Admin login is `/admin/login`. Browser smoke loads `/employee` and finds the Employee shell/login surface; `/admin/login` exposes the manager login form. |
+| CE26.2 | Canonical API routes | Static script + HTTP smoke | Employee APIs are called through `/api/employee/*`; Admin APIs are called through `/api/admin/*`; role session checks use `/api/session?role=operator|admin`. HTTP smoke reaches handlers and returns expected auth errors when unauthenticated, not 404. |
+| CE26.3 | Legacy URL compatibility | Static script + HTTP smoke | Old `/client-demos/cross-border/employee*` and `/client-demos/cross-border/admin*` page URLs redirect to canonical `/employee*` and `/admin*`; legacy implementation files remain readable behind Next rewrites during this migration. |
+| CE26.4 | Next config routing | Static script + build | `next.config.ts` redirects old demo page URLs, rewrites `/employee`, `/admin`, `/api/employee/*`, `/api/admin/*`, and `/api/session` to the existing implementation, and production build succeeds. |
+| CE26.5 | AppShell/session boundary | Static script + typecheck | AppShell role checks, login redirects, nav links, notification links, logout targets, and login API `redirectTo` values use canonical Employee/Admin routes and no longer send users back to demo URLs. |
+| CE26.6 | Regression coverage | Automated scripts | Dashboard typecheck/build, broad CBE static checks, Phase 2 store checks, concurrency checks, load-smoke static checks, browser route smoke, and whitespace checks pass. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 417/417.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16.
+- Local HTTP smoke against `http://127.0.0.1:3000`: `/employee` returned 200; `/admin/login` returned 200; old `/client-demos/cross-border/employee` redirected to `/employee`; old `/client-demos/cross-border/admin/login` redirected to `/admin/login`; `/api/session`, `/api/employee/customers`, and `/api/admin/operators` reached handlers and returned expected unauthenticated 401 responses.
+- Browser smoke against `http://127.0.0.1:3000`: `/employee` loaded the Employee shell/login surface; `/admin/login` exposed the `管理者姓名` / `密码` login form and `登录` button.
+
+Boundary:
+
+- This route split changes public/canonical Dashboard paths only. The source implementation files remain under `src/app/client-demos/cross-border/**` for now and are reached through Next rewrites to avoid a high-risk file move before server deployment.
+- Existing standalone historical demo pages such as `/client-demos/cross-border/lead-discovery`, `/screening`, and `/accio-memory` are not promoted to production entrypoints in this pass.

@@ -36,9 +36,14 @@ import {
   type ManualScreeningInput,
   type ScreeningTarget,
 } from "./employee-task-runner";
+import { CBE_EMPLOYEE_API_BASE } from "@/lib/cross-border-routes";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
 
 type JsonRecord = Record<string, unknown>;
+
+function employeeApi(path: `/${string}`) {
+  return `${CBE_EMPLOYEE_API_BASE}${path}`;
+}
 
 interface ApiPage<T> {
   items: T[];
@@ -1050,12 +1055,12 @@ function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
 }
 
 export async function fetchEmployeeCustomers() {
-  const page = await fetchEmployeeJson<ApiPage<ApiCustomerRecord>>("/api/client-demos/cross-border/employee/customers?limit=100");
+  const page = await fetchEmployeeJson<ApiPage<ApiCustomerRecord>>(employeeApi("/customers?limit=100"));
   return page.items.map(customerFromApi);
 }
 
 export async function fetchEmployeeMemoryRecords() {
-  const page = await fetchEmployeeJson<{ items: ApiMemoryRecord[] }>("/api/client-demos/cross-border/employee/memory");
+  const page = await fetchEmployeeJson<{ items: ApiMemoryRecord[] }>(employeeApi("/memory"));
   return page.items.map(memoryFromApi);
 }
 
@@ -1066,7 +1071,7 @@ export async function deleteEmployeeMemoryRecords(ids: string[]) {
     deletedSummaryIds: string[];
     deletedConversationIds: string[];
     deletedImportIds: string[];
-  }>("/api/client-demos/cross-border/employee/memory", {
+  }>(employeeApi("/memory"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1079,7 +1084,7 @@ export async function deleteEmployeeCustomers(ids: string[]) {
     deletedLeadCandidateIds: string[];
     deletedScreeningTargetIds: string[];
     deletedAccioSummaryIds: string[];
-  }>("/api/client-demos/cross-border/employee/customers", {
+  }>(employeeApi("/customers"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1087,7 +1092,7 @@ export async function deleteEmployeeCustomers(ids: string[]) {
 
 export async function fetchEmployeeAccioImportPayload(importId: string) {
   return fetchEmployeeJson<unknown>(
-    `/api/client-demos/cross-border/employee/memory/imports/${encodeURIComponent(importId)}`,
+    employeeApi(`/memory/imports/${encodeURIComponent(importId)}`),
   );
 }
 
@@ -1096,7 +1101,7 @@ export async function fetchEmployeeTasks() {
   let offset = 0;
   while (true) {
     const page = await fetchEmployeeJson<ApiPage<ApiAgentRun>>(
-      `/api/client-demos/cross-border/employee/tasks?limit=${EMPLOYEE_TASK_PAGE_SIZE}&offset=${offset}`,
+      employeeApi(`/tasks?limit=${EMPLOYEE_TASK_PAGE_SIZE}&offset=${offset}`),
     );
     records.push(...page.items);
     if (page.items.length < EMPLOYEE_TASK_PAGE_SIZE) break;
@@ -1106,7 +1111,7 @@ export async function fetchEmployeeTasks() {
 }
 
 export async function fetchEmployeeCostBudget(): Promise<EmployeeCostBudgetSnapshot> {
-  const body = await fetchEmployeeJson<JsonRecord>("/api/client-demos/cross-border/employee/cost-budget");
+  const body = await fetchEmployeeJson<JsonRecord>(employeeApi("/cost-budget"));
   return {
     period: "month",
     baseLimitUsd: asNumber(body.baseLimitUsd ?? body.base_limit_usd) ?? 0,
@@ -1124,12 +1129,12 @@ export async function fetchEmployeeCostBudget(): Promise<EmployeeCostBudgetSnaps
 
 export async function markEmployeeNotificationsRead(ids: string[]) {
   if (ids.length === 0) return { readIds: [] as string[] };
-  return jsonPost<{ readIds: string[] }>("/api/client-demos/cross-border/employee/notifications/read", { ids });
+  return jsonPost<{ readIds: string[] }>(employeeApi("/notifications/read"), { ids });
 }
 
 export async function deleteEmployeeNotifications(ids: string[]) {
   if (ids.length === 0) return { deletedIds: [] as string[] };
-  return fetchEmployeeJson<{ deletedIds: string[] }>("/api/client-demos/cross-border/employee/notifications", {
+  return fetchEmployeeJson<{ deletedIds: string[] }>(employeeApi("/notifications"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1137,7 +1142,7 @@ export async function deleteEmployeeNotifications(ids: string[]) {
 
 export async function dismissEmployeeTaskInDb(id: string) {
   const result = await jsonPost<{ task: ApiAgentRun }>(
-    `/api/client-demos/cross-border/employee/tasks/${encodeURIComponent(id)}/dismiss`,
+    employeeApi(`/tasks/${encodeURIComponent(id)}/dismiss`),
     {},
   );
   return taskFromApi(result.task);
@@ -1145,7 +1150,7 @@ export async function dismissEmployeeTaskInDb(id: string) {
 
 export async function cancelEmployeeTaskInDb(input: { id: string; sessionKey?: string }) {
   const result = await jsonPost<{ task: ApiAgentRun }>(
-    `/api/client-demos/cross-border/employee/tasks/${encodeURIComponent(input.id)}/cancel`,
+    employeeApi(`/tasks/${encodeURIComponent(input.id)}/cancel`),
     { session_key: input.sessionKey },
   );
   return taskFromApi(result.task);
@@ -1168,7 +1173,7 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
     maxResultsPerQuery,
   });
   return jsonPost<CreateEmployeeLeadRunResponse>(
-    "/api/client-demos/cross-border/employee/lead-runs",
+    employeeApi("/lead-runs"),
     {
       query_config: {
         product_keywords: productKeywords,
@@ -1200,7 +1205,7 @@ export async function createEmployeeScreeningRun(
   const childSessionKeys = targets.map((_, index) =>
     index === 0 ? sessionKey : createPlannedEmployeeSessionKey(SCREENING_AGENT_ID),
   );
-  return jsonPost<CreateEmployeeScreeningRunResponse>("/api/client-demos/cross-border/employee/screening-runs", {
+  return jsonPost<CreateEmployeeScreeningRunResponse>(employeeApi("/screening-runs"), {
     target_summary: targets.map((target) => target.company_name ?? target.target_id).join(", ").slice(0, 240),
     target_record_type: targets.length === 1 ? targets[0].source : "screening_batch",
     target_record_id: targets.length === 1 ? targets[0].lead_id ?? targets[0].target_id : undefined,
@@ -1230,7 +1235,7 @@ export async function claimEmployeeQueuedScreeningRuns(input: {
     batch: ApiScreeningBatch | null;
     childRuns: ApiScreeningChildRun[];
     queuedRemaining: number;
-  }>("/api/client-demos/cross-border/employee/screening-runs/drain", {
+  }>(employeeApi("/screening-runs/drain"), {
     screening_batch_id: input.screeningBatchId,
     limit: input.limit ?? 3,
   });
@@ -1246,7 +1251,7 @@ export async function retryEmployeeScreeningChildRun(input: {
   return jsonPost<{
     batch: ApiScreeningBatch | null;
     childRun: ApiScreeningChildRun;
-  }>(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/retry`, {
+  }>(employeeApi(`/screening-runs/${input.agentRunId}/retry`), {
     session_key: input.sessionKey,
     reapprove_paid_email: Boolean(input.reapprovePaidEmail),
     reapprove_paid_trade: Boolean(input.reapprovePaidTrade),
@@ -1306,7 +1311,7 @@ export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, ses
   const conversations = await accioConversationsFromPayload(input.chatExport);
   const estimatedCost = sessionKey ? estimateMemoryTaskCost(conversations.length) : { estimatedUsd: 0 };
   return jsonPost<{ agentRun: ApiAgentRun; accioImport: ApiAccioImport }>(
-    "/api/client-demos/cross-border/employee/memory/imports",
+    employeeApi("/memory/imports"),
     {
       source_file_name: input.recordName,
       source_kind: input.sourceKind ?? "manual_json",
@@ -1631,7 +1636,7 @@ export async function completeEmployeeLeadRun(input: {
   payload: unknown;
 }) {
   return jsonPost<CompleteEmployeeLeadRunResponse>(
-    `/api/client-demos/cross-border/employee/lead-runs/${input.leadRunId}/complete`,
+    employeeApi(`/lead-runs/${input.leadRunId}/complete`),
     {
       agent_run_id: input.agentRunId,
       session_key: input.sessionKey,
@@ -1645,7 +1650,7 @@ export async function completeEmployeeScreeningRun(input: {
   sessionKey: string;
   payload: unknown;
 }) {
-  return jsonPost<CompleteEmployeeScreeningRunResponse>(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/complete`, {
+  return jsonPost<CompleteEmployeeScreeningRunResponse>(employeeApi(`/screening-runs/${input.agentRunId}/complete`), {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
     payload: normalizeScreeningPayload(input.payload),
@@ -1659,7 +1664,7 @@ export async function completeEmployeeAccioImport(input: {
   sourceFileName: string;
   payload: unknown;
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/memory/imports/${input.importId}/complete`, {
+  return jsonPost(employeeApi(`/memory/imports/${input.importId}/complete`), {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
     payload: normalizeAccioPayload(input.payload, input.sourceFileName),
@@ -1677,7 +1682,7 @@ export async function failEmployeeTaskInDb(input: {
   error: unknown;
   message: string;
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/tasks/${input.agentRunId}/fail`, {
+  return jsonPost(employeeApi(`/tasks/${input.agentRunId}/fail`), {
     session_key: input.sessionKey,
     error_code: employeeTaskFailureCode(input.error),
     error_message: input.message,

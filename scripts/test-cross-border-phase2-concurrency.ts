@@ -200,10 +200,10 @@ async function runLiveCe21Checks() {
   await migrateCbeDatabase({ seed: true });
   const imported = await import("../sentura/dashboard/src/lib/cross-border-store/index.ts");
   const store = (imported.default ?? imported) as Record<string, any>;
-  const requestA = new Request("http://sentura.local/api/client-demos/cross-border/employee/customers", {
+  const requestA = new Request("http://sentura.local/api/employee/customers", {
     headers: { "x-cbe-user-id": CBE_SEED_USERS.operatorA.id },
   });
-  const requestB = new Request("http://sentura.local/api/client-demos/cross-border/employee/customers", {
+  const requestB = new Request("http://sentura.local/api/employee/customers", {
     headers: { "x-cbe-user-id": CBE_SEED_USERS.operatorB.id },
   });
   const contextA = await store.resolveCbeTenantContext(requestA);

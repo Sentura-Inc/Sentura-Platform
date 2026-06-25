@@ -8,6 +8,95 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 ## Current Resume Snapshot
 
+Date: 2026-06-26
+
+Latest user issue: Local route/domain split before server rollout. User realized deployment has two public domains (`app.sentura.ai`, `admin.sentura.ai`) but Dashboard implementation still exposed demo-oriented employee/admin URLs and demo API endpoints. User wants two distinct entries for the two domain prefixes, with canonical `employee` and `admin` endpoint names. Local fix first; user will inspect and push, then server can pull/rebuild/reload later.
+
+Current state:
+
+- Local Dashboard now exposes canonical production CBE routes:
+  - Employee pages: `/employee`, `/employee/login`, `/employee/customers`, `/employee/memory`.
+  - Admin pages: `/admin`, `/admin/login`, `/admin/employees`, `/admin/high-value-customers`, `/admin/costs`.
+  - APIs: `/api/employee/*`, `/api/admin/*`, and shared `/api/session`.
+- Existing implementation files under `src/app/client-demos/cross-border/**` were kept in place behind Next rewrites. Old demo URLs redirect to the new canonical URLs.
+- Added shared route constants in `sentura/dashboard/src/lib/cross-border-routes.ts`; runtime code and tests consume these constants rather than hardcoding demo paths.
+- `sentura/dashboard/next.config.ts` now:
+  - redirects old `/client-demos/cross-border/...` and `/auth/login` URLs to canonical employee/admin URLs.
+  - rewrites canonical page/API URLs back to the existing legacy implementation modules.
+- No server operation has been performed for this local fix. Alibaba ECS still needs user branch push/pull, Dashboard rebuild/restart, and Nginx redirect target updates before public domains use these canonical paths.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, `417/417`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, `218/218`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, `23/23`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, `16/16`.
+- `pnpm --dir sentura/dashboard build`: PASS. Existing Next workspace-root warnings remain.
+- Local production server smoke on `127.0.0.1:3000`:
+  - `/employee`: `200`.
+  - `/admin/login`: `200`.
+  - `/client-demos/cross-border/employee`: `307` to `/employee`.
+  - `/client-demos/cross-border/admin/login`: `307` to `/admin/login`.
+  - `/auth/login`: `307` to `/employee/login`.
+  - `/api/session?role=operator`, `/api/employee/customers?limit=1`, `/api/admin/operators`: reached handlers and returned expected unauthenticated `401` responses.
+
+Operational boundaries:
+
+- Keep this as a local code fix only until the user reviews/pushes.
+- Server follow-up after pull: rebuild Dashboard, restart Dashboard service, update Nginx root redirects from the old demo paths to `/employee` and `/admin/login`, then re-smoke `https://app.sentura.ai/`, `https://admin.sentura.ai/`, canonical routes, and Gateway.
+- This route split does not rename the historical source folder yet; rewrites intentionally avoid a large file move.
+- Successful future browser access to `app.sentura.ai` and `admin.sentura.ai` means DNS/ALB reaches ECS/Nginx/Dashboard. It does not mean domains point directly to the ECS public IP.
+
+## Previous Alibaba Setup Snapshot
+
+Date: 2026-06-26
+
+User issue: Alibaba Cloud target setup after OpenClaw onboard. User wanted Sentura setup, Alibaba RDS wiring, external app/admin/gateway reachability tests, cleanup of prior failed artifacts, and confirmation of whether successful `app.sentura.ai` / `admin.sentura.ai` access means traffic reaches ECS.
+
+State:
+
+- Target host: Alibaba Cloud ECS running repo `/root/Sentura-Platform` on `ecommerce`; OpenClaw `2026.6.2`.
+- User completed `pnpm build` and `pnpm openclaw onboard` manually with LLM/Tavily configured.
+- Follow-up setup completed:
+  - Ran `scripts/sentura-setup.sh` after onboard.
+  - Registered Sentura meta-agents plus CBE agents into OpenClaw.
+  - Wired Dashboard env to Alibaba RDS and public Gateway URL.
+  - Created/migrated RDS database `sentura` through migrations `001`-`008`.
+  - Seeded CBE profiles: one `admin`, two `operator`.
+  - Built root workspace packages, including Dashboard and MCP builds.
+  - OpenClaw Gateway service active on loopback `127.0.0.1:18789`.
+  - Sentura Dashboard systemd service active on loopback `127.0.0.1:3000`.
+  - Nginx active on `:80` behind Alibaba ALB, routing `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`.
+- Cleanup completed:
+  - Removed old failed `/srv/sentura`.
+  - Fixed stale `/root/.bashrc` completion source guard.
+
+Verification:
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, `244/244` against target Alibaba RDS.
+- RDS migration/profile check: 8 migrations, `admin:1`, `operator:2`.
+- Local Nginx host-header checks:
+  - `app.sentura.ai` root redirects to `/client-demos/cross-border/employee`.
+  - `admin.sentura.ai` root redirects to `/client-demos/cross-border/admin/login`.
+  - Admin login route returns `200`.
+- Public HTTPS:
+  - `https://app.sentura.ai/` returns expected Employee redirect.
+  - `https://admin.sentura.ai/` returns expected Admin login redirect.
+- Public Gateway:
+  - `wss://admin.sentura.ai/gateway` completed the OpenClaw connect handshake.
+- ECS Nginx logs show Alibaba SLB health checks reaching the instance, so the public domains are routed through ALB to the ECS/Nginx target.
+
+Boundaries:
+
+- Successful `app.sentura.ai` and `admin.sentura.ai` browser loads mean DNS resolves to Alibaba ALB and the ALB target path reaches this ECS/Nginx/Dashboard stack. It does not mean the domains point directly to the ECS public IP; they point to ALB, which forwards to ECS.
+- Use HTTPS for public access. Direct public HTTP timed out during external checks; the ALB appears HTTPS-facing from the outside.
+- This is target connectivity/setup evidence, not full `production_go_live_ready`. Remaining target evidence: load-smoke, disposable restore drill, provider/source-rate headroom, model concurrency, DB connection-limit headroom, Gateway RSS/runtime observations.
+- `sentura-memory-lancedb` is configured but inactive because runtime memory slot remains `memory-core` and the embedding key path was not active. This does not block app/admin/RDS checks.
+- Gateway device-auth bypass is temporarily enabled for Sentura Dashboard compatibility with OpenClaw `2026.6.2`; keep `18789` loopback-only and do not expose it directly.
+
+## Previous Local UI Snapshot
+
 Date: 2026-06-25
 
 Latest user issue: `记忆整理` must be separated from `获客与背调`; the memory Agent should not provide backcheck, write, or cross-board handoff options.

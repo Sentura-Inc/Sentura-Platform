@@ -609,7 +609,7 @@ async function runLiveLoadSmoke() {
     for (const userId of userIds) {
       const start = performance.now();
       const context = await store.resolveCbeTenantContext(new Request(
-        "http://sentura.local/api/client-demos/cross-border/employee/customers",
+        "http://sentura.local/api/employee/customers",
         { headers: { "x-cbe-user-id": userId } },
       ));
       latencies.push(performance.now() - start);

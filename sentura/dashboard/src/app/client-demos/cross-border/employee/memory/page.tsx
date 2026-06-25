@@ -40,6 +40,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useAgent, useGateway } from "@/lib/gateway";
+import { CBE_EMPLOYEE_MEMORY_PATH } from "@/lib/cross-border-routes";
 import { cn } from "@/lib/utils";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import {
@@ -659,7 +660,7 @@ function CrossBorderMemoryPageContent() {
       highlightMemoryRecords([created.accioImport.id]);
       window.setTimeout(() => scrollMemoryRecordIntoView(created.accioImport.id), 0);
       showNotice("记录已导入，状态为未分析。", "success", 4000);
-      router.replace(`/client-demos/cross-border/employee/memory?highlightRecord=${encodeURIComponent(created.accioImport.id)}`);
+      router.replace(`${CBE_EMPLOYEE_MEMORY_PATH}?highlightRecord=${encodeURIComponent(created.accioImport.id)}`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "记忆记录导入失败。", "error", 8000);
     }

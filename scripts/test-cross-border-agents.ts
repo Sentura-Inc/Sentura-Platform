@@ -155,6 +155,8 @@ const EMPLOYEE_COST_BUDGET_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-budget/route.ts",
 );
+const NEXT_CONFIG = path.join(ROOT, "sentura/dashboard/next.config.ts");
+const CBE_ROUTES = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-routes.ts");
 const GATEWAY_CLIENT = path.join(ROOT, "sentura/dashboard/src/lib/gateway/client.ts");
 const GATEWAY_TYPES = path.join(ROOT, "sentura/dashboard/src/lib/gateway/types.ts");
 const CROSS_BORDER_INTEL_TOOLS = path.join(
@@ -279,6 +281,8 @@ const customerLabels = read(CUSTOMER_LABELS);
 const employeeTaskCancelApi = read(EMPLOYEE_TASK_CANCEL_API);
 const employeeCost = read(EMPLOYEE_COST);
 const employeeCostBudgetApi = read(EMPLOYEE_COST_BUDGET_API);
+const nextConfig = read(NEXT_CONFIG);
+const cbeRoutes = read(CBE_ROUTES);
 const gatewayClient = read(GATEWAY_CLIENT);
 const gatewayTypes = read(GATEWAY_TYPES);
 const crossBorderIntelTools = read(CROSS_BORDER_INTEL_TOOLS);
@@ -714,8 +718,36 @@ check("employee task status bar and API expose active task cancel action", [
 check("AppShell renders global employee task status", appShell.includes("EmployeeTaskStatusBar") && appShell.includes("<EmployeeTaskStatusBar />"));
 check("AppShell keeps DB task refresh and task notification links", appShell.includes("fetchEmployeeTasks") && appShell.includes("markEmployeeNotificationsRead") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargets.includes("employee-messages") && !appShell.includes("notificationRootRef"));
 check("AppShell notification menus show scrollable targeted employee and manager message lists", appShell.includes("notificationListMaxHeight") && appShell.includes("overflow-y-auto") && appShell.includes("previewMessages.map((item)") && appShell.includes("employeeTaskNotificationHref(item)") && appShell.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShell.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargets.includes("highlightTask=") && employeeNotificationTargets.includes("employeeCostHighlightHref") && !appShell.includes("messages.slice(0, 4)") && appShell.includes("snapshot.approvals.map") && appShell.includes("snapshot.highValueItems.map") && appShell.includes("limit=100&range=all"));
-check("AppShell employee account area uses role-scoped session login and logout instead of personal dropdown", appShell.includes("/api/client-demos/cross-border/session?role=operator") && appShell.includes("/api/auth/logout?role=") && appShell.includes("router.replace(`/auth/login?next=") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF"));
-check("AppShell manager account area matches employee name and logout controls", appShell.includes('logoutTo("/client-demos/cross-border/admin/login")') && appShell.includes("AdminNotificationBell") && appShell.includes("<ConnectionStatus />") && !appShell.includes("ChevronDown") && !appShell.includes("管理者系统</div>") && !appShell.includes('href="/client-demos/cross-border/admin/employees" />'));
+check("CBE production routes expose employee/admin entrances without demo URLs", [
+  'CBE_EMPLOYEE_HOME_PATH = "/employee"',
+  'CBE_EMPLOYEE_LOGIN_PATH = "/employee/login"',
+  'CBE_ADMIN_HOME_PATH = "/admin"',
+  'CBE_ADMIN_LOGIN_PATH = "/admin/login"',
+  'CBE_EMPLOYEE_API_BASE = "/api/employee"',
+  'CBE_ADMIN_API_BASE = "/api/admin"',
+  'CBE_SESSION_API_PATH = "/api/session"',
+].every((needle) => cbeRoutes.includes(needle)) && !appShell.includes('"/client-demos/cross-border/employee') && !appShell.includes('"/client-demos/cross-border/admin'));
+check("Next config rewrites production CBE routes to legacy implementation and redirects old demo URLs", [
+  'source: "/employee"',
+  'destination: "/client-demos/cross-border/employee"',
+  'source: "/admin"',
+  'destination: "/client-demos/cross-border/admin"',
+  'source: "/api/employee/:path*"',
+  'destination: "/api/client-demos/cross-border/employee/:path*"',
+  'source: "/api/admin/:path*"',
+  'destination: "/api/client-demos/cross-border/admin/:path*"',
+  'source: "/api/session"',
+  'destination: "/api/client-demos/cross-border/session"',
+].every((needle) => nextConfig.includes(needle)) && [
+  'source: "/client-demos/cross-border/employee/:path*"',
+  'destination: "/employee/:path*"',
+  'source: "/client-demos/cross-border/admin/:path*"',
+  'destination: "/admin/:path*"',
+  'source: "/auth/login"',
+  'destination: "/employee/login"',
+].every((needle) => nextConfig.includes(needle)));
+check("AppShell employee account area uses role-scoped session login and logout instead of personal dropdown", appShell.includes("CBE_SESSION_API_PATH") && appShell.includes("role=operator") && appShell.includes("/api/auth/logout?role=") && appShell.includes("CBE_EMPLOYEE_LOGIN_PATH") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF"));
+check("AppShell manager account area matches employee name and logout controls", appShell.includes("logoutTo(CBE_ADMIN_LOGIN_PATH)") && appShell.includes("AdminNotificationBell") && appShell.includes("<ConnectionStatus />") && !appShell.includes("ChevronDown") && !appShell.includes("管理者系统</div>") && !appShell.includes('href="/admin/employees" />'));
 check("AppShell keeps only the side logo in the header", appShell.includes("sentura-logo-side.svg") && !appShell.includes("sentura-logo-icon.svg"));
 check("AppShell exposes personal center as the first employee nav item", appShell.indexOf('label: "个人中心"') > 0 && appShell.indexOf('label: "个人中心"') < appShell.indexOf('label: "获客与背调"'));
 check("AppShell logo is not the employee-home navigation entry", appShell.includes("aria-label={`Sentura ${shellTitle}`}") && appShell.includes("跨境电商员工操作系统") && appShell.includes("跨境电商管理者系统") && !appShell.includes('aria-label="回到个人中心"'));
@@ -723,7 +755,7 @@ check("CBE persistent UI state hook stores validated button filters in localStor
 check("CBE persistent UI state avoids first-render localStorage hydration mismatch", persistentUiStateHook.includes("useState<T>(defaultValue)") && persistentUiStateHook.includes("setValue(readStoredValue") && persistentUiStateHook.includes("if (!isHydrated) return;"));
 check("employee personal center range persists across route switches", ["HOME_RANGE_STORAGE_KEY", "sentura:cbe:employee:home-range:v1", "usePersistentUiState<HomeRange>", "isHomeRange"].every((needle) => employeeHomePage.includes(needle)) && !employeeHomePage.includes('useState<HomeRange>("month")'));
 check("employee personal center greeting uses logged-in session display name", [
-  "/api/client-demos/cross-border/session",
+  "CBE_SESSION_API_PATH",
   "setSessionDisplayName",
   "currentEmployeeName",
   "body?.user?.displayName",
@@ -771,7 +803,7 @@ check("employee cost card syncs manager-updated quota from server budget", [
   "if (scopedEvents.length === 0) return null",
   'const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]',
   "period = any($3::text[])",
-].every((needle) => cbeAdminStore.includes(needle)) && employeeApi.includes("/api/client-demos/cross-border/employee/cost-budget"));
+].every((needle) => cbeAdminStore.includes(needle)) && employeeApi.includes('employeeApi("/cost-budget")'));
 check("admin employee management supports soft deletion", [
   "deleteAdminOperator",
   "deleteTarget",

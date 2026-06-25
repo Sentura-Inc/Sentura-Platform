@@ -3,6 +3,10 @@ import {
   cbeRouteError,
   resolveCbeTenantContext,
 } from "@/lib/cross-border-store";
+import {
+  CBE_ADMIN_EMPLOYEES_PATH,
+  CBE_EMPLOYEE_HOME_PATH,
+} from "@/lib/cross-border-routes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,8 +25,8 @@ export async function GET(request: Request) {
         departmentId: context.departmentId ?? null,
       },
       redirectTo: context.cbeRole === "admin"
-        ? "/client-demos/cross-border/admin/employees"
-        : "/client-demos/cross-border/employee",
+        ? CBE_ADMIN_EMPLOYEES_PATH
+        : CBE_EMPLOYEE_HOME_PATH,
     });
   } catch (error) {
     return cbeRouteError(error);

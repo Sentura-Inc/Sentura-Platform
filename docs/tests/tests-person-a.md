@@ -332,3 +332,60 @@ Run: `npx tsx scripts/test-concurrent-employees.ts` (LIVE — requires gateway o
 | A27.3 | Cost-mix variant | `--mix cost` (after Week 4 cost RPCs ship) | Exits with verdict; `sentura.cost.summary` and `sentura.health.summary` included in the report |
 | A27.4 | Errors fail the run | Force a bad RPC name | Exit code 1, error count surfaces in the table |
 | A27.5 | Verdict gate | A method exceeds 2× budget | Exit code 2 with `FAIL` line per method that breached |
+
+### A28. Alibaba Cloud Deployment Report
+
+Run: manual documentation review.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A28.1 | Provider-specific entrypoint exists | Read `docs/ALIYUN-DEPLOYMENT.md` and README Key Documentation | Alibaba Cloud report is linked from `README.md` and `docs/HOSTING.md` |
+| A28.2 | SaaS exposure model avoids public ports | Read report sections "Executive Recommendation" and "Why Subdomains Beat Public Ports" | Admin and employee access are separated by subdomain/route/RBAC, with only HTTPS `443` public; `3000`, `18789`, and `5432` stay private |
+| A28.3 | Current DNS state captured | Read report "Current DNS Findings" | `www.sentura.ai` current Render CNAME and apex Render A records are documented with rollback implications |
+| A28.4 | Squarespace cutover path covered | Read report "DNS in Squarespace" | Shows app/admin/ops records, CNAME-vs-A guidance, conflicting-record warning, and Render rollback path |
+| A28.5 | ICP boundary covered | Read report "Mainland China and ICP" | Mainland Alibaba Cloud public-domain hosting is conditional on ICP filing; Hong Kong/Singapore are recommended for immediate launch |
+| A28.6 | Alibaba service fit evaluated | Read "Deployment Options Evaluation" | ECS, ECS+ALB/RDS/WAF, ACK, SAE, Simple Application Server, and mainland ECS are compared with a Sentura-specific recommendation |
+| A28.7 | Server sizing actionable | Read "Server Sizing" | Provides beta/paid/growth sizing for ECS, disk, and RDS; warns not to colocate self-hosted LLM inference with Gateway/Dashboard |
+| A28.8 | OpenClaw stateful boundary preserved | Read "Alibaba Cloud Architecture" and "Required Product/Repo Adjustments" | Gateway is treated as stateful; `~/.openclaw` remains durable host state; RDS is not presented as a replacement for OpenClaw workspace/memory files |
+| A28.9 | Production Gateway hardening covered | Read "Configure OpenClaw Gateway for Production" | `bind: "loopback"`, explicit `controlUi.allowedOrigins`, and `allowInsecureAuth: false` are called out |
+| A28.10 | Packaging rule aligned | Read `docs/HOSTING.md` "Deployment Packaging" | No custom Sentura Compose wrapper is recommended for OpenClaw; upstream OpenClaw Docker/source workflow remains authoritative |
+| A28.11 | Operations and backup covered | Read "Operations Checklist" and "Go-Live Validation" | CloudMonitor, `openclaw security audit`, ECS snapshots, OSS backups, and restore drill are included |
+| A28.12 | External sources traceable | Read "Sources Used" | Alibaba Cloud, Squarespace, Render, OpenClaw, and Next.js official docs are linked |
+
+### A29. Alibaba Cloud Full-Stack Deployment Runbook
+
+Run: manual documentation review.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A29.1 | Runbook entrypoint exists | Read `docs/ALIYUN-FULL-STACK-RUNBOOK.md`, README Key Documentation, and `docs/HOSTING.md` provider links | The Chinese full-stack Alibaba Cloud deployment runbook is linked from the main docs entrypoints |
+| A29.2 | Alibaba-first architecture is explicit | Read sections 0-1 | Architecture keeps the application, WAF, ALB, ECS, RDS, ACR, OSS, SLS, CloudMonitor, KMS, IDaaS, and Bastionhost inside Alibaba Cloud where practical while explicitly retaining Squarespace DNS |
+| A29.3 | SaaS hostname split avoids public ports | Read section 0 and 20 | `app`, `admin`, and `ops` are separated by hostname/RBAC; `3000`, `18789`, and `5432` are private and expected to fail public port checks |
+| A29.4 | Region and ICP boundary covered | Read section 2 and common errors | Hong Kong/Singapore are recommended for immediate launch; Mainland China public-domain hosting is conditional on ICP filing |
+| A29.5 | RAM/security bootstrap covered | Read section 3 | Root MFA, resource group/tags, RAM least privilege, ActionTrail, budget alerts, and no root AccessKey are documented |
+| A29.6 | Squarespace DNS app/admin records are actionable | Read section 4 | Current Render records are captured; `www`, apex, MX, and TXT records remain unchanged; only `app` and `admin` CNAME records are added in Squarespace to point at WAF/ALB; verification and conflict handling are covered |
+| A29.7 | VPC/security group model is least-privilege | Read section 5 | ECS can run private-only behind ALB/WAF; NAT handles outbound; security groups keep Dashboard/Gateway/RDS private |
+| A29.8 | RDS PostgreSQL procedure is clear | Read section 6 | HA instance, private endpoint, database/user creation, backup/PITR, and migration smoke are documented |
+| A29.9 | ECS and data-disk setup are durable | Read section 7 | ECS sizing, no public IP production preference, Docker/Node install, `/srv/sentura` data disk, and fstab persistence are included |
+| A29.10 | Current Dashboard Docker boundary is honest | Read sections 8 and 10 | The doc states that current Dashboard lacks Dockerfile/standalone output and separates systemd-first deployment from ACR-ready future work |
+| A29.11 | OpenClaw upstream Docker boundary preserved | Read section 9 | OpenClaw uses current upstream Docker assets and durable host-mounted config/workspace directories; no custom Sentura Compose wrapper is introduced |
+| A29.12 | ALB/WAF/TLS path is complete | Read sections 11-13 | Nginx reverse proxy, Certificate Management Service, ALB listener/server group/health check, WAF CNAME onboarding, and DNS final records are covered |
+| A29.13 | Production auth/secrets/observability covered | Read sections 14-16 | OIDC/SAML/IDaaS, RBAC by hostname, KMS/OpenClaw secret boundary, CloudMonitor, SLS, and redaction guidance are included |
+| A29.14 | Backup/go-live/rollback are testable | Read sections 17, 20, and 21 | OpenClaw state tarball, OSS, ECS snapshots, RDS backups, restore drill, go-live smoke checks, and rollback prerequisites are explicit |
+
+### A30. Alibaba Cloud Live ECS/RDS Setup Smoke
+
+Run: manual/live verification on the Alibaba Cloud ECS and RDS deployment. Do not print secrets in command output or docs.
+
+| # | Test | Method | What to Check |
+|---|------|--------|---------------|
+| A30.1 | ECS runtime initialized | SSH to ECS, inspect packages/users/dirs | Docker CE/Compose, Node 24, pnpm, Nginx, PostgreSQL client, UFW, `sentura` user, `/srv/sentura/{app,secrets,backups,logs,openclaw-home}` exist with restrictive permissions |
+| A30.2 | RDS private connectivity and app roles | Run `psql` from ECS using secret env values | ECS reaches the RDS private endpoint; low-privilege Sentura/CBE users and databases exist; bootstrap admin credentials are not used by app services |
+| A30.3 | CBE Phase 2 migrations/store smoke | `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed` and `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db` | Migrations `001`-`008` apply; seed data exists; live store smoke passes 244/244 checks |
+| A30.4 | Dashboard build and systemd service | `cd sentura/dashboard && pnpm build`; `systemctl is-active sentura-dashboard` | Build succeeds; service runs as `sentura`; Next listens on `127.0.0.1:3000` |
+| A30.5 | OpenClaw upstream Docker Gateway | `cd openclaw && bash scripts/docker/setup.sh`; `docker compose ps`; `curl http://127.0.0.1:18789/healthz` | Uses upstream OpenClaw Docker assets; `openclaw-openclaw-gateway-1` is healthy; health returns `{"ok":true,"status":"live"}` |
+| A30.6 | Nginx local proxy | `curl -I -H "Host: app.sentura.ai" http://127.0.0.1/`; `curl -I -H "Host: admin.sentura.ai" http://127.0.0.1/client-demos/cross-border/admin/login`; `/gateway/healthz` | `app` redirects to Employee UI, `admin` login returns 200, Gateway health proxies through `/gateway/` |
+| A30.7 | Public ingress pending | From local machine, `curl -I http://<ECS_PUBLIC_IP>/` or `nc -vz <ECS_PUBLIC_IP> 80` | Currently times out despite Nginx/UFW being open, so Alibaba security group/ALB/WAF ingress must be fixed before DNS cutover |
+| A30.8 | Browser Gateway device identity pending | WebSocket handshake through `/gateway/` with `Origin: https://app.sentura.ai` / `https://admin.sentura.ai` | Current Sentura browser Gateway client lacks OpenClaw device identity; Gateway rejects remote Control UI handshakes unless a safe IDaaS/trusted-proxy/device-identity path is implemented or a consciously approved break-glass flag is enabled |
+| A30.9 | Disk/cache recovery | `docker builder prune -af`; `df -h /`; `docker compose ps` | Build cache is reclaimed; root disk has roughly 28 GiB free; OpenClaw image/container remain intact and healthy |
+| A30.10 | Secret handling and rotation notes | Review `/srv/sentura/secrets/*.env` permissions and repo diff | Generated app DB passwords remain server-only; no secrets are written to docs/repo output; supplied root/RDS bootstrap passwords should be rotated after setup |

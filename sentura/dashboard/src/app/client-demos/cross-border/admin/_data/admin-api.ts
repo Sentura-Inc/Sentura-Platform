@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  CBE_ADMIN_API_BASE,
+  CBE_ADMIN_LOGIN_PATH,
+} from "@/lib/cross-border-routes";
+
 type JsonRecord = Record<string, unknown>;
 
 const CBE_ADMIN_USER_ID = process.env.NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim();
@@ -77,8 +82,8 @@ async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     const error = typeof body?.error === "object" ? body.error : {};
     if ((response.status === 401 || response.status === 403) && typeof window !== "undefined") {
       const next = `${window.location.pathname}${window.location.search}`;
-      if (!window.location.pathname.startsWith("/client-demos/cross-border/admin/login")) {
-        window.location.assign(`/client-demos/cross-border/admin/login?next=${encodeURIComponent(next)}`);
+      if (!window.location.pathname.startsWith(CBE_ADMIN_LOGIN_PATH)) {
+        window.location.assign(`${CBE_ADMIN_LOGIN_PATH}?next=${encodeURIComponent(next)}`);
       }
     }
     throw new Error(typeof error.message === "string" ? error.message : `请求失败：${response.status}`);
@@ -87,7 +92,7 @@ async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export function fetchAdminOperators() {
-  return adminFetch<{ items: AdminOperatorRow[] }>("/api/client-demos/cross-border/admin/operators");
+  return adminFetch<{ items: AdminOperatorRow[] }>(`${CBE_ADMIN_API_BASE}/operators`);
 }
 
 export function createAdminOperator(input: {
@@ -97,7 +102,7 @@ export function createAdminOperator(input: {
   initial_limits: Array<{ period: string; limit_usd: number; enabled: boolean }>;
 }) {
   return adminFetch<{ operator: AdminOperatorRow; loginToken?: string; tokenDisplayPolicy?: string }>(
-    "/api/client-demos/cross-border/admin/operators",
+    `${CBE_ADMIN_API_BASE}/operators`,
     { method: "POST", body: JSON.stringify(input) },
   );
 }
@@ -111,7 +116,7 @@ export function updateAdminOperator(
     password?: string;
   },
 ) {
-  return adminFetch(`/api/client-demos/cross-border/admin/operators/${encodeURIComponent(id)}`, {
+  return adminFetch(`${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -119,7 +124,7 @@ export function updateAdminOperator(
 
 export function deleteAdminOperator(id: string) {
   return adminFetch<{ operator: AdminOperatorRow }>(
-    `/api/client-demos/cross-border/admin/operators/${encodeURIComponent(id)}`,
+    `${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
 }
@@ -130,11 +135,11 @@ export function fetchAdminOperator(id: string) {
     workload: JsonRecord[];
     customers: AdminCustomerRow[];
     costEvents: JsonRecord[];
-  }>(`/api/client-demos/cross-border/admin/operators/${encodeURIComponent(id)}`);
+  }>(`${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}`);
 }
 
 export function fetchHighValueCustomers() {
-  return adminFetch<{ items: AdminCustomerRow[] }>("/api/client-demos/cross-border/admin/high-value-customers?limit=100&range=all");
+  return adminFetch<{ items: AdminCustomerRow[] }>(`${CBE_ADMIN_API_BASE}/high-value-customers?limit=100&range=all`);
 }
 
 export function fetchAdminCosts(range: string) {
@@ -144,18 +149,18 @@ export function fetchAdminCosts(range: string) {
     pool: JsonRecord;
     items: AdminCostRow[];
     approvals: AdminApprovalRow[];
-  }>(`/api/client-demos/cross-border/admin/costs?range=${encodeURIComponent(range)}`);
+  }>(`${CBE_ADMIN_API_BASE}/costs?range=${encodeURIComponent(range)}`);
 }
 
 export function updateAdminCostLimit(input: { user_id: string; period: string; limit_usd: number; enabled: boolean }) {
-  return adminFetch("/api/client-demos/cross-border/admin/cost-limits", {
+  return adminFetch(`${CBE_ADMIN_API_BASE}/cost-limits`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 export function updateAdminCostAllowance(input: { user_id: string; period: string; amount_usd: number }) {
-  return adminFetch("/api/client-demos/cross-border/admin/cost-allowances", {
+  return adminFetch(`${CBE_ADMIN_API_BASE}/cost-allowances`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -167,7 +172,7 @@ export function decideCostApproval(input: {
   approved_amount_usd?: number;
   decision_note?: string;
 }) {
-  return adminFetch("/api/client-demos/cross-border/admin/cost-approvals", {
+  return adminFetch(`${CBE_ADMIN_API_BASE}/cost-approvals`, {
     method: "POST",
     body: JSON.stringify(input),
   });
