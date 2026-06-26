@@ -1176,6 +1176,31 @@ function normalizeScoreBlock(item: unknown): CustomerScoreBlock {
   };
 }
 
+function normalizedScoreFromScoreBlocks(blocks: CustomerScoreBlock[], evidenceCoverage?: number | null) {
+  let earnedPoints = 0;
+  let maxPoints = 0;
+  for (const block of blocks) {
+    if (
+      block.status === "scored" &&
+      typeof block.earnedPoints === "number" &&
+      typeof block.maxPoints === "number" &&
+      block.maxPoints > 0
+    ) {
+      earnedPoints += Math.max(0, Math.min(block.earnedPoints, block.maxPoints));
+      maxPoints += block.maxPoints;
+    }
+  }
+  if (maxPoints <= 0) return null;
+  const qualityScore = (earnedPoints / maxPoints) * 100;
+  const coverageScore = typeof evidenceCoverage === "number"
+    ? Math.max(0, Math.min(evidenceCoverage, 1)) * 100
+    : null;
+  const finalScore = typeof coverageScore === "number"
+    ? qualityScore * 0.8 + coverageScore * 0.2
+    : qualityScore;
+  return Number(finalScore.toFixed(2));
+}
+
 function synthesizeScoreBlocks(
   rawReport: Record<string, unknown>,
   evidence: CustomerEvidenceItem[],
@@ -1412,6 +1437,8 @@ function screeningReportFromRaw(
         ? raw.coverageGaps
         : [];
   const scoreBlocks = synthesizeScoreBlocks(raw, evidence, score);
+  const evidenceCoverage = asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage);
+  const normalizedScore = normalizedScoreFromScoreBlocks(scoreBlocks, evidenceCoverage) ?? score;
   const normalizedGaps = gapsSource.map(normalizeCoverageGap);
   const derivedGaps = coverageGapsFromScoreBlocks(scoreBlocks);
   const coverageGaps =
@@ -1422,9 +1449,9 @@ function screeningReportFromRaw(
         : normalizedGaps;
   return {
     reportId: asString(raw.report_id) ?? asString(raw.reportId) ?? sessionKey,
-    riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), score),
-    normalizedScore: typeof score === "number" ? score : null,
-    evidenceCoverage: asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage),
+    riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), normalizedScore),
+    normalizedScore: typeof normalizedScore === "number" ? normalizedScore : null,
+    evidenceCoverage,
     recommendedAction: asString(raw.recommended_action) ?? asString(raw.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: nowLabel(),
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
@@ -1514,7 +1541,7 @@ function screeningRowsFromPayload(
       const country =
         (asString(target.country) ?? fallback?.country ?? "ZZ").toUpperCase();
       if (!companyName) return null;
-      const score =
+      const rawScore =
         asNumber(raw.normalized_score) ??
         asNumber(raw.normalizedScore) ??
         asNumber(raw.score);
@@ -1525,8 +1552,9 @@ function screeningRowsFromPayload(
           .map((item) => item.googleMapsUri)
           .filter((url): url is string => Boolean(url)) ?? [];
       const sourceUrls = [...evidence.map((item) => item.sourceUrl), ...addressUrls].filter((url): url is string => Boolean(url));
+      const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, rawScore);
+      const score = screeningReport.normalizedScore ?? undefined;
       const status = typeof score !== "number" ? "insufficient_evidence" : "screened";
-      const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, score);
 
       const row: CustomerListItem = {
         customerId:
@@ -1756,6 +1784,7 @@ JSON 字段要求：
 - reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
 - score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
+- normalized_score 必须等于最终分：score_blocks 质量分 sum(earned_points) / sum(max_points) * 100 占 80%，evidence_coverage * 100 占 20%，保留两位小数；risk_tier 也必须按该最终分判断。
 - evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
 - layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
 - address_footprint 必须包含：

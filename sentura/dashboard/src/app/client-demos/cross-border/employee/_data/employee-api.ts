@@ -587,6 +587,31 @@ function normalizeScoreBlock(value: unknown): CustomerScoreBlock {
   };
 }
 
+function normalizedScoreFromScoreBlocks(blocks: CustomerScoreBlock[], evidenceCoverage?: number | null) {
+  let earnedPoints = 0;
+  let maxPoints = 0;
+  for (const block of blocks) {
+    if (
+      block.status === "scored" &&
+      typeof block.earnedPoints === "number" &&
+      typeof block.maxPoints === "number" &&
+      block.maxPoints > 0
+    ) {
+      earnedPoints += Math.max(0, Math.min(block.earnedPoints, block.maxPoints));
+      maxPoints += block.maxPoints;
+    }
+  }
+  if (maxPoints <= 0) return null;
+  const qualityScore = (earnedPoints / maxPoints) * 100;
+  const coverageScore = typeof evidenceCoverage === "number"
+    ? Math.max(0, Math.min(evidenceCoverage, 1)) * 100
+    : null;
+  const finalScore = typeof coverageScore === "number"
+    ? qualityScore * 0.8 + coverageScore * 0.2
+    : qualityScore;
+  return Number(finalScore.toFixed(2));
+}
+
 function normalizeEvidence(value: unknown): CustomerEvidenceItem {
   const raw = asRecord(value);
   const sourceUrl = toUrl(raw.source_url ?? raw.sourceUrl ?? raw.url) ?? "https://sentura.local/cross-border-intel/evidence";
@@ -846,7 +871,11 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
   if (!record.latestScreeningReportId && Object.keys(raw).length === 0) return undefined;
   const evidence = payloadArray(raw.evidence ?? [], "evidence").map(normalizeEvidence);
   const scoreBlocks = payloadArray(raw.score_blocks ?? raw.scoreBlocks ?? [], "score_blocks").map(normalizeScoreBlock);
-  const normalizedScore = asNumber(raw.normalized_score ?? raw.normalizedScore) ?? record.normalizedScore;
+  const evidenceCoverage = asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined;
+  const normalizedScore =
+    normalizedScoreFromScoreBlocks(scoreBlocks, evidenceCoverage) ??
+    asNumber(raw.normalized_score ?? raw.normalizedScore) ??
+    record.normalizedScore;
   const riskTier = normalizeRiskTier(raw.risk_tier ?? raw.riskTier ?? record.screeningStatus, normalizedScore);
   const normalizedCoverageGaps = payloadArray(raw.coverage_gaps ?? raw.coverageGaps ?? [], "coverage_gaps").map((item, index): CustomerCoverageGap => {
     const gap = asRecord(item);
@@ -870,7 +899,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     reportId: asString(raw.report_id ?? raw.reportId) ?? record.latestScreeningReportId ?? record.recordId,
     riskTier,
     normalizedScore,
-    evidenceCoverage: asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined,
+    evidenceCoverage,
     recommendedAction: simplifyDisplayText(asString(raw.recommended_action ?? raw.recommendedAction) ?? record.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: asString(raw.created_at ?? raw.createdAt) ?? record.updatedAt,
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
@@ -891,7 +920,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
 function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
   const report = reportFromRecord(record);
   const status = screeningStatusFromRecord(record);
-  const normalizedScore = record.normalizedScore ?? report?.normalizedScore ?? undefined;
+  const normalizedScore = report?.normalizedScore ?? record.normalizedScore ?? undefined;
   const website = toUrl(record.website) ?? (record.domain ? `https://${record.domain}` : undefined);
   const sourceUrls = Array.from(new Set([
     ...(record.sourceUrls ?? []),
@@ -1462,7 +1491,6 @@ function normalizeScreeningPayload(payload: unknown) {
         sourceHint === "manual_input"
           ? sourceHint
           : "manual_input";
-      const score = asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
       const evidenceRows = Array.isArray(report.evidence) ? report.evidence : [];
       const targetWebsite = toUrl(target.website);
       const addressFootprint = normalizeAddressFootprintPayload(report.address_footprint ?? report.addressFootprint);
@@ -1498,8 +1526,45 @@ function normalizeScreeningPayload(payload: unknown) {
                   : "neutral",
           };
         });
-      const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
       const scoreBlocks = payloadArray(report.score_blocks ?? report.scoreBlocks ?? [], "score_blocks");
+      const normalizedScoreBlocks = scoreBlocks.length
+        ? scoreBlocks.map((block) => {
+            const normalized = normalizeScoreBlock(block);
+            return {
+              block: scoreBlockId(normalized.block),
+              status: normalized.status,
+              max_points: normalized.maxPoints,
+              earned_points: normalized.earnedPoints,
+              source_count: normalized.sourceCount ?? evidence.length,
+              summary: normalized.summary,
+              reason: normalized.reason,
+            };
+          })
+        : [
+            {
+              block: "public_footprint",
+              status: "pending_human_input" as const,
+              max_points: 20,
+              earned_points: null,
+              source_count: evidence.length,
+              reason: traceabilityGap
+                ? `背调员工未返回 ${companyName} 的可核验来源。`
+                : "报告未返回评分来源，已保留核验依据供人工复核。",
+            },
+          ];
+      const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
+      const normalizedEvidenceCoverage = traceabilityGap
+        ? Math.min(evidenceCoverage ?? 0, 0.2)
+        : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0);
+      const score =
+        normalizedScoreFromScoreBlocks(normalizedScoreBlocks.map((block) => ({
+          block: block.block,
+          status: block.status,
+          maxPoints: block.max_points,
+          earnedPoints: block.earned_points,
+        })), normalizedEvidenceCoverage) ??
+        asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
+      const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
       const reportCoverageGaps = Array.isArray(report.coverage_gaps) ? report.coverage_gaps.map(asRecord) : [];
       const traceabilityGapRecord = {
         block: "public_footprint",
@@ -1511,7 +1576,6 @@ function normalizeScreeningPayload(payload: unknown) {
         !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可核验来源"))
           ? [...reportCoverageGaps, traceabilityGapRecord]
           : reportCoverageGaps;
-      const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
       return {
         report_id: asString(report.report_id ?? report.reportId) ?? `screening-report-${Date.now()}-${index}`,
         lead_id: targetLeadId ?? null,
@@ -1534,35 +1598,11 @@ function normalizeScreeningPayload(payload: unknown) {
         },
         risk_tier: riskTier,
         normalized_score: traceabilityGap ? null : typeof score === "number" ? score : null,
-        evidence_coverage: traceabilityGap ? Math.min(evidenceCoverage ?? 0, 0.2) : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0),
+        evidence_coverage: normalizedEvidenceCoverage,
         recommended_action: traceabilityGap
           ? `背调员工未返回 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
           : asString(report.recommended_action ?? report.recommendedAction) ?? "复核背调报告后决定是否跟进。",
-        score_blocks: scoreBlocks.length
-          ? scoreBlocks.map((block) => {
-              const normalized = normalizeScoreBlock(block);
-              return {
-                block: scoreBlockId(normalized.block),
-                status: normalized.status,
-                max_points: normalized.maxPoints,
-                earned_points: normalized.earnedPoints,
-                source_count: normalized.sourceCount ?? evidence.length,
-                summary: normalized.summary,
-                reason: normalized.reason,
-              };
-            })
-          : [
-              {
-                block: "public_footprint",
-                status: "pending_human_input",
-                max_points: 20,
-                earned_points: null,
-                source_count: evidence.length,
-                reason: traceabilityGap
-                  ? `背调员工未返回 ${companyName} 的可核验来源。`
-                  : "报告未返回评分来源，已保留核验依据供人工复核。",
-              },
-            ],
+        score_blocks: normalizedScoreBlocks,
         evidence,
         ...(addressFootprint ? { address_footprint: addressFootprint } : {}),
         coverage_gaps: coverageGaps,

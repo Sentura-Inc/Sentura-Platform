@@ -142,6 +142,7 @@ interface ScreeningTargetRow {
   company_name: string;
   country: string | null;
   domain: string | null;
+  lead_candidate_id: string | null;
 }
 
 interface ScreeningReportRow {
@@ -456,23 +457,101 @@ export async function listScreeningAddressLocations(
   };
 }
 
-async function resolveLeadCandidateId(
+async function resolveLeadCandidateIdByIds(
   client: PoolClient,
   context: TenantContext,
-  leadId?: string | null,
+  candidateIds: Array<string | null | undefined>,
 ) {
-  if (!leadId) return null;
+  const ids = Array.from(new Set(
+    candidateIds
+      .map((id) => id?.trim())
+      .filter((id): id is string => typeof id === "string" && id.length > 0 && !id.startsWith("screening_target")),
+  ));
+  if (ids.length === 0) return null;
+  const scope = scopedOwnerClause(context, "lc", 3);
   const result = await client.query<{ id: string }>(
     `
-      select id
-      from lead_candidates
-      where tenant_id = $1
-        and id = $2
+      select lc.id
+      from lead_candidates lc
+      where lc.tenant_id = $1
+        and lc.id = any($2::text[])
+        ${scope.sql}
+      order by array_position($2::text[], lc.id)
       limit 1
     `,
-    [context.tenantId, leadId],
+    [context.tenantId, ids, ...scope.values],
   );
   return result.rows[0]?.id ?? null;
+}
+
+async function resolveLeadCandidateIdByDomain(
+  client: PoolClient,
+  context: TenantContext,
+  domain?: string | null,
+) {
+  if (!domain) return null;
+  const scope = scopedOwnerClause(context, "lc", 3);
+  const result = await client.query<{ id: string }>(
+    `
+      select lc.id
+      from lead_candidates lc
+      where lc.tenant_id = $1
+        and lc.normalized_domain = $2
+        ${scope.sql}
+      order by
+        case when lc.status = 'screened' then 1 else 0 end,
+        lc.created_at desc,
+        lc.id desc
+      limit 1
+    `,
+    [context.tenantId, domain, ...scope.values],
+  );
+  return result.rows[0]?.id ?? null;
+}
+
+async function resolveLeadCandidateIdByCompany(
+  client: PoolClient,
+  context: TenantContext,
+  input: { companyName?: string | null; country?: string | null },
+) {
+  const companyName = input.companyName?.trim();
+  if (!companyName) return null;
+  const scope = scopedOwnerClause(context, "lc", 4);
+  const result = await client.query<{ id: string }>(
+    `
+      select lc.id
+      from lead_candidates lc
+      where lc.tenant_id = $1
+        and lower(lc.company_name) = lower($2)
+        and ($3::text is null or lc.country = $3)
+        ${scope.sql}
+      order by
+        case when lc.status = 'screened' then 1 else 0 end,
+        lc.created_at desc,
+        lc.id desc
+      limit 1
+    `,
+    [context.tenantId, companyName, input.country ?? null, ...scope.values],
+  );
+  return result.rows[0]?.id ?? null;
+}
+
+async function resolveLeadCandidateIdForTarget(
+  client: PoolClient,
+  context: TenantContext,
+  target: ScreeningTargetMarker,
+  input: { companyName?: string | null; domain?: string | null },
+) {
+  const exactMatch = await resolveLeadCandidateIdByIds(client, context, [target.lead_id, target.target_id]);
+  if (exactMatch) return exactMatch;
+
+  if (target.source === "manual_input") return null;
+  return (
+    await resolveLeadCandidateIdByDomain(client, context, input.domain)
+  ) ?? await resolveLeadCandidateIdByCompany(client, context, {
+    companyName: input.companyName,
+    country: target.country ?? null,
+  });
 }
 
 async function saveScreeningTargetMarker(
@@ -481,12 +560,12 @@ async function saveScreeningTargetMarker(
   target: ScreeningTargetMarker,
   fallbackCompanyName?: string,
 ) {
-  const leadCandidateId = await resolveLeadCandidateId(client, context, target.lead_id);
   const companyName = target.company_name ?? fallbackCompanyName;
   if (!companyName?.trim()) {
     throw new CbeStoreError(400, "screening_target_missing_company", "Screening target requires a company name.");
   }
   const domain = normalizeDomain(target.domain ?? target.website);
+  const leadCandidateId = await resolveLeadCandidateIdForTarget(client, context, target, { companyName, domain });
   const existingTargetId =
     target.target_id?.startsWith("screening_target") ? target.target_id :
       target.lead_id?.startsWith("screening_target") ? target.lead_id :
@@ -502,7 +581,8 @@ async function saveScreeningTargetMarker(
           email = coalesce($6, email),
           contact_person = coalesce($7, contact_person),
           product_interest_json = case when $8::jsonb <> '[]'::jsonb then $8::jsonb else product_interest_json end,
-          supplied_fields_json = supplied_fields_json || $9::jsonb
+          supplied_fields_json = supplied_fields_json || $9::jsonb,
+          lead_candidate_id = coalesce(lead_candidate_id, $13)
         where tenant_id = $1
           and id = $2
           and (
@@ -511,7 +591,7 @@ async function saveScreeningTargetMarker(
             or visibility_scope = 'tenant_shared'
             or (visibility_scope = 'team' and team_name = $12)
           )
-        returning id, company_name, country, domain
+        returning id, company_name, country, domain, lead_candidate_id
       `,
       [
         context.tenantId,
@@ -531,12 +611,70 @@ async function saveScreeningTargetMarker(
         context.cbeRole === "admin",
         context.userId,
         context.teamName ?? null,
+        leadCandidateId,
       ],
     );
     if (existing.rows[0]) {
       return {
         record: toScreeningTargetRecord(existing.rows[0]),
-        leadCandidateId: null,
+        leadCandidateId: existing.rows[0].lead_candidate_id ?? leadCandidateId,
+      };
+    }
+  }
+  if (leadCandidateId) {
+    const existingForLead = await client.query<ScreeningTargetRow>(
+      `
+        update screening_targets
+        set
+          company_name = coalesce($3, company_name),
+          country = coalesce($4, country),
+          domain = coalesce($5, domain),
+          email = coalesce($6, email),
+          contact_person = coalesce($7, contact_person),
+          product_interest_json = case when $8::jsonb <> '[]'::jsonb then $8::jsonb else product_interest_json end,
+          supplied_fields_json = supplied_fields_json || $9::jsonb
+        where tenant_id = $1
+          and id = (
+            select id
+            from screening_targets
+            where tenant_id = $1
+              and lead_candidate_id = $2
+              and source <> 'accio_memory'
+              and (
+                $10::boolean
+                or owner_user_id = $11
+                or visibility_scope = 'tenant_shared'
+                or (visibility_scope = 'team' and team_name = $12)
+              )
+            order by created_at desc, id desc
+            limit 1
+          )
+        returning id, company_name, country, domain, lead_candidate_id
+      `,
+      [
+        context.tenantId,
+        leadCandidateId,
+        companyName ?? null,
+        target.country ?? null,
+        domain,
+        target.email ?? null,
+        target.contact_person ?? null,
+        JSON.stringify(target.product_interest ?? []),
+        JSON.stringify({
+          supplied_fields: target.supplied_fields ?? [],
+          missing_fields: target.missing_fields ?? [],
+          website: target.website,
+          source: target.source,
+        }),
+        context.cbeRole === "admin",
+        context.userId,
+        context.teamName ?? null,
+      ],
+    );
+    if (existingForLead.rows[0]) {
+      return {
+        record: toScreeningTargetRecord(existingForLead.rows[0]),
+        leadCandidateId: existingForLead.rows[0].lead_candidate_id ?? leadCandidateId,
       };
     }
   }
@@ -561,7 +699,7 @@ async function saveScreeningTargetMarker(
         supplied_fields_json
       )
       values ($1, $2, $3, $4, $5, $5, $6, $7, 'private', $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb)
-      returning id, company_name, country, domain
+      returning id, company_name, country, domain, lead_candidate_id
     `,
     [
       createCbeId("screening_target"),

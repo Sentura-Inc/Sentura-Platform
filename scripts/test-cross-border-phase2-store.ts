@@ -896,6 +896,7 @@ check("005 workload queue and Screening fan-out migration exists", migrationFile
 check("006 Screening address locations migration exists", migrationFiles.includes("006_screening_address_locations.sql"));
 check("007 Screening retry and memory approval migration exists", migrationFiles.includes("007_screening_retry_memory_approval.sql"));
 check("008 Accio manual import formats migration exists", migrationFiles.includes("008_accio_manual_import_formats.sql"));
+check("009 customer work item dedupe migration exists", migrationFiles.includes("009_customer_work_items_deduped_screening.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -1124,6 +1125,7 @@ const employeeStoreTs = read(path.join(DASHBOARD_STORES_DIR, "use-cbe-employee-s
 const employeeHomePageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "page.tsx"));
 const employeeCustomersPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx"));
 const employeeMemoryPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "memory/page.tsx"));
+const screeningStoreTs = read(path.join(DASHBOARD_STORE_DIR, "screening.ts"));
 const employeeNotificationTargetsTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-notification-targets.ts"));
 const appShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
 const authLoginPageTs = read(path.join(ROOT, "sentura/dashboard/src/app/auth/login/page.tsx"));
@@ -1133,6 +1135,7 @@ const dbInspectionSql = read(CBE_DB_INSPECTION_SQL);
 check("P2.3 client API reads Employee projections", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API writes task lifecycle endpoints", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API normalizes strict marker contracts", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references", "sha256Hex"].every((needle) => employeeApiTs.includes(needle)));
+check("P2.3 Screening reports reconnect batch targets to lead candidates defensively", ["resolveLeadCandidateIdByIds", "target.lead_id, target.target_id", "resolveLeadCandidateIdByDomain", "resolveLeadCandidateIdByCompany", "lead_candidate_id = coalesce(lead_candidate_id", "source <> 'accio_memory'"].every((needle) => screeningStoreTs.includes(needle)));
 check("P2.3 hidden runner supports pre-created DB session keys", employeeRunnerTs.includes("createPlannedEmployeeSessionKey") && employeeRunnerTs.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
 check("P2.3 store persists draft/cache only", employeeStoreTs.includes("sentura-cbe-employee-draft-cache-v1") && employeeStoreTs.includes("draftCache: state.draftCache") && !employeeStoreTs.includes("rows: state.rows,") && !employeeStoreTs.includes("tasks: trimTasks(state.tasks),"));
 check("P2.3 demo seed fallback is explicit", employeeStoreTs.includes("CBE_USE_DEMO_SEED") && employeeStoreTs.includes("initialCustomerRows") && employeeStoreTs.includes("initialMemoryRows"));

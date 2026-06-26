@@ -2304,3 +2304,44 @@ Boundary:
 - This fix prevents expected long work from failing solely because the old fixed window was too short.
 - It does not remove all possible timeouts: the task can still fail if the employee never produces a parseable payload, the provider/backend fails, or queue assumptions are exceeded.
 - This session did not deploy the CE33 timing change to ECS; deployment requires commit/push, server pull/build/restart, and target smoke checks.
+
+## 2026-06-26 — Screening Batch Deduplication and Score Reconciliation
+
+Context:
+
+- The user ran production batch `背调` for three customers.
+- The Employee `获客与背调` list showed duplicate rows for BrandsMart USA and Altex Computers & Electronics: one scored row plus one remaining `未评分`.
+- BrandsMart USA also showed `59/100` in the list while the report's score blocks and 100% evidence coverage indicated a high-score report.
+
+Root cause:
+
+- A Lead can accumulate multiple `screening_targets` rows over retries/batches.
+- `cbe_customer_work_items` joined `lead_candidates` to every target for the Lead, so historical target rows expanded one customer into multiple visible rows.
+- The save path could insert a new target instead of reusing the Lead's existing target when a batch/employee response omitted or rewrote the expected target id.
+- Employee normalization trusted model-returned `normalized_score` even when `score_blocks` and `evidence_coverage` implied a different final score.
+
+Fix:
+
+- `sentura/dashboard/src/lib/cross-border-store/screening.ts`:
+  - resolves Lead candidates from `target.lead_id`, `target.target_id`, normalized domain, and company/country fallback;
+  - reuses the latest non-Accio `screening_targets` row for a resolved Lead before inserting a new target;
+  - fills `lead_candidate_id` on existing targets when enough target metadata is available.
+- `sentura/lib/cross-border-store/migrations/009_customer_work_items_deduped_screening.sql`:
+  - replaces `cbe_customer_work_items` so each Lead projects one latest Screening report instead of one row per historical target.
+- `sentura/lib/cross-border-store/migrations/001_initial_schema.sql`:
+  - mirrors the deduped projection for fresh databases.
+- `employee-api.ts` and `employee-task-runner.ts`:
+  - recompute final Screening score from score-block quality and evidence coverage using the existing rule: quality score 80% + `evidence_coverage * 100` 20%;
+  - make `risk_tier` follow that recomputed final score;
+  - prefer recomputed report score over stale stored row score when rendering customer list rows.
+
+Verification:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 428/428.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Production note:
+
+- Pre-fix RDS inspection confirmed BrandsMart USA had `normalized_score = 59` while score blocks + coverage recomputed to a high score.
+- Existing production data still needs migration 009 plus a targeted report-score repair during ECS deployment.

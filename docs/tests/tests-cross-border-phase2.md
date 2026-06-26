@@ -1216,3 +1216,50 @@ Boundary:
 - CE33 prevents expected long work from failing solely because the old fixed wait window was too short.
 - It does not remove all possible timeouts. Tasks still fail if the employee never produces a parseable result, the Gateway/provider/backend fails, or a burst queue exceeds the coordinator's own capacity/lease assumptions.
 - This has not been deployed to ECS in this session; deploy after commit/push and server pull/rebuild.
+
+## CE34 — Screening Batch Deduplication and Score Reconciliation
+
+Status: PASS locally (2026-06-26)
+
+Scope:
+
+- Batch Screening result writes for existing Lead candidates.
+- Employee customer projection when a Lead has more than one historical `screening_targets` row.
+- Screening score consistency between the list row and report dialog.
+
+Context:
+
+- The user ran a production batch `背调` for three customers.
+- The Employee `获客与背调` list showed duplicate rows for BrandsMart USA and Altex Computers & Electronics: one scored row and one still `未评分`.
+- BrandsMart USA also showed `59/100` outside while the report score blocks indicated a much higher score.
+- RDS inspection showed multiple `screening_targets` rows attached to the same `lead_candidates.id`; the existing `cbe_customer_work_items` view joined all of them and therefore expanded one Lead into multiple list rows.
+- The bad BrandsMart report stored `normalized_score = 59` even though its score blocks and 100% evidence coverage recompute to a high final score under the existing `quality 80% + coverage 20%` rule.
+
+Fix:
+
+- `saveScreeningTargetMarker()` now resolves Lead candidates defensively from `target.lead_id`, `target.target_id`, normalized domain, and company/country fallback.
+- When a Lead candidate is resolved and no explicit `screening_target` id is supplied, the store reuses the latest non-Accio target for that Lead instead of inserting another target row.
+- Added migration `009_customer_work_items_deduped_screening.sql`, and updated the initial schema view, so `cbe_customer_work_items` selects one latest report per Lead candidate rather than expanding every historical target.
+- `employee-api.ts` and `employee-task-runner.ts` now recompute `normalized_score` from `score_blocks` plus `evidence_coverage`: score-block quality `sum(earned_points) / sum(max_points) * 100` contributes 80%, evidence coverage contributes 20%, and `risk_tier` follows that final score.
+- Report reads prefer the recomputed report score over the stored row score so stale reports cannot keep showing list/report mismatches.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE34.1 | Batch target reconnection | Static script | `scripts/test-cross-border-phase2-store.ts` asserts Screening reports resolve Lead candidates by id/domain/company and reuse existing non-Accio Lead targets. |
+| CE34.2 | Customer projection dedupe | Migration/static script | `009_customer_work_items_deduped_screening.sql` exists and the projection selects one latest Screening report per Lead candidate. |
+| CE34.3 | Score reconciliation | Static script | `scripts/test-cross-border-agents.ts` asserts Employee Screening score normalization is enforced from score blocks plus evidence coverage in both hidden runner and Employee API. |
+| CE34.4 | Local regression | Local commands | CBE static, Phase 2 store static, and Dashboard typecheck all pass after the store, migration, and score changes. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 428/428.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- CE34 prevents future batch Screening runs from creating visible duplicate customer rows for the same Lead.
+- It also repairs score consistency going forward by enforcing the score formula in code.
+- Existing production rows require applying migration 009 and one data repair pass to update already-stored inconsistent report scores.
