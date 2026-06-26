@@ -6,7 +6,7 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
-Latest operational fix in progress, 2026-06-26:
+Latest operational fix, 2026-06-26:
 
 - User reported another production `背调` failure for `Adorama` from `app.sentura.ai`:
   - task key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
@@ -22,12 +22,23 @@ Latest operational fix in progress, 2026-06-26:
   - Added `parseFencedJsonPayload()` for prose + embedded ```json report blocks.
   - Added final full transcript reread before repair timeout.
   - Static checks added in `scripts/test-cross-border-agents.ts`.
-- Local verification complete:
+- Verification:
   - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
   - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - `git diff --check`: PASS.
+  - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+  - ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - ECS `pnpm --dir sentura/dashboard build`: PASS.
+  - ECS services after restart: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+  - Public HTTPS: `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return 200 with correct shells.
+- Production recovery:
+  - recovered Adorama through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer, not raw SQL report insertion;
+  - RDS now has `agent_runs.status = completed`, `current_stage = screening_reports_saved`, no error code/message;
+  - saved report `cbe_sr_20260626_adorama_001`, risk `high_risk`, score `59`, 22 evidence rows, 6 score blocks, 6 address locations;
+  - active Screening count is `0`;
+  - Employee API query for `Adorama` returns row with `screeningStatus = high_risk`, `normalizedScore = 59`, and the recovered run id.
 - Docs/tests updated with CE31 in `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `docs/MEMORY.md`, and `docs/memory/cross-border-ecommerce/phase-2.md`.
-- Next steps in this same turn: commit/push, pull/build/restart on ECS, recover the Adorama report through the normal completion API/store path, verify RDS/public pages, then update docs from PASS-local to full PASS.
+- Local/remote/server branch target: commit `df08d317` contains the code fix; a second docs-only commit may follow if final doc sync is pushed after this handoff update.
 
 Latest operational fix, 2026-06-26:
 

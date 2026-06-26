@@ -12,7 +12,7 @@ Date: 2026-06-26
 
 Latest user request: Diagnose and fix another production `背调` timeout from `app.sentura.ai` after CE30, where `Adorama` failed with `员工已返回结果，但格式修复超时，仍未收到可写入 结构化结果。`
 
-Latest operational fix in progress:
+Latest operational fix:
 
 - Root cause on ECS: the employee produced both an original report and a repair result, but Dashboard did not read the final repair payload because the OpenClaw session was about 333KB and the hidden runner requested only 300KB from `chat.history`.
 - Failed production run:
@@ -32,21 +32,30 @@ Latest operational fix in progress:
   - `employee runner accepts embedded fenced JSON when model adds prose`;
   - `employee runner rereads full transcript before declaring repair timeout`;
   - updated full transcript cap check to `2_000_000`.
-- Local verification:
+- Verification:
   - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
   - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - `git diff --check`: PASS.
+  - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+  - ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - ECS `pnpm --dir sentura/dashboard build`: PASS.
+  - ECS services after restart: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+  - Public `https://app.sentura.ai/employee`: 200 with Employee shell.
+  - Public `https://admin.sentura.ai/admin/login`: 200 with Admin shell.
+- Production recovery:
+  - completed `run_0ce71f21-efbc-43be-909d-6309c7039548` through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer;
+  - did not hand-write report rows with raw SQL;
+  - RDS report `cbe_sr_20260626_adorama_001`, score `59`, risk `high_risk`, 22 evidence rows, 6 score blocks, 6 address locations;
+  - active Screening run count = `0`;
+  - Employee API `query=Adorama` returns Adorama with `screeningStatus = high_risk`, `normalizedScore = 59`, and the recovered run id.
 - Docs/tests updated with CE31:
   - `docs/TESTS.md`;
   - `docs/tests/tests-cross-border-phase2.md`;
   - `docs/MEMORY.md`;
   - `docs/memory/cross-border-ecommerce/phase-2.md`.
-- Remaining steps:
-  - commit/push local branch;
-  - pull on ECS, run static/typecheck/build, restart `sentura-dashboard`;
-  - recover Adorama via the normal Dashboard `completeEmployeeScreeningRun()`/API store path, not raw SQL;
-  - verify RDS report, active Screening count, and public app/admin pages;
-  - update CE31 docs/handoff from PASS-local to full PASS after ECS rollout.
+- Local/remote/server note:
+  - Code fix commit `df08d317` was pushed and pulled on ECS.
+  - A final docs-only commit may follow after this handoff update to remove the earlier `pending` wording from docs.
 
 Previous operational fix:
 

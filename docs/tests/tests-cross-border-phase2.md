@@ -1025,7 +1025,7 @@ Boundary:
 
 ## CE31 — Long Transcript and Repair-Result Recovery
 
-Status: PASS-local (2026-06-26; ECS rollout/backfill pending in this session)
+Status: PASS (2026-06-26)
 
 Scope:
 
@@ -1058,14 +1058,37 @@ Test cases:
 | CE31.2 | Embedded fenced JSON fallback | Static script/code review | Hidden runner contains `parseFencedJsonPayload()`, `parseJsonPayloadCandidate()`, and falls back from whole JSON to embedded fenced JSON when markers are absent. |
 | CE31.3 | Repair final reread | Static script/code review | `requestHiddenTaskFormatRepair()` performs a final full transcript read and returns a payload if found before throwing the repair-timeout error. |
 | CE31.4 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
-| CE31.5 | ECS rollout | Target commands | ECS static/typecheck/build pass, `sentura-dashboard` restarts, and public `app.sentura.ai/employee` plus `admin.sentura.ai/admin/login` remain HTTP 200. |
-| CE31.6 | Production report recovery | API/store path | The existing Adorama repair payload is completed through `completeEmployeeScreeningRun()` / the Dashboard API/store normalization path, not hand-written with raw SQL. |
+| CE31.5 | ECS rollout | Target commands | ECS static 424/424, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, generated `next-env.d.ts` is restored, and public `app.sentura.ai/employee` plus `admin.sentura.ai/admin/login` remain HTTP 200. |
+| CE31.6 | Production report recovery | API/store path | The existing Adorama repair payload is completed through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer; reports are not hand-written with raw SQL. |
+| CE31.7 | RDS terminal state | RDS query | `run_0ce71f21-efbc-43be-909d-6309c7039548` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE31.8 | Report persistence | RDS query | Report `cbe_sr_20260626_adorama_001` exists with score `59`, risk tier `high_risk`, 22 evidence rows, 6 score blocks, and 6 address locations. |
+| CE31.9 | Employee API projection | Local API | `GET /api/employee/customers?query=Adorama` returns Adorama with `screeningStatus = high_risk`, `normalizedScore = 59`, and the recovered run id. |
 
-Latest local verification, 2026-06-26:
+Latest verification, 2026-06-26:
 
 - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
 - `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200 and contains `跨境电商员工操作系统`.
+  - `https://admin.sentura.ai/admin/login`: 200 and contains `跨境电商管理者系统`.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `cbe_sr_20260626_adorama_001`.
+  - risk tier `high_risk`.
+  - normalized score `59`.
+  - saved evidence = 22.
+  - saved score blocks = 6.
+  - address-footprint locations = 6.
+  - active Screening run count = 0.
+- Employee API query for `Adorama`: HTTP 200, row has `screeningStatus = high_risk`, `normalizedScore = 59`, and `screeningAgentRunId = run_0ce71f21-efbc-43be-909d-6309c7039548`.
 
 Boundary:
 
