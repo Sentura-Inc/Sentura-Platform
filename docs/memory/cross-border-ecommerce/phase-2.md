@@ -2328,8 +2328,6 @@ Fix:
   - fills `lead_candidate_id` on existing targets when enough target metadata is available.
 - `sentura/lib/cross-border-store/migrations/009_customer_work_items_deduped_screening.sql`:
   - replaces `cbe_customer_work_items` so each Lead projects one latest Screening report instead of one row per historical target.
-- `sentura/lib/cross-border-store/migrations/001_initial_schema.sql`:
-  - mirrors the deduped projection for fresh databases.
 - `employee-api.ts` and `employee-task-runner.ts`:
   - recompute final Screening score from score-block quality and evidence coverage using the existing rule: quality score 80% + `evidence_coverage * 100` 20%;
   - make `risk_tier` follow that recomputed final score;

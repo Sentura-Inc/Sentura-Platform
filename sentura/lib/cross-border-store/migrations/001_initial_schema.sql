@@ -374,26 +374,6 @@ with latest_reports as (
       order by sr.created_at desc, sr.id desc
     ) as rn
   from screening_reports sr
-),
-lead_latest_reports as (
-  select
-    st.tenant_id,
-    st.lead_candidate_id,
-    lr.id,
-    lr.risk_tier,
-    lr.normalized_score,
-    lr.evidence_coverage,
-    lr.created_at,
-    row_number() over (
-      partition by st.tenant_id, st.lead_candidate_id
-      order by lr.created_at desc nulls last, st.created_at desc, st.id desc
-    ) as rn
-  from screening_targets st
-  left join latest_reports lr
-    on lr.tenant_id = st.tenant_id
-    and lr.screening_target_id = st.id
-    and lr.rn = 1
-  where st.lead_candidate_id is not null
 )
 select
   lc.tenant_id,
@@ -409,17 +389,20 @@ select
   lc.team_name,
   lc.visibility_scope,
   lc.status as lead_status,
-  coalesce(llr.risk_tier, 'not_started') as screening_status,
-  llr.id as latest_screening_report_id,
-  llr.normalized_score,
-  llr.evidence_coverage,
+  coalesce(lr.risk_tier, 'not_started') as screening_status,
+  lr.id as latest_screening_report_id,
+  lr.normalized_score,
+  lr.evidence_coverage,
   lc.created_at,
-  coalesce(llr.created_at, lc.created_at) as updated_at
+  coalesce(lr.created_at, lc.created_at) as updated_at
 from lead_candidates lc
-left join lead_latest_reports llr
-  on llr.tenant_id = lc.tenant_id
-  and llr.lead_candidate_id = lc.id
-  and llr.rn = 1
+left join screening_targets st
+  on st.tenant_id = lc.tenant_id
+  and st.lead_candidate_id = lc.id
+left join latest_reports lr
+  on lr.tenant_id = st.tenant_id
+  and lr.screening_target_id = st.id
+  and lr.rn = 1
 union all
 select
   st.tenant_id,
