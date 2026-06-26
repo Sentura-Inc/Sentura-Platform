@@ -1077,6 +1077,22 @@ check("employee task create paths call budget preflight before agent run insert"
   return /await checkCbeCostBudgetBeforeRun[\s\S]+insertAgentRun/.test(text);
 }));
 check("employee API passes estimated task costs to server", ["estimateLeadTaskCost", "estimateScreeningTaskCost", "estimateMemoryTaskCost", "estimated_cost_usd"].every((needle) => managerEmployeeApiTs.includes(needle)));
+check("employee API persists dynamic task timing metadata through coordinator records", [
+  "estimateLeadTaskDurationMs",
+  "estimateScreeningTaskDurationMs",
+  "estimateScreeningTaskDurationMsForTargetCount",
+  "metadata_json",
+  "estimated_ms",
+  "timeout_ms",
+  "positiveMs(metadata.estimated_ms)",
+  "positiveMs(metadata.timeout_ms)",
+  "queuedDelayMs(statusValue, metadata)",
+].every((needle) => managerEmployeeApiTs.includes(needle)) && dashboardSchemasTs.includes("metadata_json: JsonRecordSchema.default({})") && [
+  "...input.metadata_json",
+  "workloadMetadata(admission)",
+  "target_count",
+  "requested_target_count",
+].every((needle) => p22AllStoreText.includes(needle)));
 check("AppShell switches employee and manager titles/nav", managerAppShellTs.includes("跨境电商员工操作系统") && managerAppShellTs.includes("跨境电商管理者系统") && managerAppShellTs.includes("员工管理") && managerAppShellTs.includes("优先跟进客户") && managerAppShellTs.includes("费用监控"));
 check("manager UI renders only the requested three pages", managerPageText.includes("员工管理") && managerPageText.includes("优先跟进客户") && managerPageText.includes("费用监控") && managerPageText.includes("完整背调报告"));
 check("manager cost UI separates actual, estimated, and unpriced cost signals", managerPageText.includes("已发生费用") && managerPageText.includes("预计") && managerPageText.includes("暂未折算"));

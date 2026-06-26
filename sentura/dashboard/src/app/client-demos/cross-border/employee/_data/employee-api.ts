@@ -29,6 +29,10 @@ import {
   EmployeeTaskError,
   SCREENING_AGENT_ID,
   createPlannedEmployeeSessionKey,
+  estimateEmployeeTaskTimeoutMs,
+  estimateLeadTaskDurationMs,
+  estimateScreeningTaskDurationMs,
+  estimateScreeningTaskDurationMsForTargetCount,
   type AccioMemoryTaskInput,
   type CbeEmployeeAgentId,
   type EmployeeLeadTaskInput,
@@ -930,10 +934,47 @@ function taskKindLabel(kind: string) {
   return "寻找客户";
 }
 
-function taskEstimateMs(kind: string) {
-  if (kind === "screening") return 240_000;
+function positiveMs(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function queuedDelayMs(status: CbeEmployeeTaskStatus, metadata: JsonRecord) {
+  if (status !== "queued") return 0;
+  const workloadAdmission = asRecord(metadata.workload_admission);
+  const estimatedStartSeconds = positiveMs(
+    workloadAdmission.estimated_start_seconds ?? metadata.estimated_start_seconds,
+  );
+  return estimatedStartSeconds ? Math.ceil(estimatedStartSeconds * 1_000) : 0;
+}
+
+function stringList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return asStringArray(value);
+  return [];
+}
+
+function taskEstimateMs(kind: string, metadata: JsonRecord = {}) {
+  if (kind === "screening") {
+    const targetCount = positiveMs(metadata.target_count) ?? positiveMs(metadata.requested_target_count) ?? 1;
+    const options = asRecord(metadata.options);
+    return estimateScreeningTaskDurationMsForTargetCount(targetCount, {
+      paidEmailValidation: Boolean(options.paidEmailValidation),
+      paidTradeData: Boolean(options.paidTradeData),
+      maxPaidSpendUsd: positiveMs(options.maxPaidSpendUsd),
+    });
+  }
   if (kind === "accio_memory") return 180_000;
-  return 180_000;
+  const queryConfig = asRecord(metadata.query_config);
+  const targetCount = positiveMs(metadata.target_count) ?? positiveMs(metadata.requested_target_count) ?? 3;
+  return estimateLeadTaskDurationMs({
+    productKeywords: stringList(queryConfig.product_keywords ?? queryConfig.products).join(", "),
+    countries: stringList(queryConfig.countries).join(", "),
+    buyerTypes: stringList(queryConfig.buyer_types ?? queryConfig.buyer_personas).join(", "),
+    targetCount,
+    maxResultsPerQuery: positiveMs(queryConfig.max_results_per_query),
+    excludeDomains: stringList(queryConfig.exclude_domains).join(", "),
+    runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
+  });
 }
 
 function taskAffectedCustomerIds(metadata: JsonRecord) {
@@ -970,7 +1011,11 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   )
     ? record.status
     : "queued";
-  const estimatedMs = taskEstimateMs(taskKind);
+  const estimatedMs = positiveMs(metadata.estimated_ms) ?? taskEstimateMs(taskKind, metadata);
+  const statusValue = status as CbeEmployeeTaskStatus;
+  const timeoutMs =
+    (positiveMs(metadata.timeout_ms) ?? estimateEmployeeTaskTimeoutMs(estimatedMs)) +
+    queuedDelayMs(statusValue, metadata);
   const notificationTitle = asString(metadata.notification_title);
   const notificationMessage = asString(metadata.notification_message);
   const notificationTargetLabel = asString(metadata.notification_target_label);
@@ -989,15 +1034,15 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     id: record.id,
     kind: taskKind === "screening" ? "screening" : taskKind === "accio_memory" ? "accio_memory" : "lead",
     title: notificationTitle ?? taskKindLabel(taskKind),
-    status: status as CbeEmployeeTaskStatus,
+    status: statusValue,
     message: simplifyDisplayText(message) ?? message,
     startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(),
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
     lastActivityAt: Number.isFinite(lastActivityAt) ? lastActivityAt : undefined,
     completedAt: finishedAt ? Date.parse(finishedAt) : undefined,
     estimatedMs,
-    timeoutMs: Math.max(estimatedMs + 120_000, 300_000),
-    deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + Math.max(estimatedMs + 120_000, 300_000),
+    timeoutMs,
+    deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + timeoutMs,
     sessionKey,
     targetLabel: simplifyDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
     resultCount: asNumber(metadata.saved_leads ?? metadata.saved_reports ?? metadata.saved_summaries),
@@ -1172,6 +1217,17 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
     targetCount,
     maxResultsPerQuery,
   });
+  const normalizedInput: EmployeeLeadTaskInput = {
+    ...input,
+    productKeywords: productKeywords.join(", "),
+    countries: countries.join(", "),
+    buyerTypes: buyerTypes.join(", "),
+    targetCount,
+    maxResultsPerQuery,
+    excludeDomains: asStringArray(input.excludeDomains).join(", "),
+  };
+  const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   return jsonPost<CreateEmployeeLeadRunResponse>(
     employeeApi("/lead-runs"),
     {
@@ -1187,6 +1243,10 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
       session_key: sessionKey,
       target_summary: `${input.productKeywords} / ${input.countries}`,
       estimated_cost_usd: estimatedCost.estimatedUsd,
+      metadata_json: {
+        estimated_ms: estimatedMs,
+        timeout_ms: timeoutMs,
+      },
     },
   );
 }
@@ -1202,6 +1262,8 @@ export async function createEmployeeScreeningRun(
     paidTradeData: options.paidTradeData,
     maxPaidSpendUsd: options.maxPaidSpendUsd,
   });
+  const estimatedMs = estimateScreeningTaskDurationMs(targets, options);
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   const childSessionKeys = targets.map((_, index) =>
     index === 0 ? sessionKey : createPlannedEmployeeSessionKey(SCREENING_AGENT_ID),
   );
@@ -1214,6 +1276,8 @@ export async function createEmployeeScreeningRun(
     targets,
     estimated_cost_usd: estimatedCost.estimatedUsd,
     metadata_json: {
+      estimated_ms: estimatedMs,
+      timeout_ms: timeoutMs,
       target_count: targets.length,
       target_customer_ids: targets.map((target) => target.lead_id ?? target.target_id).filter(Boolean),
       target_sources: targets.map((target) => ({

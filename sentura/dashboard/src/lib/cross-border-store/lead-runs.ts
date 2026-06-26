@@ -617,7 +617,11 @@ export async function createLeadRun(
     taskKind: "lead",
     targetSummary: input.target_summary,
     estimatedCostUsd: input.estimated_cost_usd,
-    metadataJson: { query_config: input.query_config, target_count: input.target_count },
+    metadataJson: {
+      ...input.metadata_json,
+      query_config: input.query_config,
+      target_count: input.target_count,
+    },
   });
   return withCbeTransaction(async (client) => {
     const admission = await admitCbeWorkload(client, context, {
@@ -701,7 +705,10 @@ export async function createLeadRun(
       cost_usd_estimate: input.estimated_cost_usd,
       visibility_scope: input.visibility_scope,
       metadata_json: {
+        ...input.metadata_json,
         query_config: input.query_config,
+        target_count: agentTargetCount,
+        requested_target_count: input.target_count,
         lead_scope_id: scope.id,
         scope_hash: fingerprint.scopeHash,
         run_mode: runMode,

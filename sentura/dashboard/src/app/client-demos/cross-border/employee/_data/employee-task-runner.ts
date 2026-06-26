@@ -119,6 +119,19 @@ const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
 const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000;
 const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
 const HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000;
+const TASK_TIMEOUT_MIN_MS = 360_000;
+const TASK_TIMEOUT_MAX_MS = 1_800_000;
+const LEAD_BASE_DURATION_MS = 30_000;
+const LEAD_PER_TARGET_DURATION_MS = 38_000;
+const LEAD_PER_QUERY_DURATION_MS = 10_000;
+const LEAD_PER_RESULT_SCAN_MS = 1_000;
+const LEAD_TOP_UP_EXTRA_MS = 30_000;
+const LEAD_ESTIMATE_MAX_MS = 1_200_000;
+const SCREENING_CHILD_CONCURRENCY = 3;
+const SCREENING_SINGLE_TARGET_DURATION_MS = 180_000;
+const SCREENING_PAID_EMAIL_EXTRA_MS = 45_000;
+const SCREENING_PAID_TRADE_EXTRA_MS = 75_000;
+const SCREENING_BATCH_DRAIN_OVERHEAD_MS = 30_000;
 
 const COUNTRY_NAMES: Record<string, string> = {
   BR: "巴西",
@@ -248,8 +261,9 @@ function unknownErrorMessage(error: unknown, fallback: string) {
 }
 
 export function estimateEmployeeTaskTimeoutMs(estimatedMs: number) {
-  const graceMs = Math.max(120_000, Math.round(estimatedMs * 0.35));
-  return clamp(estimatedMs + graceMs, 300_000, 1_200_000);
+  const safeEstimateMs = Number.isFinite(estimatedMs) ? Math.max(0, estimatedMs) : 0;
+  const graceMs = Math.max(180_000, Math.round(safeEstimateMs * 0.5));
+  return clamp(safeEstimateMs + graceMs, TASK_TIMEOUT_MIN_MS, TASK_TIMEOUT_MAX_MS);
 }
 
 export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
@@ -257,11 +271,34 @@ export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
   const buyerTypeCount = Math.max(1, csv(input.buyerTypes).length);
   const countryCount = Math.max(1, csv(input.countries).length);
   const queryCount = productCount * buyerTypeCount * countryCount;
-  const maxResults = input.maxResultsPerQuery ?? 10;
+  const targetCount = clamp(Math.ceil(Math.max(1, input.targetCount)), 1, MAX_LEAD_TARGET_COUNT);
+  const maxResults = clamp(Math.ceil(input.maxResultsPerQuery ?? 10), 1, 50);
+  const topUpExtraMs = input.runMode === "top_up_unique_leads" ? LEAD_TOP_UP_EXTRA_MS : 0;
   return clamp(
-    150_000 + queryCount * 30_000 + Math.max(1, input.targetCount) * 45_000 + maxResults * 5_000,
-    300_000,
-    900_000,
+    LEAD_BASE_DURATION_MS +
+      queryCount * LEAD_PER_QUERY_DURATION_MS +
+      targetCount * LEAD_PER_TARGET_DURATION_MS +
+      maxResults * LEAD_PER_RESULT_SCAN_MS +
+      topUpExtraMs,
+    120_000,
+    LEAD_ESTIMATE_MAX_MS,
+  );
+}
+
+export function estimateScreeningTaskDurationMsForTargetCount(
+  targetCount: number,
+  options: EmployeeScreeningTaskOptions = {},
+) {
+  const safeTargetCount = Math.max(1, Math.ceil(Number.isFinite(targetCount) ? targetCount : 1));
+  const paidSourceMs =
+    (options.paidEmailValidation ? SCREENING_PAID_EMAIL_EXTRA_MS : 0) +
+    (options.paidTradeData ? SCREENING_PAID_TRADE_EXTRA_MS : 0);
+  const childDurationMs = SCREENING_SINGLE_TARGET_DURATION_MS + paidSourceMs;
+  const waves = Math.max(1, Math.ceil(safeTargetCount / SCREENING_CHILD_CONCURRENCY));
+  return clamp(
+    waves * childDurationMs + Math.max(0, waves - 1) * SCREENING_BATCH_DRAIN_OVERHEAD_MS,
+    SCREENING_SINGLE_TARGET_DURATION_MS,
+    TASK_TIMEOUT_MAX_MS,
   );
 }
 
@@ -269,8 +306,7 @@ export function estimateScreeningTaskDurationMs(
   targets: ScreeningTarget[],
   options: EmployeeScreeningTaskOptions = {},
 ) {
-  const paidSourceMs = (options.paidEmailValidation ? 20_000 : 0) + (options.paidTradeData ? 35_000 : 0);
-  return clamp(70_000 + Math.max(1, targets.length) * (55_000 + paidSourceMs), 120_000, 810_000);
+  return estimateScreeningTaskDurationMsForTargetCount(targets.length, options);
 }
 
 function domainFromWebsite(website?: string) {

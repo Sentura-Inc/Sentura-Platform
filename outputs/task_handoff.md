@@ -10,9 +10,46 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user request: Diagnose and fix a production `寻找客户` failure for `USB-C charger / US` from `app.sentura.ai`, where Dashboard showed `invalid chat.history params: at /maxChars: must be <= 500000`.
+Latest user request: Implement dynamic Lead/Screening task time growth so long legitimate tasks do not fail because fixed estimates are too short; account for Screening fan-out, bursts, and coordinator queue behavior.
 
-Latest operational fix:
+Latest local implementation:
+
+- Problem:
+  - One Screening child is now roughly 3 minutes.
+  - Multi-target Screening should grow by fan-out waves, not stay near a fixed 4-6 minute window.
+  - Lead tasks should grow with requested target count and query breadth.
+  - DB-backed task refresh/queued coordinator records must not shrink the wait window after task creation.
+- Code changes:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+    - Added task timing constants.
+    - Lead estimate scales by product/buyer/country query count, requested target count, max result scan count, and top-up overhead.
+    - Screening estimate uses `SCREENING_SINGLE_TARGET_DURATION_MS = 180_000` and `SCREENING_CHILD_CONCURRENCY = 3`, with wave/drain and paid-source overhead.
+    - Timeout budget = estimate + max(3 minutes, 50% grace), clamped to 6-30 minutes.
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`
+    - Lead/Screening create requests persist `metadata_json.estimated_ms` and `metadata_json.timeout_ms`.
+    - Task hydration uses stored timing first, then reconstructs estimates from metadata.
+    - Queued records add `workload_admission.estimated_start_seconds` to local `timeoutMs`/`deadlineAt`.
+  - `sentura/dashboard/src/lib/cross-border-store/schemas.ts`
+    - Lead create request accepts `metadata_json`.
+  - `sentura/dashboard/src/lib/cross-border-store/lead-runs.ts`
+    - Lead run preflight and inserted agent run preserve timing metadata alongside `query_config`, target counts, and workload metadata without adding timing to the Lead scope fingerprint.
+  - Static regressions:
+    - `scripts/test-cross-border-agents.ts` adds Lead scaling, Screening fan-out wave, and timeout cap checks.
+    - `scripts/test-cross-border-phase2-store.ts` adds timing metadata and queued coordinator-delay checks.
+- Verification:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 427/427.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 220/220.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Docs updated:
+  - `docs/TESTS.md`
+  - `docs/tests/tests-cross-border-phase2.md`
+  - `docs/MEMORY.md`
+  - `docs/memory/cross-border-ecommerce/phase-2.md`
+- Deployment status:
+  - CE33 is local only. It has not been deployed to ECS in this session.
+  - Next production step: commit/push, ECS pull/build/restart, then public Employee/Admin and task-create smoke.
+
+Previous operational fix:
 
 - Failed production run:
   - `agent_run_id`: `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f`

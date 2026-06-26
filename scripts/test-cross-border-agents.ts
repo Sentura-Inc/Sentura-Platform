@@ -696,6 +696,27 @@ check("employee lead prompt follows requested target count instead of 1-5 cap", 
 ].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选"));
 check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
 check("employee runner emits measured wait progress without max-wait copy", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "已轮询", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("预计剩余") && !employeeTaskRunner.includes("最长等待剩余"));
+check("employee lead task duration scales with requested target count", [
+  "LEAD_PER_TARGET_DURATION_MS",
+  "targetCount * LEAD_PER_TARGET_DURATION_MS",
+  "LEAD_PER_QUERY_DURATION_MS",
+  "LEAD_TOP_UP_EXTRA_MS",
+  "LEAD_ESTIMATE_MAX_MS",
+].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee screening task duration scales by coordinator fan-out waves", [
+  "SCREENING_CHILD_CONCURRENCY = 3",
+  "Math.ceil(safeTargetCount / SCREENING_CHILD_CONCURRENCY)",
+  "SCREENING_SINGLE_TARGET_DURATION_MS = 180_000",
+  "SCREENING_BATCH_DRAIN_OVERHEAD_MS",
+  "SCREENING_PAID_EMAIL_EXTRA_MS",
+  "SCREENING_PAID_TRADE_EXTRA_MS",
+].every((needle) => employeeTaskRunner.includes(needle)));
+check("employee task timeout uses dynamic grace and 30-minute cap", [
+  "TASK_TIMEOUT_MIN_MS = 360_000",
+  "TASK_TIMEOUT_MAX_MS = 1_800_000",
+  "Math.max(180_000",
+  "safeEstimateMs * 0.5",
+].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee lead and screening tasks support realtime cancellation", [
   "AbortSignal",
   "throwIfTaskCancelled",

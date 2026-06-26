@@ -6,7 +6,24 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
-Latest operational fix, 2026-06-26:
+Latest local implementation, 2026-06-26:
+
+- User asked for dynamic task time growth because one `背调` is now roughly 3 minutes and multiple targets must increase the planned duration while respecting burst/coordinator behavior.
+- Code changes:
+  - `employee-task-runner.ts` now estimates Lead duration from query breadth + requested target count + result scan + top-up overhead.
+  - Screening duration now assumes `SCREENING_SINGLE_TARGET_DURATION_MS = 180_000` and scales by `SCREENING_CHILD_CONCURRENCY = 3` fan-out waves plus drain and paid-source overhead.
+  - Task timeout now uses estimate + max(3 minutes, 50% grace), clamped to 6-30 minutes.
+  - `employee-api.ts` persists and hydrates `metadata_json.estimated_ms` / `metadata_json.timeout_ms` for Lead/Screening task records.
+  - Queued task hydration adds `workload_admission.estimated_start_seconds` from the coordinator to the wait window so burst-queued records do not stale-fail before starting.
+  - Lead `metadata_json` is accepted and preserved in `schemas.ts` / `lead-runs.ts` without changing Lead scope hashing.
+- Verification:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 427/427.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 220/220.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Docs/tests updated with CE33 in `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `docs/MEMORY.md`, and `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Deployment status: CE33 is local only in this session. It still needs commit/push, ECS pull/build/restart, and target smoke before production use.
+
+Previous operational fix, 2026-06-26:
 
 - User reported production `寻找客户` failure for `USB-C charger / US`:
   - UI error: `invalid chat.history params: at /maxChars: must be <= 500000`;

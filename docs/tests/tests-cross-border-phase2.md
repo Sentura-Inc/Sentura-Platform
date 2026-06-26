@@ -1163,3 +1163,56 @@ Boundary:
 
 - CE32 fixes the parameter-validation failure caused by requesting too much transcript history from OpenClaw.
 - It does not make `chat.history` unbounded. If a future transcript exceeds 500KB and the final payload is outside the returned history, the task can still fail explicitly until the runner switches to a streaming/session-file-aware retrieval strategy.
+
+## CE33 — Dynamic Lead/Screening Task Time Budgeting
+
+Status: PASS locally (2026-06-26)
+
+Scope:
+
+- Dynamic hidden-task `estimatedMs` and `timeoutMs` for variable-size Lead and Screening tasks.
+- DB task-record metadata so refreshed/queued tasks keep the same wait budget.
+- Coordinator-aware queued-task wait windows for burst handling.
+
+Context:
+
+- The user asked whether fixed estimates would make legitimate long tasks fail when work size grows, e.g. a Screening task takes about 3 minutes for one target, while multiple targets should increase the planned duration.
+- Existing windows were too coarse:
+  - Lead estimates were target-count-aware but capped too tightly for larger requests.
+  - Screening used a low per-target estimate and did not reflect parent/child fan-out waves.
+  - DB-backed task hydration could fall back to fixed task-kind estimates.
+  - Queued coordinator records could lose expected queue delay in the local task wait window.
+
+Fix:
+
+- `employee-task-runner.ts` now uses named constants for task timing:
+  - Lead estimate = base + query breadth + requested target count + max result scan + top-up overhead, capped at 20-minute estimate.
+  - Screening estimate = 3-minute single-target child duration plus paid-source overhead, scaled by `SCREENING_CHILD_CONCURRENCY = 3` fan-out waves and drain overhead.
+  - Task timeout = estimate + max(3 minutes, 50% grace), clamped to 6-30 minutes.
+- `employee-api.ts` now:
+  - persists `estimated_ms` and `timeout_ms` in Lead/Screening `metadata_json`;
+  - reconstructs estimates from DB metadata when older records do not yet have timing fields;
+  - reads `workload_admission.estimated_start_seconds` for queued records and adds it to the wait window.
+- `schemas.ts` and `lead-runs.ts` now allow Lead `metadata_json` and preserve timing metadata alongside coordinator metadata without changing the Lead scope hash.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE33.1 | Lead estimate scaling | Static script | `scripts/test-cross-border-agents.ts` asserts Lead timing includes per-target, per-query, top-up, and max-estimate constants. |
+| CE33.2 | Screening fan-out timing | Static script | `scripts/test-cross-border-agents.ts` asserts Screening timing uses 3-child concurrency, 180-second child duration, paid-source overhead, and batch drain overhead. |
+| CE33.3 | Timeout grace/cap | Static script | `scripts/test-cross-border-agents.ts` asserts the 6-minute minimum, 30-minute cap, and 50%/3-minute grace logic. |
+| CE33.4 | DB timing metadata | Static script | `scripts/test-cross-border-phase2-store.ts` asserts Employee API creation/hydration paths use `estimated_ms`, `timeout_ms`, dynamic estimate helpers, and queued coordinator delay. |
+| CE33.5 | Local regression | Local commands | CBE static, Phase 2 store static, and Dashboard typecheck all pass. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 427/427.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 220/220.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- CE33 prevents expected long work from failing solely because the old fixed wait window was too short.
+- It does not remove all possible timeouts. Tasks still fail if the employee never produces a parseable result, the Gateway/provider/backend fails, or a burst queue exceeds the coordinator's own capacity/lease assumptions.
+- This has not been deployed to ECS in this session; deploy after commit/push and server pull/rebuild.

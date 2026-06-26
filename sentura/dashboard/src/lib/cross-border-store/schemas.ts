@@ -156,6 +156,7 @@ export const CreateLeadRunRequestSchema = z.object({
   session_key: z.string().min(1).optional(),
   target_summary: z.string().min(1).optional(),
   estimated_cost_usd: CbeMoneyUsdSchema.default(0),
+  metadata_json: JsonRecordSchema.default({}),
 });
 export type CreateLeadRunRequest = z.infer<typeof CreateLeadRunRequestSchema>;
 
