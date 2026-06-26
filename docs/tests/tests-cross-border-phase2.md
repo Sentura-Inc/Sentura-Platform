@@ -1166,7 +1166,7 @@ Boundary:
 
 ## CE33 — Dynamic Lead/Screening Task Time Budgeting
 
-Status: PASS locally (2026-06-26)
+Status: PASS locally and on ECS/RDS (2026-06-26)
 
 Scope:
 
@@ -1219,7 +1219,7 @@ Boundary:
 
 ## CE34 — Screening Batch Deduplication and Score Reconciliation
 
-Status: PASS locally (2026-06-26)
+Status: PASS locally and on ECS/RDS (2026-06-26)
 
 Scope:
 
@@ -1239,7 +1239,7 @@ Fix:
 
 - `saveScreeningTargetMarker()` now resolves Lead candidates defensively from `target.lead_id`, `target.target_id`, normalized domain, and company/country fallback.
 - When a Lead candidate is resolved and no explicit `screening_target` id is supplied, the store reuses the latest non-Accio target for that Lead instead of inserting another target row.
-- Added migration `009_customer_work_items_deduped_screening.sql`, and updated the initial schema view, so `cbe_customer_work_items` selects one latest report per Lead candidate rather than expanding every historical target.
+- Added migration `009_customer_work_items_deduped_screening.sql` so `cbe_customer_work_items` selects one latest report per Lead candidate rather than expanding every historical target. The historical `001_initial_schema.sql` migration remains immutable for checksum safety.
 - `employee-api.ts` and `employee-task-runner.ts` now recompute `normalized_score` from `score_blocks` plus `evidence_coverage`: score-block quality `sum(earned_points) / sum(max_points) * 100` contributes 80%, evidence coverage contributes 20%, and `risk_tier` follows that final score.
 - Report reads prefer the recomputed report score over the stored row score so stale reports cannot keep showing list/report mismatches.
 
@@ -1251,15 +1251,20 @@ Test cases:
 | CE34.2 | Customer projection dedupe | Migration/static script | `009_customer_work_items_deduped_screening.sql` exists and the projection selects one latest Screening report per Lead candidate. |
 | CE34.3 | Score reconciliation | Static script | `scripts/test-cross-border-agents.ts` asserts Employee Screening score normalization is enforced from score blocks plus evidence coverage in both hidden runner and Employee API. |
 | CE34.4 | Local regression | Local commands | CBE static, Phase 2 store static, and Dashboard typecheck all pass after the store, migration, and score changes. |
+| CE34.5 | ECS/RDS deployment | Target migration + SQL verification + public smoke | ECS applies migration 009 through the normal runner, repairs existing mismatched scores, verifies the three affected customers project once each with aligned list/report scores, restarts Dashboard, and returns HTTP 200 for app/admin public routes. |
 
 Latest verification, 2026-06-26:
 
 - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 428/428.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS.
+- ECS migration: applied `009_customer_work_items_deduped_screening.sql`; skipped immutable historical migrations.
+- ECS RDS verification: BrandsMart USA, Altex Computers & Electronics, and Central Computers each project with `visible_duplicate_count = 1`; BrandsMart list/report score is `90.74`.
+- Public smoke: `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return HTTP 200.
 
 Boundary:
 
 - CE34 prevents future batch Screening runs from creating visible duplicate customer rows for the same Lead.
 - It also repairs score consistency going forward by enforcing the score formula in code.
-- Existing production rows require applying migration 009 and one data repair pass to update already-stored inconsistent report scores.
+- Existing production rows on the Alibaba ECS/RDS target have been repaired for the observed mismatches; future score consistency is enforced in code.

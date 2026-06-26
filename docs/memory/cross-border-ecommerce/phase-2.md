@@ -2342,4 +2342,9 @@ Verification:
 Production note:
 
 - Pre-fix RDS inspection confirmed BrandsMart USA had `normalized_score = 59` while score blocks + coverage recomputed to a high score.
-- Existing production data still needs migration 009 plus a targeted report-score repair during ECS deployment.
+- ECS/RDS deployment completed on 2026-06-26:
+  - server branch reached `d9cff447`;
+  - `009_customer_work_items_deduped_screening.sql` applied through the normal migration runner while historical `001_initial_schema.sql` remained immutable;
+  - targeted score repair updated mismatched existing reports, including BrandsMart USA from `59` to `90.74`;
+  - RDS verification showed BrandsMart USA, Altex Computers & Electronics, and Central Computers each had `visible_duplicate_count = 1` in `cbe_customer_work_items`;
+  - `sentura-dashboard` and `nginx` were active after restart, and public smoke returned HTTP 200 for `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login`.
