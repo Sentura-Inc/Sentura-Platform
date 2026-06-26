@@ -60,13 +60,14 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | Screening fenced-JSON timeout recovery | Fixed a production `背调` timeout where OpenClaw completed the CPR report but returned fenced JSON without `SCREENING_REPORTS_JSON` markers; added a guarded whole-response JSON fallback, deployed/rebuilt/restarted ECS Dashboard, and backfilled the CPR report through the normal completion API/store path. |
 | 2026-06-26 | Hidden task structured-output repair loop | Added a one-shot no-tools/no-reinvestigation JSON repair turn for malformed or completed non-marker Lead/Screening/Accio/image hidden-task replies, timestamp-scoped transcript reads, local/ECS 420/420 static verification, ECS Dashboard rebuild/restart, and public app/admin shell smoke. |
 | 2026-06-26 | Nested OpenClaw transcript recovery | Fixed the latest production `背调` timeout where OpenClaw produced a valid marker-wrapped Cellairis report but Dashboard missed it because `chat.history` returned raw nested `message.role/message.content`; deployed the transcript parser fix and recovered the Cellairis report through the normal completion API/store path. |
-| 2026-06-26 | Long transcript repair-result recovery | Fixed the Adorama production `背调` repair-timeout path where the valid repair marker payload was beyond the 300KB transcript read cap; added 2MB transcript reads, embedded fenced-JSON parsing, final full-transcript reread before repair timeout, deployed the fix to ECS, and recovered the Adorama report through the Dashboard completion route/store path. |
+| 2026-06-26 | Long transcript repair-result recovery | Fixed the Adorama production `背调` repair-timeout path where the valid repair marker payload was beyond the 300KB transcript read cap; added Gateway-safe 500KB transcript reads, embedded fenced-JSON parsing, final full-transcript reread before repair timeout, deployed the fix to ECS, and recovered the Adorama report through the Dashboard completion route/store path. |
+| 2026-06-26 | OpenClaw chat.history cap compatibility and USB-C Lead recovery | Fixed the transient 2MB `chat.history.maxChars` setting that exceeded OpenClaw Gateway's 500,000-char validator, restored the hidden runner to `500_000`, deployed/rebuilt/restarted ECS Dashboard, and recovered the existing `USB-C charger / US` Lead run with 3 saved customers and 12 sources. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
 - Dashboard code and the Alibaba ECS target now use production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. Route helpers also recognize the internal rewrite destination paths so SSR renders Admin pages with the manager shell even when Next resolves `/admin/login` through `/client-demos/cross-border/admin/login`.
-- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, recovered production Adorama Screening report `cbe_sr_20260626_adorama_001` saved after long-transcript repair-result recovery, and hidden-task structured-output repair plus nested/long transcript recovery deployed to ECS with CBE static 424/424 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
+- The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, recovered production Adorama Screening report `cbe_sr_20260626_adorama_001` saved after long-transcript repair-result recovery, recovered production `USB-C charger / US` Lead run with NEM Electronics Corp / Entro Wholesale / Mighty Wireless and 12 sources after OpenClaw `chat.history.maxChars` cap correction, and hidden-task structured-output repair plus nested/long transcript recovery deployed to ECS with CBE static 424/424 plus Dashboard typecheck/build pass. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
@@ -2132,7 +2133,7 @@ This was a Dashboard transcript-read bug, not a missing employee result.
 
 Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
 
-- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`.
+- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to the OpenClaw Gateway-safe `500_000` limit. The first CE31 rollout briefly used 2MB; CE32 corrected it because Gateway validates `chat.history.maxChars <= 500000`.
 - Added `parseJsonPayloadCandidate()` to share expected-key validation between whole-object and fenced-object parsing.
 - Added `parseFencedJsonPayload()` so a marker-less response with prose before a ```json fenced object can still be parsed when it contains the expected top-level array.
 - Kept marker parsing first; fallback parsing remains guarded by the expected task key (`leads`, `reports`, `summaries`, or image `images`).
@@ -2142,7 +2143,7 @@ Updated `scripts/test-cross-border-agents.ts`:
 
 - Added `employee runner accepts embedded fenced JSON when model adds prose`.
 - Added `employee runner rereads full transcript before declaring repair timeout`.
-- Updated `employee runner reads full structured task output from chat history` to assert the 2MB cap.
+- Updated `employee runner reads full structured task output from chat history` to assert the 500KB cap.
 
 ### Verification
 
@@ -2192,3 +2193,68 @@ Public/API verification:
 - CE31 fixes transcript truncation and embedded fenced-JSON parsing for completed hidden tasks.
 - It still requires an actual parseable payload to exist in the transcript.
 - The transcript cap is now larger, not unbounded; pathological sessions that exceed the cap and do not include a returned recent payload may still fail explicitly.
+
+## 2026-06-26 — OpenClaw chat.history Cap Compatibility and USB-C Lead Recovery
+
+Context:
+
+- The user reported a production `寻找客户` failure for `USB-C charger / US`.
+- UI error: `invalid chat.history params: at /maxChars: must be <= 500000`.
+- Failed task key: `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:cab9a635-ee0f-4216-82eb-c5c7e9647f8c`.
+- RDS run: `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f`.
+- Lead run: `lead_run_58f1040e-4fc5-45d7-8fcc-c4f94859ff68`.
+
+Root cause:
+
+- CE31's first rollout raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` to 2MB.
+- OpenClaw Gateway rejects `chat.history` calls with `maxChars > 500000`, so Dashboard polling failed immediately before it could read the finished employee result.
+- The OpenClaw session itself completed successfully in about 120 seconds and wrote a valid marker payload in `/root/.openclaw/agents/cbe-lead-discovery/sessions/22929183-100d-4872-9a65-06906b1e3f16.jsonl`.
+- Session file size was about 242KB, inside the Gateway-safe 500KB limit.
+
+Fix:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts` now keeps `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000`.
+- `scripts/test-cross-border-agents.ts` asserts the `500_000` cap and the `client.getTranscript()` `maxChars` wiring.
+- Local commit `1fd474e4` was pushed to `origin/ecommerce`, pulled on ECS, built, and deployed.
+
+Verification:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- Restarted `sentura-dashboard`.
+- ECS services after restart: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200 and contains `跨境电商员工操作系统`.
+  - `https://admin.sentura.ai/admin/login`: 200 and contains `跨境电商管理者系统`.
+- Restored build-generated `sentura/dashboard/next-env.d.ts`; server repo stayed clean at `1fd474e4`.
+
+Production recovery:
+
+- Parsed the existing `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END` payload from the OpenClaw session file.
+- Posted the payload through the Dashboard Lead completion route/store path after minimal schema cleanup equivalent to the Employee API normalizer (`duplicate_status: "unique"` -> `"new"` and null optional fields removed).
+- Cleaned the stale validation metadata left by the first recovery POST attempt.
+- Did not hand-write lead candidate/source rows with raw SQL.
+
+RDS verification after recovery:
+
+- `agent_runs.status = completed`.
+- `agent_runs.current_stage = lead_results_saved`.
+- `agent_runs.error_code = null`.
+- `lead_runs.status = completed`.
+- saved lead candidates `3`.
+- saved lead sources `12`.
+- active Lead scope count `0`.
+
+Recovered leads:
+
+- `NEM Electronics Corp` (`nemusa.com`).
+- `Entro Wholesale` (`entrowholesale.com`).
+- `Mighty Wireless Wholesale Cellphone Accessories` (`mightywireless.com`).
+
+Boundary:
+
+- CE32 fixes the invalid `maxChars` parameter regression.
+- The Gateway-safe transcript cap remains finite. If a future transcript exceeds 500KB and the final structured payload is outside the returned history, the task can still fail explicitly until the runner uses a session-file-aware or incremental transcript retrieval path.

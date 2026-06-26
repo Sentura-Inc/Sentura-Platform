@@ -10,32 +10,25 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 Date: 2026-06-26
 
-Latest user request: Diagnose and fix another production `背调` timeout from `app.sentura.ai` after CE30, where `Adorama` failed with `员工已返回结果，但格式修复超时，仍未收到可写入 结构化结果。`
+Latest user request: Diagnose and fix a production `寻找客户` failure for `USB-C charger / US` from `app.sentura.ai`, where Dashboard showed `invalid chat.history params: at /maxChars: must be <= 500000`.
 
 Latest operational fix:
 
-- Root cause on ECS: the employee produced both an original report and a repair result, but Dashboard did not read the final repair payload because the OpenClaw session was about 333KB and the hidden runner requested only 300KB from `chat.history`.
 - Failed production run:
-  - `agent_run_id`: `run_0ce71f21-efbc-43be-909d-6309c7039548`
-  - `target_summary`: `Adorama`
-  - `session_key`: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
-  - session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl`
+  - `agent_run_id`: `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f`
+  - `target_summary`: `USB-C charger / US`
+  - `session_key`: `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:cab9a635-ee0f-4216-82eb-c5c7e9647f8c`
+  - lead run: `lead_run_58f1040e-4fc5-45d7-8fcc-c4f94859ff68`
+- Root cause on ECS: CE31's transient 2MB `chat.history.maxChars` setting exceeded OpenClaw Gateway's validator cap of 500,000 chars, so Dashboard polling failed immediately before reading the completed employee result.
 - Evidence:
-  - original assistant output included prose followed by a ```json fenced object with top-level `reports`;
-  - repair assistant output included `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and top-level `reports`;
-  - failure was local Dashboard transcript truncation, not missing employee output.
-- Code fix in `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
-  - raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`;
-  - added `parseJsonPayloadCandidate()` and `parseFencedJsonPayload()` so prose + embedded fenced JSON can be parsed when the expected key matches;
-  - added a final full `readHiddenTaskPayload()` before repair-timeout is thrown.
-- Static regressions added in `scripts/test-cross-border-agents.ts`:
-  - `employee runner accepts embedded fenced JSON when model adds prose`;
-  - `employee runner rereads full transcript before declaring repair timeout`;
-  - updated full transcript cap check to `2_000_000`.
+  - OpenClaw session file `/root/.openclaw/agents/cbe-lead-discovery/sessions/22929183-100d-4872-9a65-06906b1e3f16.jsonl` contained `LEAD_CANDIDATES_JSON_START/END` with 3 leads.
+  - Session file size was about 242KB, inside the Gateway-safe 500KB limit.
+- Code fix:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts` keeps `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000`.
+  - `scripts/test-cross-border-agents.ts` asserts the 500KB cap and `client.getTranscript()` `maxChars` wiring.
 - Verification:
   - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
   - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
-  - `git diff --check`: PASS.
   - ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
   - ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
   - ECS `pnpm --dir sentura/dashboard build`: PASS.
@@ -43,19 +36,24 @@ Latest operational fix:
   - Public `https://app.sentura.ai/employee`: 200 with Employee shell.
   - Public `https://admin.sentura.ai/admin/login`: 200 with Admin shell.
 - Production recovery:
-  - completed `run_0ce71f21-efbc-43be-909d-6309c7039548` through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer;
-  - did not hand-write report rows with raw SQL;
-  - RDS report `cbe_sr_20260626_adorama_001`, score `59`, risk `high_risk`, 22 evidence rows, 6 score blocks, 6 address locations;
-  - active Screening run count = `0`;
-  - Employee API `query=Adorama` returns Adorama with `screeningStatus = high_risk`, `normalizedScore = 59`, and the recovered run id.
-- Docs/tests updated with CE31:
+  - completed `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f` through the Dashboard Lead completion route/store path after normalizer-equivalent cleanup;
+  - did not hand-write lead/source rows with raw SQL;
+  - RDS now has `agent_runs.status = completed`, `current_stage = lead_results_saved`, no error code/message, `lead_runs.status = completed`, 3 saved candidates, 12 sources, active Lead scope 0;
+  - Employee API queries show NEM Electronics Corp, Entro Wholesale, and Mighty Wireless Wholesale Cellphone Accessories.
+- Server repo:
+  - ECS is clean at `1fd474e4` after restoring build-generated `sentura/dashboard/next-env.d.ts`.
+- Docs/tests updated with CE32:
   - `docs/TESTS.md`;
   - `docs/tests/tests-cross-border-phase2.md`;
   - `docs/MEMORY.md`;
   - `docs/memory/cross-border-ecommerce/phase-2.md`.
-- Local/remote/server note:
-  - Code fix commit `df08d317` was pushed and pulled on ECS.
-  - A final docs-only commit may follow after this handoff update to remove the earlier `pending` wording from docs.
+
+Previous operational fix:
+
+- Root cause on ECS: the employee produced both an original Adorama report and a repair result, but Dashboard did not read the final repair payload because the OpenClaw session was about 333KB and the hidden runner requested only 300KB from `chat.history`.
+- Failed production run `run_0ce71f21-efbc-43be-909d-6309c7039548` with session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl`.
+- Code fix added embedded fenced-JSON parsing and final full transcript reread; CE32 later corrected the transient 2MB cap to the Gateway-safe 500KB cap.
+- Recovered Adorama report `cbe_sr_20260626_adorama_001`, score `59`, risk `high_risk`, 22 evidence rows, 6 score blocks, 6 address locations, active Screening count `0`.
 
 Previous operational fix:
 

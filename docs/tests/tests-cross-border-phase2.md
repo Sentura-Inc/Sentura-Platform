@@ -1041,20 +1041,21 @@ Context:
   - an original prose + ```json fenced Screening report;
   - a repair response with `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and top-level `reports`.
 - The session JSONL was about 333KB; the hidden runner requested only 300KB from `chat.history`, so the final repair marker payload was truncated away before parsing.
+- The first CE31 implementation briefly raised the read size to 2MB. CE32 superseded that transient setting because OpenClaw Gateway validates `chat.history.maxChars <= 500000`.
 
 Fix:
 
-- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to `2_000_000`.
+- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to the OpenClaw Gateway-safe `500_000` limit.
 - Added `parseJsonPayloadCandidate()` and `parseFencedJsonPayload()` so marker-less assistant replies that contain prose before a ```json fenced object can still be parsed when the expected top-level key matches.
 - Kept marker parsing first and expected-key guarded fallback second.
 - Added a final unscoped `readHiddenTaskPayload()` before `requestHiddenTaskFormatRepair()` declares repair timeout, so timestamp filtering cannot be the last reason a valid repair payload is missed.
-- Added static regressions in `scripts/test-cross-border-agents.ts` for embedded fenced JSON, full repair reread, and the 2MB transcript cap.
+- Added static regressions in `scripts/test-cross-border-agents.ts` for embedded fenced JSON, full repair reread, and the 500KB transcript cap.
 
 Test cases:
 
 | ID | Area | Method | Expected |
 |---|---|---|---|
-| CE31.1 | Larger transcript cap | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `2_000_000` and still passed to `client.getTranscript()`. |
+| CE31.1 | Larger transcript cap | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `500_000` and still passed to `client.getTranscript()`. |
 | CE31.2 | Embedded fenced JSON fallback | Static script/code review | Hidden runner contains `parseFencedJsonPayload()`, `parseJsonPayloadCandidate()`, and falls back from whole JSON to embedded fenced JSON when markers are absent. |
 | CE31.3 | Repair final reread | Static script/code review | `requestHiddenTaskFormatRepair()` performs a final full transcript read and returns a payload if found before throwing the repair-timeout error. |
 | CE31.4 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
@@ -1095,3 +1096,70 @@ Boundary:
 - CE31 prevents long completed transcripts from hiding valid final structured output.
 - It does not make `chat.history` unbounded and does not fabricate missing reports.
 - If a transcript exceeds the new cap and the final payload is still outside the returned history, or if the employee never writes a parseable payload after fallback/repair, the task still fails explicitly.
+
+## CE32 — OpenClaw chat.history Cap Compatibility and USB-C Lead Recovery
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner compatibility with OpenClaw Gateway `chat.history.maxChars` validation.
+- Production Lead recovery for the `USB-C charger / US` run on Alibaba ECS/RDS.
+- Local and ECS regression coverage for the Gateway-safe transcript cap.
+
+Context:
+
+- The user ran a production `寻找客户` task for `USB-C charger / US`.
+- RDS showed failed run `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f` with error text `invalid chat.history params: at /maxChars: must be <= 500000`.
+- The OpenClaw session map showed the underlying `cbe-lead-discovery` session completed:
+  - session key `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:cab9a635-ee0f-4216-82eb-c5c7e9647f8c`;
+  - session file `/root/.openclaw/agents/cbe-lead-discovery/sessions/22929183-100d-4872-9a65-06906b1e3f16.jsonl`;
+  - runtime about 120 seconds.
+- The session file contained `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END` with 3 leads. The Dashboard failed before reading it because CE31's transient 2MB `maxChars` value exceeded Gateway validation.
+
+Fix:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts` keeps `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000`.
+- `scripts/test-cross-border-agents.ts` asserts the `500_000` value and that the runner still passes `maxChars` to `client.getTranscript()`.
+- The 500KB cap still covers the observed 333KB Adorama Screening transcript and 242KB USB-C Lead transcript while staying inside OpenClaw's validator.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE32.1 | Gateway maxChars compatibility | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `500_000`, not the transient 2MB value. |
+| CE32.2 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424 and `pnpm --dir sentura/dashboard exec tsc --noEmit` passes. |
+| CE32.3 | ECS rollout | Target commands | ECS static 424/424, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, generated `next-env.d.ts` is restored, and public app/admin HTTPS smoke remains 200. |
+| CE32.4 | Production Lead recovery | API/store path | The existing USB-C Lead marker payload is completed through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer; lead rows are not hand-written with raw SQL. |
+| CE32.5 | RDS terminal state | RDS query | `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f` is `completed`, `current_stage = lead_results_saved`, and has no `error_code` / `error_message`. |
+| CE32.6 | Lead persistence | RDS query | Lead run `lead_run_58f1040e-4fc5-45d7-8fcc-c4f94859ff68` is `completed`, saved 3 candidates and 12 source rows, and active Lead scope count is 0. |
+| CE32.7 | Employee API projection | Local API | `GET /api/employee/customers?query=NEM`, `Entro`, or `Mighty` returns the recovered USB-C leads in the Employee API list. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200 and contains `跨境电商员工操作系统`.
+  - `https://admin.sentura.ai/admin/login`: 200 and contains `跨境电商管理者系统`.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = lead_results_saved`.
+  - `agent_runs.error_code = null`.
+  - `lead_runs.status = completed`.
+  - saved lead candidates = 3.
+  - saved lead sources = 12.
+  - active Lead scope count = 0.
+- Recovered leads:
+  - `NEM Electronics Corp` (`nemusa.com`);
+  - `Entro Wholesale` (`entrowholesale.com`);
+  - `Mighty Wireless Wholesale Cellphone Accessories` (`mightywireless.com`).
+
+Boundary:
+
+- CE32 fixes the parameter-validation failure caused by requesting too much transcript history from OpenClaw.
+- It does not make `chat.history` unbounded. If a future transcript exceeds 500KB and the final payload is outside the returned history, the task can still fail explicitly until the runner switches to a streaming/session-file-aware retrieval strategy.

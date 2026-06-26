@@ -8,6 +8,28 @@ Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production h
 
 Latest operational fix, 2026-06-26:
 
+- User reported production `寻找客户` failure for `USB-C charger / US`:
+  - UI error: `invalid chat.history params: at /maxChars: must be <= 500000`;
+  - task key: `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:cab9a635-ee0f-4216-82eb-c5c7e9647f8c`;
+  - RDS run: `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f`;
+  - Lead run: `lead_run_58f1040e-4fc5-45d7-8fcc-c4f94859ff68`.
+- Root cause: CE31's transient 2MB `chat.history.maxChars` setting exceeded OpenClaw Gateway's validator cap of 500,000 chars, so Dashboard polling failed before reading the completed employee result.
+- Code fix:
+  - `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000` in `employee-task-runner.ts`.
+  - `scripts/test-cross-border-agents.ts` asserts the 500KB cap and `client.getTranscript()` `maxChars` wiring.
+- Verification:
+  - Local CBE static 424/424 and Dashboard typecheck PASS.
+  - ECS CBE static 424/424, Dashboard typecheck/build PASS, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+  - Public `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return 200 with correct shells.
+- Production recovery:
+  - OpenClaw session file `/root/.openclaw/agents/cbe-lead-discovery/sessions/22929183-100d-4872-9a65-06906b1e3f16.jsonl` contained a valid `LEAD_CANDIDATES_JSON_START/END` payload with 3 leads.
+  - Recovered through the Dashboard Lead completion route/store path after normalizer-equivalent cleanup; did not hand-write lead/source rows with raw SQL.
+  - RDS now has `agent_runs.status = completed`, `current_stage = lead_results_saved`, no error code/message, `lead_runs.status = completed`, 3 saved candidates, 12 sources, active Lead scope count 0.
+  - Recovered leads: NEM Electronics Corp, Entro Wholesale, Mighty Wireless Wholesale Cellphone Accessories.
+- Local/remote/server branch target: code fix commit `1fd474e4` is on `origin/ecommerce` and ECS; docs-only CE32 commit may follow after this handoff update.
+
+Previous operational fix, 2026-06-26:
+
 - User reported another production `背调` failure for `Adorama` from `app.sentura.ai`:
   - task key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:4497ff46-c5a9-489c-92b1-fed3ba9fb902`
   - RDS run: `run_0ce71f21-efbc-43be-909d-6309c7039548`
@@ -18,7 +40,7 @@ Latest operational fix, 2026-06-26:
   - repair assistant output had `SCREENING_REPORTS_JSON_START/END` with top-level `reports`.
 - Root cause: the session JSONL was about 333KB, while Dashboard hidden runner requested only `300_000` chars from `chat.history`; the final repair marker payload lived beyond that cap and was truncated away.
 - Local fix:
-  - `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` raised to `2_000_000`.
+  - `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` was raised beyond the old 300KB cap; CE32 later corrected it to the OpenClaw Gateway-safe `500_000`.
   - Added `parseFencedJsonPayload()` for prose + embedded ```json report blocks.
   - Added final full transcript reread before repair timeout.
   - Static checks added in `scripts/test-cross-border-agents.ts`.
