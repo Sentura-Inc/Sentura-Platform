@@ -28,6 +28,7 @@ const LEAD_AGENT_ID = "cbe-lead-discovery";
 const LEAD_TASK_PREFIX = "[CBE Lead Discovery Employee Task]";
 const LEADS_JSON_START = "LEAD_CANDIDATES_JSON_START";
 const LEADS_JSON_END = "LEAD_CANDIDATES_JSON_END";
+const MAX_LEAD_DISCOVERY_TARGET_COUNT = 10;
 
 type SourceType =
   | "official_api"
@@ -122,7 +123,6 @@ interface LeadDiscoveryStoredState {
   selectedPersonaIds: string[];
   selectedCountryCodes: string[];
   targetCount: number;
-  maxResultsPerQuery: number;
   excludeDomains: string;
   customKeyword: string;
   leads: LeadCandidate[];
@@ -411,8 +411,7 @@ export default function CrossBorderLeadDiscoveryPage() {
     "accessory-retailer",
   ]);
   const [selectedCountryCodes, setSelectedCountryCodes] = useState<string[]>(["GB", "US"]);
-  const [targetCount, setTargetCount] = useState(50);
-  const [maxResultsPerQuery, setMaxResultsPerQuery] = useState(10);
+  const [targetCount, setTargetCount] = useState(MAX_LEAD_DISCOVERY_TARGET_COUNT);
   const [excludeDomains, setExcludeDomains] = useState(
     "amazon.com, alibaba.com, aliexpress.com, temu.com, ebay.com",
   );
@@ -450,14 +449,12 @@ export default function CrossBorderLeadDiscoveryPage() {
       buyer_personas: selectedPersonas.map((persona) => persona.keyword),
       countries: selectedCountries.map((country) => country.code),
       languages: Array.from(new Set(selectedCountries.map((country) => country.language))),
-      max_results_per_query: maxResultsPerQuery,
       daily_candidate_target: targetCount,
       exclude_domains: excludeDomains.split(",").map((item) => item.trim()).filter(Boolean),
     };
   }, [
     customKeyword,
     excludeDomains,
-    maxResultsPerQuery,
     selectedCountries,
     selectedPersonas,
     selectedProducts,
@@ -470,8 +467,7 @@ export default function CrossBorderLeadDiscoveryPage() {
       setSelectedProductIds(stored.selectedProductIds);
       setSelectedPersonaIds(stored.selectedPersonaIds);
       setSelectedCountryCodes(stored.selectedCountryCodes);
-      setTargetCount(stored.targetCount);
-      setMaxResultsPerQuery(stored.maxResultsPerQuery);
+      setTargetCount(Math.min(MAX_LEAD_DISCOVERY_TARGET_COUNT, Math.max(1, stored.targetCount)));
       setExcludeDomains(stored.excludeDomains);
       setCustomKeyword(stored.customKeyword);
       setLeads(stored.leads);
@@ -491,7 +487,6 @@ export default function CrossBorderLeadDiscoveryPage() {
       selectedPersonaIds,
       selectedCountryCodes,
       targetCount,
-      maxResultsPerQuery,
       excludeDomains,
       customKeyword,
       leads,
@@ -509,7 +504,6 @@ export default function CrossBorderLeadDiscoveryPage() {
     hasHydratedState,
     leads,
     leadSessionKey,
-    maxResultsPerQuery,
     runMessage,
     runStatus,
     selectedCountryCodes,
@@ -864,25 +858,17 @@ ${LEADS_JSON_END}`;
               </div>
             </section>
 
-            <section className="grid grid-cols-2 gap-2">
+            <section>
               <label className="space-y-1 text-xs font-medium text-muted-foreground">
                 目标数量
                 <Input
                   type="number"
                   min={1}
-                  max={200}
+                  max={MAX_LEAD_DISCOVERY_TARGET_COUNT}
                   value={targetCount}
-                  onChange={(event) => setTargetCount(Number(event.target.value) || 1)}
-                />
-              </label>
-              <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                单查询上限
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={maxResultsPerQuery}
-                  onChange={(event) => setMaxResultsPerQuery(Number(event.target.value) || 1)}
+                  onChange={(event) =>
+                    setTargetCount(Math.min(MAX_LEAD_DISCOVERY_TARGET_COUNT, Math.max(1, Number(event.target.value) || 1)))
+                  }
                 />
               </label>
             </section>

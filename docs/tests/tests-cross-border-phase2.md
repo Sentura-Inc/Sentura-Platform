@@ -1186,7 +1186,7 @@ Context:
 Fix:
 
 - `employee-task-runner.ts` now uses named constants for task timing:
-  - Lead estimate = base + query breadth + requested target count + max result scan + top-up overhead, capped at 20-minute estimate.
+  - Lead estimate = base + selected-condition breadth + requested target count + top-up overhead, capped at 20-minute estimate.
   - Screening estimate = 3-minute single-target child duration plus paid-source overhead, scaled by `SCREENING_CHILD_CONCURRENCY = 3` fan-out waves and drain overhead.
   - Task timeout = estimate + max(3 minutes, 50% grace), clamped to 6-30 minutes.
 - `employee-api.ts` now:
@@ -1199,7 +1199,7 @@ Test cases:
 
 | ID | Area | Method | Expected |
 |---|---|---|---|
-| CE33.1 | Lead estimate scaling | Static script | `scripts/test-cross-border-agents.ts` asserts Lead timing includes per-target, per-query, top-up, and max-estimate constants. |
+| CE33.1 | Lead estimate scaling | Static script | `scripts/test-cross-border-agents.ts` asserts Lead timing includes per-target, selected-condition breadth, top-up, and max-estimate constants. |
 | CE33.2 | Screening fan-out timing | Static script | `scripts/test-cross-border-agents.ts` asserts Screening timing uses 3-child concurrency, 180-second child duration, paid-source overhead, and batch drain overhead. |
 | CE33.3 | Timeout grace/cap | Static script | `scripts/test-cross-border-agents.ts` asserts the 6-minute minimum, 30-minute cap, and 50%/3-minute grace logic. |
 | CE33.4 | DB timing metadata | Static script | `scripts/test-cross-border-phase2-store.ts` asserts Employee API creation/hydration paths use `estimated_ms`, `timeout_ms`, dynamic estimate helpers, and queued coordinator delay. |
@@ -1268,3 +1268,52 @@ Boundary:
 - CE34 prevents future batch Screening runs from creating visible duplicate customer rows for the same Lead.
 - It also repairs score consistency going forward by enforcing the score formula in code.
 - Existing production rows on the Alibaba ECS/RDS target have been repaired for the observed mismatches; future score consistency is enforced in code.
+
+## CE35 — Lead Search Target Cap and Whole-Condition Search
+
+Status: PASS locally (2026-06-27)
+
+Scope:
+
+- Employee `寻找客户` sheet target/count controls.
+- Hidden Lead prompt and Lead workspace search procedure.
+- Legacy standalone Lead Discovery demo route/control cleanup.
+- Lead input schema cap and cost/timing estimates.
+
+Context:
+
+- A many-filter Lead request hit `Context overflow: estimated context size exceeds safe threshold during tool loop`.
+- The previous UI and prompt still encouraged grouped query planning: multiple products, buyer types, and countries could be expanded into many search combinations, with a per-group/per-query result limit.
+- The user asked to cap maximum requested customers at 10, remove the single-group search limit entirely, merge all selected conditions into one investigation brief, and keep only the first N compliant potential customers.
+
+Fix:
+
+- `MAX_LEAD_TARGET_COUNT` is now 10 and the store schema caps `target_count` at 10.
+- The Employee sheet removes `单组搜索上限`; the legacy standalone page removes `单查询上限`.
+- Employee API creation no longer accepts or persists `maxResultsPerQuery` / `max_results_per_query`.
+- The hidden Lead prompt tells the employee to merge all selected products, countries, and buyer types into one search brief, avoid Cartesian-product/group balancing, and retain the first `target_count` compliant non-duplicate downstream buyers in discovery order.
+- Cost and duration estimates scale by selected-condition breadth and target count, not by per-group result scans.
+- The Lead workspace skill and default config were aligned to the same whole-condition search behavior.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE35.1 | Target cap | Static script | `scripts/test-cross-border-agents.ts` asserts the Employee UI, API, runner, and schema cap Lead target count at 10. |
+| CE35.2 | Removed per-group control | Static script | `scripts/test-cross-border-agents.ts` asserts Employee and standalone Lead UI no longer expose `单组搜索上限` / `单查询上限` or `maxResultsPerQuery`. |
+| CE35.3 | Whole-condition prompt | Static script | `scripts/test-cross-border-agents.ts` asserts the hidden Lead prompt uses one merged search brief, rejects `target_count * 3`, and removes `max_results_per_query`. |
+| CE35.4 | Coordinator/workspace alignment | Static script | `scripts/test-cross-border-phase2-concurrency.ts` asserts the Lead workspace documents strict target, pre-search denylist, top-up mode, and first-target compliant buyer behavior. |
+| CE35.5 | Local regression | Local commands | CBE static, Phase 2 store static, Phase 2 concurrency static/live, and Dashboard typecheck all pass. |
+
+Latest verification, 2026-06-27:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 430/430.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- CE35 reduces context pressure from wide filter selections by preventing grouped query loops.
+- It does not make searches unbounded. The employee still stops at 10 requested customers, must dedupe against DB identity keys, must skip denylisted/excluded domains, and may return fewer than requested when compliant results are exhausted.
+- This local change has not been deployed to ECS in this session; deploy after commit/push and server pull/rebuild/restart.

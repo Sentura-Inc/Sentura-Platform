@@ -8,6 +8,51 @@ Conversation language: answer the user in Chinese. Keep exact Chinese UI labels 
 
 ## Current Resume Snapshot
 
+Date: 2026-06-27
+
+Latest user request: Cap Lead Discovery customer count at 10, remove the single-group/per-query search limit, merge all selected filters into one investigation, and keep the first N compliant potential customers.
+
+Latest local implementation:
+
+- Problem:
+  - Wide Lead filters could encourage grouped product/country/buyer-type query loops and hit `Context overflow`.
+  - The UI and payload still exposed per-group/per-query controls (`单组搜索上限`, `单查询上限`, `maxResultsPerQuery`, `max_results_per_query`).
+- Code changes:
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-data.ts`
+    - `MAX_LEAD_TARGET_COUNT = 10`.
+    - Lead cost estimate uses selected-condition breadth plus target count.
+  - `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+    - Removed `maxResultsPerQuery` state and `单组搜索上限` UI.
+    - Summary now says selected conditions are merged into one search intent and first N compliant customers are kept.
+  - `employee-api.ts`, `employee-task-runner.ts`
+    - Removed per-query input/persisted query config.
+    - Hidden Lead prompt now requires one merged search brief, no Cartesian-product/group-balanced query loops, and first-N compliant non-duplicate downstream buyers.
+  - `lead-discovery/page.tsx` and legacy live route
+    - Removed `单查询上限` and external per-query API input.
+    - Target count capped at 10.
+  - `schemas.ts`
+    - `target_count` max is 10.
+  - `sentura/agents/cbe-lead-discovery/*`
+    - Runtime AGENTS/IDENTITY/config/query skill now remove per-query inputs and document the 10 cap + whole-condition search behavior.
+  - `跨境电商/MARKET_ACQUISITION.md`
+    - Updated current run-builder controls and examples.
+- Verification:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 430/430.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS before the final handoff edits; rerun if continuing.
+- Docs updated:
+  - CE35 in `docs/TESTS.md`.
+  - CE35 detail in `docs/tests/tests-cross-border-phase2.md`.
+  - Matrix/current ground truth in `docs/MEMORY.md`.
+  - Phase 2 detail section in `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Deployment status:
+  - CE35 is local only. It has not been deployed to ECS in this session.
+  - Next production step: commit/push, ECS pull/build/restart, then public Employee/Admin smoke and one controlled Lead task smoke.
+
+## Previous Resume Snapshot
+
 Date: 2026-06-26
 
 Latest user request: Implement dynamic Lead/Screening task time growth so long legitimate tasks do not fail because fixed estimates are too short; account for Screening fan-out, bursts, and coordinator queue behavior.

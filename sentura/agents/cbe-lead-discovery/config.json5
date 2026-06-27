@@ -110,8 +110,7 @@
             ],
             countries: ["US", "GB", "DE", "FR", "BR", "MX"],
             languages: ["en", "de", "fr", "pt", "es"],
-            maxResultsPerQuery: 10,
-            dailyCandidateTarget: 100,
+            dailyCandidateTarget: 10,
             excludeDomains: [
               "amazon.com",
               "alibaba.com",

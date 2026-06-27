@@ -49,7 +49,6 @@ export interface EmployeeLeadTaskInput {
   countries: string;
   buyerTypes: string;
   targetCount: number;
-  maxResultsPerQuery?: number;
   excludeDomains: string;
   runMode?: "new_scope" | "top_up_unique_leads";
   existingIdentityKeys?: string[];
@@ -123,8 +122,7 @@ const TASK_TIMEOUT_MIN_MS = 360_000;
 const TASK_TIMEOUT_MAX_MS = 1_800_000;
 const LEAD_BASE_DURATION_MS = 30_000;
 const LEAD_PER_TARGET_DURATION_MS = 38_000;
-const LEAD_PER_QUERY_DURATION_MS = 10_000;
-const LEAD_PER_RESULT_SCAN_MS = 1_000;
+const LEAD_PER_CONDITION_DURATION_MS = 6_000;
 const LEAD_TOP_UP_EXTRA_MS = 30_000;
 const LEAD_ESTIMATE_MAX_MS = 1_200_000;
 const SCREENING_CHILD_CONCURRENCY = 3;
@@ -270,15 +268,13 @@ export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
   const productCount = Math.max(1, csv(input.productKeywords).length);
   const buyerTypeCount = Math.max(1, csv(input.buyerTypes).length);
   const countryCount = Math.max(1, csv(input.countries).length);
-  const queryCount = productCount * buyerTypeCount * countryCount;
+  const conditionBreadth = productCount + buyerTypeCount + countryCount;
   const targetCount = clamp(Math.ceil(Math.max(1, input.targetCount)), 1, MAX_LEAD_TARGET_COUNT);
-  const maxResults = clamp(Math.ceil(input.maxResultsPerQuery ?? 10), 1, 50);
   const topUpExtraMs = input.runMode === "top_up_unique_leads" ? LEAD_TOP_UP_EXTRA_MS : 0;
   return clamp(
     LEAD_BASE_DURATION_MS +
-      queryCount * LEAD_PER_QUERY_DURATION_MS +
+      conditionBreadth * LEAD_PER_CONDITION_DURATION_MS +
       targetCount * LEAD_PER_TARGET_DURATION_MS +
-      maxResults * LEAD_PER_RESULT_SCAN_MS +
       topUpExtraMs,
     120_000,
     LEAD_ESTIMATE_MAX_MS,
@@ -1712,7 +1708,6 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
     countries: csv(input.countries).map((item) => item.toUpperCase()),
     buyer_types: csv(input.buyerTypes),
     target_count: input.targetCount,
-    max_results_per_query: input.maxResultsPerQuery ?? 10,
     exclude_domains: csv(input.excludeDomains),
     existing_identity_keys: input.existingIdentityKeys ?? [],
     already_covered_queries: input.alreadyCoveredQueries ?? [],
@@ -1726,18 +1721,18 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 - 不调用 Dashboard 预计算 API，不伪造工具结果。
 - 允许并优先使用工具：cross-border-intel__cbe_intel_google_places_search、cross-border-intel__cbe_intel_google_place_details、web_search、web_fetch。需要 Nearby 坐标时才用 cross-border-intel__cbe_intel_google_geocode。找到候选后可按需使用 cross-border-intel__cbe_intel_domain_rdap_lookup 或 cross-border-intel__cbe_intel_email_domain_check 做轻量验证。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
-- 默认先用 Google Maps Places Text Search 为每个产品/国家/买家画像组合寻找本地/门店/维修/电子零售/区域批发候选；Google Maps 不可用、限流、缺 key 或无结果时，记录 coverage gap 并转入 web_search fallback。
+- 默认先用 Google Maps Places Text Search 或 web_search 搜索整体条件：把所有 product_keywords、countries、buyer_types 合并为一个搜索 brief。不要把产品、国家和买家类型拆成笛卡尔积组合，也不要为了“覆盖每组”而循环调用工具。
 - 只对短名单 place_id 调用 Place Details，使用 lead_discovery_basic 级别信息；不要请求或输出 Google review text、photos、raw response 或 API key。
 - 最终答案前必须至少调用一个公开证据工具（Google Maps Places、web_search 或 web_fetch）。最终接受 lead 前必须用 web_search/web_fetch 或公司官网证据确认产品/买家适配；Google Maps 单独只能作为 discovery seed。
 - 只返回具体下游买家公司，排除 marketplace、目录页、供应商页和社交主页。
 - target_count 是本次任务必须新增的净新客户硬目标；普通 new_scope 不能把它理解成“员工列表总数”，top_up_unique_leads 则表示本次必须补齐的缺口数。
 - existing_identity_keys 是数据库中已分配或本 scope 已尝试过的客户 identity；无论 run_mode 是什么都必须避开这些客户。命中 denylist 时要丢弃并继续找替代客户，不能把重复客户计入 target_count。
 - run_mode 为 top_up_unique_leads 时，本次只补充缺口客户；不要重复 already_covered_queries 中的搜索字符串。
-- max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限。最终必须围绕 target_count 继续扩展查询，直到得到 target_count 个去重合规候选或公开搜索确实耗尽。
-- 在最终输出前，先跨产品、国家、buyer_type、Google Maps query family 和 web query family 收集至少 target_count * 3 个原始候选（target_count 小于 5 时至少 12 个），再做排除、去重、排序和截断。
+- target_count 最高为 ${MAX_LEAD_TARGET_COUNT}。按搜索结果顺序检查候选，遇到合规、去重、且不在 existing_identity_keys 中的具体下游买家公司就收录，直到得到 target_count 个或搜索结果明显耗尽。
+- 不需要按产品/国家/buyer_type 组别平衡，也不需要先收集 target_count 倍数的原始候选。前 N 个合规潜在客户即可。
 - 不要因为“高质量优先”、web_fetch 被安全策略拦截、部分官网无法抓取或前几条结果重复而主动限制在 5 个以下；web_fetch 被拦截时，使用 web_search 返回的公司官网 URL、标题和摘要作为 public_web 证据，并继续搜索替代客户。
-- 如果候选超过 target_count，只保留证据最强且不在 existing_identity_keys 中的 target_count 个。
-- 只有在覆盖所有产品/国家组合、至少使用 company-owned website、retail/repair buyer、store/location/contact proof、reseller/import buyer 四类查询，并完成 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的查询范围。
+- 如果候选超过 target_count，按搜索结果/发现顺序保留前 target_count 个合规且不在 existing_identity_keys 中的客户；不要为了重新排序或组别平衡继续扩展工具循环。
+- 只有在整体条件搜索、排除无效来源、去重和 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的搜索范围。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：

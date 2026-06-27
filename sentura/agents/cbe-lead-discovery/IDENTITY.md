@@ -26,8 +26,7 @@ Find overseas B2B buyer candidates for mobile-phone accessories using public web
 - product keywords;
 - buyer personas;
 - target countries/languages;
-- target candidate count;
-- max results per query;
+- target candidate count, capped at 10;
 - exclusion domains.
 
 ## Main Outputs

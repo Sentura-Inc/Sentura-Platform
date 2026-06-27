@@ -1000,7 +1000,6 @@ function taskEstimateMs(kind: string, metadata: JsonRecord = {}) {
     countries: stringList(queryConfig.countries).join(", "),
     buyerTypes: stringList(queryConfig.buyer_types ?? queryConfig.buyer_personas).join(", "),
     targetCount,
-    maxResultsPerQuery: positiveMs(queryConfig.max_results_per_query),
     excludeDomains: stringList(queryConfig.exclude_domains).join(", "),
     runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
   });
@@ -1238,13 +1237,11 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
   const productKeywords = asStringArray(input.productKeywords);
   const countries = asStringArray(input.countries).map((item) => item.toUpperCase());
   const buyerTypes = asStringArray(input.buyerTypes);
-  const maxResultsPerQuery = input.maxResultsPerQuery ?? 10;
   const estimatedCost = estimateLeadTaskCost({
     productCount: productKeywords.length,
     buyerTypeCount: buyerTypes.length,
     countryCount: countries.length,
     targetCount,
-    maxResultsPerQuery,
   });
   const normalizedInput: EmployeeLeadTaskInput = {
     ...input,
@@ -1252,7 +1249,6 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
     countries: countries.join(", "),
     buyerTypes: buyerTypes.join(", "),
     targetCount,
-    maxResultsPerQuery,
     excludeDomains: asStringArray(input.excludeDomains).join(", "),
   };
   const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
@@ -1265,7 +1261,6 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
         countries,
         buyer_types: buyerTypes,
         exclude_domains: asStringArray(input.excludeDomains),
-        max_results_per_query: maxResultsPerQuery,
       },
       target_count: targetCount,
       run_mode: input.runMode ?? "new_scope",

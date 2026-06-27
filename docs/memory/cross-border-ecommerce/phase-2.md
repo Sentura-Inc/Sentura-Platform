@@ -62,7 +62,9 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | Nested OpenClaw transcript recovery | Fixed the latest production `背调` timeout where OpenClaw produced a valid marker-wrapped Cellairis report but Dashboard missed it because `chat.history` returned raw nested `message.role/message.content`; deployed the transcript parser fix and recovered the Cellairis report through the normal completion API/store path. |
 | 2026-06-26 | Long transcript repair-result recovery | Fixed the Adorama production `背调` repair-timeout path where the valid repair marker payload was beyond the 300KB transcript read cap; added Gateway-safe 500KB transcript reads, embedded fenced-JSON parsing, final full-transcript reread before repair timeout, deployed the fix to ECS, and recovered the Adorama report through the Dashboard completion route/store path. |
 | 2026-06-26 | OpenClaw chat.history cap compatibility and USB-C Lead recovery | Fixed the transient 2MB `chat.history.maxChars` setting that exceeded OpenClaw Gateway's 500,000-char validator, restored the hidden runner to `500_000`, deployed/rebuilt/restarted ECS Dashboard, and recovered the existing `USB-C charger / US` Lead run with 3 saved customers and 12 sources. |
-| 2026-06-26 | Dynamic Lead/Screening task time budgeting | Replaced fixed task wait windows with work-size estimates: Lead scales by query breadth/target count, Screening scales by 3-concurrent fan-out waves at ~3 minutes per child, task records persist timing metadata, and queued coordinator records add estimated queue delay. |
+| 2026-06-26 | Dynamic Lead/Screening task time budgeting | Replaced fixed task wait windows with work-size estimates: Lead scales by selected-condition breadth/target count, Screening scales by 3-concurrent fan-out waves at ~3 minutes per child, task records persist timing metadata, and queued coordinator records add estimated queue delay. |
+| 2026-06-26 | Screening batch dedupe and score reconciliation | Fixed duplicate customer rows after batch `背调` by reusing Lead-linked Screening targets, deduping the customer projection, and enforcing final Screening score reconciliation from score blocks plus evidence coverage. |
+| 2026-06-27 | Lead target cap and whole-condition search | Capped Lead Discovery target count at 10, removed per-group/per-query result controls, merged selected filters into one search brief, and kept the first N compliant non-duplicate buyers to prevent wide grouped tool loops. |
 
 ## Current Phase 2 Ground Truth
 
@@ -84,6 +86,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - P2.4 workload coordinator and Lead Discovery coordinator are complete as of 2026-06-21. The Dashboard store now queues above 24 active OpenClaw CBE sessions, does not start normal work above the configured caps, and Lead exact/near/top-up scope decisions happen before hidden OpenClaw sessions start.
 - Lead Discovery pre-run `scope_hash`/`scope_similarity` is only a cost/backpressure predictor. The database is the authoritative dedupe reference before any customer row becomes visible in an employee list.
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
+- Lead Discovery currently caps `targetCount` at 10, removes per-group/per-query search controls, merges selected products/countries/buyer types into one search brief, and keeps the first N compliant non-duplicate downstream buyer companies in discovery order. The employee must not build Cartesian-product query plans or group-balance results.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
 - P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 415/415. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
@@ -2279,7 +2282,7 @@ Fix:
 
 - Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
   - added named timing constants;
-  - Lead estimate now scales by product/buyer/country query breadth, requested target count, max search-result scan count, and top-up overhead;
+  - Lead estimate now scales by selected product/buyer/country condition breadth, requested target count, and top-up overhead;
   - Screening estimate now uses `SCREENING_SINGLE_TARGET_DURATION_MS = 180_000` and scales by `SCREENING_CHILD_CONCURRENCY = 3` waves plus drain overhead and paid-source overhead;
   - timeout budget now uses estimate + max(3 minutes, 50% grace), clamped from 6 to 30 minutes.
 - Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`:
@@ -2348,3 +2351,33 @@ Production note:
   - targeted score repair updated mismatched existing reports, including BrandsMart USA from `59` to `90.74`;
   - RDS verification showed BrandsMart USA, Altex Computers & Electronics, and Central Computers each had `visible_duplicate_count = 1` in `cbe_customer_work_items`;
   - `sentura-dashboard` and `nginx` were active after restart, and public smoke returned HTTP 200 for `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login`.
+
+## 2026-06-27 — Lead Target Cap and Whole-Condition Search
+
+Context:
+
+- A wide Lead Discovery filter selection hit `Context overflow: estimated context size exceeds safe threshold during tool loop`.
+- The previous search model still exposed per-group/per-query controls and encouraged the employee to reason about grouped product/country/buyer-type combinations.
+- The requested behavior is simpler: maximum 10 requested customers, no single-group search limit, all selected conditions used together, and the first N compliant potential customers retained.
+
+Changes:
+
+- Changed `MAX_LEAD_TARGET_COUNT` to 10 and capped the CBE store `target_count` schema at 10.
+- Removed `maxResultsPerQuery` / `max_results_per_query` from Employee Lead input, task creation, persisted query config, hidden prompt payload, and the legacy standalone demo.
+- Removed the Employee `单组搜索上限` control and legacy `单查询上限` control.
+- Rewrote the hidden Lead prompt and `cbe-lead-discovery` query skill so selected products, countries, and buyer types are merged into one search brief. The employee is told not to build Cartesian-product query plans, not to group-balance results, and not to collect `target_count` multiples before deciding.
+- Updated estimates so Lead timing/cost scales by selected-condition breadth and target count instead of per-group result scans.
+- Aligned `sentura/agents/cbe-lead-discovery/config.json5` defaults with the 10-customer target.
+
+Verification:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 430/430.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- This prevents the UI/prompt from causing wide grouped tool loops when many filters are selected.
+- It does not make Lead Discovery guarantee 10 customers when compliant, deduped, non-denylisted buyers are exhausted.
+- This local change has not been deployed to ECS in this session.

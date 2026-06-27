@@ -239,6 +239,7 @@ const config = read(path.join(AGENT_DIR, "config.json5"));
 const screeningConfig = read(path.join(SCREENING_AGENT_DIR, "config.json5"));
 const accioConfig = read(path.join(ACCIO_AGENT_DIR, "config.json5"));
 const agents = read(path.join(AGENT_DIR, "AGENTS.md"));
+const identity = read(path.join(AGENT_DIR, "IDENTITY.md"));
 const screeningAgents = read(path.join(SCREENING_AGENT_DIR, "AGENTS.md"));
 const accioAgents = read(path.join(ACCIO_AGENT_DIR, "AGENTS.md"));
 const tools = read(path.join(AGENT_DIR, "TOOLS.md"));
@@ -329,6 +330,7 @@ for (const denied of ['"exec"', '"gateway"', '"write"', '"edit"', '"apply_patch"
 }
 check("config records no automatic outreach blocked action", config.includes('"automatic_outreach"'));
 check("config records default mobile-accessory inputs", config.includes('"phone case"') && config.includes('"tempered glass screen protector"') && config.includes('"USB-C charger"'));
+check("lead workspace removed per-query runtime inputs", ![agents, identity, config].some((text) => text.includes("maxResultsPerQuery") || text.includes("max_results_per_query") || text.includes("max results per query")) && agents.includes("`target_count` is capped at 10") && identity.includes("capped at 10"));
 
 section("CE4 skills");
 for (const file of skillFiles) {
@@ -405,9 +407,10 @@ check("live route returns redacted env status", [
 check("live route emits source-audited company website leads", apiRoute.includes("company_website_mentions_mobile_accessory_business") && apiRoute.includes('source_label: "实时查询"'));
 check("live route blocks social/directories/marketplaces", apiRoute.includes("BLOCKED_LEAD_DOMAINS") && apiRoute.includes("facebook.com") && apiRoute.includes("europages.com") && apiRoute.includes("wholesalecentral.com"));
 check("live route requires buyer-company relevance", apiRoute.includes("rejectionReasonForResult") && apiRoute.includes("MOBILE_ACCESSORY_TERMS") && apiRoute.includes("BUYER_BUSINESS_TERMS"));
-for (const label of ["产品关键词", "买家画像", "国家 / 语言", "目标数量", "单查询上限", "排除域名", "让获客员工开始搜索"]) {
+for (const label of ["产品关键词", "买家画像", "国家 / 语言", "目标数量", "排除域名", "让获客员工开始搜索"]) {
   check(`run builder label exists: ${label}`, page.includes(label));
 }
+check("run builder removed per-query search limit control", !page.includes("单查询上限") && !page.includes("maxResultsPerQuery"));
 for (const label of ["手机壳", "钢化膜", "充电器", "MagSafe 配件", "维修配件"]) {
   check(`product chip exists: ${label}`, page.includes(label));
 }
@@ -691,15 +694,17 @@ check("employee Accio runner batches screenshot preflight before final summary",
 check("employee Accio prompt requires Chinese operator-ready deal summaries", ["report_zh", "product_zh", "price_context_zh", "必须区分“单价”和“总价”", "next_actions 必须是中文字符串数组"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee lead prompt follows requested target count instead of 1-5 cap", [
   "target_count 是本次任务必须新增的净新客户硬目标",
-  "max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限",
+  "把所有 product_keywords、countries、buyer_types 合并为一个搜索 brief",
+  "前 N 个合规潜在客户即可",
   "web_fetch 被安全策略拦截",
-].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选"));
+].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选") && !employeeTaskRunner.includes("target_count * 3") && !employeeTaskRunner.includes("max_results_per_query"));
 check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
 check("employee runner emits measured wait progress without max-wait copy", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "已轮询", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("预计剩余") && !employeeTaskRunner.includes("最长等待剩余"));
 check("employee lead task duration scales with requested target count", [
   "LEAD_PER_TARGET_DURATION_MS",
   "targetCount * LEAD_PER_TARGET_DURATION_MS",
-  "LEAD_PER_QUERY_DURATION_MS",
+  "LEAD_PER_CONDITION_DURATION_MS",
+  "conditionBreadth * LEAD_PER_CONDITION_DURATION_MS",
   "LEAD_TOP_UP_EXTRA_MS",
   "LEAD_ESTIMATE_MAX_MS",
 ].every((needle) => employeeTaskRunner.includes(needle)));
@@ -895,7 +900,8 @@ check("employee customer projection keeps legacy accio-memory screening targets 
 check("employee customer company-name badge hides insufficient evidence", employeeCustomersPage.includes('if (item.screeningStatus === "insufficient_evidence")') && !employeeCustomersPage.includes('return { label: "证据不足"'));
 check("employee customers page does not route insufficient evidence back to memory", !["needsChatRecordSupplement", 'item.source === "accio_handoff"', "补充聊天记录", "supplementCustomer", "supplementCompany", "selectedScreeningCustomers", "runnableTargets"].some((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list does not show unknown city fallback", !employeeCustomersPage.includes("城市未确认"));
-check("employee lead target count is manual numeric input capped at 20", ["normalizeLeadTargetCount", "MAX_LEAD_TARGET_COUNT", "目标数量手动输入", "type=\"number\"", "min={1}", "max={MAX_LEAD_TARGET_COUNT}", "leadTargetCountText"].every((needle) => employeeCustomersPage.includes(needle)) && employeeData.includes("export const MAX_LEAD_TARGET_COUNT = 20") && employeeTaskRunner.includes("Math.min(MAX_LEAD_TARGET_COUNT") && employeeApi.includes("Math.min(MAX_LEAD_TARGET_COUNT") && cbeStoreSchemas.includes("target_count: z.number().int().positive().max(20)") && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
+check("employee lead target count is manual numeric input capped at 10", ["normalizeLeadTargetCount", "MAX_LEAD_TARGET_COUNT", "目标数量手动输入", "type=\"number\"", "min={1}", "max={MAX_LEAD_TARGET_COUNT}", "leadTargetCountText"].every((needle) => employeeCustomersPage.includes(needle)) && employeeData.includes("export const MAX_LEAD_TARGET_COUNT = 10") && employeeTaskRunner.includes("MAX_LEAD_TARGET_COUNT") && employeeApi.includes("Math.min(MAX_LEAD_TARGET_COUNT") && cbeStoreSchemas.includes("target_count: z.number().int().positive().max(10)") && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
+check("employee lead UI removed single-group search limit", !employeeCustomersPage.includes("单组搜索上限") && !employeeCustomersPage.includes("maxResultsPerQuery") && !employeeCustomersPage.includes("max_results_per_query"));
 check("employee lead submit reads target count from current input ref", ["leadTargetInputRef", "buildLeadSubmitInput", "leadTargetInputRef.current?.value", "leadInputFromSelection(submittedSelection)", "targetCount: submittedTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("onClick={() => onLeadSubmit(leadTaskInput)}"));
 check("employee lead sheet echoes submitted target count", ["目标 {effectiveLeadTargetCount} 个客户", "提交获客任务（{effectiveLeadTargetCount} 个）"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list highlights task-linked rows without new-found badges", ["newlyAddedCustomerIds", "flashNewCustomers", "highlightTaskId", "taskAffectedCustomerIds", "animate-pulse", "outline-sky-300", "workflowBadge", "icon: \"check\"", "clearCustomerHighlight", "onMouseDown"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("新找到") && !employeeCustomersPage.includes("label: \"✅\""));

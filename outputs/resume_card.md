@@ -6,6 +6,25 @@ Conversation language: Chinese for user-facing replies. Keep handoff notes conci
 
 Active product area: Cross-border e-commerce / 跨境电商 Phase 2 production hardening.
 
+Latest local implementation, 2026-06-27:
+
+- User asked to cap `寻找客户` target count at 10, remove single-group/per-query search limits, merge all selected product/country/buyer-type filters into one investigation, and keep the first N compliant potential customers.
+- Code changes:
+  - Employee `寻找客户` sheet now caps `MAX_LEAD_TARGET_COUNT = 10` and removes `单组搜索上限`.
+  - Legacy standalone Lead Discovery page/API route removes `单查询上限` / `maxResultsPerQuery`; route uses an internal fixed fetch size only.
+  - Employee Lead API/input/persisted `query_config` no longer carries `maxResultsPerQuery` / `max_results_per_query`.
+  - Hidden Lead prompt and `cbe-lead-discovery` workspace docs now require one merged search brief, no Cartesian-product/group-balanced query loops, and first-N compliant non-duplicate downstream buyers.
+  - Lead estimate now scales by selected-condition breadth and target count, not max result scan/per-group loops.
+  - Store schema caps `target_count` at 10.
+- Verification:
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 430/430.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `git diff --check`: PASS before this handoff update; rerun if more edits happen.
+- Docs/tests updated with CE35 in `docs/TESTS.md`, `docs/tests/tests-cross-border-phase2.md`, `docs/MEMORY.md`, and `docs/memory/cross-border-ecommerce/phase-2.md`.
+- Deployment status: CE35 is local only in this session. It still needs commit/push, ECS pull/build/restart, and target smoke before production use.
+
 Latest local implementation, 2026-06-26:
 
 - User asked for dynamic task time growth because one `背调` is now roughly 3 minutes and multiple targets must increase the planned duration while respecting burst/coordinator behavior.

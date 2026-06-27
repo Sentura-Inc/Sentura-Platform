@@ -130,7 +130,6 @@ interface LeadSelectionState {
   buyerTypeIds: string[];
   countryCodes: string[];
   targetCount: number;
-  maxResultsPerQuery: number;
   excludeDomainIds: string[];
 }
 
@@ -158,7 +157,6 @@ const defaultLeadSelection: LeadSelectionState = {
   buyerTypeIds: ["repair-chain", "electronics-retailer", "accessory-retailer"],
   countryCodes: ["GB", "US"],
   targetCount: MAX_LEAD_TARGET_COUNT,
-  maxResultsPerQuery: 10,
   excludeDomainIds: ["marketplaces", "social", "directories", "supplier-directories"],
 };
 
@@ -657,7 +655,6 @@ function leadInputFromSelection(selection: LeadSelectionState): EmployeeLeadTask
     countries: countries.map((item) => item.code).join(", "),
     buyerTypes: buyerTypes.map((item) => item.keyword).join(", "),
     targetCount: selection.targetCount,
-    maxResultsPerQuery: selection.maxResultsPerQuery,
     excludeDomains: unique(excludedDomains).join(", "),
   };
 }
@@ -1189,7 +1186,7 @@ function CrossBorderCustomersPageContent() {
       return;
     }
     if (!Number.isFinite(normalizedInput.targetCount) || normalizedInput.targetCount < 1) {
-      showNotice("目标数量必须大于 0，最多 20 个。", "error");
+      showNotice(`目标数量必须大于 0，最多 ${MAX_LEAD_TARGET_COUNT} 个。`, "error");
       return;
     }
     if (!canRunLead) {
@@ -2457,7 +2454,6 @@ function TaskSheet({
         buyerTypeCount: leadSelection.buyerTypeIds.length,
         countryCount: leadSelection.countryCodes.length,
         targetCount: effectiveLeadTargetCount,
-        maxResultsPerQuery: leadSelection.maxResultsPerQuery,
       }),
     [effectiveLeadTargetCount, leadSelection],
   );
@@ -2825,32 +2821,9 @@ function TaskSheet({
                 ))}
               </FilterGroup>
 
-              <FilterGroup
-                title={
-                  <span className="inline-flex items-center gap-1.5">
-                    单组搜索上限
-                    <InfoTooltip>每组产品、买家类型、国家组合最多读取多少条搜索结果。越高越贵，也越慢。</InfoTooltip>
-                  </span>
-                }
-              >
-                {[5, 10, 20].map((count) => (
-                  <Button
-                    key={count}
-                    type="button"
-                    variant={leadSelection.maxResultsPerQuery === count ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setLeadSelection((current) => ({ ...current, maxResultsPerQuery: count }))
-                    }
-                  >
-                    {count} 条
-                  </Button>
-                ))}
-              </FilterGroup>
-
               <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
                 将搜索 {leadSelection.productIds.length} 类产品、{leadSelection.buyerTypeIds.length} 类买家、
-                {leadSelection.countryCodes.length} 个国家，目标 {effectiveLeadTargetCount} 个客户。结果只保留具体买家公司，默认排除平台页、社媒主页、目录页和供应商目录。
+                {leadSelection.countryCodes.length} 个国家，目标 {effectiveLeadTargetCount} 个客户。系统会把这些条件合并为一个搜索意图，按搜索结果顺序保留前 {effectiveLeadTargetCount} 个合规潜在客户，默认排除平台页、社媒主页、目录页和供应商目录。
               </div>
 
               <TaskCostNotice {...leadEstimate} />

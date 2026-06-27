@@ -26,7 +26,7 @@ export type ScreeningEvidenceLayer =
   | "financial_public_filing"
   | "accio_behavior";
 
-export const MAX_LEAD_TARGET_COUNT = 20;
+export const MAX_LEAD_TARGET_COUNT = 10;
 
 export interface CustomerScoreBlock {
   block: string;
@@ -797,7 +797,7 @@ export const memoryRows: MemoryRecordItem[] = [
 export const employeeMessages = [
   {
     id: "msg-lead-done",
-    title: "获客任务完成：找到 18 个潜在客户",
+    title: "获客任务完成：找到 10 个潜在客户",
     time: "09:27",
     target: "获客与背调",
   },
@@ -841,13 +841,11 @@ export function estimateLeadTaskCost({
   buyerTypeCount,
   countryCount,
   targetCount,
-  maxResultsPerQuery,
 }: {
   productCount: number;
   buyerTypeCount: number;
   countryCount: number;
   targetCount: number;
-  maxResultsPerQuery: number;
 }): TaskEstimate {
   const safeProductCount = Math.max(1, productCount);
   const safeBuyerTypeCount = Math.max(1, buyerTypeCount);
@@ -856,24 +854,20 @@ export function estimateLeadTaskCost({
   const safeTargetCount = Number.isFinite(rawTargetCount)
     ? Math.min(MAX_LEAD_TARGET_COUNT, Math.max(1, rawTargetCount))
     : 1;
-  const safeMaxResultsPerQuery = Math.max(1, maxResultsPerQuery);
-  const queryCount = safeProductCount * safeBuyerTypeCount * safeCountryCount;
-  const searchUnits = queryCount * safeMaxResultsPerQuery;
   const assumptions = costEstimateAssumptions.leadDiscovery;
-  const expectedRetainedPerSearch = Math.max(1, Math.min(6, Math.ceil(safeMaxResultsPerQuery * 0.35)));
+  const conditionBreadth = safeProductCount + safeBuyerTypeCount + safeCountryCount;
   const estimatedSearchRequestCount = Math.max(
     1,
-    Math.min(queryCount, Math.ceil(safeTargetCount / expectedRetainedPerSearch)),
+    Math.min(4, Math.ceil((safeTargetCount + Math.max(0, conditionBreadth - 3)) / 5)),
   );
-  const estimatedFetchedPages = Math.min(searchUnits, estimatedSearchRequestCount * safeMaxResultsPerQuery, safeTargetCount * 3);
+  const estimatedFetchedPages = Math.min(20, Math.max(safeTargetCount, safeTargetCount * 2));
   const searchRequestUsd = estimatedSearchRequestCount * assumptions.tavilyAdvancedSearchRequestUsd;
-  const retainedCandidateUsd =
-    Math.min(safeTargetCount, searchUnits) * assumptions.retainedCandidateReviewUsd;
+  const retainedCandidateUsd = safeTargetCount * assumptions.retainedCandidateReviewUsd;
   const pricedExternalUsd = searchRequestUsd + retainedCandidateUsd;
   const observedUsd =
     (assumptions.observedBaseUsd +
       estimatedSearchRequestCount * assumptions.observedSearchRequestUsd +
-      Math.min(safeTargetCount, searchUnits) * assumptions.observedRetainedCandidateUsd) *
+      safeTargetCount * assumptions.observedRetainedCandidateUsd) *
     assumptions.observedSafetyMultiplier;
   const estimatedUsd = Number(
     Math.max(
@@ -886,7 +880,7 @@ export function estimateLeadTaskCost({
     label: "寻找客户",
     estimatedUsd,
     source: costEstimateAssumptions.leadSourceLabel,
-    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期实际找客户费用校准，并与外部资料查询下限取较高值。预计会读取约 ${estimatedFetchedPages} 个公开页面；实际费用以任务完成后的费用记录为准。`,
+    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期实际找客户费用校准，系统会把多选条件合并为一个搜索意图，按搜索结果顺序保留前 ${safeTargetCount} 个合规潜在客户。预计会读取约 ${estimatedFetchedPages} 个公开页面；实际费用以任务完成后的费用记录为准。`,
   };
 }
 

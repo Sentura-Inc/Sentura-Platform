@@ -56,8 +56,7 @@ Canonical input:
   "buyer_personas": ["importer", "distributor", "wholesaler", "mobile phone repair chain", "electronics retailer"],
   "countries": ["US", "GB", "DE", "FR", "BR", "MX"],
   "languages": ["en", "de", "fr", "pt", "es"],
-  "max_results_per_query": 10,
-  "daily_candidate_target": 100,
+  "daily_candidate_target": 10,
   "source_policy": ["google_maps_places", "public_web", "company_site_only"],
   "google_maps": {
     "enabled": true,
@@ -86,15 +85,14 @@ Customer-facing run-builder controls:
   - reseller buyer
   - importer buyer
 - Country/language selector.
-- Result target stepper.
-- Max-results-per-query slider.
+- Result target numeric input, capped at 10.
 - Exclusion-domain editor.
 - Primary button: `让获客员工开始搜索`.
 
 Phase-1 manual command example:
 
 ```text
-根据手机壳、钢化膜、充电器关键词，为英国和美国找 50 个潜在 B2B 买家。
+根据手机壳、钢化膜、充电器关键词，为英国和美国找 10 个潜在 B2B 买家。
 ```
 
 ## 3. Search Strategy
@@ -154,10 +152,10 @@ Candidate acceptance from Google Maps:
 
 Google Maps + web search enrichment flow:
 
-1. Build market grid from country/city seeds and buyer persona.
-2. Run Text Search for each product/persona/city query with `maxResultCount` / page limits that fit the request budget.
+1. Build one compact search brief from all selected product keywords, buyer personas, and target countries/cities.
+2. Run Text Search against the merged brief with server-side request caps that fit the request budget.
 3. Deduplicate by Google `place_id`, normalized website domain, phone, and normalized company name + city/country.
-4. Call Place Details only for the top candidates needed to satisfy the user target plus over-collection buffer.
+4. Call Place Details only for top candidates needed to satisfy the user target plus a small replacement buffer for duplicates/denylist hits.
 5. For candidates with website/domain, run OpenClaw `web_fetch` against official home/contact/product/category pages.
 6. For candidates without a website, run `web_search` for exact business name + city + phone/accessory keywords.
 7. Reject marketplace pages, generic directory/list pages, factories/manufacturers/exporters, closed businesses, and candidates with no mobile-accessory/business-fit evidence.
@@ -170,7 +168,7 @@ Budget defaults:
 - Cap Places calls per Lead run from server config, not prompt text.
 - Cache/store only what Google Maps Platform terms allow. Treat `place_id` and `googleMapsUri` as durable provenance; refresh volatile place fields when showing or scoring if policy requires.
 
-For each product keyword and target country, the employee also generates web-query families.
+The employee uses the same merged condition brief for web-search verification. Do not build one query family for every product/country/persona combination.
 
 Buyer type:
 
@@ -655,7 +653,7 @@ The business invariant is strict: no two human employees should be assigned the 
 ```json
 {
   "run_mode": "top_up_unique_leads",
-  "target_count": 12,
+  "target_count": 4,
   "scope_hash": "sha256:...",
   "existing_identity_keys": [
     "domain:mobile-example.com",
