@@ -1,9 +1,4 @@
-import type { GatewayClient, TranscriptMessage } from "@/lib/gateway";
-import {
-  screeningEvidenceFindingText,
-  screeningScoreBlockText,
-  simplifyScreeningReportText,
-} from "@/components/cross-border/screening-report-copy";
+import type { GatewayChatAttachment, GatewayClient, TranscriptMessage } from "@/lib/gateway";
 import {
   employeeProfile,
   MAX_LEAD_TARGET_COUNT,
@@ -54,7 +49,6 @@ export interface EmployeeLeadTaskInput {
   countries: string;
   buyerTypes: string;
   targetCount: number;
-  maxResultsPerQuery?: number;
   excludeDomains: string;
   runMode?: "new_scope" | "top_up_unique_leads";
   existingIdentityKeys?: string[];
@@ -80,7 +74,7 @@ export interface ManualScreeningInput {
 
 export interface ScreeningTarget {
   target_id: string;
-  source: "marketing_lead" | "marketing_lead_batch" | "manual_input" | "accio_memory";
+  source: "marketing_lead" | "marketing_lead_batch" | "manual_input";
   lead_id: string | null;
   company_name?: string;
   country?: string;
@@ -98,12 +92,12 @@ export interface ScreeningTarget {
 export interface AccioMemoryTaskInput {
   recordName: string;
   sourceLabel: string;
+  inputFormat?: "json" | "pasted_text" | "image";
+  sourceKind?: "manual_json" | "manual_text" | "manual_image";
   chatExport: unknown;
-  supplementTarget?: {
-    customerId: string;
-    companyName: string;
-    source: CustomerListItem["source"];
-  };
+  rawText?: string;
+  attachments?: GatewayChatAttachment[];
+  attachmentMetadata?: Array<Record<string, unknown>>;
 }
 
 export type CbeEmployeeAgentId = "cbe-lead-discovery" | "cbe-buyer-screening" | "cbe-accio-memory";
@@ -118,9 +112,24 @@ const REPORT_JSON_START = "SCREENING_REPORTS_JSON_START";
 const REPORT_JSON_END = "SCREENING_REPORTS_JSON_END";
 const SUMMARY_JSON_START = "ACCIO_SUMMARIES_JSON_START";
 const SUMMARY_JSON_END = "ACCIO_SUMMARIES_JSON_END";
+const IMAGE_TRANSCRIPT_BATCH_PREFIX = "ACCIO_IMAGE_TRANSCRIPT_BATCH";
+const CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS = 9_000_000;
 const HIDDEN_TASK_TRANSCRIPT_LIMIT = 80;
-const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 300_000;
+const HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000;
 const HIDDEN_TASK_FINAL_TRANSCRIPT_GRACE_MS = 60_000;
+const HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000;
+const TASK_TIMEOUT_MIN_MS = 360_000;
+const TASK_TIMEOUT_MAX_MS = 1_800_000;
+const LEAD_BASE_DURATION_MS = 30_000;
+const LEAD_PER_TARGET_DURATION_MS = 38_000;
+const LEAD_PER_CONDITION_DURATION_MS = 6_000;
+const LEAD_TOP_UP_EXTRA_MS = 30_000;
+const LEAD_ESTIMATE_MAX_MS = 1_200_000;
+const SCREENING_CHILD_CONCURRENCY = 3;
+const SCREENING_SINGLE_TARGET_DURATION_MS = 180_000;
+const SCREENING_PAID_EMAIL_EXTRA_MS = 45_000;
+const SCREENING_PAID_TRADE_EXTRA_MS = 75_000;
+const SCREENING_BATCH_DRAIN_OVERHEAD_MS = 30_000;
 
 const COUNTRY_NAMES: Record<string, string> = {
   BR: "巴西",
@@ -249,54 +258,43 @@ function unknownErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function plainBackendErrorMessage(message: string) {
-  if (/Sandbox mode requires Docker|Docker daemon|failed to connect to the docker API|spawn docker ENOENT/i.test(message)) {
-    return "后台员工运行环境未启动，请启动 Docker Desktop 后重试。";
-  }
-  return message;
-}
-
-function backendFailure(message: string): { message: string; recoverable: boolean } {
-  const displayMessage = plainBackendErrorMessage(message);
-  if (/LLM idle timeout/i.test(message)) {
-    return {
-      message: `任务处理短暂超时，系统已继续等待重试结果：${displayMessage}`,
-      recoverable: true,
-    };
-  }
-  return { message: `任务处理失败：${displayMessage}`, recoverable: false };
-}
-
-function sessionKeyMatchesEvent(eventSessionKey: string | undefined, sessionKey: string) {
-  if (!eventSessionKey || !sessionKey) return false;
-  if (eventSessionKey === sessionKey) return true;
-  return sessionKey.endsWith(`:${eventSessionKey}`) || eventSessionKey.endsWith(`:${sessionKey}`);
-}
-
-function eventFailureMessage(payload: Record<string, unknown>, sessionKey: string) {
-  const eventSessionKey = asString(payload.sessionKey) ?? asString(payload.session) ?? asString(payload.key);
-  if (!sessionKeyMatchesEvent(eventSessionKey, sessionKey)) return undefined;
-  const phase = asString(payload.phase) ?? asString(payload.state) ?? asString(payload.status);
-  const error = asString(payload.error) ?? asString(payload.errorMessage) ?? asString(asRecord(payload.runError).message);
-  if (!error || !["error", "failed", "aborted"].includes(phase ?? "error")) return undefined;
-  return backendFailure(error);
-}
-
 export function estimateEmployeeTaskTimeoutMs(estimatedMs: number) {
-  const graceMs = Math.max(120_000, Math.round(estimatedMs * 0.35));
-  return clamp(estimatedMs + graceMs, 300_000, 1_200_000);
+  const safeEstimateMs = Number.isFinite(estimatedMs) ? Math.max(0, estimatedMs) : 0;
+  const graceMs = Math.max(180_000, Math.round(safeEstimateMs * 0.5));
+  return clamp(safeEstimateMs + graceMs, TASK_TIMEOUT_MIN_MS, TASK_TIMEOUT_MAX_MS);
 }
 
 export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
   const productCount = Math.max(1, csv(input.productKeywords).length);
   const buyerTypeCount = Math.max(1, csv(input.buyerTypes).length);
   const countryCount = Math.max(1, csv(input.countries).length);
-  const queryCount = productCount * buyerTypeCount * countryCount;
-  const maxResults = input.maxResultsPerQuery ?? 10;
+  const conditionBreadth = productCount + buyerTypeCount + countryCount;
+  const targetCount = clamp(Math.ceil(Math.max(1, input.targetCount)), 1, MAX_LEAD_TARGET_COUNT);
+  const topUpExtraMs = input.runMode === "top_up_unique_leads" ? LEAD_TOP_UP_EXTRA_MS : 0;
   return clamp(
-    150_000 + queryCount * 30_000 + Math.max(1, input.targetCount) * 45_000 + maxResults * 5_000,
-    300_000,
-    900_000,
+    LEAD_BASE_DURATION_MS +
+      conditionBreadth * LEAD_PER_CONDITION_DURATION_MS +
+      targetCount * LEAD_PER_TARGET_DURATION_MS +
+      topUpExtraMs,
+    120_000,
+    LEAD_ESTIMATE_MAX_MS,
+  );
+}
+
+export function estimateScreeningTaskDurationMsForTargetCount(
+  targetCount: number,
+  options: EmployeeScreeningTaskOptions = {},
+) {
+  const safeTargetCount = Math.max(1, Math.ceil(Number.isFinite(targetCount) ? targetCount : 1));
+  const paidSourceMs =
+    (options.paidEmailValidation ? SCREENING_PAID_EMAIL_EXTRA_MS : 0) +
+    (options.paidTradeData ? SCREENING_PAID_TRADE_EXTRA_MS : 0);
+  const childDurationMs = SCREENING_SINGLE_TARGET_DURATION_MS + paidSourceMs;
+  const waves = Math.max(1, Math.ceil(safeTargetCount / SCREENING_CHILD_CONCURRENCY));
+  return clamp(
+    waves * childDurationMs + Math.max(0, waves - 1) * SCREENING_BATCH_DRAIN_OVERHEAD_MS,
+    SCREENING_SINGLE_TARGET_DURATION_MS,
+    TASK_TIMEOUT_MAX_MS,
   );
 }
 
@@ -304,8 +302,7 @@ export function estimateScreeningTaskDurationMs(
   targets: ScreeningTarget[],
   options: EmployeeScreeningTaskOptions = {},
 ) {
-  const paidSourceMs = (options.paidEmailValidation ? 20_000 : 0) + (options.paidTradeData ? 35_000 : 0);
-  return clamp(70_000 + Math.max(1, targets.length) * (55_000 + paidSourceMs), 120_000, 810_000);
+  return estimateScreeningTaskDurationMsForTargetCount(targets.length, options);
 }
 
 function domainFromWebsite(website?: string) {
@@ -338,9 +335,65 @@ function contentToText(content: TranscriptMessage["content"]): string {
 
 function assistantTexts(messages: TranscriptMessage[]) {
   return messages
-    .filter((message) => message.role === "assistant")
-    .map((message) => contentToText(message.content))
+    .filter((message) => messageRole(message) === "assistant")
+    .map((message) => contentToText(messageContent(message)))
     .filter(Boolean);
+}
+
+function transcriptMessageRecord(message: TranscriptMessage) {
+  return asRecord(asRecord(message).message);
+}
+
+function messageRole(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return asString(raw.role) ?? asString(nested.role);
+}
+
+function messageContent(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return "content" in raw ? raw.content : nested.content;
+}
+
+function coerceTimestampMs(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (Number.isFinite(numeric)) {
+    return numeric < 10_000_000_000 ? numeric * 1_000 : numeric;
+  }
+  const text = asString(value);
+  if (!text) return undefined;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function messageTimestampMs(message: TranscriptMessage) {
+  const raw = asRecord(message);
+  const nested = transcriptMessageRecord(message);
+  return (
+    coerceTimestampMs(raw.timestamp) ??
+    coerceTimestampMs(nested.timestamp) ??
+    coerceTimestampMs(raw.createdAt) ??
+    coerceTimestampMs(nested.createdAt) ??
+    coerceTimestampMs(raw.created_at) ??
+    coerceTimestampMs(nested.created_at) ??
+    coerceTimestampMs(raw.updatedAt) ??
+    coerceTimestampMs(nested.updatedAt) ??
+    coerceTimestampMs(raw.ts) ??
+    coerceTimestampMs(nested.ts)
+  );
+}
+
+function transcriptMessagesSince(messages: TranscriptMessage[], minTimestampMs?: number) {
+  if (!minTimestampMs) return messages;
+  let sawComparableTimestamp = false;
+  const filtered = messages.filter((message) => {
+    const timestampMs = messageTimestampMs(message);
+    if (typeof timestampMs !== "number") return false;
+    sawComparableTimestamp = true;
+    return timestampMs >= minTimestampMs;
+  });
+  return sawComparableTimestamp ? filtered : messages;
 }
 
 function transcriptFailureMessage(messages: TranscriptMessage[]): { message: string; recoverable: boolean } | undefined {
@@ -349,31 +402,77 @@ function transcriptFailureMessage(messages: TranscriptMessage[]): { message: str
     const nested = asRecord(raw.message);
     const errorMessage = asString(raw.errorMessage) ?? asString(nested.errorMessage);
     if (errorMessage) {
-      return backendFailure(errorMessage);
-    }
-    const text = contentToText(message.content);
-    if (/Sandbox mode requires Docker|Docker daemon|Embedded agent failed before reply|failed to connect to the docker API/i.test(text)) {
-      return backendFailure(text);
+      if (/LLM idle timeout/i.test(errorMessage)) {
+        return {
+          message: `任务处理短暂超时，系统已继续等待重试结果：${errorMessage}`,
+          recoverable: true,
+        };
+      }
+      return { message: `任务处理失败：${errorMessage}`, recoverable: false };
     }
     const stopReason = asString(raw.stopReason) ?? asString(nested.stopReason);
-    if (message.role === "assistant" && stopReason === "aborted" && !contentToText(message.content)) {
+    if (messageRole(message) === "assistant" && stopReason === "aborted" && !contentToText(messageContent(message))) {
       return { message: "任务被中止，未返回报告。", recoverable: true };
     }
   }
   return undefined;
 }
 
-function extractMarkerPayload(text: string, startMarker: string, endMarker: string): unknown | null {
-  const start = text.lastIndexOf(startMarker);
-  if (start === -1) return null;
-  const end = text.indexOf(endMarker, start + startMarker.length);
-  if (end === -1 || end <= start) return null;
-  const raw = text
-    .slice(start + startMarker.length, end)
+function expectedPayloadKeyForMarker(startMarker: string) {
+  if (startMarker === LEADS_JSON_START) return "leads";
+  if (startMarker === REPORT_JSON_START) return "reports";
+  if (startMarker === SUMMARY_JSON_START) return "summaries";
+  if (startMarker.startsWith(IMAGE_TRANSCRIPT_BATCH_PREFIX)) return "images";
+  return undefined;
+}
+
+function stripJsonCodeFence(text: string) {
+  return text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function parseJsonPayloadCandidate(text: string, expectedKey?: string) {
+  const raw = stripJsonCodeFence(text);
+  if (!raw.startsWith("{") || !raw.endsWith("}")) return null;
+  const payload = JSON.parse(raw) as unknown;
+  if (!expectedKey) return payload;
+  const record = asRecord(payload);
+  return Array.isArray(record[expectedKey]) ? payload : null;
+}
+
+function parseWholeJsonPayload(text: string, expectedKey?: string) {
+  return parseJsonPayloadCandidate(text, expectedKey);
+}
+
+function parseFencedJsonPayload(text: string, expectedKey?: string) {
+  const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  let parseError: Error | null = null;
+  for (const fence of fences.reverse()) {
+    const raw = fence[1]?.trim();
+    if (!raw || !raw.startsWith("{")) continue;
+    try {
+      const payload = parseJsonPayloadCandidate(raw, expectedKey);
+      if (payload !== null) return payload;
+    } catch (error) {
+      parseError = error instanceof Error ? error : new Error("JSON parse failed");
+    }
+  }
+  if (parseError) throw parseError;
+  return null;
+}
+
+function extractMarkerPayload(text: string, startMarker: string, endMarker: string): unknown | null {
+  const expectedKey = expectedPayloadKeyForMarker(startMarker);
+  const start = text.lastIndexOf(startMarker);
+  if (start === -1) {
+    return parseWholeJsonPayload(text, expectedKey) ?? parseFencedJsonPayload(text, expectedKey);
+  }
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  if (end === -1 || end <= start) return null;
+  const raw = stripJsonCodeFence(text.slice(start + startMarker.length, end));
   if (!raw) return null;
   return JSON.parse(raw) as unknown;
 }
@@ -390,12 +489,14 @@ async function readHiddenTaskPayload(options: {
   sessionKey: string;
   startMarker: string;
   endMarker: string;
+  minMessageTimestampMs?: number;
 }) {
-  const messages = await options.client.getTranscript(
+  const allMessages = await options.client.getTranscript(
     options.sessionKey,
     HIDDEN_TASK_TRANSCRIPT_LIMIT,
     HIDDEN_TASK_TRANSCRIPT_MAX_CHARS,
   );
+  const messages = transcriptMessagesSince(allMessages, options.minMessageTimestampMs);
   const texts = assistantTexts(messages);
   let lastAssistantText = "";
   let parseError: Error | null = null;
@@ -411,6 +512,260 @@ async function readHiddenTaskPayload(options: {
   return { messages, lastAssistantText, payload: null, parseError };
 }
 
+interface HiddenTaskPreflightTurn {
+  prompt: string;
+  startMarker: string;
+  endMarker: string;
+  attachments?: GatewayChatAttachment[];
+  progressMessage: string;
+}
+
+function buildStructuredOutputRepairPrompt(options: {
+  startMarker: string;
+  endMarker: string;
+  parseError?: Error | null;
+}) {
+  const expectedKey = expectedPayloadKeyForMarker(options.startMarker);
+  const expectedKeyRule = expectedKey
+    ? `- 顶层对象必须包含 "${expectedKey}" 数组，且不要改成其他顶层字段。`
+    : "- 顶层必须是本任务原始要求的 JSON 对象。";
+  const parseReason = options.parseError?.message
+    ? `\n系统解析错误：${options.parseError.message}`
+    : "";
+  return `[CBE Structured Output Repair]
+
+系统已经收到你上一条回复，但 Dashboard 没有成功读取结构化 JSON。${parseReason}
+
+本轮只做格式修复：
+- 不要重新调查。
+- 不要调用任何工具。
+- 不要新增、删除或编造证据。
+- 只读取你上一条 assistant 回复里的已有结果，把它改写成严格 JSON。
+- 不要输出 Markdown、代码块、解释、引用脚注或自然语言总结。
+${expectedKeyRule}
+- JSON 必须可被 JSON.parse 直接解析，不能有尾逗号、注释、undefined、NaN 或单引号字符串。
+
+最终只输出：
+${options.startMarker}
+<JSON object only>
+${options.endMarker}`;
+}
+
+async function requestHiddenTaskFormatRepair(options: {
+  client: GatewayClient;
+  sessionKey: string;
+  startMarker: string;
+  endMarker: string;
+  pollMs: number;
+  signal?: AbortSignal;
+  startedAt: number;
+  estimatedMs: number;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+  parseError?: Error | null;
+}) {
+  const repairTimeoutMs = HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS;
+  const repairStartedAt = Date.now() - 1_000;
+  const fields = progressFields(options.startedAt, repairTimeoutMs);
+  options.onProgress?.({
+    status: "running",
+    sessionKey: options.sessionKey,
+    startedAt: options.startedAt,
+    estimatedMs: options.estimatedMs,
+    ...fields,
+    message: "员工已返回结果但格式不合规，正在要求员工只修复 JSON 输出。",
+  });
+
+  try {
+    await options.client.sendChatMessage(
+      options.sessionKey,
+      buildStructuredOutputRepairPrompt({
+        startMarker: options.startMarker,
+        endMarker: options.endMarker,
+        parseError: options.parseError,
+      }),
+      undefined,
+      { timeoutMs: repairTimeoutMs },
+    );
+  } catch (error) {
+    if (!isGatewayTimeout(error)) {
+      throw new EmployeeTaskError(
+        "gateway",
+        `格式修复请求提交失败：${unknownErrorMessage(error, "未知错误")}`,
+        { sessionKey: options.sessionKey },
+      );
+    }
+  }
+
+  const deadline = Date.now() + repairTimeoutMs;
+  let lastAssistantText = "";
+  let parseError = options.parseError ?? null;
+  let pollCount = 0;
+
+  while (Date.now() < deadline) {
+    await sleep(options.pollMs);
+    throwIfTaskCancelled(options.signal, options.sessionKey);
+    pollCount += 1;
+    const progress = progressFields(options.startedAt, repairTimeoutMs);
+    options.onProgress?.({
+      status: "polling",
+      sessionKey: options.sessionKey,
+      startedAt: options.startedAt,
+      estimatedMs: options.estimatedMs,
+      ...progress,
+      message: progressMessage("正在读取格式修复结果。", options.startedAt, repairTimeoutMs, pollCount),
+    });
+
+    const payloadRead = await readHiddenTaskPayload({
+      client: options.client,
+      sessionKey: options.sessionKey,
+      startMarker: options.startMarker,
+      endMarker: options.endMarker,
+      minMessageTimestampMs: repairStartedAt,
+    });
+    if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+    if (payloadRead.payload !== null) {
+      return { assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+    }
+    if (payloadRead.parseError) parseError = payloadRead.parseError;
+    const failure = transcriptFailureMessage(payloadRead.messages);
+    if (failure && !failure.recoverable) {
+      throw new EmployeeTaskError("backend_error", failure.message, {
+        sessionKey: options.sessionKey,
+        lastAssistantText,
+      });
+    }
+  }
+
+  const finalPayloadRead = await readHiddenTaskPayload({
+    client: options.client,
+    sessionKey: options.sessionKey,
+    startMarker: options.startMarker,
+    endMarker: options.endMarker,
+  });
+  if (finalPayloadRead.lastAssistantText) lastAssistantText = finalPayloadRead.lastAssistantText;
+  if (finalPayloadRead.payload !== null) {
+    return { assistantText: finalPayloadRead.lastAssistantText, payload: finalPayloadRead.payload };
+  }
+  if (finalPayloadRead.parseError) parseError = finalPayloadRead.parseError;
+
+  if (parseError) {
+    throw new EmployeeTaskError(
+      "parse_error",
+      `员工已返回结果，但格式修复后仍无法解析结构化数据：${parseError.message}`,
+      { sessionKey: options.sessionKey, lastAssistantText },
+    );
+  }
+  throw new EmployeeTaskError("timeout", "员工已返回结果，但格式修复超时，仍未收到可写入 JSON。", {
+    sessionKey: options.sessionKey,
+    lastAssistantText,
+  });
+}
+
+async function waitForHiddenTaskMarker(options: {
+  client: GatewayClient;
+  sessionKey: string;
+  startMarker: string;
+  endMarker: string;
+  timeoutMs: number;
+  pollMs: number;
+  minMessageTimestampMs?: number;
+  repairOnAssistantText?: boolean;
+  signal?: AbortSignal;
+  startedAt: number;
+  estimatedMs: number;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+  progressMessage: string;
+}) {
+  const {
+    client,
+    sessionKey,
+    startMarker,
+    endMarker,
+    timeoutMs,
+    pollMs,
+    minMessageTimestampMs,
+    repairOnAssistantText = false,
+    signal,
+    startedAt,
+    estimatedMs,
+    onProgress,
+    progressMessage: baseMessage,
+  } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastAssistantText = "";
+  let parseError: Error | null = null;
+  let pollCount = 0;
+  let repairAttempted = false;
+
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    throwIfTaskCancelled(signal, sessionKey);
+    pollCount += 1;
+    const fields = progressFields(startedAt, timeoutMs);
+    onProgress?.({
+      status: "polling",
+      sessionKey,
+      startedAt,
+      estimatedMs,
+      ...fields,
+      message: progressMessage(baseMessage, startedAt, timeoutMs, pollCount),
+    });
+
+    const payloadRead = await readHiddenTaskPayload({
+      client,
+      sessionKey,
+      startMarker,
+      endMarker,
+      minMessageTimestampMs,
+    });
+    if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
+    if (payloadRead.payload !== null) {
+      return { assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+    }
+    parseError = payloadRead.parseError;
+    if ((parseError || (repairOnAssistantText && payloadRead.lastAssistantText)) && !repairAttempted) {
+      repairAttempted = true;
+      return requestHiddenTaskFormatRepair({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        pollMs,
+        signal,
+        startedAt,
+        estimatedMs,
+        onProgress,
+        parseError,
+      });
+    }
+
+    const failure = transcriptFailureMessage(payloadRead.messages);
+    if (failure && !failure.recoverable) {
+      throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
+    }
+  }
+
+  if (lastAssistantText && !repairAttempted) {
+    return requestHiddenTaskFormatRepair({
+      client,
+      sessionKey,
+      startMarker,
+      endMarker,
+      pollMs,
+      signal,
+      startedAt,
+      estimatedMs,
+      onProgress,
+      parseError,
+    });
+  }
+
+  throw new EmployeeTaskError("timeout", "等待后台 AI 员工返回结构化结果超时。", {
+    sessionKey,
+    lastAssistantText,
+  });
+}
+
 async function runHiddenEmployeeTask(options: {
   client: GatewayClient;
   agentId: string;
@@ -418,6 +773,8 @@ async function runHiddenEmployeeTask(options: {
   prompt: string;
   startMarker: string;
   endMarker: string;
+  attachments?: GatewayChatAttachment[];
+  preflightTurns?: HiddenTaskPreflightTurn[];
   sessionKey?: string;
   estimatedMs?: number;
   timeoutMs?: number;
@@ -432,6 +789,8 @@ async function runHiddenEmployeeTask(options: {
     prompt,
     startMarker,
     endMarker,
+    attachments,
+    preflightTurns = [],
     sessionKey: plannedSessionKey,
     estimatedMs: rawEstimatedMs,
     timeoutMs = 180_000,
@@ -463,38 +822,57 @@ async function runHiddenEmployeeTask(options: {
   emitProgress("queued", "正在创建任务...");
 
   let sessionKey = "";
-  let eventFailure: { message: string; recoverable: boolean } | undefined;
-  const unsubscribeAgentEvents = client.on("agent", (event) => {
-    const failure = eventFailureMessage(event.payload, sessionKey);
-    if (failure) eventFailure = failure;
-  });
-  const unsubscribeChatEvents = client.on("chat", (event) => {
-    const failure = eventFailureMessage(event.payload, sessionKey);
-    if (failure) eventFailure = failure;
-  });
   const abortGatewaySession = () => {
     if (!sessionKey) return;
     void client.deleteSession(sessionKey, { deleteTranscript: false }).catch(() => undefined);
   };
   signal?.addEventListener("abort", abortGatewaySession, { once: true });
   try {
+    let finalTurnStartedAt = 0;
+    let finalSendCompleted = false;
     try {
       const created = await client.createSession(agentId, undefined, {
         label,
         key: plannedSessionKey ?? createEmployeeSessionKey(agentId),
       });
-      sessionKey = created.key || created.sessionKey || "";
+      sessionKey = created.key;
       throwIfTaskCancelled(signal, sessionKey);
       if (!sessionKey) {
         throw new EmployeeTaskError("gateway", "系统没有返回任务编号。");
       }
       if (created.runError) {
-        throw new EmployeeTaskError("gateway", plainBackendErrorMessage(created.runError), { sessionKey });
+        throw new EmployeeTaskError("gateway", created.runError, { sessionKey });
       }
       emitProgress("running", "任务已创建，正在提交。", sessionKey);
       throwIfTaskCancelled(signal, sessionKey);
+      for (const [index, turn] of preflightTurns.entries()) {
+        emitProgress("running", turn.progressMessage, sessionKey);
+        const turnStartedAt = Date.now() - 1_000;
+        await client.sendChatMessage(sessionKey, turn.prompt, undefined, {
+          timeoutMs,
+          attachments: turn.attachments,
+        });
+        await waitForHiddenTaskMarker({
+          client,
+          sessionKey,
+          startMarker: turn.startMarker,
+          endMarker: turn.endMarker,
+          timeoutMs,
+          pollMs,
+          minMessageTimestampMs: turnStartedAt,
+          repairOnAssistantText: true,
+          signal,
+          startedAt,
+          estimatedMs,
+          onProgress,
+          progressMessage: `正在读取第 ${index + 1} 批截图转写结果。`,
+        });
+      }
+      finalTurnStartedAt = Date.now() - 1_000;
+      finalSendCompleted = false;
       try {
-        await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs });
+        await client.sendChatMessage(sessionKey, prompt, undefined, { timeoutMs, attachments });
+        finalSendCompleted = true;
       } catch (error) {
         if (!isGatewayTimeout(error)) throw error;
         emitProgress(
@@ -518,6 +896,25 @@ async function runHiddenEmployeeTask(options: {
     let lastRecoverableFailureMessage = "";
     let parseError: Error | null = null;
     let pollCount = 0;
+    let repairAttempted = false;
+    const repairAndReturn = async (reason?: Error | null) => {
+      repairAttempted = true;
+      const repaired = await requestHiddenTaskFormatRepair({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        pollMs,
+        signal,
+        startedAt,
+        estimatedMs,
+        onProgress,
+        parseError: reason ?? parseError,
+      });
+      emitProgress("completed", "任务已返回结果。", sessionKey);
+      throwIfTaskCancelled(signal, sessionKey);
+      return { sessionKey, assistantText: repaired.assistantText, payload: repaired.payload };
+    };
 
     while (Date.now() < deadline) {
       await sleep(pollMs);
@@ -533,12 +930,14 @@ async function runHiddenEmployeeTask(options: {
         message: progressMessage("正在读取任务状态。", startedAt, timeoutMs, pollCount),
       });
 
-      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+      const payloadRead = await readHiddenTaskPayload({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        minMessageTimestampMs: finalTurnStartedAt,
+      });
       throwIfTaskCancelled(signal, sessionKey);
-      if (eventFailure && !eventFailure.recoverable) {
-        emitProgress("failed", eventFailure.message, sessionKey);
-        throw new EmployeeTaskError("backend_error", eventFailure.message, { sessionKey, lastAssistantText });
-      }
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
         emitProgress("completed", "任务已返回结果。", sessionKey);
@@ -547,13 +946,8 @@ async function runHiddenEmployeeTask(options: {
       }
       parseError = payloadRead.parseError;
 
-      if (parseError) {
-        emitProgress("failed", `任务已返回结果，但系统无法读取：${parseError.message}`, sessionKey);
-        throw new EmployeeTaskError(
-          "parse_error",
-          `任务已返回结果，但系统无法读取：${parseError.message}`,
-          { sessionKey, lastAssistantText },
-        );
+      if ((parseError || (finalSendCompleted && payloadRead.lastAssistantText)) && !repairAttempted) {
+        return repairAndReturn(parseError);
       }
 
       const failure = transcriptFailureMessage(payloadRead.messages);
@@ -571,21 +965,31 @@ async function runHiddenEmployeeTask(options: {
     while (Date.now() < finalDeadline) {
       await sleep(pollMs);
       throwIfTaskCancelled(signal, sessionKey);
-      const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
-      if (eventFailure && !eventFailure.recoverable) {
-        emitProgress("failed", eventFailure.message, sessionKey);
-        throw new EmployeeTaskError("backend_error", eventFailure.message, { sessionKey, lastAssistantText });
-      }
+      const payloadRead = await readHiddenTaskPayload({
+        client,
+        sessionKey,
+        startMarker,
+        endMarker,
+        minMessageTimestampMs: finalTurnStartedAt,
+      });
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
         emitProgress("completed", "任务已返回结果。", sessionKey);
         return { sessionKey, assistantText: payloadRead.lastAssistantText, payload: payloadRead.payload };
+      }
+      parseError = payloadRead.parseError;
+      if ((parseError || payloadRead.lastAssistantText) && !repairAttempted) {
+        return repairAndReturn(parseError);
       }
       const failure = transcriptFailureMessage(payloadRead.messages);
       if (failure && !failure.recoverable) {
         emitProgress("failed", failure.message, sessionKey);
         throw new EmployeeTaskError("backend_error", failure.message, { sessionKey, lastAssistantText });
       }
+    }
+
+    if (lastAssistantText && !repairAttempted) {
+      return repairAndReturn(parseError);
     }
 
     const timeoutMessage = lastRecoverableFailureMessage
@@ -595,8 +999,6 @@ async function runHiddenEmployeeTask(options: {
     throw new EmployeeTaskError("timeout", timeoutMessage, { sessionKey, lastAssistantText });
   } finally {
     signal?.removeEventListener("abort", abortGatewaySession);
-    unsubscribeAgentEvents();
-    unsubscribeChatEvents();
   }
 }
 
@@ -728,28 +1130,21 @@ function normalizeEvidenceItem(item: unknown): CustomerEvidenceItem {
     asString(raw.sourceUrl) ??
     asString(raw.url) ??
     "https://sentura.local/cross-border-intel/evidence";
+  const finding =
+    evidenceSummaryText(raw) ??
+    "背调员工返回了证据项，但未提供可读摘要。";
   const scoreImpact = normalizeScoreImpact(raw.score_impact);
-  const layer = evidenceLayer(raw, scoreBlock, sourceUrl);
-  const sourceType = asString(raw.source_type) ?? asString(raw.sourceType);
-  const confidence = asNumber(raw.confidence);
   return {
-    layer,
+    layer: evidenceLayer(raw, scoreBlock, sourceUrl),
     sourceUrl,
-    sourceType,
+    sourceType: asString(raw.source_type) ?? asString(raw.sourceType),
     fetchedAt: asString(raw.fetched_at) ?? asString(raw.fetchedAt),
-    finding: screeningEvidenceFindingText({
-      layer,
-      sourceType,
-      scoreBlock,
-      scoreImpact,
-      confidence,
-      finding: evidenceSummaryText(raw),
-      sourceUrl,
-    }),
-    confidence,
+    finding,
+    confidence: asNumber(raw.confidence),
     scoreBlock,
     scoreImpact,
     affectsScore: asBool(raw.affects_score) ?? (scoreImpact === "positive" || scoreImpact === "negative"),
+    costPosture: asString(raw.cost_posture) ?? asString(raw.costPosture),
   };
 }
 
@@ -772,22 +1167,34 @@ function normalizeScoreBlock(item: unknown): CustomerScoreBlock {
     maxPoints: asNumber(raw.max_points) ?? asNumber(raw.maxPoints) ?? 10,
     earnedPoints: asNumber(raw.earned_points) ?? asNumber(raw.earnedPoints) ?? null,
     sourceCount: asNumber(raw.source_count) ?? asNumber(raw.sourceCount),
-    summary: screeningScoreBlockText({
-      block,
-      status,
-      summary: asString(raw.summary),
-      reason: asString(raw.reason),
-    }),
-    reason:
-      status === "scored"
-        ? undefined
-        : screeningScoreBlockText({
-            block,
-            status,
-            summary: asString(raw.summary),
-            reason: asString(raw.reason),
-          }),
+    summary: asString(raw.summary),
+    reason: asString(raw.reason),
   };
+}
+
+function normalizedScoreFromScoreBlocks(blocks: CustomerScoreBlock[], evidenceCoverage?: number | null) {
+  let earnedPoints = 0;
+  let maxPoints = 0;
+  for (const block of blocks) {
+    if (
+      block.status === "scored" &&
+      typeof block.earnedPoints === "number" &&
+      typeof block.maxPoints === "number" &&
+      block.maxPoints > 0
+    ) {
+      earnedPoints += Math.max(0, Math.min(block.earnedPoints, block.maxPoints));
+      maxPoints += block.maxPoints;
+    }
+  }
+  if (maxPoints <= 0) return null;
+  const qualityScore = (earnedPoints / maxPoints) * 100;
+  const coverageScore = typeof evidenceCoverage === "number"
+    ? Math.max(0, Math.min(evidenceCoverage, 1)) * 100
+    : null;
+  const finalScore = typeof coverageScore === "number"
+    ? qualityScore * 0.8 + coverageScore * 0.2
+    : qualityScore;
+  return Number(finalScore.toFixed(2));
 }
 
 function synthesizeScoreBlocks(
@@ -822,7 +1229,7 @@ function synthesizeScoreBlocks(
         maxPoints: block.maxPoints,
         earnedPoints: null,
         sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未说明这一项单项分。",
+        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未返回这一项单项分。",
       };
     }
     return {
@@ -831,7 +1238,7 @@ function synthesizeScoreBlocks(
       maxPoints: block.maxPoints,
       earnedPoints: Number(((block.maxPoints * normalizedScore) / 100).toFixed(2)),
       sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-      summary: "报告未说明单项分，系统按总分比例临时拆分展示。",
+      summary: "员工报告未返回单项分，系统按总分比例临时拆分展示。",
     };
   });
 }
@@ -846,8 +1253,8 @@ function normalizeCoverageGap(item: unknown, index: number): CustomerCoverageGap
   const status = rawStatus ? normalizeEvidenceStatus(rawStatus) : undefined;
   return {
     block,
-    reason: simplifyScreeningReportText(asString(raw.reason) ?? asString(raw.summary) ?? asString(raw.note)) ?? coverageGapReasonForBlock(block, status),
-    action: simplifyScreeningReportText(asString(raw.action) ?? asString(raw.recommended_action)) ?? coverageGapActionForBlock(block, status),
+    reason: asString(raw.reason) ?? asString(raw.summary) ?? asString(raw.note) ?? coverageGapReasonForBlock(block, status),
+    action: asString(raw.action) ?? asString(raw.recommended_action) ?? coverageGapActionForBlock(block, status),
   };
 }
 
@@ -935,7 +1342,7 @@ function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment
   return {
     scaleClass,
     confidence: asNumber(raw.confidence),
-    rationale: simplifyScreeningReportText(asString(raw.rationale) ?? asString(raw.reason) ?? asString(raw.summary)) ?? "公司规模仍需结合来源网址复核。",
+    rationale: asString(raw.rationale) ?? asString(raw.reason) ?? asString(raw.summary) ?? "背调员工未返回公司规模判断说明。",
     firstBlockStrategy,
   };
 }
@@ -1026,6 +1433,8 @@ function screeningReportFromRaw(
         ? raw.coverageGaps
         : [];
   const scoreBlocks = synthesizeScoreBlocks(raw, evidence, score);
+  const evidenceCoverage = asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage);
+  const normalizedScore = normalizedScoreFromScoreBlocks(scoreBlocks, evidenceCoverage) ?? score;
   const normalizedGaps = gapsSource.map(normalizeCoverageGap);
   const derivedGaps = coverageGapsFromScoreBlocks(scoreBlocks);
   const coverageGaps =
@@ -1036,10 +1445,10 @@ function screeningReportFromRaw(
         : normalizedGaps;
   return {
     reportId: asString(raw.report_id) ?? asString(raw.reportId) ?? sessionKey,
-    riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), score),
-    normalizedScore: typeof score === "number" ? score : null,
-    evidenceCoverage: asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage),
-    recommendedAction: simplifyScreeningReportText(asString(raw.recommended_action) ?? asString(raw.recommendedAction)) ?? "复核背调报告后决定是否跟进。",
+    riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), normalizedScore),
+    normalizedScore: typeof normalizedScore === "number" ? normalizedScore : null,
+    evidenceCoverage,
+    recommendedAction: asString(raw.recommended_action) ?? asString(raw.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: nowLabel(),
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
     scoreBlocks,
@@ -1128,7 +1537,7 @@ function screeningRowsFromPayload(
       const country =
         (asString(target.country) ?? fallback?.country ?? "ZZ").toUpperCase();
       if (!companyName) return null;
-      const score =
+      const rawScore =
         asNumber(raw.normalized_score) ??
         asNumber(raw.normalizedScore) ??
         asNumber(raw.score);
@@ -1139,8 +1548,9 @@ function screeningRowsFromPayload(
           .map((item) => item.googleMapsUri)
           .filter((url): url is string => Boolean(url)) ?? [];
       const sourceUrls = [...evidence.map((item) => item.sourceUrl), ...addressUrls].filter((url): url is string => Boolean(url));
+      const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, rawScore);
+      const score = screeningReport.normalizedScore ?? undefined;
       const status = typeof score !== "number" ? "insufficient_evidence" : "screened";
-      const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, score);
 
       const row: CustomerListItem = {
         customerId:
@@ -1172,7 +1582,7 @@ function screeningRowsFromPayload(
             .map((item) => item.finding)
             .find(Boolean) ??
           "已返回背调报告，核验依据可在报告详情中查看。",
-        recommendedAction: simplifyScreeningReportText(asString(raw.recommended_action)) ?? "复核背调报告后决定是否跟进。",
+        recommendedAction: asString(raw.recommended_action) ?? "复核背调报告后决定是否跟进。",
         screeningReport,
       };
       return row;
@@ -1184,7 +1594,6 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
   return payloadArray(payload, "summaries").map((item, index) => {
     const raw = asRecord(item);
     const profile = asRecord(raw.customer_profile);
-    const handoff = asRecord(raw.screening_handoff_target);
     const preview = asRecord(raw.memory_preview ?? raw.memory_write_preview);
     const conversationId =
       asString(raw.conversation_id) ??
@@ -1193,7 +1602,6 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
     const company =
       asString(raw.company_name) ??
       asString(profile.company_name) ??
-      asString(handoff.company_name) ??
       "Unknown company";
     const nextActions = asStringArray(raw.next_actions);
     const recordId = conversationId.startsWith("mem-")
@@ -1215,9 +1623,81 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
         asString(preview.summary) ??
         nextActions[0] ??
         "已完成聊天记录整理。",
-      handoffCompany: company,
+      companyName: company,
     };
   });
+}
+
+function attachmentBase64Length(attachment: GatewayChatAttachment) {
+  const source = attachment.source && typeof attachment.source === "object" ? attachment.source : undefined;
+  return (
+    (typeof attachment.content === "string" ? attachment.content.length : 0) ||
+    (source && typeof source.data === "string" ? source.data.length : 0)
+  );
+}
+
+function imageAttachmentBatches(attachments: GatewayChatAttachment[]) {
+  const batches: GatewayChatAttachment[][] = [];
+  let current: GatewayChatAttachment[] = [];
+  let currentSize = 0;
+  for (const attachment of attachments) {
+    const size = Math.max(1, attachmentBase64Length(attachment));
+    if (current.length > 0 && currentSize + size > CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS) {
+      batches.push(current);
+      current = [];
+      currentSize = 0;
+    }
+    current.push(attachment);
+    currentSize += size;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function imageBatchMarker(index: number) {
+  return {
+    start: `${IMAGE_TRANSCRIPT_BATCH_PREFIX}_${index}_JSON_START`,
+    end: `${IMAGE_TRANSCRIPT_BATCH_PREFIX}_${index}_JSON_END`,
+  };
+}
+
+function buildImageTranscriptBatchPrompt(
+  input: AccioMemoryTaskInput,
+  batchIndex: number,
+  totalBatches: number,
+  batch: GatewayChatAttachment[],
+) {
+  const marker = imageBatchMarker(batchIndex);
+  const files = batch.map((attachment, index) => ({
+    batch_image_index: index + 1,
+    file_name: attachment.fileName,
+    mime_type: attachment.mimeType,
+  }));
+  return `[CBE Accio Memory Image Transcript Batch]
+
+请作为 cbe-accio-memory 员工读取本批聊天截图附件。不要分析客户真伪，不要写最终摘要；本轮只做截图转写。
+
+转写要求：
+- 逐张读取图片中可见的聊天消息，保留可见联系人名、时间、发送方向、语言和消息文本。
+- 如果图片中字段看不清、被遮挡或聊天不完整，写入 uncertainties，不要猜测。
+- 对中文买家问题、英文卖家回复、系统翻译提示都要保留。
+- 不要输出原始图片 base64、文件内容、API key 或无关解释。
+- 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
+
+JSON 字段：
+- batch_index、total_batches
+- record_name
+- images[]：file_name、visible_contact_name、visible_platform、visible_local_time、messages[]、uncertainties[]
+- messages[] 每项：sender="buyer|seller|system|unknown"、timestamp_text、text、language、confidence
+
+最终格式：
+${marker.start}
+<replace this line with the JSON object only>
+${marker.end}
+
+记录名称：${input.recordName}
+本批文件：
+${JSON.stringify(files, null, 2)}`;
 }
 
 function buildLeadPrompt(input: EmployeeLeadTaskInput) {
@@ -1228,7 +1708,6 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
     countries: csv(input.countries).map((item) => item.toUpperCase()),
     buyer_types: csv(input.buyerTypes),
     target_count: input.targetCount,
-    max_results_per_query: input.maxResultsPerQuery ?? 10,
     exclude_domains: csv(input.excludeDomains),
     existing_identity_keys: input.existingIdentityKeys ?? [],
     already_covered_queries: input.alreadyCoveredQueries ?? [],
@@ -1242,18 +1721,18 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 - 不调用 Dashboard 预计算 API，不伪造工具结果。
 - 允许并优先使用工具：cross-border-intel__cbe_intel_google_places_search、cross-border-intel__cbe_intel_google_place_details、web_search、web_fetch。需要 Nearby 坐标时才用 cross-border-intel__cbe_intel_google_geocode。找到候选后可按需使用 cross-border-intel__cbe_intel_domain_rdap_lookup 或 cross-border-intel__cbe_intel_email_domain_check 做轻量验证。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
-- 默认先用 Google Maps Places Text Search 为每个产品/国家/买家画像组合寻找本地/门店/维修/电子零售/区域批发候选；Google Maps 不可用、限流、缺 key 或无结果时，记录 coverage gap 并转入 web_search fallback。
+- 默认先用 Google Maps Places Text Search 或 web_search 搜索整体条件：把所有 product_keywords、countries、buyer_types 合并为一个搜索 brief。不要把产品、国家和买家类型拆成笛卡尔积组合，也不要为了“覆盖每组”而循环调用工具。
 - 只对短名单 place_id 调用 Place Details，使用 lead_discovery_basic 级别信息；不要请求或输出 Google review text、photos、raw response 或 API key。
 - 最终答案前必须至少调用一个公开证据工具（Google Maps Places、web_search 或 web_fetch）。最终接受 lead 前必须用 web_search/web_fetch 或公司官网证据确认产品/买家适配；Google Maps 单独只能作为 discovery seed。
 - 只返回具体下游买家公司，排除 marketplace、目录页、供应商页和社交主页。
 - target_count 是本次任务必须新增的净新客户硬目标；普通 new_scope 不能把它理解成“员工列表总数”，top_up_unique_leads 则表示本次必须补齐的缺口数。
 - existing_identity_keys 是数据库中已分配或本 scope 已尝试过的客户 identity；无论 run_mode 是什么都必须避开这些客户。命中 denylist 时要丢弃并继续找替代客户，不能把重复客户计入 target_count。
 - run_mode 为 top_up_unique_leads 时，本次只补充缺口客户；不要重复 already_covered_queries 中的搜索字符串。
-- max_results_per_query 只是单次查询的搜索返回提示，不是最终候选上限。最终必须围绕 target_count 继续扩展查询，直到得到 target_count 个去重合规候选或公开搜索确实耗尽。
-- 在最终输出前，先跨产品、国家、buyer_type、Google Maps query family 和 web query family 收集至少 target_count * 3 个原始候选（target_count 小于 5 时至少 12 个），再做排除、去重、排序和截断。
+- target_count 最高为 ${MAX_LEAD_TARGET_COUNT}。按搜索结果顺序检查候选，遇到合规、去重、且不在 existing_identity_keys 中的具体下游买家公司就收录，直到得到 target_count 个或搜索结果明显耗尽。
+- 不需要按产品/国家/buyer_type 组别平衡，也不需要先收集 target_count 倍数的原始候选。前 N 个合规潜在客户即可。
 - 不要因为“高质量优先”、web_fetch 被安全策略拦截、部分官网无法抓取或前几条结果重复而主动限制在 5 个以下；web_fetch 被拦截时，使用 web_search 返回的公司官网 URL、标题和摘要作为 public_web 证据，并继续搜索替代客户。
-- 如果候选超过 target_count，只保留证据最强且不在 existing_identity_keys 中的 target_count 个。
-- 只有在覆盖所有产品/国家组合、至少使用 company-owned website、retail/repair buyer、store/location/contact proof、reseller/import buyer 四类查询，并完成 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的查询范围。
+- 如果候选超过 target_count，按搜索结果/发现顺序保留前 target_count 个合规且不在 existing_identity_keys 中的客户；不要为了重新排序或组别平衡继续扩展工具循环。
+- 只有在整体条件搜索、排除无效来源、去重和 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的搜索范围。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：
@@ -1280,23 +1759,18 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名登记信息（RDAP）、邮箱设置（DNS）、官网公开联系信息、Google Maps（谷歌地图）地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC（美国证券交易委员会）/财务公开文件、Accio（阿里国际站聊天记录）/销售行为记录。
-- 对每个目标必须调用可用的域名登记信息（RDAP）、邮箱设置（DNS）、官方联系邮箱、公司注册、Google Maps（谷歌地图）本地经营线索、贸易/海关记录、SEC（美国证券交易委员会）/财务公开文件、买家评分工具；字段缺失、资料源不可用、预算关闭、不适用或未命中时记录 coverage gap。
-- 报告内容必须全部使用中文，语言要通俗易懂。只允许保留英文公司名、域名、网址、产品专有名词，以及 Google Maps（谷歌地图）、SEC（美国证券交易委员会）、RDAP（域名登记信息）、DNS（域名解析）这类必须保留的专有词；保留时必须带中文括注。
-- 不要在 report、score_blocks、evidence、coverage_gaps、recommended_action、open_questions 中写工具名、API、HTTP 状态、JSON、payload、raw response、field mask、query、lookup、returned/返回了什么等技术过程。普通员工和管理者只需要看到业务结论。
-- evidence.finding 必须固定写成普通中文：是否找到对应信息、这条信息说明什么、可信度如何、是否建议人工复核。来源网址只放在 source_url，不要把网址或技术过程塞进 finding。
-- score_blocks.summary/reason 必须写成普通中文评分理由：这一项找到了什么、是否足以支持判断、缺什么。不要写“工具查询”“返回字段”“API 不可用”等技术表达。
-- recommended_action 必须用中文给出跟进建议：优先跟进、谨慎跟进、补充资料后再看、或暂缓跟进，并说明业务原因。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
+- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
 - 评分前必须先输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
-- Google Maps（谷歌地图）地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps（谷歌地图）上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。可用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造检索，但最终报告里不要展示具体检索语句或技术参数。
+- Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
 - 对地址版图候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单逐个调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"，不请求 review text、photos 或原始 Google response。
 - 对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate，并把 verdict 写入 address_footprint.locations[].address_validation。
-- 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google Maps（谷歌地图）没有找到匹配地址，address_footprint.coverage_status 必须用 "not_found"，并用中文说明“暂未找到可用公开地址线索”；只有资料源系统异常才可用 "unavailable_api"，但报告正文不要写“功能不可用”。
+- 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google API 缺 key、限流或无结果，address_footprint 仍必须返回 coverage_status="unavailable_api" 或 "not_found" 以及 coverage note。
 - 每个地址候选要分类 relationship_status：confirmed_company_location、probable_company_location、possible_related_location、rejected_unrelated_location；地址角色 address_type：headquarters_or_office、storefront、warehouse_or_distribution、service_or_repair_location、unknown_business_location。
-- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps（谷歌地图）地址一致性，不能只靠 Google Maps（谷歌地图）拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps（谷歌地图）物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps（谷歌地图）公开门店/地址证据支持”，不要写成正式企业核验（KYB）或法律注册证明。
-- SEC（美国证券交易委员会）/财务公开文件不能留空：即使目标不是美国上市申报主体，也要写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
-- 如果调用了 cross-border-intel 工具，evidence 中只写普通中文业务摘要，不写工具名称、调用过程或返回字段。
-- 使用最低成本证据阶梯，缺失资料源/付费证据只能标记 coverage gap，不能当作欺诈证据。
+- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
+- SEC/财务公开文件不能留空：即使目标不是美国上市申报主体，也要调用 SEC 查询或写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
+- 如果调用了 cross-border-intel 工具，必须把工具返回的关键结果摘要写入 evidence，不要只写最终结论。
+- 使用最低成本证据阶梯，缺失 API/付费证据只能标记 coverage gap，不能当作欺诈证据。
 - 不发送外联、不写 CRM、不暴露密钥或完整个人联系信息。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
@@ -1304,17 +1778,18 @@ JSON 字段要求：
 - 顶层：reports。
 - reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
-- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，资料源/预算缺失用 unavailable_api 或 disabled_by_budget。summary/reason 必须是中文业务说明。
-- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence。finding 必须是中文业务说明，不要写技术过程。
+- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
+- normalized_score 必须等于最终分：score_blocks 质量分 sum(earned_points) / sum(max_points) * 100 占 80%，evidence_coverage * 100 占 20%，保留两位小数；risk_tier 也必须按该最终分判断。
+- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
 - layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
 - address_footprint 必须包含：
-  - section_title="Google Maps（谷歌地图）地址线索"
+  - section_title="Google Maps 地址版图"
   - coverage_status="found|partial|not_found|unavailable_api|not_checked"
   - search_scope.queries_run、countries、capped、limitations
   - summary.total_locations、confirmed_locations、probable_locations、possible_related_locations、operational_locations、closed_locations、countries、cities
   - locations[]：google_place_id、display_name、address_type、relationship_status、formatted_address、city、region、country、business_status、types、website_uri、domain_match、phone_match、address_validation、google_maps_uri、match_confidence、match_reasons、source_type、fetched_at
   - open_questions
-- coverage_gaps 写清楚没查到、没启用、没提供还是需要人工补充；必须使用中文业务说明，不要把“没查到结果”写成“功能暂不可用”。
+- coverage_gaps 写清楚没查到、没启用、没提供还是 API 不可用。
 
 最终格式：
 ${REPORT_JSON_START}
@@ -1337,37 +1812,51 @@ ${JSON.stringify(
 }
 
 function buildAccioPrompt(input: AccioMemoryTaskInput) {
-  const supplementInstruction = input.supplementTarget
+  const inputFormat = input.inputFormat ?? "json";
+  const isImageInput = inputFormat === "image";
+  const isTextInput = inputFormat === "pasted_text";
+  const sourceInstruction = isImageInput
     ? `
-补充目标：
-${JSON.stringify({
-  customer_id: input.supplementTarget.customerId,
-  company_name: input.supplementTarget.companyName,
-  source: input.supplementTarget.source,
-}, null, 2)}
+图片输入说明：
+- 本任务前面的 assistant turn 已经按 ${IMAGE_TRANSCRIPT_BATCH_PREFIX}_*_JSON_START/END 返回截图转写批次。
+- 请读取这些批次转写结果，并与下面的占位 chatExport 元数据合并成一个或多个 conversation summary。
+- 如果截图中没有公司名、国家、联系人或网站，使用“待确认客户”“待确认联系人”和 country="ZZ"，并在 behavior_signals.inference_notes 或 report_zh.risk_or_missing_info 写出缺失项。
+- 图片原件只用于本轮视觉读取，不要把原始图片内容写入 memory_preview。`
+    : isTextInput
+      ? `
+粘贴文字输入说明：
+- 粘贴内容可能不完整、顺序可能混乱、发送人可能缺失。
+- 请优先依据文字原文抽取客户咨询内容、商品、价格、库存、交期和下一步。
+- 无法确认的公司名、国家、联系人、网站、邮箱必须写入 missing_fields，不要编造。`
+      : `
+JSON 输入说明：
+- 请按 Accio-compatible chatExport 处理。`;
 
-重要：这是补充到既有客户的聊天记录，不要把聊天里的其他公司另建为新客户。summary.customer_profile.company_name 和 screening_handoff_target.company_name 必须优先使用补充目标 company_name；screening_handoff_target.lead_id 必须使用补充目标 customer_id。`
-    : "";
   return `[CBE Employee Accio Memory Task]
 
-请作为 cbe-accio-memory 员工处理以下 Accio/阿里国际站聊天 JSON。这是后台自动化任务，不是聊天。
+请作为 cbe-accio-memory 员工处理以下手动导入聊天记录。这是后台自动化任务，不是聊天。
 
 执行契约：
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
-- 必须使用可用的 cross-border-intel Accio/对话解析或摘要工具；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
-- 先验证 JSON，再为每条 conversation 生成结构化摘要、记忆写入预览和背调 handoff。
-- 不写入长期记忆，只返回 preview_only。
+- 能使用 cross-border-intel Accio/对话解析或摘要工具时优先使用；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
+- 先整理 conversation，再为每条 conversation 生成结构化客户画像、采购需求、价格条款、沟通行为和后续事项报告。
+- 不写入长期记忆，不生成背调移交，不和获客/背调板块互通；只返回 preview_only 报告。
+- 对缺失、不清楚、被遮挡或无法确认的信息，写入 missing_fields 或 behavior_signals.inference_notes，不要编造。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：
 - 顶层：summaries。
-- summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、screening_handoff_target、memory_preview、source_references。
-- purchase_intent 每项尽量包含 product、quantity、target_price_usd、seller_best_price_usd、incoterm、payment_terms；聊天中没有出现的字段不要编造。
-- negotiated_prices 每项尽量包含 product、target_price_usd、quoted_price_usd 或 agreed_or_best_price_usd，以及 price_context；聊天中没有出现的字段不要编造。
-- behavior_signals 必须包含 summary，尽量包含 urgency、price_sensitivity、decision_role、risk_flags。
-- screening_handoff_target 必须包含 source="accio_memory"、company_name、country、website/email/contact_person（如有）、product_interest、supplied_fields、missing_fields。
-- memory_preview.status 必须是 "preview_only"。如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 写入。
+- summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、memory_preview、source_references。
+- 报告必须面向中文业务操作员可读：保留公司名、网址、邮箱、订单编号等原文，同时为英文聊天内容补充中文总结/翻译。
+- 每个 summary 必须额外包含 report_zh，对象字段尽量包括 executive_summary、customer_profile_summary、inquiry_summary、purchase_intent_summary、pricing_terms_summary、shipping_timeline_summary、payment_terms_summary、sample_status_summary、follow_up_summary、risk_or_missing_info。
+- purchase_intent 每项尽量包含 product、product_zh、quantity、unit、target_price_usd、seller_best_price_usd、incoterm、incoterm_zh、payment_terms、payment_terms_zh、packaging、customization、lead_time、sample_status、summary_zh；聊天中没有出现的字段不要编造。
+- negotiated_prices 每项尽量包含 product、quantity_context、currency、target_price_usd、quoted_price_usd、agreed_or_best_price_usd、quoted_total_usd、agreed_total_usd、agreed_or_best_total_usd、final_total_usd、all_in_unit_price_usd、price_context、price_context_zh；聊天中没有出现的字段不要编造。必须区分“单价”和“总价”：如果金额是 500pcs/800pcs 的总价，不要只放进 *_price_usd，应同时写 *_total_usd 或在 price_context_zh 说明。
+- behavior_signals 必须包含 summary 和 summary_zh，尽量包含 urgency、price_sensitivity、decision_role、risk_flags、inference_notes。
+- negotiation_summary 优先用中文总结；如需保留原文英文说明，可放入 negotiation_summary_source 或 behavior_signals.summary。
+- next_actions 必须是中文字符串数组；如果先生成对象，必须包含 action_zh，并保证最终 next_actions 可被直接展示为中文行动项。
+- 不要输出 screening_handoff_target、handoff、lead_id 或任何背调移交字段。
+- memory_preview.status 必须是 "preview_only"。memory_preview.summary 和 memory_preview.summary_zh 必须只包含简洁事实；如果你的技能输出字段名是 memory_write_preview，也要同时复制到 memory_preview，便于 Dashboard 展示。
 - source_references 每项包含 source_type、source_file、conversation_id。
 
 最终格式：
@@ -1377,21 +1866,22 @@ ${SUMMARY_JSON_END}
 
 记录名称：${input.recordName}
 来源：${input.sourceLabel}
-${supplementInstruction}
+输入格式：${inputFormat}
+来源类型：${input.sourceKind ?? "manual_json"}
+${sourceInstruction}
 
-Accio JSON:
-${JSON.stringify(input.chatExport, null, 2)}`;
+任务输入：
+${JSON.stringify({
+  chat_export: input.chatExport,
+  raw_text: input.rawText,
+  attachment_metadata: input.attachmentMetadata ?? [],
+}, null, 2)}`;
 }
 
 export function customersToScreeningTargets(customers: CustomerListItem[]): ScreeningTarget[] {
   return customers.map((customer) => ({
     target_id: customer.customerId,
-    source:
-      customer.source === "accio_handoff"
-        ? "accio_memory"
-        : customer.source === "manual_screening"
-          ? "manual_input"
-          : "marketing_lead_batch",
+    source: customer.source === "manual_screening" ? "manual_input" : "marketing_lead_batch",
     lead_id: customer.source === "manual_screening" ? null : customer.customerId,
     company_name: customer.companyName,
     country: customer.country,
@@ -1515,6 +2005,24 @@ export async function runAccioMemoryTask(
   onProgress?: (progress: EmployeeTaskProgress) => void,
   options: { sessionKey?: string; signal?: AbortSignal } = {},
 ): Promise<EmployeeTaskResult<MemoryRecordItem[]>> {
+  const imageBatches = input.inputFormat === "image" && input.attachments?.length
+    ? imageAttachmentBatches(input.attachments)
+    : [];
+  const preflightTurns = imageBatches.map((batch, index) => {
+    const batchIndex = index + 1;
+    const marker = imageBatchMarker(batchIndex);
+    return {
+      prompt: buildImageTranscriptBatchPrompt(input, batchIndex, imageBatches.length, batch),
+      startMarker: marker.start,
+      endMarker: marker.end,
+      attachments: batch,
+      progressMessage: `正在提交第 ${batchIndex}/${imageBatches.length} 批聊天截图给视觉模型。`,
+    };
+  });
+  const estimatedMs = imageBatches.length > 0
+    ? clamp(180_000 + imageBatches.length * 90_000, 300_000, 1_200_000)
+    : 180_000;
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   const result = await runHiddenEmployeeTask({
     client,
     agentId: ACCIO_AGENT_ID,
@@ -1522,8 +2030,11 @@ export async function runAccioMemoryTask(
     prompt: buildAccioPrompt(input),
     startMarker: SUMMARY_JSON_START,
     endMarker: SUMMARY_JSON_END,
+    preflightTurns,
     sessionKey: options.sessionKey,
     signal: options.signal,
+    estimatedMs,
+    timeoutMs,
     onProgress,
   });
   const records = memoryRowsFromPayload(result.payload, result.sessionKey);

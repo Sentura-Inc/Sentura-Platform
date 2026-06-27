@@ -28,6 +28,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmployeeCostMini } from "@/components/cross-border/employee-cost";
 import { EmployeeTaskStatusBar } from "@/components/cross-border/employee-task-status";
+import {
+  CBE_ADMIN_API_BASE,
+  CBE_ADMIN_COSTS_PATH,
+  CBE_ADMIN_EMPLOYEES_PATH,
+  CBE_ADMIN_HIGH_VALUE_CUSTOMERS_PATH,
+  CBE_ADMIN_LOGIN_PATH,
+  CBE_EMPLOYEE_CUSTOMERS_PATH,
+  CBE_EMPLOYEE_HOME_PATH,
+  CBE_EMPLOYEE_LOGIN_PATH,
+  CBE_EMPLOYEE_MEMORY_PATH,
+  CBE_SESSION_API_PATH,
+  isCbeAdminLoginPath,
+  isCbeAdminPath,
+  isCbeEmployeeLoginPath,
+  isCbeEmployeePath,
+} from "@/lib/cross-border-routes";
 import { cn } from "@/lib/utils";
 import { fetchEmployeeTasks, markEmployeeNotificationsRead } from "@/app/client-demos/cross-border/employee/_data/employee-api";
 import {
@@ -44,17 +60,17 @@ import {
 const employeeNav = [
   {
     label: "个人中心",
-    href: "/client-demos/cross-border/employee",
+    href: CBE_EMPLOYEE_HOME_PATH,
     icon: UserRound,
   },
   {
     label: "获客与背调",
-    href: "/client-demos/cross-border/employee/customers",
+    href: CBE_EMPLOYEE_CUSTOMERS_PATH,
     icon: ShieldCheck,
   },
   {
     label: "记忆整理",
-    href: "/client-demos/cross-border/employee/memory",
+    href: CBE_EMPLOYEE_MEMORY_PATH,
     icon: Database,
   },
 ];
@@ -62,17 +78,17 @@ const employeeNav = [
 const adminNav = [
   {
     label: "员工管理",
-    href: "/client-demos/cross-border/admin/employees",
+    href: CBE_ADMIN_EMPLOYEES_PATH,
     icon: UsersRound,
   },
   {
     label: "客户列表",
-    href: "/client-demos/cross-border/admin/high-value-customers",
+    href: CBE_ADMIN_HIGH_VALUE_CUSTOMERS_PATH,
     icon: Star,
   },
   {
     label: "费用监控",
-    href: "/client-demos/cross-border/admin/costs",
+    href: CBE_ADMIN_COSTS_PATH,
     icon: BadgeDollarSign,
   },
 ];
@@ -141,8 +157,8 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
       try {
         const headers = CBE_ADMIN_USER_ID ? { "x-cbe-admin-user-id": CBE_ADMIN_USER_ID } : undefined;
         const [costsResponse, highValueResponse] = await Promise.all([
-          fetch("/api/client-demos/cross-border/admin/costs?range=month", { cache: "no-store", ...(headers ? { headers } : {}) }),
-          fetch("/api/client-demos/cross-border/admin/high-value-customers?limit=100&range=all", { cache: "no-store", ...(headers ? { headers } : {}) }),
+          fetch(`${CBE_ADMIN_API_BASE}/costs?range=month`, { cache: "no-store", ...(headers ? { headers } : {}) }),
+          fetch(`${CBE_ADMIN_API_BASE}/high-value-customers?limit=100&range=all`, { cache: "no-store", ...(headers ? { headers } : {}) }),
         ]);
         const costsBody = await costsResponse.json().catch(() => ({}));
         const highValueBody = await highValueResponse.json().catch(() => ({}));
@@ -262,7 +278,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                     key={item.id}
                     className="items-start gap-2 py-2"
                     render={
-                      <Link href={`/client-demos/cross-border/admin/costs?notify=approvals&highlightApproval=${encodeURIComponent(item.id)}#pending-approvals`} />
+                      <Link href={`${CBE_ADMIN_COSTS_PATH}?notify=approvals&highlightApproval=${encodeURIComponent(item.id)}#pending-approvals`} />
                     }
                   >
                     <BadgeDollarSign className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
@@ -285,7 +301,7 @@ function AdminNotificationBell({ enabled }: { enabled: boolean }) {
                     className="items-start gap-2 py-2"
                     render={
                       <Link
-                        href={`/client-demos/cross-border/admin/high-value-customers?highlightCustomer=${encodeURIComponent(item.recordId)}`}
+                        href={`${CBE_ADMIN_HIGH_VALUE_CUSTOMERS_PATH}?highlightCustomer=${encodeURIComponent(item.recordId)}`}
                         onClick={markHighValueSeen}
                       />
                     }
@@ -417,11 +433,12 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isAdminPath = pathname.startsWith("/client-demos/cross-border/admin");
-  const isAdminLoginPath = pathname.startsWith("/client-demos/cross-border/admin/login");
+  const isAdminPath = isCbeAdminPath(pathname);
+  const isAdminLoginPath = isCbeAdminLoginPath(pathname);
+  const isEmployeeLoginPath = isCbeEmployeeLoginPath(pathname) || pathname.startsWith("/auth");
   const isAdminAppPath = isAdminPath && !isAdminLoginPath;
-  const isAuthPath = pathname.startsWith("/auth") || isAdminLoginPath;
-  const isEmployeePath = pathname.startsWith("/client-demos/cross-border/employee");
+  const isAuthPath = isEmployeeLoginPath || isAdminLoginPath;
+  const isEmployeePath = isCbeEmployeePath(pathname);
   const navItems = isAdminPath ? adminNav : employeeNav;
   const shellTitle = isAdminPath ? "跨境电商管理者系统" : "跨境电商员工操作系统";
   const showHeaderTitle = !isAuthPath;
@@ -434,11 +451,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     async function refreshSession() {
       try {
-        const response = await fetch("/api/client-demos/cross-border/session?role=operator", { cache: "no-store" });
+        const response = await fetch(`${CBE_SESSION_API_PATH}?role=operator`, { cache: "no-store" });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body?.user?.cbeRole !== "operator") {
           if (!cancelled) {
-            router.replace(`/auth/login?next=${encodeURIComponent(pathname)}`);
+            router.replace(`${CBE_EMPLOYEE_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
           }
           return;
         }
@@ -448,7 +465,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           });
         }
       } catch {
-        if (!cancelled) router.replace(`/auth/login?next=${encodeURIComponent(pathname)}`);
+        if (!cancelled) router.replace(`${CBE_EMPLOYEE_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
       }
     }
     void refreshSession();
@@ -462,12 +479,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     async function refreshSession() {
       try {
-        const response = await fetch("/api/client-demos/cross-border/session?role=admin", { cache: "no-store" });
+        const response = await fetch(`${CBE_SESSION_API_PATH}?role=admin`, { cache: "no-store" });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body?.user?.cbeRole !== "admin") {
           if (!cancelled) {
             setSessionUser(null);
-            router.replace(`/client-demos/cross-border/admin/login?next=${encodeURIComponent(pathname)}`);
+            router.replace(`${CBE_ADMIN_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
           }
           return;
         }
@@ -479,7 +496,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       } catch {
         if (!cancelled) {
           setSessionUser(null);
-          router.replace(`/client-demos/cross-border/admin/login?next=${encodeURIComponent(pathname)}`);
+          router.replace(`${CBE_ADMIN_LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
         }
       }
     }
@@ -509,7 +526,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isAdminPath, isAuthPath, setTasks]);
 
   async function logoutTo(loginPath: string) {
-    const role = loginPath.startsWith("/client-demos/cross-border/admin") ? "admin" : "operator";
+    const role = loginPath.startsWith(CBE_ADMIN_LOGIN_PATH) ? "admin" : "operator";
     await fetch(`/api/auth/logout?role=${role}`, { method: "POST" }).catch(() => undefined);
     setSessionUser(null);
     router.replace(loginPath);
@@ -545,7 +562,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="hidden items-center rounded-lg border border-[var(--sentura-border)] bg-white/62 p-1 shadow-sm md:flex">
             {navItems.map((item) => {
               const active =
-                item.href === "/client-demos/cross-border/employee"
+                item.href === CBE_EMPLOYEE_HOME_PATH
                   ? pathname === item.href
                   : pathname.startsWith(item.href);
               return (
@@ -580,7 +597,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
                 <span className="text-sm font-medium">{sessionUser?.displayName ?? accountLabel}</span>
               </div>
-              <Button variant="outline" size="sm" onClick={() => void logoutTo("/auth/login")}>
+              <Button variant="outline" size="sm" onClick={() => void logoutTo(CBE_EMPLOYEE_LOGIN_PATH)}>
                 <LogOut className="h-4 w-4" />
                 退出
               </Button>
@@ -594,7 +611,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
                 <span className="text-sm font-medium">{sessionUser?.displayName ?? accountLabel}</span>
               </div>
-              <Button variant="outline" size="sm" onClick={() => void logoutTo("/client-demos/cross-border/admin/login")}>
+              <Button variant="outline" size="sm" onClick={() => void logoutTo(CBE_ADMIN_LOGIN_PATH)}>
                 <LogOut className="h-4 w-4" />
                 退出
               </Button>
@@ -607,7 +624,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="grid grid-cols-3 border-t border-[var(--sentura-border)] bg-white/80 md:hidden">
           {navItems.map((item) => {
             const active =
-              item.href === "/client-demos/cross-border/employee"
+              item.href === CBE_EMPLOYEE_HOME_PATH
                 ? pathname === item.href
                 : pathname.startsWith(item.href);
             return (

@@ -267,7 +267,28 @@ async function cleanupP2DashboardProbe(agentRunIds: string[], leadDomain: string
       CBE_TENANT_ID,
       agentRunIds,
     ]);
-    await client.query("delete from screening_targets where tenant_id = $1 and company_name like 'CE19 Probe%'", [
+    await client.query("delete from api_call_ledger where tenant_id = $1 and agent_run_id = any($2::text[])", [
+      CBE_TENANT_ID,
+      agentRunIds,
+    ]);
+    await client.query(
+      `
+        delete from screening_batch_targets
+        where tenant_id = $1
+          and (
+            child_agent_run_id = any($2::text[])
+            or screening_batch_id in (
+              select id from screening_batches where tenant_id = $1 and parent_agent_run_id = any($2::text[])
+            )
+          )
+      `,
+      [CBE_TENANT_ID, agentRunIds],
+    );
+    await client.query("delete from screening_batches where tenant_id = $1 and parent_agent_run_id = any($2::text[])", [
+      CBE_TENANT_ID,
+      agentRunIds,
+    ]);
+    await client.query("delete from screening_targets where tenant_id = $1 and (company_name like 'CE19 Probe%' or company_name like 'CE22 Paid Retry%')", [
       CBE_TENANT_ID,
     ]);
     await client.query(
@@ -359,7 +380,7 @@ async function runLiveDashboardStoreChecks() {
   section("CE19/P2.2 live Dashboard store API checks");
   const imported = await import("../sentura/dashboard/src/lib/cross-border-store/index.ts");
   const store = (imported.default ?? imported) as Record<string, any>;
-  const request = new Request("http://sentura.local/api/client-demos/cross-border/employee/customers", {
+  const request = new Request("http://sentura.local/api/employee/customers", {
     headers: { "x-cbe-user-id": CBE_SEED_USERS.operatorA.id },
   });
   const context = await store.resolveCbeTenantContext(request);
@@ -592,11 +613,6 @@ async function runLiveDashboardStoreChecks() {
             next_actions: ["Review memory preview"],
             behavior_signals: { notes: "Professional inquiry" },
             memory_preview: { status: "preview_only", summary: "Probe memory preview" },
-            screening_handoff_target: {
-              company_name: `CE19 Probe Buyer ${stamp}`,
-              country: "GB",
-              website: `https://${leadDomain}`,
-            },
             source_references: [
               {
                 source_type: "self_reported",
@@ -609,8 +625,8 @@ async function runLiveDashboardStoreChecks() {
       },
     });
     check("dashboard store saves Accio summaries", accioResult.summaries.length === 1);
-    check("dashboard store creates pending memory facts", accioResult.memoryFactIds.length === 1);
-    check("dashboard store creates Screening handoffs", accioResult.handoffIds.length === 1);
+    check("dashboard store does not create pending memory facts from Accio", accioResult.memoryFactIds.length === 0);
+    check("dashboard store does not create Screening handoffs from Accio", accioResult.handoffIds.length === 0);
 
     const tasks = await store.listEmployeeTasks(context, { limit: 20, offset: 0 });
     check(
@@ -622,6 +638,77 @@ async function runLiveDashboardStoreChecks() {
       "employee memory read projection returns saved Accio import",
       memory.items.some((item: { importId: string }) => item.importId === accioStart.accioImport.id),
     );
+    const accioHandoffs = await store.getCbePool().query(
+      `
+        select id
+        from handoff_events
+        where tenant_id = $1
+          and source_record_id = $2
+      `,
+      [CBE_TENANT_ID, accioResult.summaries[0].id],
+    );
+    check("CE22 live Accio summaries do not create handoff rows", accioHandoffs.rowCount === 0);
+    let accioHandoffRejected = false;
+    try {
+      await store.createHandoffEvent(context, {
+        from_agent_id: "cbe-accio-memory",
+        to_agent_id: "cbe-buyer-screening",
+        source_record_type: "accio_summary",
+        source_record_id: accioResult.summaries[0].id,
+        payload_json: { company_name: `CE19 Probe Buyer ${stamp}` },
+      });
+    } catch (error) {
+      accioHandoffRejected = (error as { code?: string }).code === "accio_handoff_disabled";
+    }
+    check("CE22 live store rejects explicit Accio-to-Screening handoff", accioHandoffRejected);
+
+    const paidBatch = await store.createScreeningRun(context, {
+      target_summary: `CE22 Paid Retry Probe ${stamp}`,
+      session_key: `ce22-paid-retry-a-${stamp}`,
+      child_session_keys: [`ce22-paid-retry-a-${stamp}`, `ce22-paid-retry-b-${stamp}`],
+      targets: [1, 2].map((item) => ({
+        target_id: `ce22-paid-target-${item}-${stamp}`,
+        source: "manual_input",
+        company_name: `CE22 Paid Retry Buyer ${item} ${stamp}`,
+        country: "US",
+        domain: `ce22-paid-${item}-${stamp}.example.com`,
+        product_interest: ["phone case"],
+        supplied_fields: ["company_name", "domain"],
+        missing_fields: [],
+      })),
+      estimated_cost_usd: 2,
+      metadata_json: {
+        target_count: 2,
+        options: {
+          paidEmailValidation: true,
+          paidTradeData: true,
+          maxPaidSpendUsd: 1,
+        },
+      },
+    });
+    agentRunIds.push(paidBatch.agentRun.id);
+    for (const child of paidBatch.childRuns ?? []) agentRunIds.push(child.agentRun.id);
+    const paidChild = paidBatch.childRuns?.[0];
+    check(
+      "CE22 live Screening fan-out returns initial paid-source policy",
+      Boolean(paidChild?.paidSourcePolicy?.paidEmailValidation?.allowed && paidChild?.paidSourcePolicy?.paidTradeData?.allowed),
+    );
+    if (paidChild) {
+      await store.failEmployeeTask(context, paidChild.agentRun.id, {
+        error_code: "backend_error",
+        error_message: "CE22 paid retry probe marks paid sources as reapproval-required.",
+      });
+      const retryResult = await store.retryFailedScreeningChildRun(context, paidChild.agentRun.id, {
+        session_key: `ce22-paid-retry-retry-${stamp}`,
+      });
+      check(
+        "CE22 live paid retry disables paid sources without explicit re-approval",
+        retryResult.childRun.paidSourcePolicy?.paidEmailValidation?.allowed === false &&
+          retryResult.childRun.paidSourcePolicy?.paidTradeData?.allowed === false &&
+          retryResult.childRun.paidSourcePolicy?.paidEmailValidation?.reapprovalRequired === true &&
+          retryResult.childRun.paidSourcePolicy?.paidTradeData?.reapprovalRequired === true,
+      );
+    }
 
     const failedRun = await store.createLeadRun(context, {
       query_config: {
@@ -648,6 +735,8 @@ async function runLiveDashboardStoreChecks() {
     );
   } finally {
     await cleanupP2DashboardProbe(agentRunIds, leadDomain);
+    const gateway = await import("../sentura/dashboard/src/lib/gateway/server-client.ts");
+    gateway.disconnectServerGatewayClient();
     await store.getCbePool().end();
   }
 }
@@ -720,6 +809,10 @@ const requiredIndexes = [
   "agent_runs_active_session_idx",
   "screening_batches_parent_idx",
   "screening_batch_targets_batch_idx",
+  "screening_batch_targets_retry_idx",
+  "screening_batch_targets_paid_state_idx",
+  "memory_facts_review_idx",
+  "handoff_events_screening_consumption_idx",
 ];
 
 const p22StoreModules = [
@@ -749,11 +842,13 @@ const p22EmployeeRoutes = [
   "employee/lead-runs/[id]/complete/route.ts",
   "employee/screening-runs/route.ts",
   "employee/screening-runs/[id]/complete/route.ts",
+  "employee/screening-runs/[id]/retry/route.ts",
   "employee/tasks/route.ts",
   "employee/tasks/[id]/dismiss/route.ts",
   "employee/notifications/route.ts",
   "employee/notifications/read/route.ts",
   "employee/memory/route.ts",
+  "employee/memory/facts/route.ts",
   "employee/memory/imports/route.ts",
   "employee/memory/imports/[id]/complete/route.ts",
   "employee/handoffs/route.ts",
@@ -799,6 +894,9 @@ check("001 initial schema migration exists", migrationFiles.includes("001_initia
 check("002 lead scope coordinator migration exists", migrationFiles.includes("002_lead_scope_coordinator.sql"));
 check("005 workload queue and Screening fan-out migration exists", migrationFiles.includes("005_workload_queue_and_screening_batches.sql"));
 check("006 Screening address locations migration exists", migrationFiles.includes("006_screening_address_locations.sql"));
+check("007 Screening retry and memory approval migration exists", migrationFiles.includes("007_screening_retry_memory_approval.sql"));
+check("008 Accio manual import formats migration exists", migrationFiles.includes("008_accio_manual_import_formats.sql"));
+check("009 customer work item dedupe migration exists", migrationFiles.includes("009_customer_work_items_deduped_screening.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -819,6 +917,28 @@ check("schema defines owner/team/visibility fields", ["owner_user_id", "team_nam
 check("schema defines task activity monitoring events", migrationSql.includes("agent_run_activity_events") && migrationSql.includes("target_summary"));
 check("schema defines migration history table", migrationSql.includes("cbe_schema_migrations"));
 check("schema backfills Screening address-footprint JSON rows", migrationSql.includes("screening_address_backfill_") && migrationSql.includes("address_footprint,locations"));
+check("schema persists per-target paid Screening retry state", [
+  "paid_email_call_status",
+  "paid_trade_call_status",
+  "paid_email_reapproved_by_user_id",
+  "paid_trade_reapproved_by_user_id",
+  "screening_batch_targets_retry_idx",
+].every((needle) => migrationSql.includes(needle)));
+check("schema persists memory review and handoff consumption timestamps", [
+  "reviewed_at",
+  "review_note",
+  "accepted_at",
+  "completed_at",
+  "consumed_by_agent_run_id",
+].every((needle) => migrationSql.includes(needle)));
+check("schema persists Accio manual import source/input/attachment metadata", [
+  "source_kind",
+  "input_format",
+  "attachment_metadata_json",
+  "manual_text",
+  "manual_image",
+  "accio_imports_source_kind_idx",
+].every((needle) => migrationSql.includes(needle)));
 check(
   "migration SQL does not embed obvious connection secrets",
   !/(postgres:\/\/|password\s*=|api_key|app_secret|bearer\s+)/i.test(migrationSql),
@@ -876,6 +996,7 @@ for (const page of cbeManagerPages) {
   check(`manager UI file exists: ${page}`, exists(path.join(DASHBOARD_ADMIN_DIR, page)));
 }
 const p22AllStoreText = dashboardStoreSource.map(([, text]) => text).join("\n");
+const dashboardAccioStoreTs = read(path.join(DASHBOARD_STORE_DIR, "accio.ts"));
 const completionRouteText = [
   read(path.join(DASHBOARD_API_DIR, "employee/lead-runs/[id]/complete/route.ts")),
   read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/complete/route.ts")),
@@ -893,27 +1014,61 @@ check("dashboard package declares server store dependencies", dashboardPackage.i
 check("P2.2 store uses environment-backed pg pool", read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("CBE_DATABASE_URL") && read(path.join(DASHBOARD_STORE_DIR, "db.ts")).includes("application_name"));
 check("P2.2 tenant context resolves seeded CBE profiles", read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts")).includes("cbe_user_profiles") && read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts")).includes("x-cbe-user-id"));
 check("P2.2 schemas require source URLs and fetched timestamps", p22AllStoreText.includes("source_url: z.string().url()") && p22AllStoreText.includes("fetched_at: IsoTimestampSchema"));
+check("P2.2 Accio import schemas include manual source/input metadata", ["AccioImportSourceKindSchema", "AccioImportInputFormatSchema", "source_kind", "input_format", "attachment_metadata"].every((needle) => dashboardSchemasTs.includes(needle)));
 check("P2.2 completion routes fail agent_runs on validation errors", completionRouteText.includes("safeParse") && completionRouteText.includes("failLeadCompletion") && completionRouteText.includes("failScreeningCompletion") && completionRouteText.includes("failAccioCompletion"));
 check("P2.2 writes audit events for major store actions", p22AllStoreText.includes("createAuditEvent") && p22AllStoreText.includes("lead_run_completed") && p22AllStoreText.includes("screening_reports_saved") && p22AllStoreText.includes("accio_summaries_saved"));
 check("P2.2 store writes Screening address-footprint rows", p22AllStoreText.includes("insert into screening_address_locations") && p22AllStoreText.includes("address_footprint") && p22AllStoreText.includes("saved_address_footprint_locations"));
 check("P2.2 store exposes typed Screening address-footprint lookup", p22AllStoreText.includes("listScreeningAddressLocations") && p22AllStoreText.includes("from screening_address_locations sal"));
+check("CE22 store enforces paid Screening retry re-approval state", [
+  "retryFailedScreeningChildRun",
+  "reapproval_required",
+  "screening_paid_retry_reapproved",
+  "paid_source_policy",
+].every((needle) => p22AllStoreText.includes(needle)));
+check("CE22 Accio completion keeps memory facts and Screening handoffs disabled", [
+  "memory_fact_ids: []",
+  "handoff_ids: []",
+  "interop_disabled: true",
+  "accio_interop_disabled",
+].every((needle) => p22AllStoreText.includes(needle)) && !dashboardAccioStoreTs.includes("insertHandoffEvent"));
+check("CE22 Accio-to-Screening handoff path is removed", [
+  "screening_handoff_accepted",
+  "screening_handoff_consumed",
+].every((needle) => !p22AllStoreText.includes(needle)));
 check("P2.2 store writes task activity events for admin monitoring", p22AllStoreText.includes("agent_run_activity_events") && p22AllStoreText.includes("createAgentRunActivityEvent"));
 check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreText.includes("scopedOwnerClause") && p22AllStoreText.includes("owner_user_id") && p22AllStoreText.includes("tenant_shared"));
 check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)"));
 check("P2.2 route handlers use Next App Router node runtime", [...p22EmployeeRoutes, ...p22AdminRoutes].every((route) => read(path.join(DASHBOARD_API_DIR, route)).includes('runtime = "nodejs"')));
 check("P2.2 route handlers do not expose raw SQL to employees", !/\b(select|insert into|update|delete from)\b/i.test(completionRouteText));
+check("CE22 retry route uses typed store and memory review route is disabled", [
+  read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/retry/route.ts")),
+  read(path.join(DASHBOARD_API_DIR, "employee/memory/facts/route.ts")),
+].join("\n").includes("retryFailedScreeningChildRun") && [
+  read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/retry/route.ts")),
+  read(path.join(DASHBOARD_API_DIR, "employee/memory/facts/route.ts")),
+].join("\n").includes("memory_fact_review_disabled"));
 
 section("CE21 Manager account system");
 check("manager schemas define cost limits and approval decisions", ["AdminCostLimitPatchRequestSchema", "AdminCostApprovalDecisionRequestSchema", "AdminCreateOperatorRequestSchema", "estimated_cost_usd"].every((needle) => dashboardSchemasTs.includes(needle)));
 const tenantContextTs = read(path.join(DASHBOARD_STORE_DIR, "tenant-context.ts"));
 const sessionHelperTs = read(path.join(DASHBOARD_STORE_DIR, "session.ts"));
 check("tenant context resolves role-scoped session before debug headers", tenantContextTs.includes("cbeSessionFromRequest(request, role)?.userId") && tenantContextTs.includes("expectedRoleFromPath") && tenantContextTs.includes("x-cbe-user-id"));
+check("tenant context recognizes canonical and rewritten CBE API paths", [
+  "CBE_ADMIN_API_BASE",
+  "CBE_EMPLOYEE_API_BASE",
+  "CBE_INTERNAL_ADMIN_API_BASE",
+  "CBE_INTERNAL_EMPLOYEE_API_BASE",
+  "pathname.includes(`${CBE_ADMIN_API_BASE}/`)",
+  "pathname.includes(`${CBE_INTERNAL_ADMIN_API_BASE}/`)",
+  "pathname.includes(`${CBE_EMPLOYEE_API_BASE}/`)",
+  "pathname.includes(`${CBE_INTERNAL_EMPLOYEE_API_BASE}/`)",
+].every((needle) => tenantContextTs.includes(needle)));
 check("session helper uses httpOnly-compatible signed role-scoped cookies", ["CBE_SESSION_COOKIE", "CBE_EMPLOYEE_SESSION_COOKIE", "CBE_ADMIN_SESSION_COOKIE", "cbeSessionCookieNameForRole", "createHmac", "timingSafeEqual"].every((needle) => sessionHelperTs.includes(needle)));
 check("auth login resolves RBAC token and sets CBE session cookies", authRouteText.includes("sentura.rbac.users.resolveByToken") && authRouteText.includes("response.cookies.set") && authRouteText.includes("CBE_SESSION_COOKIE") && authRouteText.includes("cbeSessionCookieNameForRole"));
 check("auth login can self-heal the seeded manager preset without raw DB env access", authRouteText.includes("PRESET_MANAGER_LOGIN") && authRouteText.includes("cbe-user-admin-001") && authRouteText.includes('displayName: "孙总"') && authRouteText.includes('password: "1234"') && authRouteText.includes("hashCbePassword"));
-check("manager login page copies employee login layout and submits admin role", managerLoginPageTs.includes('src="/logo-full.svg"') && managerLoginPageTs.includes('placeholder="管理者姓名"') && managerLoginPageTs.includes('cbeRole: "admin"') && managerLoginPageTs.includes("/client-demos/cross-border/admin/employees"));
-check("manager login is enforced by admin session instead of default admin header", managerAdminApiTs.includes("NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim()") && !managerAdminApiTs.includes('?? "cbe-user-admin-001"') && managerAdminApiTs.includes("/client-demos/cross-border/admin/login?next=") && managerAppShellTs.includes("isAdminLoginPath") && managerAppShellTs.includes("/api/client-demos/cross-border/session?role=admin") && managerAppShellTs.includes('body?.user?.cbeRole !== "admin"'));
-check("employee and manager guards use separate role sessions", managerAppShellTs.includes("/api/client-demos/cross-border/session?role=operator") && managerAppShellTs.includes("/api/client-demos/cross-border/session?role=admin") && managerAppShellTs.includes("logout?role="));
+check("manager login page copies employee login layout and submits admin role", managerLoginPageTs.includes('src="/logo-full.svg"') && managerLoginPageTs.includes('placeholder="管理者姓名"') && managerLoginPageTs.includes('cbeRole: "admin"') && managerLoginPageTs.includes("CBE_ADMIN_EMPLOYEES_PATH"));
+check("manager login is enforced by admin session instead of default admin header", managerAdminApiTs.includes("NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim()") && !managerAdminApiTs.includes('?? "cbe-user-admin-001"') && managerAdminApiTs.includes("CBE_ADMIN_LOGIN_PATH") && managerAppShellTs.includes("isAdminLoginPath") && managerAppShellTs.includes("CBE_SESSION_API_PATH") && managerAppShellTs.includes("role=admin") && managerAppShellTs.includes('body?.user?.cbeRole !== "admin"'));
+check("employee and manager guards use separate role sessions", managerAppShellTs.includes("role=operator") && managerAppShellTs.includes("role=admin") && managerAppShellTs.includes("logout?role="));
 check("admin operator creation writes real CBE name/password profile without gateway dependency", adminRouteText.includes("createLocalOperatorIdentity") && adminRouteText.includes("password_only") && !adminRouteText.includes("sentura.rbac.users.upsert") && p22AllStoreText.includes("upsertAdminOperatorProfile") && p22AllStoreText.includes("password_hash") && p22AllStoreText.includes("operator_name_exists"));
 check("CBE route errors surface plain RPC error messages", read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes('"message" in error') && read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes("record.message"));
 check("admin store exposes manager three-page data functions", ["listAdminOperators", "listAdminHighValueCustomers", "listAdminCosts", "upsertAdminCostLimit", "decideAdminCostApproval"].every((needle) => p22AllStoreText.includes(needle)));
@@ -923,6 +1078,22 @@ check("employee task create paths call budget preflight before agent run insert"
   return /await checkCbeCostBudgetBeforeRun[\s\S]+insertAgentRun/.test(text);
 }));
 check("employee API passes estimated task costs to server", ["estimateLeadTaskCost", "estimateScreeningTaskCost", "estimateMemoryTaskCost", "estimated_cost_usd"].every((needle) => managerEmployeeApiTs.includes(needle)));
+check("employee API persists dynamic task timing metadata through coordinator records", [
+  "estimateLeadTaskDurationMs",
+  "estimateScreeningTaskDurationMs",
+  "estimateScreeningTaskDurationMsForTargetCount",
+  "metadata_json",
+  "estimated_ms",
+  "timeout_ms",
+  "positiveMs(metadata.estimated_ms)",
+  "positiveMs(metadata.timeout_ms)",
+  "queuedDelayMs(statusValue, metadata)",
+].every((needle) => managerEmployeeApiTs.includes(needle)) && dashboardSchemasTs.includes("metadata_json: JsonRecordSchema.default({})") && [
+  "...input.metadata_json",
+  "workloadMetadata(admission)",
+  "target_count",
+  "requested_target_count",
+].every((needle) => p22AllStoreText.includes(needle)));
 check("AppShell switches employee and manager titles/nav", managerAppShellTs.includes("跨境电商员工操作系统") && managerAppShellTs.includes("跨境电商管理者系统") && managerAppShellTs.includes("员工管理") && managerAppShellTs.includes("优先跟进客户") && managerAppShellTs.includes("费用监控"));
 check("manager UI renders only the requested three pages", managerPageText.includes("员工管理") && managerPageText.includes("优先跟进客户") && managerPageText.includes("费用监控") && managerPageText.includes("完整背调报告"));
 check("manager cost UI separates actual, estimated, and unpriced cost signals", managerPageText.includes("已发生费用") && managerPageText.includes("预计") && managerPageText.includes("暂未折算"));
@@ -954,6 +1125,7 @@ const employeeStoreTs = read(path.join(DASHBOARD_STORES_DIR, "use-cbe-employee-s
 const employeeHomePageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "page.tsx"));
 const employeeCustomersPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx"));
 const employeeMemoryPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "memory/page.tsx"));
+const screeningStoreTs = read(path.join(DASHBOARD_STORE_DIR, "screening.ts"));
 const employeeNotificationTargetsTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-notification-targets.ts"));
 const appShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
 const authLoginPageTs = read(path.join(ROOT, "sentura/dashboard/src/app/auth/login/page.tsx"));
@@ -963,19 +1135,26 @@ const dbInspectionSql = read(CBE_DB_INSPECTION_SQL);
 check("P2.3 client API reads Employee projections", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API writes task lifecycle endpoints", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API normalizes strict marker contracts", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references", "sha256Hex"].every((needle) => employeeApiTs.includes(needle)));
+check("P2.3 Screening reports reconnect batch targets to lead candidates defensively", ["resolveLeadCandidateIdByIds", "target.lead_id, target.target_id", "resolveLeadCandidateIdByDomain", "resolveLeadCandidateIdByCompany", "lead_candidate_id = coalesce(lead_candidate_id", "source <> 'accio_memory'"].every((needle) => screeningStoreTs.includes(needle)));
 check("P2.3 hidden runner supports pre-created DB session keys", employeeRunnerTs.includes("createPlannedEmployeeSessionKey") && employeeRunnerTs.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
 check("P2.3 store persists draft/cache only", employeeStoreTs.includes("sentura-cbe-employee-draft-cache-v1") && employeeStoreTs.includes("draftCache: state.draftCache") && !employeeStoreTs.includes("rows: state.rows,") && !employeeStoreTs.includes("tasks: trimTasks(state.tasks),"));
 check("P2.3 demo seed fallback is explicit", employeeStoreTs.includes("CBE_USE_DEMO_SEED") && employeeStoreTs.includes("initialCustomerRows") && employeeStoreTs.includes("initialMemoryRows"));
 check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeHomePageTs.includes(needle)));
 check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb", "refreshDbBackedLists"].every((needle) => employeeCustomersPageTs.includes(needle)));
+check("P2.3 customers page applies child paid-source policy before Screening execution", ["screeningOptionsForChild", "paidSourcePolicy", "policy.paidEmailValidation?.allowed", "policy.paidTradeData?.allowed"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
+check("P2.3 memory page does not expose approval-to-memory action", !["reviewEmployeeMemoryFacts", "批准写入", "memoryPreviewStatusLabel"].some((needle) => employeeMemoryPageTs.includes(needle)) && employeeMemoryPageTs.includes("不写入长期记忆"));
+check("P2.3 memory page supports JSON/text/image manual imports through normalizer", ["normalizeJsonMemoryImport", "normalizeTextMemoryImport", "normalizeImageMemoryImport", "toGatewayChatAttachments", "截图导入需要立即分析"].every((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 employee header keeps DB task refresh and task notification links", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && appShellTs.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargetsTs.includes("employee-messages"));
 check("P2.3 employee and manager notifications use scrollable targeted message lists", appShellTs.includes("notificationListMaxHeight") && appShellTs.includes("overflow-y-auto") && appShellTs.includes("previewMessages.map((item)") && appShellTs.includes("employeeTaskNotificationHref(item)") && appShellTs.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShellTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargetsTs.includes("highlightTask=") && employeeNotificationTargetsTs.includes("employeeCostHighlightHref") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
-check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includes("fetchEmployeeCostBudget") && employeeApiTs.includes("/api/client-demos/cross-border/employee/cost-budget") && read(path.join(DASHBOARD_API_DIR, "employee/cost-budget/route.ts")).includes("getEmployeeCostBudget") && p22AllStoreText.includes("export async function getEmployeeCostBudget") && p22AllStoreText.includes("limitUsd = limitEnabled ? moneyUsd(baseLimitUsd + activeAllowanceUsd) : 0") && p22AllStoreText.includes("if (scopedEvents.length === 0) return null") && p22AllStoreText.includes('const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]') && p22AllStoreText.includes("period = any($3::text[])"));
+check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includes("fetchEmployeeCostBudget") && employeeApiTs.includes('employeeApi("/cost-budget")') && read(path.join(DASHBOARD_API_DIR, "employee/cost-budget/route.ts")).includes("getEmployeeCostBudget") && p22AllStoreText.includes("export async function getEmployeeCostBudget") && p22AllStoreText.includes("limitUsd = limitEnabled ? moneyUsd(baseLimitUsd + activeAllowanceUsd) : 0") && p22AllStoreText.includes("if (scopedEvents.length === 0) return null") && p22AllStoreText.includes('const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]') && p22AllStoreText.includes("period = any($3::text[])"));
 check("P2.3 employee login uses manager-set name/password session", authLoginPageTs.includes("displayName") && authLoginPageTs.includes("password") && authRouteText.includes("verifyCbePassword") && appShellTs.includes("/api/auth/logout"));
 check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));
 check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
 check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));
+check("P2.3 Accio store persists and projects import source/input metadata", ["source_kind", "input_format", "attachment_metadata_json", "sourceKind", "inputFormat", "attachmentMetadata"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
+check("P2.3 Accio memory projection exposes structured deal facts", ["customerProfile", "purchaseIntent", "negotiatedPrices", "behaviorSignals", "customer_profile_json", "purchase_intent_json", "negotiated_price_json"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
+check("P2.3 Accio memory projection prefers analyzed company over placeholder import company", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("nullif(asum.customer_profile_json->>'company_name'") && read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("nullif(ac.company_name"));
 check("P2.3 live DB inspection SQL exists", exists(CBE_DB_INSPECTION_SQL));
 check("P2.3 live DB inspection SQL derives website from physical schema", dbInspectionSql.includes("lrr.source_snapshot_json->>'website'") && dbInspectionSql.includes("supplied_fields_json->>'website'"));
 check("P2.3 live DB inspection SQL joins through real FK path", dbInspectionSql.includes("left join lead_runs lr") && dbInspectionSql.includes("lc.lead_run_id = lr.id") && dbInspectionSql.includes("join screening_targets st"));

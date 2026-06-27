@@ -66,7 +66,12 @@ export async function getServerGatewayClient(): Promise<GatewayClient> {
       token,
       wsFactory: makeServerWebSocket(origin),
     });
-    await client.connect();
+    try {
+      await client.connect();
+    } catch (err) {
+      client.disconnect();
+      throw err;
+    }
     _client = client;
     if (!_subscribed) {
       try {
@@ -84,4 +89,11 @@ export async function getServerGatewayClient(): Promise<GatewayClient> {
   } finally {
     _connectPromise = null;
   }
+}
+
+export function disconnectServerGatewayClient() {
+  _client?.disconnect();
+  _client = null;
+  _connectPromise = null;
+  _subscribed = false;
 }

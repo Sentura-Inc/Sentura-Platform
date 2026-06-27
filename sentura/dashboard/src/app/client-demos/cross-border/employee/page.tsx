@@ -24,6 +24,11 @@ import {
   useCbeEmployeeStore,
 } from "@/stores/use-cbe-employee-store";
 import {
+  CBE_EMPLOYEE_CUSTOMERS_PATH,
+  CBE_EMPLOYEE_MEMORY_PATH,
+  CBE_SESSION_API_PATH,
+} from "@/lib/cross-border-routes";
+import {
   employeeProfile,
 } from "./_data/employee-data";
 import {
@@ -45,8 +50,8 @@ import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 type HomeRange = "today" | "week" | "month" | "all";
 type CustomerHighlightScope = "lead-results" | "screening-results" | "trusted" | "pending";
 
-const customerPagePath = "/client-demos/cross-border/employee/customers";
-const memoryPagePath = "/client-demos/cross-border/employee/memory";
+const customerPagePath = CBE_EMPLOYEE_CUSTOMERS_PATH;
+const memoryPagePath = CBE_EMPLOYEE_MEMORY_PATH;
 
 const rangeOptions: Array<{ id: HomeRange; label: string }> = [
   { id: "today", label: "今日" },
@@ -154,7 +159,7 @@ function CrossBorderEmployeeHomeContent() {
     let cancelled = false;
     async function refreshSessionName() {
       try {
-        const response = await fetch("/api/client-demos/cross-border/session?role=operator", { cache: "no-store" });
+        const response = await fetch(`${CBE_SESSION_API_PATH}?role=operator`, { cache: "no-store" });
         const body = await response.json().catch(() => ({}));
         const displayName = typeof body?.user?.displayName === "string"
           ? body.user.displayName.trim()

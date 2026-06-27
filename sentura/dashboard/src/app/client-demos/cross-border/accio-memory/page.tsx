@@ -12,7 +12,6 @@ import {
   MessageSquareText,
   PackageCheck,
   Play,
-  Send,
   ShieldCheck,
   Upload,
 } from "lucide-react";
@@ -104,21 +103,6 @@ interface MemoryWritePreview {
   conversation_id: string;
 }
 
-interface ScreeningHandoffTarget {
-  target_id: string;
-  source: "accio_memory";
-  company_name: string;
-  country: string;
-  website?: string;
-  email?: string;
-  contact_person: string;
-  contact_title?: string;
-  product_interest: string[];
-  operator_notes: string;
-  supplied_fields: string[];
-  missing_fields: string[];
-}
-
 interface AccioSummary {
   conversation_id: string;
   customer_profile: {
@@ -129,7 +113,7 @@ interface AccioSummary {
     role?: string;
     email?: string;
     website?: string;
-    company_evidence_status: "needs_screening" | "screened" | "insufficient_evidence";
+    company_evidence_status: "unverified_chat_claims" | "insufficient_evidence";
   };
   purchase_intent: PurchaseIntent[];
   negotiated_prices: NegotiatedPrice[];
@@ -146,7 +130,6 @@ interface AccioSummary {
     conversation_id: string;
   }>;
   memory_write_preview: MemoryWritePreview;
-  screening_handoff_target: ScreeningHandoffTarget;
 }
 
 interface StoredState {
@@ -278,24 +261,20 @@ function normalizeSummary(value: unknown): AccioSummary {
   const behavior = asRecord(record.behavior_signals);
   const sourceRefs = Array.isArray(record.source_references) ? record.source_references : [];
   const memoryPreview = asRecord(record.memory_write_preview);
-  const handoff = asRecord(record.screening_handoff_target);
   const conversationId = asString(record.conversation_id) ?? "unknown";
-  const company = asString(profile.company_name) ?? asString(handoff.company_name) ?? "Unknown company";
-  const country = asString(profile.country) ?? asString(handoff.country) ?? "ZZ";
-  const productInterest = Array.isArray(handoff.product_interest)
-    ? handoff.product_interest.filter((item): item is string => typeof item === "string")
-    : [];
+  const company = asString(profile.company_name) ?? "Unknown company";
+  const country = asString(profile.country) ?? "ZZ";
   return {
     conversation_id: conversationId,
     customer_profile: {
       company_name: company,
       country,
       city: asString(profile.city),
-      contact_person: asString(profile.contact_person) ?? asString(handoff.contact_person) ?? "Unknown contact",
-      role: asString(profile.role) ?? asString(handoff.contact_title),
-      email: asString(profile.email) ?? asString(handoff.email),
-      website: asString(profile.website) ?? asString(handoff.website),
-      company_evidence_status: "needs_screening",
+      contact_person: asString(profile.contact_person) ?? "Unknown contact",
+      role: asString(profile.role),
+      email: asString(profile.email),
+      website: asString(profile.website),
+      company_evidence_status: "unverified_chat_claims",
     },
     purchase_intent: purchase.map((item) => {
       const intent = asRecord(item);
@@ -328,7 +307,7 @@ function normalizeSummary(value: unknown): AccioSummary {
     negotiation_summary: asString(record.negotiation_summary) ?? "已生成 Accio 对话摘要。",
     next_actions: Array.isArray(record.next_actions)
       ? record.next_actions.filter((item): item is string => typeof item === "string")
-      : ["发送给背调员工核验买家真实性。"],
+      : ["人工复核客户画像、采购需求和下一步跟进。"],
     behavior_signals: {
       inquiry_professionalism_points: asNumber(behavior.inquiry_professionalism_points) ?? 6,
       responsiveness_points: asNumber(behavior.responsiveness_points) ?? 6,
@@ -353,24 +332,6 @@ function normalizeSummary(value: unknown): AccioSummary {
         : [`${company} 的 Accio 结构化摘要预览。`],
       source_file: asString(memoryPreview.source_file) ?? "accio-chat-records.sample.json",
       conversation_id: asString(memoryPreview.conversation_id) ?? conversationId,
-    },
-    screening_handoff_target: {
-      target_id: asString(handoff.target_id) ?? `screen-target-${conversationId}`,
-      source: "accio_memory",
-      company_name: company,
-      country,
-      website: asString(handoff.website) ?? asString(profile.website),
-      email: asString(handoff.email) ?? asString(profile.email),
-      contact_person: asString(handoff.contact_person) ?? asString(profile.contact_person) ?? "Unknown contact",
-      contact_title: asString(handoff.contact_title) ?? asString(profile.role),
-      product_interest: productInterest.length ? productInterest : ["mobile phone accessories"],
-      operator_notes: asString(handoff.operator_notes) ?? asString(record.negotiation_summary) ?? "Accio summary handoff.",
-      supplied_fields: Array.isArray(handoff.supplied_fields)
-        ? handoff.supplied_fields.filter((item): item is string => typeof item === "string")
-        : ["company_name", "country", "behavior_signals"],
-      missing_fields: Array.isArray(handoff.missing_fields)
-        ? handoff.missing_fields.filter((item): item is string => typeof item === "string")
-        : ["registry_number"],
     },
   };
 }
@@ -450,8 +411,8 @@ function buildEmployeePrompt(chatExport: AccioChatExport) {
 - 先调用 Accio parser 工具验证 JSON，并总结 conversation_count。
 - 再调用 Accio summarizer 工具，为每条 conversation 生成一个 AccioChatSummary；如工具遗漏了 messages 中明确出现的字段，请基于原文补齐。
 - 提取公司信息、产品、型号、数量、月潜量、目标/报价/最佳价格、包装加价、付款/物流/证书条款、next_actions、behavior_signals。
-- 只生成 memory_write_preview，不要声称已经写入长期记忆。
-- 生成 screening_handoff_target，source 必须是 "accio_memory"。
+- 只生成 memory_write_preview / memory_preview 兼容预览，不要声称已经写入长期记忆。
+- 不要生成 screening_handoff_target、handoff、lead_id 或任何背调移交字段。
 - 最后用以下标记包住 JSON 数组，供 Dashboard 解析：
 ${SUMMARY_JSON_START}
 [...]
@@ -544,7 +505,7 @@ export default function CrossBorderAccioMemoryPage() {
     setSelectedConversationId(nextExport.conversations[0]?.conversation_id);
     setSourceLabel(nextSourceLabel);
     setRunStatus("loaded");
-    setRunMessage(`已加载并校验 ${nextExport.conversations.length} 条 Accio 对话；等待记忆员工分析后展示高亮、报告和背调预览。`);
+    setRunMessage(`已加载并校验 ${nextExport.conversations.length} 条 Accio 对话；等待记忆员工分析后展示高亮和结构化报告。`);
     setAccioSessionKey(undefined);
     setCopyMessage("");
   }, []);
@@ -611,13 +572,7 @@ export default function CrossBorderAccioMemoryPage() {
   const previewMemory = useCallback(async () => {
     if (!selectedSummary) return;
     await copyText(JSON.stringify(selectedSummary.memory_write_preview, null, 2));
-    setCopyMessage("memory_write_preview 已复制，仍未写入长期记忆。");
-  }, [selectedSummary]);
-
-  const copyScreeningHandoff = useCallback(async () => {
-    if (!selectedSummary) return;
-    await copyText(JSON.stringify({ targets: [selectedSummary.screening_handoff_target] }, null, 2));
-    setCopyMessage("已复制发送到背调的 accio_memory payload。");
+    setCopyMessage("分析报告预览已复制，仍未写入长期记忆。");
   }, [selectedSummary]);
 
   return (
@@ -627,7 +582,7 @@ export default function CrossBorderAccioMemoryPage() {
           <div>
             <h1 className="text-xl font-semibold tracking-normal">跨境 Accio 记忆处理</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              加载 Accio JSON，审阅原始对话，并等待记忆员工返回结构化交易报告、记忆写入预览和背调交接 payload。
+              加载 Accio JSON，审阅原始对话，并等待记忆员工返回结构化交易报告和分析报告预览。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -860,7 +815,7 @@ export default function CrossBorderAccioMemoryPage() {
           <div className="rounded-md border bg-card p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">
               <Database className="h-4 w-4" />
-              记忆 / 背调预览
+              记忆分析预览
             </div>
             {selectedSummary ? (
               <div className="space-y-4">
@@ -869,7 +824,7 @@ export default function CrossBorderAccioMemoryPage() {
                   <div className="mt-1 text-xs text-muted-foreground">
                     {selectedSummary.customer_profile.country} · {selectedSummary.customer_profile.role ?? "未提供职位"} · {maskEmail(selectedSummary.customer_profile.email)}
                   </div>
-                  <Badge className="mt-2" variant="outline">company_evidence_status: needs_screening</Badge>
+                  <Badge className="mt-2" variant="outline">company_evidence_status: unverified_chat_claims</Badge>
                 </div>
 
                 <div className="space-y-2">
@@ -930,18 +885,14 @@ export default function CrossBorderAccioMemoryPage() {
                 <div className="space-y-2">
                   <Button className="w-full justify-start" variant="outline" onClick={previewMemory}>
                     <ClipboardCopy className="h-4 w-4" />
-                    写入记忆预览
-                  </Button>
-                  <Button className="w-full justify-start" variant="outline" onClick={copyScreeningHandoff}>
-                    <Send className="h-4 w-4" />
-                    发送到背调
+                    复制分析报告预览
                   </Button>
                   {copyMessage && <p className="text-xs text-muted-foreground">{copyMessage}</p>}
                 </div>
               </div>
             ) : (
               <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                等待记忆员工返回报告后，这里显示 company summary、purchase intent、memory_write_preview 和 Screening handoff。
+                等待记忆员工返回报告后，这里显示 company summary、purchase intent 和 preview-only memory report。
               </div>
             )}
           </div>

@@ -21,5 +21,4 @@ Produce a normalized conversation list with message count, first/last message ti
 
 ## Safety
 
-Do not remove source identifiers. Screening and memory preview both need `source_file` plus `conversation_id`.
-
+Do not remove source identifiers. The memory analysis report needs `source_file` plus `conversation_id`.

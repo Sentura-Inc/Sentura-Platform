@@ -26,7 +26,7 @@ export type ScreeningEvidenceLayer =
   | "financial_public_filing"
   | "accio_behavior";
 
-export const MAX_LEAD_TARGET_COUNT = 20;
+export const MAX_LEAD_TARGET_COUNT = 10;
 
 export interface CustomerScoreBlock {
   block: string;
@@ -165,7 +165,7 @@ export interface CustomerScreeningReport {
 
 export interface CustomerListItem {
   customerId: string;
-  source: "lead_discovery" | "manual_screening" | "accio_handoff";
+  source: "lead_discovery" | "manual_screening";
   companyName: string;
   country: string;
   countryName: string;
@@ -204,13 +204,13 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     case "legal_identity":
       return "公司注册信息、官方注册页或可确认的 Google Maps（谷歌地图）线下门店/地址未形成足够真实性证据。";
     case "domain_email":
-      return "官网域名、邮箱记录或邮箱验证未搜索到足够依据。";
+      return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够依据。";
     case "public_footprint":
       return "公开网页或线下地址线索未找到足够业务足迹。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
     case "trade_financial":
-      return "贸易记录或财务公开信息未搜索到可用结果。";
+      return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
     case "conversation_behavior":
       return "没有聊天或销售对话记录可用于行为判断。";
     default:
@@ -264,10 +264,13 @@ export interface MemoryRecordItem {
   latestAgentRunId?: string;
   memoryPreviewStatus: "preview_only" | "approved" | "rejected";
   summary: string;
-  handoffCompany?: string;
-  supplementCustomerId?: string;
-  supplementCompanyName?: string;
-  supplementSource?: CustomerListItem["source"];
+  country?: string;
+  customerProfile?: Record<string, unknown> | null;
+  purchaseIntent?: Record<string, unknown>[];
+  negotiatedPrices?: Record<string, unknown>[];
+  behaviorSignals?: Record<string, unknown> | null;
+  nextActions?: string[];
+  companyName?: string;
 }
 
 export interface CostBudget {
@@ -687,22 +690,6 @@ export const customerRows: CustomerListItem[] = [
     },
   },
   {
-    customerId: "cust-accio-br",
-    source: "accio_handoff",
-    companyName: "Brasil Cell Parts",
-    country: "BR",
-    countryName: "巴西",
-    city: "Sao Paulo",
-    buyerType: "来自聊天记录",
-    products: ["OLED screen", "repair parts"],
-    foundAt: "2026-06-11 17:22",
-    screeningStatus: "not_started",
-    latestAgentRunId: "run-accio-20260611-1722",
-    sourceUrls: ["accio-chat-records.sample.json"],
-    evidenceSummary: "来自聊天记录整理，已有价格和数量线索，尚未做主体背调。",
-    recommendedAction: "点击开始调研，先核验公司主体和官网。",
-  },
-  {
     customerId: "cust-low-risk",
     source: "lead_discovery",
     companyName: "Case Outlet Direct",
@@ -782,7 +769,7 @@ export const memoryRows: MemoryRecordItem[] = [
     latestAgentRunId: "run-accio-20260611-1722",
     memoryPreviewStatus: "preview_only",
     summary: "提取了 OLED 屏、维修配件、目标价和下一步报价动作。",
-    handoffCompany: "Brasil Cell Parts",
+    companyName: "Brasil Cell Parts",
   },
   {
     recordId: "mem-ali-002",
@@ -810,7 +797,7 @@ export const memoryRows: MemoryRecordItem[] = [
 export const employeeMessages = [
   {
     id: "msg-lead-done",
-    title: "获客任务完成：找到 18 个潜在客户",
+    title: "获客任务完成：找到 10 个潜在客户",
     time: "09:27",
     target: "获客与背调",
   },
@@ -854,13 +841,11 @@ export function estimateLeadTaskCost({
   buyerTypeCount,
   countryCount,
   targetCount,
-  maxResultsPerQuery,
 }: {
   productCount: number;
   buyerTypeCount: number;
   countryCount: number;
   targetCount: number;
-  maxResultsPerQuery: number;
 }): TaskEstimate {
   const safeProductCount = Math.max(1, productCount);
   const safeBuyerTypeCount = Math.max(1, buyerTypeCount);
@@ -869,24 +854,20 @@ export function estimateLeadTaskCost({
   const safeTargetCount = Number.isFinite(rawTargetCount)
     ? Math.min(MAX_LEAD_TARGET_COUNT, Math.max(1, rawTargetCount))
     : 1;
-  const safeMaxResultsPerQuery = Math.max(1, maxResultsPerQuery);
-  const queryCount = safeProductCount * safeBuyerTypeCount * safeCountryCount;
-  const searchUnits = queryCount * safeMaxResultsPerQuery;
   const assumptions = costEstimateAssumptions.leadDiscovery;
-  const expectedRetainedPerSearch = Math.max(1, Math.min(6, Math.ceil(safeMaxResultsPerQuery * 0.35)));
+  const conditionBreadth = safeProductCount + safeBuyerTypeCount + safeCountryCount;
   const estimatedSearchRequestCount = Math.max(
     1,
-    Math.min(queryCount, Math.ceil(safeTargetCount / expectedRetainedPerSearch)),
+    Math.min(4, Math.ceil((safeTargetCount + Math.max(0, conditionBreadth - 3)) / 5)),
   );
-  const estimatedFetchedPages = Math.min(searchUnits, estimatedSearchRequestCount * safeMaxResultsPerQuery, safeTargetCount * 3);
+  const estimatedFetchedPages = Math.min(20, Math.max(safeTargetCount, safeTargetCount * 2));
   const searchRequestUsd = estimatedSearchRequestCount * assumptions.tavilyAdvancedSearchRequestUsd;
-  const retainedCandidateUsd =
-    Math.min(safeTargetCount, searchUnits) * assumptions.retainedCandidateReviewUsd;
+  const retainedCandidateUsd = safeTargetCount * assumptions.retainedCandidateReviewUsd;
   const pricedExternalUsd = searchRequestUsd + retainedCandidateUsd;
   const observedUsd =
     (assumptions.observedBaseUsd +
       estimatedSearchRequestCount * assumptions.observedSearchRequestUsd +
-      Math.min(safeTargetCount, searchUnits) * assumptions.observedRetainedCandidateUsd) *
+      safeTargetCount * assumptions.observedRetainedCandidateUsd) *
     assumptions.observedSafetyMultiplier;
   const estimatedUsd = Number(
     Math.max(
@@ -899,7 +880,7 @@ export function estimateLeadTaskCost({
     label: "寻找客户",
     estimatedUsd,
     source: costEstimateAssumptions.leadSourceLabel,
-    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；最多 ${queryCount} 组搜索组合，目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期实际找客户费用校准，并与外部资料查询下限取较高值。预计会读取约 ${estimatedFetchedPages} 个公开页面；实际费用以任务完成后的费用记录为准。`,
+    details: `${safeProductCount} 类产品、${safeBuyerTypeCount} 类买家、${safeCountryCount} 个国家；目标上限 ${MAX_LEAD_TARGET_COUNT} 个客户。按近期实际找客户费用校准，系统会把多选条件合并为一个搜索意图，按搜索结果顺序保留前 ${safeTargetCount} 个合规潜在客户。预计会读取约 ${estimatedFetchedPages} 个公开页面；实际费用以任务完成后的费用记录为准。`,
   };
 }
 

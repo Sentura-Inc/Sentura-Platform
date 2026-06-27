@@ -200,10 +200,10 @@ async function runLiveCe21Checks() {
   await migrateCbeDatabase({ seed: true });
   const imported = await import("../sentura/dashboard/src/lib/cross-border-store/index.ts");
   const store = (imported.default ?? imported) as Record<string, any>;
-  const requestA = new Request("http://sentura.local/api/client-demos/cross-border/employee/customers", {
+  const requestA = new Request("http://sentura.local/api/employee/customers", {
     headers: { "x-cbe-user-id": CBE_SEED_USERS.operatorA.id },
   });
-  const requestB = new Request("http://sentura.local/api/client-demos/cross-border/employee/customers", {
+  const requestB = new Request("http://sentura.local/api/employee/customers", {
     headers: { "x-cbe-user-id": CBE_SEED_USERS.operatorB.id },
   });
   const contextA = await store.resolveCbeTenantContext(requestA);
@@ -800,7 +800,7 @@ check("Lead hidden prompt supports strict target and top-up denylist", ["top_up_
 check("Employee Lead page does not launch sessions for join/near/queued decisions and supports auto top-up", ["join_existing", "offer_near_duplicate_choices", "agentRun.status === \"queued\"", "MAX_LEAD_COMPLETION_ATTEMPTS", "top_up_unique_leads"].every((needle) => customersPageText.includes(needle) || employeeApiText.includes(needle)) && !customersPageText.includes("reuse_completed_pool"));
 check("Employee Screening fan-out page launches only claimed child sessions and Accio page does not launch queued sessions", ["childRuns", "claimEmployeeQueuedScreeningRuns", "agentRun.status !== \"queued\"", "背调任务已进入排队"].every((needle) => customersPageText.includes(needle)) && memoryPageText.includes("记忆整理已进入排队"));
 check("Employee Screening completion count uses saved DB reports", employeeApiText.includes("CompleteEmployeeScreeningRunResponse") && customersPageText.includes("savedResult.reports") && customersPageText.includes("Math.max(savedReportCount, result.records.length)"));
-check("Lead workspace documents pre-search denylist, strict target, and top-up mode", read(leadAgentsMd).includes("net-new, non-duplicate customers") && read(leadQuerySkill).includes("max_results_per_query") && read(leadDedupeSkill).includes("Do not count dropped denylist candidates") && read(leadListSkill).includes("The `leads` array should contain exactly `target_count`"));
+check("Lead workspace documents pre-search denylist, strict target, and top-up mode", read(leadAgentsMd).includes("net-new, non-duplicate customers") && read(leadQuerySkill).includes("first `target_count` compliant downstream buyer companies") && read(leadDedupeSkill).includes("Do not count dropped denylist candidates") && read(leadListSkill).includes("The `leads` array should contain exactly `target_count`"));
 
 if (process.env.CBE_DATABASE_URL) {
   await runLiveCe21Checks();

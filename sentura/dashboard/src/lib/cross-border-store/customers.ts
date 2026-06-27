@@ -57,7 +57,7 @@ interface CustomerRow {
 }
 
 function stringArray(value: unknown) {
-  const items = Array.isArray(value)
+  return Array.isArray(value)
     ? value
         .map((item) => {
           if (typeof item === "string") return item;
@@ -69,7 +69,6 @@ function stringArray(value: unknown) {
         })
         .filter((item): item is string => Boolean(item))
     : [];
-  return Array.from(new Set(items));
 }
 
 function websiteFromRow(row: CustomerRow) {
@@ -157,132 +156,63 @@ export async function listEmployeeCustomers(
         c.created_at,
         c.updated_at
       from (
-        select distinct on (base.record_type, base.record_id)
-          base.*
-        from (
-          select
-            c.tenant_id,
-            c.record_type,
-            c.record_id,
-            c.company_name,
-            c.country,
-            c.buyer_type,
-            c.domain,
-            c.owner_user_id,
-            c.created_by_user_id,
-            c.department_id,
-            c.team_name,
-            c.visibility_scope,
-            coalesce(lc.matched_products_json, st.product_interest_json, '[]'::jsonb) as matched_products_json,
-            st.supplied_fields_json as target_fields_json,
-            c.lead_status,
-            c.screening_status,
-            c.latest_screening_report_id,
-            c.normalized_score,
-            c.evidence_coverage,
-            lead_run_for_customer.agent_run_id as lead_agent_run_id,
-            sr.agent_run_id as screening_agent_run_id,
-            coalesce(ls.source_urls, array[]::text[]) as source_urls,
-            c.created_at,
-            c.updated_at
-          from cbe_customer_work_items c
-          left join lead_candidates lc
-            on c.record_type = 'lead_candidate'
-           and lc.tenant_id = c.tenant_id
-           and lc.id = c.record_id
-          left join screening_reports sr
-            on sr.tenant_id = c.tenant_id
-           and sr.id = c.latest_screening_report_id
-          left join lead_runs lead_run_for_customer
-            on c.record_type = 'lead_candidate'
-           and lead_run_for_customer.tenant_id = c.tenant_id
-           and lead_run_for_customer.id = lc.lead_run_id
-          left join screening_targets st
-            on st.tenant_id = c.tenant_id
-           and (
-              (c.record_type = 'screening_target' and st.id = c.record_id)
-              or (c.record_type = 'lead_candidate' and st.id = sr.screening_target_id)
-            )
-          left join lateral (
-            select array_agg(source_url order by fetched_at desc nulls last, id) filter (where source_url is not null) as source_urls
-            from lead_sources
-            where tenant_id = c.tenant_id
-              and lead_candidate_id = c.record_id
-          ) ls on c.record_type = 'lead_candidate'
-          where not (
-            c.record_type = 'screening_target'
-            and coalesce((
-              st.source = 'accio_memory'
-              or sr.report_json->'target'->>'source' = 'accio_memory'
-              or sr.report_json->>'target_source' = 'accio_memory'
-            ), false)
+        select
+          c.tenant_id,
+          c.record_type,
+          c.record_id,
+          c.company_name,
+          c.country,
+          c.buyer_type,
+          c.domain,
+          c.owner_user_id,
+          c.created_by_user_id,
+          c.department_id,
+          c.team_name,
+          c.visibility_scope,
+          coalesce(lc.matched_products_json, st.product_interest_json, '[]'::jsonb) as matched_products_json,
+          st.supplied_fields_json as target_fields_json,
+          c.lead_status,
+          c.screening_status,
+          c.latest_screening_report_id,
+          c.normalized_score,
+          c.evidence_coverage,
+          lead_run_for_customer.agent_run_id as lead_agent_run_id,
+          sr.agent_run_id as screening_agent_run_id,
+          coalesce(ls.source_urls, array[]::text[]) as source_urls,
+          c.created_at,
+          c.updated_at
+        from cbe_customer_work_items c
+        left join lead_candidates lc
+          on c.record_type = 'lead_candidate'
+         and lc.tenant_id = c.tenant_id
+         and lc.id = c.record_id
+        left join screening_reports sr
+          on sr.tenant_id = c.tenant_id
+         and sr.id = c.latest_screening_report_id
+        left join lead_runs lead_run_for_customer
+          on c.record_type = 'lead_candidate'
+         and lead_run_for_customer.tenant_id = c.tenant_id
+         and lead_run_for_customer.id = lc.lead_run_id
+        left join screening_targets st
+          on st.tenant_id = c.tenant_id
+         and (
+            (c.record_type = 'screening_target' and st.id = c.record_id)
+            or (c.record_type = 'lead_candidate' and st.id = sr.screening_target_id)
           )
-          union all
-          select
-            asum.tenant_id,
-            'accio_summary'::text as record_type,
-            asum.id as record_id,
-            coalesce(ac.company_name, asum.customer_profile_json->>'company_name', 'Unknown Accio buyer') as company_name,
-            coalesce(ac.country, asum.customer_profile_json->>'country') as country,
-            null::text as buyer_type,
-            nullif(
-              regexp_replace(
-                coalesce(ac.website, asum.customer_profile_json->>'website', ''),
-                '^https?://(www\\.)?([^/]+).*$',
-                '\\2'
-              ),
-              ''
-            ) as domain,
-            asum.owner_user_id,
-            asum.created_by_user_id,
-            asum.department_id,
-            asum.team_name,
-            asum.visibility_scope,
-            coalesce(asum.purchase_intent_json, '[]'::jsonb) as matched_products_json,
-            jsonb_build_object(
-              'website', coalesce(ac.website, asum.customer_profile_json->>'website'),
-              'email', coalesce(ac.email, asum.customer_profile_json->>'email'),
-              'contact_person', coalesce(ac.contact_person, asum.customer_profile_json->>'contact_person'),
-              'source_file', ai.source_file_name
-            ) as target_fields_json,
-            'accio_handoff'::text as lead_status,
-            coalesce(accio_sr.risk_tier, 'not_started')::text as screening_status,
-            accio_sr.id as latest_screening_report_id,
-            accio_sr.normalized_score,
-            accio_sr.evidence_coverage,
-            asum.agent_run_id as lead_agent_run_id,
-            accio_sr.agent_run_id as screening_agent_run_id,
-            array_remove(array[ai.source_file_name], null)::text[] as source_urls,
-            asum.created_at,
-            coalesce(accio_sr.created_at, asum.created_at) as updated_at
-          from accio_summaries asum
-          join accio_conversations ac
-            on ac.tenant_id = asum.tenant_id
-           and ac.id = asum.accio_conversation_id
-          join accio_imports ai
-            on ai.tenant_id = ac.tenant_id
-           and ai.id = ac.accio_import_id
-          left join lateral (
-            select
-              sr2.id,
-              sr2.agent_run_id,
-              sr2.risk_tier,
-              sr2.normalized_score,
-              sr2.evidence_coverage,
-              sr2.created_at
-            from screening_reports sr2
-            where sr2.tenant_id = asum.tenant_id
-              and (
-                sr2.report_json->'target'->>'lead_id' = asum.id
-                or sr2.report_json->'target'->>'target_id' = asum.id
-                or sr2.report_json->>'lead_id' = asum.id
-              )
-            order by sr2.created_at desc, sr2.id desc
-            limit 1
-          ) accio_sr on true
-          where coalesce(asum.behavior_signals_json->'supplement_target'->>'source', '') <> 'manual_screening'
-        ) base
-        order by base.record_type, base.record_id, base.updated_at desc, base.latest_screening_report_id desc nulls last
+        left join lateral (
+          select array_agg(source_url order by fetched_at desc nulls last, id) filter (where source_url is not null) as source_urls
+          from lead_sources
+          where tenant_id = c.tenant_id
+            and lead_candidate_id = c.record_id
+        ) ls on c.record_type = 'lead_candidate'
+        where not (
+          c.record_type = 'screening_target'
+          and coalesce((
+            st.source = 'accio_memory'
+            or sr.report_json->'target'->>'source' = 'accio_memory'
+            or sr.report_json->>'target_source' = 'accio_memory'
+          ), false)
+        )
       ) c
       left join screening_reports sr
         on sr.tenant_id = c.tenant_id
@@ -363,47 +293,7 @@ export async function deleteEmployeeCustomers(context: TenantContext, ids: strin
       for (const row of leadTargets.rows) screeningTargetIds.add(row.id);
     }
 
-    const summaryScope = scopedOwnerClause(context, "asum", 3);
-    const summaryRows = await client.query<{
-      id: string;
-      accio_conversation_id: string;
-      accio_import_id: string;
-    }>(
-      `
-        select
-          asum.id,
-          asum.accio_conversation_id,
-          ac.accio_import_id
-        from accio_summaries asum
-        join accio_conversations ac
-          on ac.tenant_id = asum.tenant_id
-         and ac.id = asum.accio_conversation_id
-        where asum.tenant_id = $1
-          and asum.id = any($2::text[])
-          ${summaryScope.sql}
-      `,
-      [context.tenantId, requestedIds, ...summaryScope.values],
-    );
-    const accioSummaryIds = summaryRows.rows.map((row) => row.id);
-
-    if (accioSummaryIds.length > 0) {
-      const accioTargets = await client.query<{ id: string }>(
-        `
-          select distinct sr.screening_target_id as id
-          from screening_reports sr
-          where sr.tenant_id = $1
-            and (
-              sr.report_json->'target'->>'lead_id' = any($2::text[])
-              or sr.report_json->'target'->>'target_id' = any($2::text[])
-              or sr.report_json->>'lead_id' = any($2::text[])
-            )
-        `,
-        [context.tenantId, accioSummaryIds],
-      );
-      for (const row of accioTargets.rows) screeningTargetIds.add(row.id);
-    }
-
-    if (leadCandidateIds.length === 0 && screeningTargetIds.size === 0 && accioSummaryIds.length === 0) {
+    if (leadCandidateIds.length === 0 && screeningTargetIds.size === 0) {
       throw new CbeStoreError(404, "customer_record_missing", "Selected customer records were not found.");
     }
 
@@ -446,64 +336,6 @@ export async function deleteEmployeeCustomers(context: TenantContext, ids: strin
       );
     }
 
-    const conversationIds = new Set(summaryRows.rows.map((row) => row.accio_conversation_id));
-    const candidateImportIds = new Set(summaryRows.rows.map((row) => row.accio_import_id));
-    if (accioSummaryIds.length > 0) {
-      await client.query(
-        `
-          delete from memory_facts
-          where tenant_id = $1
-            and source_record_type = 'accio_summary'
-            and source_record_id = any($2::text[])
-        `,
-        [context.tenantId, accioSummaryIds],
-      );
-      await client.query(
-        `
-          delete from handoff_events
-          where tenant_id = $1
-            and source_record_type = 'accio_summary'
-            and source_record_id = any($2::text[])
-        `,
-        [context.tenantId, accioSummaryIds],
-      );
-      await client.query(
-        `delete from accio_summaries where tenant_id = $1 and id = any($2::text[])`,
-        [context.tenantId, accioSummaryIds],
-      );
-    }
-    const conversationIdList = Array.from(conversationIds);
-    if (conversationIdList.length > 0) {
-      await client.query(
-        `delete from accio_messages where tenant_id = $1 and accio_conversation_id = any($2::text[])`,
-        [context.tenantId, conversationIdList],
-      );
-      await client.query(
-        `delete from accio_conversations where tenant_id = $1 and id = any($2::text[])`,
-        [context.tenantId, conversationIdList],
-      );
-    }
-    const candidateImportIdList = Array.from(candidateImportIds);
-    let deletedImportIds: string[] = [];
-    if (candidateImportIdList.length > 0) {
-      const deletedImports = await client.query<{ id: string }>(
-        `
-          delete from accio_imports ai
-          where ai.tenant_id = $1
-            and ai.id = any($2::text[])
-            and not exists (
-              select 1
-              from accio_conversations ac
-              where ac.tenant_id = ai.tenant_id
-                and ac.accio_import_id = ai.id
-            )
-          returning ai.id
-        `,
-        [context.tenantId, candidateImportIdList],
-      );
-      deletedImportIds = deletedImports.rows.map((row) => row.id);
-    }
-
     if (leadCandidateIds.length > 0) {
       await client.query(
         `delete from lead_sources where tenant_id = $1 and lead_candidate_id = any($2::text[])`,
@@ -522,8 +354,8 @@ export async function deleteEmployeeCustomers(context: TenantContext, ids: strin
         requested_ids: requestedIds,
         deleted_lead_candidate_ids: leadCandidateIds,
         deleted_screening_target_ids: screeningTargetIdList,
-        deleted_accio_summary_ids: accioSummaryIds,
-        deleted_accio_import_ids: deletedImportIds,
+        deleted_accio_summary_ids: [],
+        deleted_accio_import_ids: [],
       },
     });
 
@@ -531,8 +363,8 @@ export async function deleteEmployeeCustomers(context: TenantContext, ids: strin
       deletedCustomerIds: requestedIds,
       deletedLeadCandidateIds: leadCandidateIds,
       deletedScreeningTargetIds: screeningTargetIdList,
-      deletedAccioSummaryIds: accioSummaryIds,
-      deletedAccioImportIds: deletedImportIds,
+      deletedAccioSummaryIds: [],
+      deletedAccioImportIds: [],
     };
   });
 }

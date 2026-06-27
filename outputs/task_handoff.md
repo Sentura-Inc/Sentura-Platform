@@ -175,18 +175,31 @@ User wants current uncommitted UI-heavy local work preserved first, then latest 
 Repo: `/Users/purest./Documents/Sentura/Sentura-Platform`. Current branch before this phase: `wst1.0-ecommerce`. Local HEAD before commit/pull: `7552d1c9fbe510dab5d75755384a1be9f4642233`. Remote branch requested: `git@github.com:Sentura-Inc/Sentura-Platform.git` branch `ecommerce`.
 
 ## Task Flow
-Plan: commit all current staged, unstaged, and untracked changes as a WIP safety commit; fetch `origin ecommerce`; merge/pull latest remote into the local branch; resolve conflicts if any; leave the repo in a state where the user can continue UI work.
+Plan: commit all current staged, unstaged, and untracked changes as a WIP safety commit; fetch `origin ecommerce`; merge latest remote into the local branch; resolve conflicts using the user-confirmed strategy: backend/data/API/task logic should follow remote, frontend UI should follow the local WIP, and local UI should be adapted only where remote backend contracts require it.
 
 ## Progress So Far
-Confirmed worktree has many UI/doc/OpenClaw package changes and no merge in progress before starting this phase. Handoff section added before commit/pull.
+Confirmed worktree had many UI/doc/OpenClaw package changes and no merge in progress before starting this phase. Handoff section added before commit/pull.
+
+Completed:
+- Ran `git add -A`.
+- Created WIP preservation commit `8921b2c5` with message `wip: preserve local UI work before ecommerce update`.
+- Ran `git fetch origin ecommerce`; `origin/ecommerce` advanced to `5db2d9516890613dfa4e7db828b94c4d488cf809`.
+- Ran `git merge origin/ecommerce`; merge produced conflicts in 10 files.
+- Conflict strategy applied:
+  - Remote/theirs kept for docs/test memory files and backend/data/task store files: `docs/MEMORY.md`, `docs/TESTS.md`, `docs/memory/cross-border-ecommerce/phase-2.md`, `docs/tests/tests-cross-border-phase2.md`, `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-api.ts`, `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`, `sentura/dashboard/src/lib/cross-border-store/customers.ts`.
+  - Local/ours kept for UI and handoff: `outputs/task_handoff.md`, `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`, `sentura/dashboard/src/components/app-shell.tsx`.
+  - `sentura/dashboard/src/components/app-shell.tsx` was then manually adapted so the local Sentura UI styling and `客户列表` nav label remain, while route/API/session/logout paths use remote's new `@/lib/cross-border-routes` constants.
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx` was manually adapted for remote backend types while preserving the local UI: removed the obsolete `maxResultsPerQuery` lead input/control, removed the obsolete `accio_handoff` source branch, and changed memory navigation to `CBE_EMPLOYEE_MEMORY_PATH`.
+- Confirmed no conflict markers remain in the 10 conflicted files with `rg -n "<<<<<<<|=======|>>>>>>>" ...`.
+- Checks completed:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - `git diff --check`: PASS.
+  - `git diff --cached --check`: PASS.
 
 ## Current State
-Commit and pull have not yet run in this phase. Expected risk: latest `origin/ecommerce` may conflict with local UI files and docs, because an earlier dry run showed overlap in dashboard pages, shared components, and handoff/docs files.
+Merge is still in progress. Conflicts are resolved, typecheck passes, and whitespace checks pass. Need stage the final `employee/customers/page.tsx` compatibility patch and create the merge commit.
 
 ## Next Steps
 1. Run `git add -A`.
-2. Commit with a WIP message preserving current UI work.
-3. Fetch `origin ecommerce`.
-4. Merge latest `origin/ecommerce`.
-5. Resolve conflicts preserving the local UI intent unless remote changes are required for new backend/API compatibility.
-6. Run focused checks after merge.
+2. Commit the merge, for example `git commit -m "merge: update ecommerce after local UI work"`.
+3. Report final branch status and whether the working tree is clean.

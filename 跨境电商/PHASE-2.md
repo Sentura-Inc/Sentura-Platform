@@ -21,6 +21,7 @@ This plan is derived from the current project documents and should be read with 
 | [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md) | Lead Discovery still needs production persistence, run-scope dedupe, shared result pools, top-up-only mode, allocation/claim behavior, and concurrency tests. |
 | [`SCREENING.md`](SCREENING.md) | Screening still needs production persistence for targets/reports/evidence, typed store writes, Alibaba internal-data enhancement after access proof, more registry adapters, and budget approval UX. |
 | [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md) | Accio Memory still needs production persistence, upload storage, redaction, memory-fact preview/approval, and durable Screening handoff records. |
+| [`P2.6-LOAD-SMOKE-RUNBOOK.md`](P2.6-LOAD-SMOKE-RUNBOOK.md) | P2.6 operational runbook for DB-only load smoke, backup/restore drill, pressure-result labels, and target-deployment go-live checklist. |
 | [`docs/TESTS.md`](../docs/TESTS.md) | CE4-CE16 are green for Phase-1 workspaces, MCP tools, Employee UI, hidden tasks, progress/cost/notification UX, and compact Screening evidence. Phase 2 adds CE17 and later implementation tests. |
 | [`docs/MEMORY.md`](../docs/MEMORY.md) | Latest ground truth: CBE sandbox is `non-main`; live E2E on the current Mac needs Docker/compatible sandbox runtime or an explicit unsafe sandbox-off override; recent UI fixes are complete. |
 | `final-test-report(1).docx` | 2026-06-20 10-task pressure test: Lead Discovery should keep one `find-10` session; Screening must not run 10 companies in one AgentChat session and should fan out one company per child run. |
@@ -1382,6 +1383,16 @@ Memory approval:
 - Only approved concise facts may be written into vector memory.
 - Raw chat text remains T2/T3 business data and must not be written to vector memory or external channels.
 
+Implementation status, 2026-06-24:
+
+- Added migration `007_screening_retry_memory_approval.sql`.
+- `screening_batch_targets` now stores per-target paid email/trade status, call counts, spend, retry count, last retry time, and re-approval actor/timestamp.
+- Failed Screening child runs move previously available paid email/trade sources to `reapproval_required`; normal retry can rerun the child with paid sources disabled, and explicit re-approval reopens the paid source for that child only.
+- The Employee customer task runner reads child `paid_source_policy` from the server and disables paid email/trade options before starting a hidden Screening child when re-approval is missing.
+- Screening completion records observed paid email/trade evidence into per-target state and `api_call_ledger`.
+- Accio memory facts can be reviewed through the typed store/API; approval changes `memory_facts.status` from `pending_review` to `approved`, stores reviewer metadata, and does not write raw chat text to vector memory.
+- Accio-to-Screening handoffs are marked `accepted` when a Screening task starts from an Accio summary and `completed` when the Screening report is saved.
+
 ## 9. P2.6 — Multi-User, Backpressure, And Load Smoke
 
 Initial limits from `DESIGN.md §9`, recalibrated by the 2026-06-19/20 cloud pressure reports:
@@ -1425,6 +1436,16 @@ Load smoke:
    - paid email and trade calls are capped to one each per target unless explicitly re-approved;
    - p95 dashboard API latency is recorded;
    - provider throttling produces coverage gaps, retryable child failures, or queued status, not crashes.
+
+Implementation status, 2026-06-24:
+
+- Added `scripts/test-cross-border-phase2-load-smoke.ts` for CE23. Static checks validate the P2.6 plan/runbook/backup-drill contract. Live PostgreSQL checks create and clean up 50 temporary operators, simulate 50 Dashboard sessions through the typed tenant context, create 10 Lead `find-10` requests with exact/near duplicate scopes, create 5 Screening batches with 25 single-target child runs, create 3 Accio imports, run a DB-only C=48 soft-cap pressure probe, and run a separate DB-only 32-active hard-guard probe.
+- The CE23 live smoke intentionally does not start real OpenClaw AgentChat sessions or external provider/API calls. It validates DB queue/admission behavior, cost/audit attribution, p95 context/API latency recording, and retryable Screening child behavior without spending model/API budget.
+- Added `scripts/cross-border-phase2-backup-restore-drill.sh`, which requires `CBE_DATABASE_URL` plus a separate disposable `CBE_RESTORE_DATABASE_URL`, runs `pg_dump --format=custom`, restores with `pg_restore --clean --if-exists`, then verifies migrations and Phase 2 store checks against the restored database.
+- Added `P2.6-LOAD-SMOKE-RUNBOOK.md` with commands, expected results, backup/restore safety guards, result labels, and the production-readiness checklist.
+- The backup/restore drill supports `CBE_POSTGRES_CLIENT_IMAGE` for environments without matching local PostgreSQL client tools. The local drill was run with `postgres:18` against disposable `sentura_cbe_restore_drill`; `pg_dump` / `pg_restore` completed and restored Phase 2 store checks passed 238/238.
+- Dashboard production build passed locally with the new CE22/P2.5 + CE23/P2.6 routes. Browser smoke verified the Employee `记忆整理` approval flow: a synthetic Accio memory record loaded from the DB, the report showed `仅预览`, `批准写入` PATCH succeeded, status changed to `已批准`, and the temporary record was removed.
+- Local DB-only readiness is now labeled `db_only_preflight_passed` after the store/concurrency/type/build/load-smoke and local backup/restore checks pass. Do not use `production_go_live_ready` until the same load-smoke profile passes on the target deployment, the target restore drill passes against a disposable restore database, and provider quota/source-rate headroom is explicitly confirmed.
 
 ## 10. Implementation File Plan
 
@@ -1489,9 +1510,12 @@ sentura/dashboard/src/app/client-demos/cross-border/admin/
 sentura/dashboard/src/stores/use-cbe-employee-store.ts
 scripts/test-cross-border-phase2-store.ts
 scripts/test-cross-border-phase2-concurrency.ts
+scripts/test-cross-border-phase2-load-smoke.ts
+scripts/cross-border-phase2-backup-restore-drill.sh
 scripts/test-cross-border-agents.ts
 docs/TESTS.md
 docs/tests/tests-cross-border-phase2.md
+跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md
 ```
 
 Do not create new top-level agent workspace markdown files beyond the 8 native OpenClaw files.
@@ -1508,8 +1532,8 @@ Phase 2 implementation tests:
 | CE19 — P2.2 typed Dashboard store/API routes | `scripts/test-cross-border-phase2-store.ts` + type/lint/build | Store modules and Employee/Admin route handlers exist; Zod marker validation gates writes; Lead/Screening/Accio live PostgreSQL round-trip succeeds; parse failures mark failed `agent_runs`. |
 | CE20 — P2.3 Employee DB-backed UI migration | `scripts/test-cross-border-phase2-store.ts` + `scripts/inspect-cross-border-live-db.sql` + type/lint/build + Browser | Employee home/customers/memory render from DB; `localStorage` persists drafts/cache only; hidden Lead/Screening/Accio runs create/complete/fail DB task projections; notifications read terminal `agent_runs`; manual DB inspection queries match the physical schema. |
 | CE21 — P2.4 workload coordinator and Lead dedupe | `scripts/test-cross-border-phase2-concurrency.ts` | PASS 2026-06-21; rechecked 2026-06-24 with 46/46 live/static coverage including the new Screening fan-out probe, parent-not-prematurely-completed check, and saved-report completion-count check. Global active-task soft/hard caps queue excess work; two exact same-scope Lead requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed scopes no longer reuse assigned rows; normal repeated same-scope requests keep the full current-request new-customer target; every executable Lead run carries tenant DB pre-search denylist; explicit top-up denylist and completion-time DB duplicate skipping work. |
-| CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; multi-target Screening requests create one parent task and single-target child runs; route-triggered drain claims queued children with leases and aggregate parent refresh; Employee completion messages count backend-saved Screening reports; no production batch-5/batch-10 Screening session starts. Live OpenClaw validation completed two real three-target bulk Screening runs under operator `吴思彤`. Remaining CE22 work: paid email/trade call retry state, Screening report/evidence retry polish, Accio approval-to-memory promotion, and durable Screening handoff consumption. |
-| CE23 — P2.6 load smoke | Live/staged run | 50 sessions, 10 Lead `find-10` requests, 5 Screening batches split into child runs, and 3 Accio imports; 24/32/48 active-task behavior, limits/backpressure/cost/audit recorded. |
+| CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; multi-target Screening requests create one parent task and single-target child runs; route-triggered drain claims queued children with leases and aggregate parent refresh; Employee completion messages count backend-saved Screening reports; no production batch-5/batch-10 Screening session starts. Live OpenClaw validation completed two real three-target bulk Screening runs under operator `吴思彤`. Paid email/trade retry state, explicit re-approval, retry recovery, Accio approval-to-memory, and durable Screening handoff consumption are implemented and covered by live PostgreSQL store checks. |
+| CE23 — P2.6 load smoke | `scripts/test-cross-border-phase2-load-smoke.ts` + backup/restore drill + staged run | Static contract checks plus live DB-only smoke cover 50 sessions, 10 Lead `find-10` requests, 5 Screening batches split into 25 child runs, 3 Accio imports, 24/32/48 active-task behavior, p95 API latency, and cost/audit metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` verifies `pg_dump`/`pg_restore` plus restored-store checks; the local disposable restore drill and Dashboard production build passed on 2026-06-24. Local DB-only preflight can be labeled `db_only_preflight_passed`; `production_go_live_ready` still requires target-deployment smoke, target restore drill, and provider quota/source-rate confirmation. |
 
 Minimum verification after each implementation slice:
 
@@ -1525,6 +1549,14 @@ After coordinator implementation:
 
 ```bash
 pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts
+```
+
+After P2.6 load-smoke implementation:
+
+```bash
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts
+set -a; source sentura/dashboard/.env.local; set +a
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json
 ```
 
 After MCP or employee skill changes:
@@ -1570,8 +1602,8 @@ Phase 2 is complete when:
 
 ## 14. Immediate Next Task
 
-P2.1, P2.2, P2.3, P2.4, P2.5 Lead result-level DB reconciliation, the Google Maps + web search source route, the Screening Google Maps address-footprint report path, the scale-aware Google Maps first-block Screening scoring redesign, and P2.5 Screening parent/child fan-out plus queued-child drain are complete. Continue P2.5 with:
+P2.1-P2.6 are complete for the local production-shaped pilot preflight path. The remaining production gate is target-environment evidence, not local implementation:
 
-1. Persist per-target paid email/trade call state and require explicit re-approval before paid retry repeats a lookup.
-2. Finish durable Screening/Accio workflow polish: report/evidence detail UX, retry/recovery, approval-to-memory promotion, and durable Screening handoff consumption.
-3. Add the P2.6 load-smoke profile after paid retry and durable workflow paths are stable.
+1. Run the P2.6 load-smoke profile on the actual target deployment with Dashboard/Gateway processes and approved provider quotas.
+2. Run the backup/restore drill against a disposable restore database in the target environment.
+3. Record provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior before applying `production_go_live_ready`.

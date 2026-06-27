@@ -71,6 +71,7 @@ export const SourceTypeSchema = z.enum([
   "google_maps_places",
   "google_maps_geocoding",
   "google_maps_address_validation",
+  "paid_email_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -149,12 +150,13 @@ export type CreateAgentRunInput = z.infer<typeof CreateAgentRunInputSchema>;
 
 export const CreateLeadRunRequestSchema = z.object({
   query_config: JsonRecordSchema,
-  target_count: z.number().int().positive().max(20),
+  target_count: z.number().int().positive().max(10),
   run_mode: z.enum(["new_scope", "top_up_unique_leads"]).default("new_scope"),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
   target_summary: z.string().min(1).optional(),
   estimated_cost_usd: CbeMoneyUsdSchema.default(0),
+  metadata_json: JsonRecordSchema.default({}),
 });
 export type CreateLeadRunRequest = z.infer<typeof CreateLeadRunRequestSchema>;
 
@@ -221,7 +223,7 @@ export type CompleteLeadRunRequest = z.infer<typeof CompleteLeadRunRequestSchema
 
 export const ScreeningTargetMarkerSchema = z.object({
   target_id: z.string().min(1).optional(),
-  source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).default("manual_input"),
+  source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input"]).default("manual_input"),
   lead_id: z.string().min(1).nullable().optional(),
   company_name: z.string().min(1).optional(),
   country: CountryCodeSchema.optional(),
@@ -253,6 +255,14 @@ export const ClaimQueuedScreeningRunsRequestSchema = z.object({
   limit: z.number().int().min(1).max(10).default(3),
 });
 export type ClaimQueuedScreeningRunsRequest = z.infer<typeof ClaimQueuedScreeningRunsRequestSchema>;
+
+export const RetryScreeningChildRunRequestSchema = z.object({
+  session_key: z.string().min(1).optional(),
+  reapprove_paid_email: z.boolean().default(false),
+  reapprove_paid_trade: z.boolean().default(false),
+  approval_reason: z.string().min(1).max(500).optional(),
+});
+export type RetryScreeningChildRunRequest = z.infer<typeof RetryScreeningChildRunRequestSchema>;
 
 export const ScreeningEvidenceMarkerSchema = z.object({
   layer: z.string().min(1).default("public_footprint"),
@@ -376,7 +386,7 @@ export type ScreeningAddressFootprint = z.infer<typeof ScreeningAddressFootprint
 export const ScreeningReportMarkerSchema = z.object({
   report_id: z.string().min(1).optional(),
   lead_id: z.string().min(1).nullable().optional(),
-  target_source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input", "accio_memory"]).optional(),
+  target_source: z.enum(["marketing_lead", "marketing_lead_batch", "manual_input"]).optional(),
   company_name: z.string().min(1),
   target: ScreeningTargetMarkerSchema.optional(),
   company_scale_assessment: z.object({
@@ -430,22 +440,30 @@ export const AccioConversationImportSchema = z.object({
 });
 export type AccioConversationImport = z.infer<typeof AccioConversationImportSchema>;
 
-export const AccioSupplementTargetSchema = z.object({
-  customer_id: z.string().min(1),
-  company_name: z.string().min(1),
-  source: z.enum(["lead_discovery", "manual_screening", "accio_handoff"]),
-});
-export type AccioSupplementTarget = z.infer<typeof AccioSupplementTargetSchema>;
+export const AccioImportSourceKindSchema = z.enum([
+  "manual_json",
+  "manual_text",
+  "manual_image",
+  "alibaba_international",
+  "demo_data",
+  "other",
+]);
+export type AccioImportSourceKind = z.infer<typeof AccioImportSourceKindSchema>;
+
+export const AccioImportInputFormatSchema = z.enum(["json", "pasted_text", "image"]);
+export type AccioImportInputFormat = z.infer<typeof AccioImportInputFormatSchema>;
 
 export const CreateAccioImportRequestSchema = z.object({
   source_file_name: z.string().min(1).optional(),
+  source_kind: AccioImportSourceKindSchema.default("manual_json"),
+  input_format: AccioImportInputFormatSchema.default("json"),
+  attachment_metadata: z.array(JsonRecordSchema).default([]),
   file_hash: z.string().min(16),
   storage_key: z.string().min(1).optional(),
   classification: CbeDataTierSchema.default("T2"),
   visibility_scope: CbeVisibilityScopeSchema.default("private"),
   session_key: z.string().min(1).optional(),
   estimated_cost_usd: CbeMoneyUsdSchema.default(0),
-  supplement_target: AccioSupplementTargetSchema.optional(),
   conversations: z.array(AccioConversationImportSchema).default([]),
 });
 export type CreateAccioImportRequest = z.infer<typeof CreateAccioImportRequestSchema>;
@@ -530,7 +548,6 @@ export const AccioSummaryMarkerSchema = z.object({
   negotiation_summary: z.string().min(1),
   next_actions: z.array(z.string().min(1)).min(1),
   behavior_signals: JsonRecordSchema.default({}),
-  screening_handoff_target: JsonRecordSchema.optional(),
   memory_preview: JsonRecordSchema.default({ status: "preview_only" }),
   source_references: z.array(z.object({
     source_type: SourceTypeSchema.default("self_reported"),

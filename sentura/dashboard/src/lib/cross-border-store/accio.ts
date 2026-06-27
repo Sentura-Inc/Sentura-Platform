@@ -5,12 +5,10 @@ import { createCbeId } from "./ids";
 import { completeAgentRun, createAgentRunActivityEvent, failAgentRun, insertAgentRun } from "./agent-runs";
 import { createAuditEvent } from "./audit";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
-import { insertHandoffEvent } from "./handoffs";
 import { scopedOwnerClause } from "./tenant-context";
 import { admitCbeWorkload, workloadMetadata } from "./workload-coordinator";
 import type {
   AccioConversationImport,
-  AccioSupplementTarget,
   AccioSummaryMarker,
   CompleteAccioImportRequest,
   CreateAccioImportRequest,
@@ -23,6 +21,9 @@ export interface AccioImportRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind: string;
+  inputFormat: string;
+  attachmentMetadata: Record<string, unknown>[];
   validationStatus: string;
   classification: string;
   uploadedAt: string;
@@ -45,9 +46,16 @@ export interface EmployeeMemoryRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind: string;
+  inputFormat: string;
+  attachmentMetadata: Record<string, unknown>[];
   companyName: string | null;
   country: string | null;
   conversationCount: number;
+  customerProfile: Record<string, unknown> | null;
+  purchaseIntent: Record<string, unknown>[];
+  negotiatedPrices: Record<string, unknown>[];
+  behaviorSignals: Record<string, unknown> | null;
   nextActions: string[];
   summaryText: string | null;
   memoryFactStatus: string | null;
@@ -66,6 +74,9 @@ interface AccioImportRow {
   agent_run_id: string | null;
   agent_run_status: string | null;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   validation_status: string;
   classification: string;
   uploaded_at: Date;
@@ -98,6 +109,9 @@ interface MemoryRow {
   agent_run_id: string | null;
   agent_run_status: string | null;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   company_name: string | null;
   country: string | null;
   conversation_count: string;
@@ -116,6 +130,9 @@ interface MemoryRow {
 interface AccioImportPayloadRow {
   import_id: string;
   source_file_name: string | null;
+  source_kind: string;
+  input_format: string;
+  attachment_metadata_json: Record<string, unknown>[] | null;
   classification: string;
   uploaded_at: Date;
   conversation_id: string | null;
@@ -158,31 +175,18 @@ function toSupplementTarget(value: unknown) {
   return { customerId, companyName, source };
 }
 
-function supplementTargetMetadata(target: AccioSupplementTarget | undefined) {
-  return target
-    ? {
-        customer_id: target.customer_id,
-        company_name: target.company_name,
-        source: target.source,
-      }
-    : undefined;
-}
-
 function moneyValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return `USD ${value}`;
   if (typeof value === "string" && value.trim()) return value.trim();
   return null;
 }
 
-function buildMemorySummary(row: MemoryRow) {
-  const behaviorSummary =
-    row.behavior_signals_json &&
-    typeof row.behavior_signals_json === "object" &&
-    typeof row.behavior_signals_json.summary === "string"
-      ? row.behavior_signals_json.summary
-      : null;
-  if (behaviorSummary) return behaviorSummary;
+function recordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+}
 
+function buildMemorySummary(row: MemoryRow) {
   const intent = firstObject(row.purchase_intent_json);
   const price = firstObject(row.negotiated_price_json);
   const nextActions = Array.isArray(row.next_actions_json)
@@ -201,7 +205,23 @@ function buildMemorySummary(row: MemoryRow) {
     nextActions[0] ? `下一步：${nextActions[0]}` : null,
   ].filter((item): item is string => Boolean(item));
 
-  return pieces.length > 1 ? pieces.join("；") : null;
+  if (pieces.length > 1) return pieces.join("；");
+
+  const behaviorSummaryZh =
+    row.behavior_signals_json &&
+    typeof row.behavior_signals_json === "object" &&
+    typeof row.behavior_signals_json.summary_zh === "string"
+      ? row.behavior_signals_json.summary_zh
+      : null;
+  if (behaviorSummaryZh) return behaviorSummaryZh;
+
+  const behaviorSummary =
+    row.behavior_signals_json &&
+    typeof row.behavior_signals_json === "object" &&
+    typeof row.behavior_signals_json.summary === "string"
+      ? row.behavior_signals_json.summary
+      : null;
+  return behaviorSummary;
 }
 
 function toAccioImportRecord(row: AccioImportRow): AccioImportRecord {
@@ -210,6 +230,9 @@ function toAccioImportRecord(row: AccioImportRow): AccioImportRecord {
     agentRunId: row.agent_run_id,
     agentRunStatus: row.agent_run_status,
     sourceFileName: row.source_file_name,
+    sourceKind: row.source_kind,
+    inputFormat: row.input_format,
+    attachmentMetadata: Array.isArray(row.attachment_metadata_json) ? row.attachment_metadata_json : [],
     validationStatus: row.validation_status,
     classification: row.classification,
     uploadedAt: row.uploaded_at.toISOString(),
@@ -232,9 +255,16 @@ function toMemoryRecord(row: MemoryRow): EmployeeMemoryRecord {
     agentRunId: row.agent_run_id,
     agentRunStatus: row.agent_run_status,
     sourceFileName: row.source_file_name,
+    sourceKind: row.source_kind,
+    inputFormat: row.input_format,
+    attachmentMetadata: Array.isArray(row.attachment_metadata_json) ? row.attachment_metadata_json : [],
     companyName: row.company_name,
     country: row.country,
     conversationCount: Number(row.conversation_count),
+    customerProfile: row.customer_profile_json,
+    purchaseIntent: recordArray(row.purchase_intent_json),
+    negotiatedPrices: recordArray(row.negotiated_price_json),
+    behaviorSignals: row.behavior_signals_json,
     nextActions: Array.isArray(row.next_actions_json)
       ? row.next_actions_json.map((item) => String(item)).filter(Boolean)
       : [],
@@ -347,62 +377,6 @@ async function insertConversationMessages(
   }
 }
 
-async function deleteScreeningReportsForCustomerReference(
-  client: PoolClient,
-  context: TenantContext,
-  customerId: string,
-  options: { deleteTargets: boolean },
-) {
-  const linkedReports = await client.query<{ report_id: string; target_id: string }>(
-    `
-      select sr.id as report_id, sr.screening_target_id as target_id
-      from screening_reports sr
-      where sr.tenant_id = $1
-        and (
-          sr.screening_target_id = $2
-          or sr.report_json->'target'->>'lead_id' = $2
-          or sr.report_json->'target'->>'target_id' = $2
-          or sr.report_json->>'lead_id' = $2
-        )
-    `,
-    [context.tenantId, customerId],
-  );
-  const reportIds = linkedReports.rows.map((row) => row.report_id);
-  const targetIds = linkedReports.rows.map((row) => row.target_id);
-  if (reportIds.length > 0) {
-    await client.query(
-      `delete from screening_address_locations where tenant_id = $1 and screening_report_id = any($2::text[])`,
-      [context.tenantId, reportIds],
-    );
-    await client.query(
-      `delete from screening_score_blocks where tenant_id = $1 and screening_report_id = any($2::text[])`,
-      [context.tenantId, reportIds],
-    );
-    await client.query(
-      `delete from screening_evidence where tenant_id = $1 and screening_report_id = any($2::text[])`,
-      [context.tenantId, reportIds],
-    );
-    await client.query(
-      `delete from screening_reports where tenant_id = $1 and id = any($2::text[])`,
-      [context.tenantId, reportIds],
-    );
-  }
-  if (options.deleteTargets && targetIds.length > 0) {
-    await client.query(
-      `delete from screening_targets where tenant_id = $1 and id = any($2::text[])`,
-      [context.tenantId, targetIds],
-    );
-  }
-}
-
-async function deleteScreeningReportsForAccioSummary(
-  client: PoolClient,
-  context: TenantContext,
-  summaryId: string,
-) {
-  await deleteScreeningReportsForCustomerReference(client, context, summaryId, { deleteTargets: true });
-}
-
 async function findOrCreateConversationForSummary(
   client: PoolClient,
   context: TenantContext,
@@ -458,9 +432,17 @@ export async function saveAccioImport(
   context: TenantContext,
   rawInput: CreateAccioImportRequest,
 ) {
+  const rawRecord = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+    ? rawInput as Record<string, unknown>
+    : {};
+  if (rawRecord.supplement_target) {
+    throw new CbeStoreError(
+      400,
+      "accio_interop_disabled",
+      "记忆整理已与获客/背调分离，不能绑定客户或移交背调。",
+    );
+  }
   const input = CreateAccioImportRequestSchema.parse(rawInput);
-  const supplementInputTarget = input.supplement_target;
-  const supplementTarget = supplementTargetMetadata(input.supplement_target);
   await checkCbeCostBudgetBeforeRun(context, {
     agentId: "cbe-accio-memory",
     taskKind: "accio_memory",
@@ -468,240 +450,12 @@ export async function saveAccioImport(
     estimatedCostUsd: input.estimated_cost_usd,
     metadataJson: {
       source_file_name: input.source_file_name,
+      source_kind: input.source_kind,
+      input_format: input.input_format,
+      attachment_count: input.attachment_metadata.length,
       conversation_count: input.conversations.length,
-      ...(supplementTarget ? { supplement_target: supplementTarget } : {}),
     },
   });
-  if (supplementInputTarget) {
-    const merged = await withCbeTransaction(async (client) => {
-      const admission = await admitCbeWorkload(client, context, {
-        agentId: "cbe-accio-memory",
-        taskKind: "accio_memory",
-        requestedSessionKey: input.session_key,
-        currentStageWhenRunning: "submitted_to_employee",
-        currentStageWhenQueued: "uploaded",
-      });
-      const existing = await client.query<{
-        import_id: string;
-        conversation_id: string | null;
-        summary_id: string | null;
-      }>(
-        `
-          select import_id, conversation_id, summary_id
-          from (
-            select
-              ac.accio_import_id as import_id,
-              ac.id as conversation_id,
-              asum.id as summary_id,
-              0 as priority,
-              asum.created_at as sort_at
-            from accio_summaries asum
-            join accio_conversations ac
-              on ac.tenant_id = asum.tenant_id
-             and ac.id = asum.accio_conversation_id
-            where asum.tenant_id = $1
-              and (
-                (asum.id = $2 and $6 = 'accio_handoff')
-                or asum.behavior_signals_json->'supplement_target'->>'customer_id' = $2
-                or asum.behavior_signals_json->'supplement_target'->>'customerId' = $2
-              )
-              and (
-                $3::boolean
-                or asum.owner_user_id = $4
-                or asum.visibility_scope = 'tenant_shared'
-                or (asum.visibility_scope = 'team' and asum.team_name = $5)
-              )
-            union all
-            select
-              ai.id as import_id,
-              ac.id as conversation_id,
-              null::text as summary_id,
-              1 as priority,
-              ai.uploaded_at as sort_at
-            from accio_imports ai
-            join agent_runs ar
-              on ar.tenant_id = ai.tenant_id
-             and ar.id = ai.agent_run_id
-            left join accio_conversations ac
-              on ac.tenant_id = ai.tenant_id
-             and ac.accio_import_id = ai.id
-            where ai.tenant_id = $1
-              and (
-                ar.metadata_json->'supplement_target'->>'customer_id' = $2
-                or ar.metadata_json->'supplement_target'->>'customerId' = $2
-              )
-              and (
-                $3::boolean
-                or ai.owner_user_id = $4
-                or ai.visibility_scope = 'tenant_shared'
-                or (ai.visibility_scope = 'team' and ai.team_name = $5)
-              )
-          ) existing_target
-          order by priority, sort_at desc
-          limit 1
-        `,
-        [
-          context.tenantId,
-          supplementInputTarget.customer_id,
-          context.cbeRole === "admin",
-          context.userId,
-          context.teamName ?? null,
-          supplementInputTarget.source,
-        ],
-      );
-      const target = existing.rows[0];
-      if (!target) {
-        if (supplementInputTarget.source === "accio_handoff") {
-          throw new CbeStoreError(
-            404,
-            "accio_summary_missing",
-            "Original Accio memory customer was not found; refusing to create a duplicate customer record.",
-          );
-        }
-        return null;
-      }
-
-      const agentRun = await insertAgentRun(client, context, {
-        agent_id: "cbe-accio-memory",
-        task_kind: "accio_memory",
-        status: admission.status,
-        session_key: admission.sessionKey,
-        target_record_type: "accio_import",
-        target_record_id: target.import_id,
-        target_summary: input.source_file_name,
-        current_stage: admission.currentStage,
-        queue_priority: admission.queuePriority,
-        queued_at: admission.queuedAt,
-        cost_usd_estimate: input.estimated_cost_usd,
-        visibility_scope: input.visibility_scope,
-        metadata_json: {
-          source_file_name: input.source_file_name,
-          supplement_target: supplementTarget,
-          supplement_mode: "merge_existing_accio_summary",
-          ...(target.summary_id ? { reused_summary_id: target.summary_id } : {}),
-          ...workloadMetadata(admission),
-        },
-      });
-
-      await client.query(
-        `
-          update accio_imports
-          set
-            agent_run_id = $3,
-            source_file_name = coalesce($4, source_file_name),
-            uploaded_at = now()
-          where tenant_id = $1
-            and id = $2
-        `,
-        [context.tenantId, target.import_id, agentRun.id, input.source_file_name ?? null],
-      );
-      let primaryConversationId = target.conversation_id;
-      for (const [index, conversation] of input.conversations.entries()) {
-        if (primaryConversationId && index === 0) {
-          await client.query(
-            `
-              update accio_conversations
-              set
-                company_name = coalesce($3, company_name),
-                country = coalesce($4, country),
-                contact_person = coalesce($5, contact_person),
-                email = coalesce($6, email),
-                website = coalesce($7, website)
-              where tenant_id = $1
-                and id = $2
-            `,
-            [
-              context.tenantId,
-              primaryConversationId,
-              supplementInputTarget.company_name,
-              conversation.country ?? null,
-              conversation.contact_person ?? null,
-              conversation.email ?? null,
-              conversation.website ?? null,
-            ],
-          );
-          await insertConversationMessages(client, context, primaryConversationId, conversation);
-        } else {
-          const conversationId = await insertConversation(client, context, target.import_id, {
-            ...conversation,
-            company_name: conversation.company_name ?? supplementInputTarget.company_name,
-          });
-          if (!primaryConversationId) primaryConversationId = conversationId;
-        }
-      }
-
-      if (target.summary_id) {
-        await client.query(
-          `
-            delete from memory_facts
-            where tenant_id = $1
-              and source_record_type = 'accio_summary'
-              and source_record_id = $2
-          `,
-          [context.tenantId, target.summary_id],
-        );
-        await client.query(
-          `
-            delete from handoff_events
-            where tenant_id = $1
-              and source_record_type = 'accio_summary'
-              and source_record_id = $2
-          `,
-          [context.tenantId, target.summary_id],
-        );
-      }
-      await createAgentRunActivityEvent(client, context, {
-        agentRunId: agentRun.id,
-        agentId: "cbe-accio-memory",
-        taskKind: "accio_memory",
-        targetRecordType: "accio_import",
-        targetRecordId: target.import_id,
-        targetSummary: input.source_file_name,
-        stage: agentRun.status,
-        eventType: "accio_import_supplemented",
-        status: agentRun.status,
-        metadataJson: { supplement_target: supplementTarget, conversation_count: input.conversations.length },
-      });
-      await createAuditEvent(client, context, {
-        agentId: "cbe-accio-memory",
-        eventType: "accio_import_supplemented",
-        dataTier: "T2",
-        metadataJson: {
-          agent_run_id: agentRun.id,
-          accio_import_id: target.import_id,
-          replaced_summary_id: target.summary_id,
-          supplement_target: supplementTarget,
-        },
-      });
-      const importResult = await client.query<AccioImportRow>(
-        `
-          select
-            ai.id,
-            ai.agent_run_id,
-            ar.status as agent_run_status,
-            ai.source_file_name,
-            ai.validation_status,
-            ai.classification,
-            ai.uploaded_at,
-            ar.metadata_json->'supplement_target' as supplement_target_json,
-            ar.metadata_json->>'reused_summary_id' as reused_summary_id
-          from accio_imports ai
-          left join agent_runs ar
-            on ar.tenant_id = ai.tenant_id
-           and ar.id = ai.agent_run_id
-          where ai.tenant_id = $1
-            and ai.id = $2
-          limit 1
-        `,
-        [context.tenantId, target.import_id],
-      );
-      return {
-        agentRun,
-        accioImport: toAccioImportRecord(importResult.rows[0]),
-      };
-    });
-    if (merged) return merged;
-  }
   return withCbeTransaction(async (client) => {
     const admission = await admitCbeWorkload(client, context, {
       agentId: "cbe-accio-memory",
@@ -723,7 +477,9 @@ export async function saveAccioImport(
       visibility_scope: input.visibility_scope,
       metadata_json: {
         source_file_name: input.source_file_name,
-        ...(supplementTarget ? { supplement_target: supplementTarget } : {}),
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+        attachment_count: input.attachment_metadata.length,
         ...workloadMetadata(admission),
       },
     });
@@ -740,17 +496,23 @@ export async function saveAccioImport(
           visibility_scope,
           agent_run_id,
           source_file_name,
+          source_kind,
+          input_format,
+          attachment_metadata_json,
           file_hash,
           storage_key,
           validation_status,
           classification
         )
-        values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, 'validated', $11)
+        values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 'validated', $14)
         returning
           id,
           agent_run_id,
           null::text as agent_run_status,
           source_file_name,
+          source_kind,
+          input_format,
+          attachment_metadata_json,
           validation_status,
           classification,
           uploaded_at,
@@ -766,6 +528,9 @@ export async function saveAccioImport(
         input.visibility_scope,
         agentRun.id,
         input.source_file_name ?? null,
+        input.source_kind,
+        input.input_format,
+        JSON.stringify(input.attachment_metadata),
         input.file_hash,
         input.storage_key ?? null,
         input.classification,
@@ -784,13 +549,23 @@ export async function saveAccioImport(
       stage: agentRun.status,
       eventType: "accio_import_created",
       status: agentRun.status,
-      metadataJson: { conversation_count: input.conversations.length },
+      metadataJson: {
+        conversation_count: input.conversations.length,
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+        attachment_count: input.attachment_metadata.length,
+      },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-accio-memory",
       eventType: "accio_import_created",
       dataTier: "T2",
-      metadataJson: { agent_run_id: agentRun.id, accio_import_id: importId },
+      metadataJson: {
+        agent_run_id: agentRun.id,
+        accio_import_id: importId,
+        source_kind: input.source_kind,
+        input_format: input.input_format,
+      },
     });
     return {
       agentRun,
@@ -812,6 +587,9 @@ export async function saveAccioSummaries(
           ai.agent_run_id,
           ar.status as agent_run_status,
           ai.source_file_name,
+          ai.source_kind,
+          ai.input_format,
+          ai.attachment_metadata_json,
           ai.validation_status,
           ai.classification,
           ai.uploaded_at,
@@ -830,50 +608,10 @@ export async function saveAccioSummaries(
     if (!importRows.rows[0]) {
       throw new CbeStoreError(404, "accio_import_missing", "Accio import was not found.");
     }
-    const supplementTarget = toSupplementTarget(importRows.rows[0].supplement_target_json);
-    const supplementTargetJson = supplementTarget
-      ? {
-          customer_id: supplementTarget.customerId,
-          company_name: supplementTarget.companyName,
-          source: supplementTarget.source,
-        }
-      : null;
-    const reusableSummaryId =
-      importRows.rows[0].reused_summary_id ??
-      (
-        supplementTargetJson?.source === "accio_handoff" &&
-        supplementTargetJson.customer_id.startsWith("accio_summary")
-          ? supplementTargetJson.customer_id
-          : null
-      );
-    const summariesToSave = supplementTargetJson ? input.payload.summaries.slice(0, 1) : input.payload.summaries;
-    if (reusableSummaryId) {
-      await deleteScreeningReportsForAccioSummary(client, context, reusableSummaryId);
-    } else if (supplementTargetJson?.source === "manual_screening") {
-      await deleteScreeningReportsForCustomerReference(client, context, supplementTargetJson.customer_id, {
-        deleteTargets: false,
-      });
-    }
-
     const summaries = [];
-    const memoryFactIds: string[] = [];
-    const handoffIds: string[] = [];
-    for (const [summaryIndex, summary] of summariesToSave.entries()) {
+    for (const summary of input.payload.summaries) {
       const conversationId = await findOrCreateConversationForSummary(client, context, importId, summary);
-      const summaryId = summaryIndex === 0 && reusableSummaryId ? reusableSummaryId : createCbeId("accio_summary");
-      const behaviorSignals = {
-        ...summary.behavior_signals,
-        ...(supplementTargetJson ? { supplement_target: supplementTargetJson } : {}),
-      };
-      const handoffTarget = supplementTargetJson
-        ? {
-            ...(summary.screening_handoff_target ?? {}),
-            lead_id: supplementTargetJson.customer_id,
-            target_id: supplementTargetJson.customer_id,
-            company_name: supplementTargetJson.company_name,
-            source: supplementTargetJson.source === "manual_screening" ? "manual_input" : "accio_memory",
-          }
-        : summary.screening_handoff_target;
+      const summaryId = createCbeId("accio_summary");
       const summaryResult = await client.query<AccioSummaryRow>(
         `
           insert into accio_summaries (
@@ -921,67 +659,11 @@ export async function saveAccioSummaries(
           JSON.stringify(summary.purchase_intent),
           JSON.stringify(summary.negotiated_prices),
           JSON.stringify(summary.next_actions),
-          JSON.stringify(behaviorSignals),
+          JSON.stringify(summary.behavior_signals),
         ],
       );
       const savedSummary = toSummaryRecord(summaryResult.rows[0]);
       summaries.push(savedSummary);
-
-      const memoryFactId = createCbeId("memory_fact");
-      await client.query(
-        `
-          insert into memory_facts (
-            id,
-            tenant_id,
-            agent_id,
-            created_by_user_id,
-            owner_user_id,
-            department_id,
-            team_name,
-            visibility_scope,
-            source_record_type,
-            source_record_id,
-            fact_json,
-            status
-          )
-          values ($1, $2, 'cbe-accio-memory', $3, $3, $4, $5, 'private', 'accio_summary', $6, $7::jsonb, 'pending_review')
-        `,
-        [
-          memoryFactId,
-          context.tenantId,
-          context.userId,
-          context.departmentId ?? null,
-          context.teamName ?? null,
-          savedSummary.id,
-          JSON.stringify({
-            customer_profile: summary.customer_profile,
-            purchase_intent: summary.purchase_intent,
-            negotiated_prices: summary.negotiated_prices,
-            negotiation_summary: summary.negotiation_summary,
-            next_actions: summary.next_actions,
-            behavior_signals: behaviorSignals,
-            memory_preview: summary.memory_preview,
-            source_references: summary.source_references,
-          }),
-        ],
-      );
-      memoryFactIds.push(memoryFactId);
-
-      const handoff = await insertHandoffEvent(client, context, {
-        from_agent_id: "cbe-accio-memory",
-        to_agent_id: "cbe-buyer-screening",
-        source_record_type: "accio_summary",
-        source_record_id: savedSummary.id,
-        payload_json: handoffTarget ?? {
-          company_name: summary.customer_profile.company_name,
-          country: summary.customer_profile.country,
-          email: summary.customer_profile.email,
-          website: summary.customer_profile.website,
-        },
-        status: "pending",
-        visibility_scope: "private",
-      });
-      handoffIds.push(handoff.id);
     }
 
     const agentRun = await completeAgentRun(client, context, {
@@ -990,9 +672,12 @@ export async function saveAccioSummaries(
       currentStage: "accio_summaries_saved",
       metadataJson: {
         accio_import_id: importId,
+        source_kind: importRows.rows[0].source_kind,
+        input_format: importRows.rows[0].input_format,
         saved_summaries: summaries.length,
-        memory_fact_ids: memoryFactIds,
-        handoff_ids: handoffIds,
+        memory_fact_ids: [],
+        handoff_ids: [],
+        interop_disabled: true,
       },
     });
     if (!agentRun) {
@@ -1008,7 +693,7 @@ export async function saveAccioSummaries(
       stage: "completed",
       eventType: "accio_import_completed",
       status: "completed",
-      metadataJson: { saved_summaries: summaries.length },
+      metadataJson: { saved_summaries: summaries.length, interop_disabled: true },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-accio-memory",
@@ -1018,11 +703,12 @@ export async function saveAccioSummaries(
         agent_run_id: input.agent_run_id,
         accio_import_id: importId,
         saved_summaries: summaries.length,
-        memory_facts_pending_review: memoryFactIds.length,
-        handoffs_created: handoffIds.length,
+        memory_facts_pending_review: 0,
+        handoffs_created: 0,
+        interop_disabled: true,
       },
     });
-    return { agentRun, summaries, memoryFactIds, handoffIds };
+    return { agentRun, summaries, memoryFactIds: [], handoffIds: [] };
   });
 }
 
@@ -1035,8 +721,19 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
         ai.agent_run_id,
         ar.status as agent_run_status,
         ai.source_file_name,
-        coalesce(ac.company_name, asum.customer_profile_json->>'company_name') as company_name,
-        coalesce(ac.country, asum.customer_profile_json->>'country') as country,
+        ai.source_kind,
+        ai.input_format,
+        ai.attachment_metadata_json,
+        coalesce(
+          nullif(asum.customer_profile_json->>'company_name', ''),
+          nullif(ac.company_name, ''),
+          null
+        ) as company_name,
+        coalesce(
+          nullif(asum.customer_profile_json->>'country', ''),
+          nullif(ac.country, ''),
+          null
+        ) as country,
         count(ac.id) over (partition by ai.id)::text as conversation_count,
         asum.customer_profile_json,
         asum.purchase_intent_json,
@@ -1282,6 +979,9 @@ export async function getAccioImportAnalysisPayload(context: TenantContext, impo
       select
         ai.id as import_id,
         ai.source_file_name,
+        ai.source_kind,
+        ai.input_format,
+        ai.attachment_metadata_json,
         ai.classification,
         ai.uploaded_at,
         ac.id as conversation_id,
@@ -1369,6 +1069,9 @@ export async function getAccioImportAnalysisPayload(context: TenantContext, impo
       source_file: first.source_file_name ?? importId,
       data_classification: first.classification,
       import_id: first.import_id,
+      source_kind: first.source_kind,
+      input_format: first.input_format,
+      attachment_metadata: first.attachment_metadata_json ?? [],
       supplement_target: first.supplement_target_json ?? undefined,
     },
     conversations: Array.from(conversations.values()),

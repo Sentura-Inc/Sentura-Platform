@@ -12,6 +12,11 @@ Sentura supports three hosting environments based on customer demands:
 | Virtual Machine | VMware, Hyper-V, Proxmox | Customer's private cloud / data center |
 | On-premise server | Bare-metal or virtualized, behind corporate firewall | Customer's IT team |
 
+Provider-specific deployment reports:
+
+- Alibaba Cloud / Aliyun: [`docs/ALIYUN-DEPLOYMENT.md`](ALIYUN-DEPLOYMENT.md)
+- Alibaba Cloud full-stack runbook: [`docs/ALIYUN-FULL-STACK-RUNBOOK.md`](ALIYUN-FULL-STACK-RUNBOOK.md)
+
 In all three cases, **the Sentura Dashboard and OpenClaw Gateway are co-hosted on the same machine**. OpenClaw is a persistent, stateful service (shell execution, browser automation via Chromium, file management, SQLite/LanceDB state) that requires a dedicated host. Co-hosting eliminates cross-network latency and simplifies the deployment to a single unit.
 
 ## Host Requirements
@@ -358,21 +363,20 @@ The biggest risk differentiator is not the hosting type itself but **whether LLM
 
 ## Deployment Packaging
 
-Sentura ships as a Docker Compose stack for all target environments:
+Current packaging rule: OpenClaw infrastructure is managed by OpenClaw's upstream Docker/source workflow, not by a custom Sentura wrapper. Sentura should not add a root-level custom `docker-compose.yml` or Docker setup script that replaces OpenClaw's production path.
 
-**VPS / VM:**
-- Docker Compose file with two services (OpenClaw Gateway + Sentura Dashboard)
-- Nginx/Caddy config included
-- Single `docker compose up -d` to start
+**OpenClaw Gateway:**
 
-**On-premise:**
-- Same Docker Compose stack
-- Documentation for integrating with customer's existing reverse proxy and SSO infrastructure
-- Alternative: setup script for native (non-Docker) installation
+- Production containerization uses upstream OpenClaw Docker assets in `openclaw/` (current checkout: `openclaw/scripts/docker/setup.sh` plus `openclaw/docker-compose.yml`).
+- Development still builds from source and runs `pnpm gateway:watch`.
+- Persistent state under `~/.openclaw` must be mounted or stored on durable host storage.
 
-**All environments:**
-- A `sentura-deploy.sh` script that:
-  - Configures `openclaw.json` (auth mode, allowed origins, trusted proxies)
-  - Generates Nginx/Caddy config for the target domain
-  - Sets up TLS certificates (Let's Encrypt or customer-provided)
-  - Creates systemd services or Docker Compose overrides as needed
+**Sentura Dashboard:**
+
+- Can run as a Node/Next.js service behind Nginx/Caddy.
+- If containerized, build it as a separate Dashboard image. Add Next.js standalone output first if a minimal runtime image is desired.
+
+**Reverse proxy / TLS:**
+
+- Operator-managed Nginx/Caddy, customer reverse proxy, or cloud load balancer terminates TLS and forwards Dashboard HTTP plus Gateway WebSocket traffic.
+- Provider-specific steps, such as Alibaba Cloud DNS, ALB, WAF, ECS sizing, and ICP constraints, live in the dedicated provider report linked above.

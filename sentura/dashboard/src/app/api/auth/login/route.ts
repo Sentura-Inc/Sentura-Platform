@@ -12,6 +12,10 @@ import {
   readJsonRequest,
   verifyCbePassword,
 } from "@/lib/cross-border-store";
+import {
+  CBE_ADMIN_EMPLOYEES_PATH,
+  CBE_EMPLOYEE_HOME_PATH,
+} from "@/lib/cross-border-routes";
 import { getServerGatewayClient } from "@/lib/gateway/server-client";
 
 export const dynamic = "force-dynamic";
@@ -77,8 +81,8 @@ async function createLoginResponse(row: {
       cbeRole: row.cbe_role,
     },
     redirectTo: row.cbe_role === "admin"
-      ? "/client-demos/cross-border/admin/employees"
-      : "/client-demos/cross-border/employee",
+      ? CBE_ADMIN_EMPLOYEES_PATH
+      : CBE_EMPLOYEE_HOME_PATH,
   });
   const encodedSession = encodeCbeSession({
     userId: row.user_id,

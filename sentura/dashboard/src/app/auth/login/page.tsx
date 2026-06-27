@@ -7,6 +7,11 @@ import { LoginWelcomeHeader } from "@/components/cross-border/brand-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  CBE_EMPLOYEE_HOME_PATH,
+  CBE_EMPLOYEE_LOGIN_PATH,
+  isCbeEmployeePath,
+} from "@/lib/cross-border-routes";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,9 +38,9 @@ export default function LoginPage() {
         throw new Error(body?.error?.message ?? "登录失败。");
       }
       const next = new URLSearchParams(window.location.search).get("next");
-      router.replace(next && next.startsWith("/client-demos/cross-border/employee")
+      router.replace(next && isCbeEmployeePath(next) && !next.startsWith(CBE_EMPLOYEE_LOGIN_PATH)
         ? next
-        : body.redirectTo ?? "/client-demos/cross-border/employee");
+        : body.redirectTo ?? CBE_EMPLOYEE_HOME_PATH);
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败。");
     } finally {

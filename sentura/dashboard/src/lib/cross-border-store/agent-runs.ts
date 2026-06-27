@@ -186,6 +186,9 @@ export async function markAgentRunRunning(
         queued_at = null,
         lease_owner = coalesce($5, lease_owner),
         lease_until = coalesce($6::timestamptz, lease_until),
+        finished_at = null,
+        error_code = null,
+        error_message = null,
         last_activity_at = now()
       where tenant_id = $1
         and id = $2

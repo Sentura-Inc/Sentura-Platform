@@ -42,6 +42,7 @@ export type {
   DataTier,
   EventFrame,
   GatewayClientOptions,
+  GatewayChatAttachment,
   GatewayEvent,
   GatewayEventType,
   GatewayHealth,

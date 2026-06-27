@@ -239,7 +239,7 @@ Scope implemented:
 | CE20.11 | Failure lifecycle | Static/live store check | Gateway/model/marker failures call the task failure endpoint with stable error codes and terminal `agent_runs.status = failed`. |
 | CE20.12 | Notification center | Static script + Browser | The global notification center polls DB-backed terminal task projections and marks unread notifications through the API. |
 | CE20.13 | Projection detail fields | Static/live store check | Customer and Accio read projections expose report/source/memory fields required by existing drawers and cards. |
-| CE20.14 | Browser render check | Browser | `/client-demos/cross-border/employee`, `/employee/customers`, and `/employee/memory` render without runtime error or console error against local `sentura_cbe_dev`; empty DB lists show expected empty states. |
+| CE20.14 | Browser render check | Browser | `/employee`, `/employee/customers`, and `/employee/memory` render without runtime error or console error against local `sentura_cbe_dev`; empty DB lists show expected empty states. |
 | CE20.15 | Live DB inspection runbook | Static script + live SQL execution | `scripts/inspect-cross-border-live-db.sql` uses real physical columns and joins/JSON projection for website/company/source fields; it avoids stale table-only columns such as `lead_candidates.agent_run_id`, `lead_sources.finding`, and `screening_reports.company_name`. |
 | CE20.16 | Customer list simplification | Static script + Browser | `获客与背调` keeps the existing primary row information, lightens status row backgrounds, removes row-level delete buttons while retaining top `删除所选`, merges score sorting into one `评分排序` select, and shows business score labels such as `优先跟进`, `谨慎跟进`, `暂缓/高风险`, with `证据不足` gray. |
 | CE20.17 | Task-completion row highlight | Static script + Browser | Completed Lead/Screening task notifications link to `/employee/customers?highlightTask=...`; the customer page maps task IDs through affected customer IDs or lead/screening run IDs, clears filters as needed, scrolls to visible affected rows, and flashes a light-blue outline for 3 seconds. |
@@ -247,9 +247,8 @@ Scope implemented:
 | CE20.19 | Message/task dismissal polish | Static script + Browser | The message center dialog closes on outside pointer click, completed task-status banners persist local and DB dismiss state, and closing a terminal banner prevents older completed banners from replacing it after route switching. |
 | CE20.20 | Screening budget estimate | Static script | Background-check estimated price is itemized from configured unit assumptions for OpenAI model tokens, Tavily search, optional Abstract/Hunter email checks, and optional paid trade-data budget rather than a fixed demo per-target value. |
 | CE20.21 | Manager report-window parity | Focused lint/typecheck + Browser | Manager `查看报告` actions use the shared Employee `CustomerReportDialog` only, the report overlay is portaled outside the Manager employee-detail dialog so it is not clipped, report sections and top metrics are visible, `X` closes the report, and outside-overlay click closes only the report while leaving the Manager detail dialog open. |
-| CE20.22 | Manager login parity | Typecheck + Static script + HTTP smoke | Manager has `/client-demos/cross-border/admin/login` using the same logo/card/input/button layout as the Employee login page, submits `cbeRole: "admin"`, preset admin `孙总/1234` signs an `admin` session, wrong password returns 401, Manager APIs default to cookie session rather than a hardcoded admin header, and the seeded admin profile can self-heal from the old preset row. |
-| CE20.23 | Employee/Manager login kickout fix | Typecheck + Static script + HTTP/browser smoke | Employee and Manager sessions use role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) with legacy same-role fallback only; AppShell calls `/session?role=operator` or `/session?role=admin`; Admin cookies are rejected by Employee checks, Employee cookies are rejected by Admin checks, combined cookies keep both platforms active, and persistent UI state reads `localStorage` after mount to avoid first-render hydration mismatch. |
-| CE20.24 | Report and cost document export | Typecheck + Focused lint + HTTP/PDF render smoke | The shared `CustomerReportDialog` exposes one-click DOCX/PDF export for Employee and Manager `背调报告`; Employee `本月工具成本明细` and Manager `员工费用明细` dialogs expose the same DOCX/PDF export actions. The export template is concise: report documents include metadata, score/risk summary, conclusion, score blocks, Google Maps address footprint when present, evidence, gaps, and audit appendix; cost documents include employee/period summary, spend/limit/remaining, source breakdown, ledger rows, pricing-status notes, and technical appendix. Exports are generated in-browser from existing UI data and do not change score calculation, database writes, cost ledger, or admin/employee scope boundaries. PDF rendering uses mixed CJK/Helvetica font runs so English, numbers, timestamps, and dollar values match DOCX-style spacing instead of CJK full-width spacing. |
+| CE20.22 | Manager login parity | Typecheck + Static script + HTTP smoke | Manager has `/admin/login` using the same logo/card/input/button layout as the Employee login page, submits `cbeRole: "admin"`, preset admin `孙总/1234` signs an `admin` session, wrong password returns 401, Manager APIs default to cookie session rather than a hardcoded admin header, and the seeded admin profile can self-heal from the old preset row. |
+| CE20.23 | Employee/Manager login kickout fix | Typecheck + Static script + HTTP/browser smoke | Employee and Manager sessions use role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) with legacy same-role fallback only; AppShell calls `/api/session?role=operator` or `/api/session?role=admin`; Admin cookies are rejected by Employee checks, Employee cookies are rejected by Admin checks, combined cookies keep both platforms active, and persistent UI state reads `localStorage` after mount to avoid first-render hydration mismatch. |
 
 Verification:
 
@@ -267,8 +266,6 @@ Verification:
 - Browser validation on 2026-06-19 against `/admin/employees`: PASS, Lin Yue -> Currys `查看报告` opened the shared report window with visible top metrics, `背调结论`, `评分维度拆解`, `证据明细`, and `客户概览`; the report was not nested inside Manager `DialogContent`, was fully inside a 1440x1000 viewport, `X` closed it, outside-overlay click closed only the report, and browser console had no warnings/errors.
 - 2026-06-19 Manager login verification: `pnpm --dir sentura/dashboard exec tsc --noEmit` PASS; `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` PASS, 172/172; `pnpm exec tsx scripts/test-cross-border-agents.ts` PASS, 389/389; `POST /api/auth/login` with `孙总/1234` returned 200, `displayName=孙总`, `cbeRole=admin`, and `redirectTo=/client-demos/cross-border/admin/employees`; wrong password returned 401; cookie-authenticated `/session` returned `孙总/admin`; cookie-authenticated `/admin/operators` returned 200.
 - 2026-06-19 Employee/Manager login-kickout verification: `pnpm --dir sentura/dashboard exec tsc --noEmit` PASS; `node_modules/.bin/tsx scripts/test-cross-border-phase2-store.ts` PASS, 174/174; `node_modules/.bin/tsx scripts/test-cross-border-agents.ts` PASS, 392/392; `POST /api/auth/login` with `孙总/1234/admin` returned 200 and wrote legacy + admin role cookies; HTTP smoke confirmed Admin cookie accepts only `role=admin`, Employee cookie accepts only `role=operator`, and combined cookies keep both role session endpoints at 200; browser smoke submitted Manager login, reached `/admin/employees`, had no Next overlay/console errors, visiting Employee without an Employee cookie correctly redirected to Employee login, and returning to Manager kept the Manager session active.
-- 2026-06-25 document export verification: `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false` PASS; focused ESLint for `document-export.ts`, `customer-report-dialog.tsx`, `employee-cost.tsx`, and `admin/costs/page.tsx` PASS; `git diff --check` PASS; `curl http://127.0.0.1:3000/client-demos/cross-border/employee` returned 200. `pnpm exec tsx scripts/test-cross-border-phase2-store.ts` returned 195 passed / 1 failed because the pre-existing dirty Manager login page no longer satisfies the older login-layout static assertion; the failure is outside the document export path.
-- 2026-06-25 PDF typography follow-up: Manager login `孙总/1234` PASS; Browser opened `/client-demos/cross-border/admin/costs`, opened Lin Yue cost detail, and temporarily downloaded `员工费用明细-Lin Yue.pdf` under `tmp/pdfs/`. Bundled `pdfinfo` read the file as valid PDF 1.7 with 23 A4 pages; static PDF stream inspection confirmed `/F2 Helvetica` for English/numbers; macOS Quick Look rendered the temporary PDF with visible Chinese and normal English/number spacing. Temporary PDF/PNG artifacts were cleaned after verification.
 - Manual code review tightened Lead/Screening marker normalization so missing traceable source URLs enter the failure path instead of writing placeholder evidence URLs.
 - `CBE_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sentura_cbe_dev node <inline pg runner for scripts/inspect-cross-border-live-db.sql>`: PASS, inspection query file runs against the live DB without missing-column errors. The documented user-facing command remains `psql ... -f scripts/inspect-cross-border-live-db.sql`.
 
@@ -338,7 +335,7 @@ Assertions:
 | CE21.15 | Screening batch block | Static check | Production `createScreeningRun` calls `assertScreeningSessionShape` before `insertAgentRun`, blocking multi-target single-session runs unless explicitly feature-flagged. |
 | CE21.16 | Employee start gating and auto top-up | Static/typecheck | Employee Lead/Screening/Accio UI does not call hidden OpenClaw runner for queued, joined, or near-duplicate responses; executable Lead runs pass DB pre-search denylist into the hidden prompt, and Lead completion uses DB reconciliation to automatically launch bounded top-up rounds when unique saved customers are below the current request target. |
 | CE21.17 | Lead strict-target prompt | Static review | Hidden Lead prompt and Lead workspace skills support `run_mode = "top_up_unique_leads"`, `existing_identity_keys`, `already_covered_queries`, pre-search exclusion of tenant DB identities in every run mode, strict `target_count` net-new output semantics, over-collection before dedupe, and search-result evidence fallback when `web_fetch` is blocked. |
-| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 195/195; live store checks are 217/217; CBE agent checks are 409/409; Dashboard typecheck/build and repo hygiene pass. |
+| CE21.18 | Existing regression coverage | Automated scripts | Store static checks are 211/211; live store checks are 238/238; CBE agent checks are 410/410; Dashboard typecheck/build and repo hygiene pass. |
 
 Latest verification, 2026-06-21:
 
@@ -357,7 +354,7 @@ Latest verification, 2026-06-21:
 
 ## CE22 — Lead Reconciliation, Google Maps Source Redesign, Screening Fan-Out/API Scope, And Accio Durable Workflow
 
-Status: PARTIAL — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening parent/child fan-out and route-triggered queued-child drain PASS 2026-06-24; paid retry state and durable Accio/Screening workflow polish remain PEND.
+Status: PASS — Lead result-level DB reconciliation/top-up PASS 2026-06-21; Google Maps + web-search MCP/source route PASS 2026-06-21; Screening address-footprint implementation PASS 2026-06-22; scale-aware Google Maps first-block scoring implementation PASS 2026-06-23; Screening parent/child fan-out and route-triggered queued-child drain PASS 2026-06-24; paid retry state and explicit re-approval PASS 2026-06-24. The historical Accio approval-to-memory and Screening handoff path from 2026-06-24 is superseded by CE25 on 2026-06-25: `记忆整理` is now preview-only and separated from `获客与背调`.
 
 Implemented Lead scope:
 
@@ -395,21 +392,36 @@ Implemented Screening fan-out/drain checks:
 - Employee bulk Screening execution now starts the parent task, runs claimed single-target children, fails individual child runs when marker/runtime errors occur, and drains another queued wave after each child wave completes.
 - Parent aggregate refresh first resolves the batch id before counting all batch targets, so one terminal child cannot prematurely mark the parent completed. Employee completion messages use the backend-saved `reports.length`, not only the hidden runner's local marker count.
 
+Implemented paid retry and historical Accio/Screening workflow checks:
+
+- `007_screening_retry_memory_approval.sql` adds per-target paid email/trade status, call counts, spend, retry timestamps, memory review metadata, and handoff consumption timestamps.
+- Failed Screening children move available paid email/trade lookups to `reapproval_required`.
+- `POST /api/client-demos/cross-border/employee/screening-runs/[id]/retry` can rerun a failed child without rerunning completed siblings. Normal retry disables paid email/trade sources; explicit re-approval reopens paid lookup for that child only.
+- Employee hidden Screening execution applies child `paid_source_policy` before building the child prompt, so stale UI paid options cannot repeat a paid lookup without server approval.
+- Screening completion records observed paid email/trade evidence into per-target state and `api_call_ledger`.
+- `PATCH /api/client-demos/cross-border/employee/memory/facts` approves or rejects pending Accio memory facts with reviewer metadata; it does not write raw chat text to vector memory.
+- Accio-to-Screening handoffs are marked `accepted` on Screening task creation and `completed` when a report is saved for the Accio summary target.
+
+Current product boundary:
+
+- CE25 supersedes the two Accio interop bullets above. The historical rows remain as audit context for the 2026-06-24 local preflight, but current code intentionally disables Accio memory-fact approval, long-term memory write, customer-list projection, supplement routing, and Accio-to-Screening handoff consumption.
+
 Latest verification, 2026-06-24:
 
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
-- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 196/196.
-- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 218/218 static + live PostgreSQL checks.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 211/211.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 238/238 static + live PostgreSQL checks. The live probe verifies memory approval, Accio handoff accepted/completed transitions, and paid retry disabling paid sources without explicit re-approval.
 - `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
 - `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts --require-db`: PASS, 46/46 static + live PostgreSQL checks. The live probe creates a three-target Screening batch with an active-target cap of 1, verifies parent/child rows, queued excess children, one-child failure, parent remains running after one terminal child, drain claim of one queued child, aggregate counts, and completion-count source checks.
+- Browser smoke against `http://localhost:3000/client-demos/cross-border/employee/memory`: PASS. A synthetic Accio memory record loaded from the DB, the report dialog showed `仅预览`, `PATCH /api/client-demos/cross-border/employee/memory/facts` completed through the `批准写入` action, the UI changed to `已批准`, and the temporary record was removed.
 - Live OpenClaw/Dashboard validation with operator `吴思彤`: PASS. Two real three-target bulk Screening submissions split into one parent plus three child sessions, updated six customer scores/reports, showed no production batch-5/batch-10 single-session path, and the second run finished with parent aggregate `total=3/completed=3/terminal=3`.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: FAIL, 398/410. The failures are stale legacy static/UI-copy assertions outside the P2.5 fan-out path, including removed ordinary sidebar demo links, older terminal/status copy, older cost/detail locations, older Chinese label expectations, evidence-gap wording, and historical budget-copy assumptions.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410 after aligning current UI/cost/status assertions and adding concrete searched-source evidence-gap wording for RDAP/DNS/contact email plus trade/customs/SEC/financial sources.
 
 Previous verification, 2026-06-23:
 
 - `pnpm --filter @sentura/mcp-cross-border-intel test`: PASS, 24/24.
 - `pnpm --filter @sentura/mcp-cross-border-intel build`: PASS.
-- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 409/409.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 195/195.
 - `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 217/217 static + live PostgreSQL checks, including `screening_address_locations` write/read and store-schema acceptance of scale-aware report JSON.
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
@@ -434,21 +446,874 @@ Latest verification, 2026-06-22:
 
 Remaining scope:
 
-- Paid email and paid trade checks are capped once per target and require explicit re-approval on retry.
 - Default Screening API scope stays read-only and source/budget-gated.
 - Country-aware registry routing is documented and tested as a static contract before any new country adapter is exposed to agents.
-- Screening writes targets/reports/evidence/score blocks.
-- Accio writes import/conversations/redacted messages/summaries.
-- Memory facts require approval before promotion.
-- Extend beyond P2.2 completion writes into the full P2.5 workflow: report/evidence detail UI, approval-to-memory promotion, retry/recovery, and durable Screening handoff consumption.
+- Target-deployment smoke and provider quota checks belong to CE23/P2.6, not CE22.
 
 ## CE23 — Load Smoke
 
-Status: PEND
+Status: PASS for local DB-only preflight — executable DB-only smoke tooling is implemented; CE22 prerequisites, local backup/restore drill, Dashboard production build, and Browser memory-approval smoke are complete. Full `production_go_live_ready` still requires target-deployment smoke, target restore drill, and provider quota/source-rate confirmation.
 
-Planned scope:
+Primary files:
 
-- 30-50 user readiness checks.
-- 24 soft / 32 hard active-task behavior and controlled C=40/48 queue validation on the target deployment.
-- Queued/running task counts across Lead, Screening child runs, and Accio imports.
-- Cost/audit/load-smoke records.
+- `scripts/test-cross-border-phase2-load-smoke.ts`
+- `scripts/cross-border-phase2-backup-restore-drill.sh`
+- `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md`
+
+Commands:
+
+```bash
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts
+
+set -a
+source sentura/dashboard/.env.local
+set +a
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json
+
+export CBE_RESTORE_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sentura_cbe_restore_drill"
+# Optional when local pg_dump/pg_restore are unavailable or older than the source server:
+# export CBE_POSTGRES_CLIENT_IMAGE="postgres:18"
+bash scripts/cross-border-phase2-backup-restore-drill.sh
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE23.1 | Static P2.6 plan contract | Static script | `PHASE-2.md` includes the 50-session, 10 Lead request, 5 Screening batch / 25 target, 3 Accio import, C=40/48 pressure, p95 latency, cost/audit, DB-only preflight, and target-deployment go-live boundary clauses. |
+| CE23.2 | Workload cap defaults | Static script | `workload-coordinator.ts` keeps 24 soft / 32 hard global active defaults, 12 Screening active child target cap, and 3 Accio active import cap. |
+| CE23.3 | Runbook and result labels | Static script | `P2.6-LOAD-SMOKE-RUNBOOK.md` documents static, DB-only, `db_only_preflight_passed`, target-deployment, provider-soak, and `production_go_live_ready` labels, and reserves `production_go_live_ready` for the target checklist. |
+| CE23.4 | Backup/restore drill guard | Static script | `scripts/cross-border-phase2-backup-restore-drill.sh` requires `CBE_DATABASE_URL` and separate `CBE_RESTORE_DATABASE_URL`, refuses identical source/restore URLs, and requires a restore/drill target unless explicitly overridden. |
+| CE23.5 | Backup/restore commands | Static script + live drill | The drill uses `pg_dump --format=custom --no-owner --no-privileges`, restores with `pg_restore --clean --if-exists --no-owner --no-privileges`, supports `CBE_POSTGRES_CLIENT_IMAGE` for matching Docker client tools, then runs migration seed and Phase 2 store checks against the restored database. Local run PASS 2026-06-24 with `postgres:18` and restored-store checks 238/238. |
+| CE23.6 | 50-user/session smoke | Live PostgreSQL DB-only smoke | The script seeds 50 temporary `operator` users/profiles, resolves 50 tenant contexts through the Employee API path, records p95 context/API latency, and cleans the probe users afterward. |
+| CE23.7 | Lead duplicate load shape | Live PostgreSQL DB-only smoke | 10 Lead `find-10` requests produce 5 active OpenClaw session records after 3 exact duplicate joins and 2 near-duplicate choice responses. |
+| CE23.8 | Screening fan-out load shape | Live PostgreSQL DB-only smoke | 5 Screening batches create 5 parent runs and 25 child runs; every child has `target_count = 1`, parents have no OpenClaw session key, 12 children run under the active-target cap, and at least 13 children queue. |
+| CE23.9 | Screening child retry/drain | Live PostgreSQL DB-only smoke | Failing one running child marks it retryable and allows a queued sibling to be claimed without rerunning successful siblings. |
+| CE23.10 | Accio import cap | Live PostgreSQL DB-only smoke | 3 Accio imports with redacted fixture messages are admitted under the default active import cap. |
+| CE23.11 | C=48 soft-cap pressure | Live PostgreSQL DB-only smoke | Additional DB-only pressure requests keep active sessions at 24 and queue excess work rather than starting more hidden sessions. |
+| CE23.12 | 32 hard-cap guard | Live PostgreSQL DB-only smoke | A labeled DB-only hard-guard probe at 32 active slots queues a new request with `workload_admission.reason = "global_hard_cap"`. |
+| CE23.13 | Cost/audit/load-smoke records | Live PostgreSQL DB-only smoke | `api_call_ledger` probe rows are attributable to `agent_run_id`; an `audit_events` row records p95 latency, DB-only label, and `go_live_readiness = "db_only_preflight_passed"`. |
+
+Latest verification, 2026-06-24:
+
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16 static checks.
+- `set -a; source sentura/dashboard/.env.local; set +a; CBE_BACKUP_RESTORE_DRILL_PASSED=1 pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48 static + live PostgreSQL DB-only smoke checks.
+- `scripts/cross-border-phase2-backup-restore-drill.sh`: PASS against disposable local `sentura_cbe_restore_drill` using `CBE_POSTGRES_CLIENT_IMAGE=postgres:18`; restored migration seed skipped existing migrations and restored Phase 2 store checks passed 238/238.
+- `pnpm --dir sentura/dashboard build`: PASS; route manifest includes `employee/memory/facts` and `employee/screening-runs/[id]/retry`.
+- `outputs/cbe-phase2-load-smoke-report.json` records `go_live_readiness = "db_only_preflight_passed"` and `backup_restore_drill = "passed"`.
+- `git diff --check`: PASS after final documentation/handoff updates.
+
+Boundary:
+
+- CE23 DB-only smoke does not start real OpenClaw sessions and does not call paid or external providers.
+- Target-deployment load smoke and `production_go_live_ready` are separate from the local DB-only preflight and require the target Dashboard/Gateway, target disposable restore database, and provider/source-rate quota confirmation.
+
+## CE24 — Accio Manual Memory Import Formats
+
+Status: PASS — `agent-memory` branch merged into `ecommerce` and integrated with Phase 2 DB/store/UI boundaries on 2026-06-24; structured report projection repaired and verified on 2026-06-25.
+
+Scope:
+
+- `memory-import-normalizer.ts` supports JSON, pasted text, and multi-screenshot import preparation for Employee `记忆整理`.
+- The Dashboard Gateway client forwards image attachments through OpenClaw-compatible `chat.send` payloads.
+- The hidden Accio task runner batches screenshot preflight transcription turns before requesting the final structured memory summary.
+- `008_accio_manual_import_formats.sql` adds source/input/attachment metadata to `accio_imports`.
+- Employee `记忆整理` exposes JSON/text/image modes. Screenshot mode accepts multiple selected image files, shows the selected screenshot count/list, and keeps raw images out of persistent storage.
+- Employee memory reports project analyzed `customer_profile`, `purchase_intent`, `negotiated_price`, `behavior_signals`, and `next_actions` fields instead of showing only a generic summary string.
+- Memory record projection prefers analyzed company/country values from `accio_summaries` over placeholder manual import values such as `待确认客户`.
+
+Primary files:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/memory-import-normalizer.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/lib/gateway/{types.ts,client.ts,index.ts}`
+- `sentura/dashboard/src/lib/cross-border-store/{schemas.ts,accio.ts}`
+- `sentura/lib/cross-border-store/migrations/008_accio_manual_import_formats.sql`
+- `scripts/test-cross-border-phase2-store.ts`
+- `scripts/test-cross-border-agents.ts`
+
+Commands:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db
+pnpm exec tsx scripts/test-cross-border-agents.ts
+git diff --check
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE24.1 | Import normalizer contract | Static script + typecheck | JSON import preserves parsed Accio export structure; pasted text becomes a line/message-based export; image import validates image MIME/size, computes attachment hashes, and keeps base64 only in browser/task state. |
+| CE24.2 | Gateway attachment contract | Static script + local OpenClaw source review | `GatewayChatAttachment` supports OpenClaw `source: { type: "base64", media_type, data }`, and `sendChat`/`sendChatMessage` forward `attachments` without changing existing text-only calls. |
+| CE24.3 | Screenshot preflight transcription | Static script | The Accio runner splits image attachments into bounded preflight batches, waits for batch markers, then sends the final summary prompt with transcript context instead of storing raw screenshots. |
+| CE24.4 | Source/input metadata persistence | Static store script | `accio_imports` stores `source_kind`, `input_format`, and `attachment_metadata_json`; typed store/API projections return the metadata on imports, memory records, and analysis payloads. |
+| CE24.5 | Employee UI modes | Static script + typecheck | `记忆整理` presents JSON upload, pasted text, and screenshot upload modes with matching import/analyze actions and source labels. |
+| CE24.6 | Screenshot no-replay boundary | Static script | Screenshot mode cannot use import-only storage; queued/no-session screenshot analysis is failed immediately because raw images are intentionally not persisted; stored image-format records cannot be directly re-analyzed from DB. |
+| CE24.7 | Chinese operator-ready summary prompt | Static script | Accio prompts require Chinese operator-ready deal summaries, product/price context, follow-up fields, and explicit distinction between unit price and total price. |
+| CE24.8 | Structured report projection | Static store/UI scripts | Store/API projection exposes `customerProfile`, `purchaseIntent`, `negotiatedPrices`, and `behaviorSignals`; analyzed customer profile company wins over placeholder import company; Employee report dialog renders `客户画像`, `采购需求`, `价格与条款`, and `下一步`. |
+| CE24.9 | Browser sample smoke | Local Dashboard + Browser | The teammate sample record renders as Rossi Telecom SRL and the report modal shows Rossi/Marco, S25 Ultra magnetic rugged case, 500/1000 pcs, DDP Milan/payment context, US$1,925 in next actions, and concrete follow-up tasks. |
+| CE24.10 | Multi-screenshot upload | Static script + typecheck | Image import iterates every selected file, names multi-image records as `聊天截图 N 张`, exposes a `multiple` file input, shows selected count/list, converts all images to Gateway attachments, and the Accio runner splits attachments into numbered preflight batches. |
+| CE24.11 | Regression commands | Automated scripts | Dashboard typecheck, Phase 2 store static/live checks, broad CBE static checks, Browser sample smoke, and whitespace checks pass after the projection/multi-screenshot fix. |
+
+Latest verification, 2026-06-25:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244 after CE25 separation.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 415/415 after CE25 separation.
+- API smoke against local Dashboard returned `name: "Rossi Telecom SRL"` plus structured profile/intent/price/behavior/next-action fields.
+- Browser smoke against local Dashboard confirmed the sample report modal renders the structured sections and useful deal facts.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- CE24 does not add a direct Alibaba International Station API integration. It only broadens manual Accio intake sources while preserving OpenClaw employee execution and Phase 2 persistence boundaries.
+- Screenshot raw image bytes are not written into the CBE business database. Re-analysis of image-sourced records requires the operator to upload the screenshots again.
+- CE25 adds the current product boundary on top of CE24: Accio reports are structured analysis previews only and must not offer write approval, customer projection, Screening handoff, or supplement-chat interop.
+
+## CE25 — Memory Agent Separation From Lead/Screening Boards
+
+Status: PASS — Implemented and verified on 2026-06-25 after the user clarified that `记忆整理` must be a separate board from `获客与背调`.
+
+Scope:
+
+- Employee `记忆整理` keeps JSON/text/multi-screenshot import and structured report preview.
+- `记忆整理` no longer exposes `批准写入`, `发送到背调`, or write-status actions.
+- `获客与背调` no longer offers supplement-chat routing back into `记忆整理`.
+- Accio summaries no longer create `memory_facts`, no longer create `handoff_events`, and no longer appear as customer rows.
+- Backend/store guards reject Accio interop attempts instead of silently accepting stale clients or legacy payloads.
+- The `cbe-accio-memory` workspace no longer contains a handoff skill and its prompt/skills describe preview-only analysis.
+
+Primary files:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/accio-memory/page.tsx`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/memory/facts/route.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/{employee-api.ts,employee-data.ts,employee-task-runner.ts}`
+- `sentura/dashboard/src/lib/cross-border-store/{accio.ts,customers.ts,handoffs.ts,schemas.ts,screening.ts}`
+- `sentura/agents/cbe-accio-memory/**`
+- `scripts/test-cross-border-agents.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+
+Commands:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db
+git diff --check
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE25.1 | Memory UI action boundary | Static script + typecheck | Employee `记忆整理` report/import flows have no `批准写入`, `发送到背调`, write status, or Screening route action; report UI is labeled as analysis preview. |
+| CE25.2 | Customer page boundary | Static script + typecheck | `获客与背调` runs Lead and Screening only; selected customers no longer route to memory supplement flows and no Accio source label is projected into the customer list. |
+| CE25.3 | Accio persistence boundary | Static/live store check | `saveAccioSummaries()` persists summaries but returns `memoryFactIds: []` and `handoffIds: []`; raw `supplement_target` payloads are rejected with `accio_interop_disabled`. |
+| CE25.4 | Handoff guard | Static/live store check | Accio-to-Screening handoff creation is rejected with `accio_handoff_disabled`. |
+| CE25.5 | Screening source boundary | Static script | `accio_memory` is removed from Screening target/report source schemas and Screening no longer accepts/completes Accio handoff events. |
+| CE25.6 | Agent workspace boundary | Static script | `cbe-accio-memory` no longer has `skills/handoff-to-screening/SKILL.md`; prompt and skills forbid long-term write, customer creation, or Screening handoff output. |
+| CE25.7 | Standalone Accio page boundary | Static script + typecheck | `/client-demos/cross-border/accio-memory` renders preview/copy analysis only and has no Screening handoff copy/send path. |
+| CE25.8 | Regression commands | Automated scripts | Dashboard typecheck, broad CBE static checks, Phase 2 store static/live checks, and whitespace checks pass after removing the interop path. |
+
+Latest verification, 2026-06-25:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 415/415.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+
+Boundary:
+
+- CE25 intentionally supersedes the CE22 Accio approval-to-memory and Accio-to-Screening handoff UX. Historical CE22 rows remain for audit traceability only.
+- Existing database tables such as `memory_facts` and `handoff_events` remain for other platform/history needs; the current Accio `记忆整理` flow does not write to them.
+
+## CE26 — Production Employee/Admin route split
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- `sentura/dashboard/next.config.ts`
+- `sentura/dashboard/src/lib/cross-border-routes.ts`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/src/app/page.tsx`
+- `sentura/dashboard/src/app/auth/login/page.tsx`
+- `sentura/dashboard/src/app/api/auth/login/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/session/route.ts`
+- `sentura/dashboard/src/app/client-demos/cross-border/{employee,admin}/**`
+- `scripts/test-cross-border-agents.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+- `scripts/test-cross-border-phase2-concurrency.ts`
+- `scripts/test-cross-border-phase2-load-smoke.ts`
+
+Validation method:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm --dir sentura/dashboard build
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm exec tsx scripts/test-cross-border-phase2-store.ts
+pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts
+pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE26.1 | Canonical page routes | Static script + browser smoke | Employee entry is `/employee`; Employee login is `/employee/login`; Admin entry is `/admin`; Admin login is `/admin/login`. Browser smoke loads `/employee` and finds the Employee shell/login surface; `/admin/login` exposes the manager login form. |
+| CE26.2 | Canonical API routes | Static script + HTTP smoke | Employee APIs are called through `/api/employee/*`; Admin APIs are called through `/api/admin/*`; role session checks use `/api/session?role=operator|admin`. HTTP smoke reaches handlers and returns expected auth errors when unauthenticated, not 404. |
+| CE26.3 | Legacy URL compatibility | Static script + HTTP smoke | Old `/client-demos/cross-border/employee*` and `/client-demos/cross-border/admin*` page URLs redirect to canonical `/employee*` and `/admin*`; legacy implementation files remain readable behind Next rewrites during this migration. |
+| CE26.4 | Next config routing | Static script + build | `next.config.ts` redirects old demo page URLs, rewrites `/employee`, `/admin`, `/api/employee/*`, `/api/admin/*`, and `/api/session` to the existing implementation, and production build succeeds. |
+| CE26.5 | AppShell/session boundary | Static script + typecheck | AppShell role checks, login redirects, nav links, notification links, logout targets, and login API `redirectTo` values use canonical Employee/Admin routes and no longer send users back to demo URLs. |
+| CE26.6 | Regression coverage | Automated scripts | Dashboard typecheck/build, broad CBE static checks, Phase 2 store checks, concurrency checks, load-smoke static checks, browser route smoke, and whitespace checks pass. |
+| CE26.7 | Alibaba ECS rollout | Target smoke | ECS pulls the route split, rebuilds Dashboard, restarts `sentura-dashboard.service`, reloads Nginx root redirects to `/employee` and `/admin/login`, confirms loopback-only Dashboard/Gateway listeners, verifies live RDS store checks, public HTTPS canonical redirects/pages, auth-boundary API 401s, and public WSS Gateway handshake. |
+| CE26.8 | Admin SSR rewrite shell | Static + HTTP smoke | Route helpers recognize both canonical paths and Next rewrite destination paths (`/client-demos/cross-border/admin*`) so `/admin/login` server-rendered HTML shows `跨境电商管理者系统`, not `跨境电商员工操作系统`; tenant context also recognizes both canonical and rewritten API paths. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 417/417.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 218/218.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts`: PASS, 16/16.
+- Local HTTP smoke against `http://127.0.0.1:3000`: `/employee` returned 200; `/admin/login` returned 200; old `/client-demos/cross-border/employee` redirected to `/employee`; old `/client-demos/cross-border/admin/login` redirected to `/admin/login`; `/api/session`, `/api/employee/customers`, and `/api/admin/operators` reached handlers and returned expected unauthenticated 401 responses.
+- Browser smoke against `http://127.0.0.1:3000`: `/employee` loaded the Employee shell/login surface; `/admin/login` exposed the `管理者姓名` / `密码` login form and `登录` button.
+- Admin SSR rewrite fix:
+  - Before the fix, public `https://admin.sentura.ai/admin/login` returned `200` but its SSR HTML included `跨境电商员工操作系统` because AppShell saw the rewritten internal path `/client-demos/cross-border/admin/login` and route helpers only recognized `/admin`.
+  - Fixed `sentura/dashboard/src/lib/cross-border-routes.ts` to recognize canonical paths plus internal rewrite destination paths, and fixed `tenant-context.ts` to recognize canonical plus rewritten API paths.
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+  - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 418/418.
+  - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 219/219.
+  - `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+  - Local production HTTP smoke: `/admin/login` SSR HTML contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and exposes `管理者姓名` / `密码` / `登录`.
+- Target ECS rollout:
+  - `pnpm --dir sentura/dashboard build`: PASS on `/root/Sentura-Platform`.
+  - `sentura-dashboard.service`: active after restart on `127.0.0.1:3000`.
+  - root `systemctl --user openclaw-gateway.service`: active on `127.0.0.1:18789`.
+  - `nginx -t`: PASS; Nginx reloaded after changing root redirects to `https://$host/employee` and `https://$host/admin/login`.
+  - Server host-header smoke: `app.sentura.ai/` redirects to `https://app.sentura.ai/employee`; `admin.sentura.ai/` redirects to `https://admin.sentura.ai/admin/login`.
+  - Live RDS store check: `pnpm exec tsx scripts/test-cross-border-phase2-store.ts --require-db`: PASS, 244/244.
+  - Public HTTPS smoke: `https://app.sentura.ai/` redirects to `/employee`, `https://admin.sentura.ai/` redirects to `/admin/login`, `https://app.sentura.ai/employee` returns 200, and `https://admin.sentura.ai/admin/login` returns 200.
+  - Public compatibility smoke: old `/client-demos/cross-border/employee` and `/client-demos/cross-border/admin/login` return 307 to canonical paths.
+  - Public API smoke: `/api/session?role=operator` and `/api/admin/operators` reach handlers and return expected unauthenticated 401 responses.
+  - Public Gateway smoke: `wss://admin.sentura.ai/gateway` opens a WebSocket and closes cleanly after the probe.
+- Target ECS admin SSR hotfix:
+  - Applied the two-source-file hotfix to ECS with `git apply`, rebuilt Dashboard, restarted `sentura-dashboard.service`, and restored generated `next-env.d.ts`.
+  - Server loopback HTML smoke: `/admin/login` contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and includes `管理者姓名` / `密码` / `登录`.
+  - Public HTML smoke: `https://admin.sentura.ai/admin/login` contains `跨境电商管理者系统`, does not contain `跨境电商员工操作系统`, and includes the manager login fields.
+  - Public login smoke with `孙总` / `1234`: `/api/auth/login` returns 200 with `redirectTo: "/admin/employees"`; authenticated `/admin/employees` returns 200 and renders manager navigation labels.
+
+Boundary:
+
+- This route split changes public/canonical Dashboard paths only. The source implementation files remain under `src/app/client-demos/cross-border/**` for now and are reached through Next rewrites to avoid a high-risk file move.
+- Existing standalone historical demo pages such as `/client-demos/cross-border/lead-discovery`, `/screening`, and `/accio-memory` are not promoted to production entrypoints in this pass.
+
+## CE27 — ECS Lead Sandbox Readiness
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Alibaba ECS target `/root/Sentura-Platform`.
+- Root user OpenClaw Gateway systemd user service.
+- Docker sandbox image `openclaw-sandbox:bookworm-slim`.
+- `cbe-lead-discovery` hidden OpenClaw task startup.
+- RDS `agent_runs`, `lead_runs`, and `lead_discovery_scopes` cleanup for failed Lead runs.
+
+Validation method:
+
+```bash
+cd /root/Sentura-Platform
+docker image ls | grep openclaw-sandbox
+systemctl --user restart openclaw-gateway
+systemctl --user is-active openclaw-gateway
+```
+
+Plus targeted Gateway/RDS probes:
+
+- Temporary `cbe-lead-discovery` sandbox startup session returns `READY`.
+- Non-writing Lead smoke reaches `cross-border-intel__cbe_intel_google_places_search` and receives Google Places HTTP 200.
+- Original failed session is terminal in RDS and has no lingering active Lead scope.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE27.1 | Sandbox image prerequisite | ECS shell | Docker is active and `openclaw-sandbox:bookworm-slim` exists after `bash openclaw/scripts/sandbox-setup.sh`. |
+| CE27.2 | Gateway restart | systemd user service | Root `openclaw-gateway` restarts cleanly, returns `active`, and Gateway reaches `ready` without repeating `Sandbox image not found`. |
+| CE27.3 | Sandboxed Lead startup | Temporary Gateway session | `cbe-lead-discovery` starts in its sandbox and returns `READY`; diagnostic transcript/session artifacts are removed after the probe. |
+| CE27.4 | Lead tool availability | Non-writing Gateway smoke | `cross-border-intel__cbe_intel_google_places_search` is available to `cbe-lead-discovery` and returns Google Places HTTP 200 candidates. |
+| CE27.5 | Failed-run terminal state | RDS query | The original failed run has `agent_runs.status = failed`, `agent_runs.error_code = gateway`, and its `lead_runs.status = failed`. |
+| CE27.6 | Scope release | RDS query | Active `cbe-lead-discovery` run count is `0` and no `lead_discovery_scopes` row keeps `active_agent_run_id` pointing to the failed run. |
+| CE27.7 | Diagnostic cleanup | ECS filesystem | Temporary diagnostic `READY` and smoke session artifacts are removed; the user's original failed session remains as an audit record. |
+
+Latest verification, 2026-06-26:
+
+- Built `openclaw-sandbox:bookworm-slim` with `bash openclaw/scripts/sandbox-setup.sh`.
+- Restarted root `openclaw-gateway`; service returned `active` and Gateway logged `ready`.
+- Temporary `cbe-lead-discovery` startup probe returned `READY`.
+- Non-writing tool smoke called `cross-border-intel__cbe_intel_google_places_search`; Google Places returned HTTP 200 and candidates.
+- RDS check for the original failed session:
+  - `agent_runs.status = failed`.
+  - `agent_runs.error_code = gateway`.
+  - `lead_runs.status = failed`.
+  - active Lead run count = `0`.
+  - lingering scopes = `[]`.
+- Removed temporary diagnostic session files from `/root/.openclaw/agents/cbe-lead-discovery/sessions`.
+
+Boundary:
+
+- CE27 is a target operational readiness check, not an application-code change.
+- It does not insert test customers into the production customer table.
+- Full `production_go_live_ready` still requires target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS evidence.
+
+## CE28 — Screening Fenced JSON Recovery And Backfill
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner structured-result parsing.
+- Production `cbe-buyer-screening` task recovery on Alibaba ECS.
+- RDS `agent_runs`, `screening_reports`, `screening_evidence`, `screening_score_blocks`, and `screening_address_locations` completion state.
+
+Context:
+
+- Production `背调` for `CPR Cell Phone Repair` failed in the Dashboard as `timeout`.
+- RDS run: `run_bd41a833-f84b-4b20-930d-65732ffab564`.
+- OpenClaw session key: `agent:cbe-buyer-screening:user:0c01d63d-de13-4478-a6a7-af3680b979b6:f70c7296-85d5-4f1c-b4d5-ba0bf659c81b`.
+- OpenClaw session file: `/root/.openclaw/agents/cbe-buyer-screening/sessions/bb9127f8-5645-4e06-9c57-93ca8f6fa220.jsonl`.
+
+Root cause:
+
+- The OpenClaw session itself completed in about 195 seconds and returned a valid JSON object in a ```json fenced block.
+- The assistant response omitted `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END`.
+- The Dashboard parser only accepted explicit markers, so it continued polling until the local 6-minute wait window expired and wrote `error_code = timeout`.
+
+Fix:
+
+- `extractMarkerPayload()` still prefers explicit markers.
+- When markers are absent, it now tries a whole-response JSON fallback after removing an optional ```json code fence.
+- The fallback is accepted only when the parsed object contains the expected top-level array for the current task:
+  - Lead: `leads`.
+  - Screening: `reports`.
+  - Accio memory: `summaries`.
+  - Image preflight: `images`.
+- Added static regression coverage in `scripts/test-cross-border-agents.ts`.
+- Applied the same hotfix on ECS, rebuilt Dashboard, and restarted `sentura-dashboard.service`.
+- Backfilled the already-generated CPR Screening report through the existing completion API/store path, using the transcript payload and the normal Dashboard normalization layer.
+
+Validation method:
+
+```bash
+pnpm --dir sentura/dashboard exec tsc --noEmit
+pnpm exec tsx scripts/test-cross-border-agents.ts
+pnpm --dir sentura/dashboard build
+```
+
+Target ECS checks:
+
+```bash
+systemctl is-active sentura-dashboard nginx
+systemctl --user is-active openclaw-gateway
+curl -I https://app.sentura.ai/employee
+curl -I https://admin.sentura.ai/admin/login
+```
+
+RDS checks:
+
+```sql
+select id, status, current_stage, error_code, error_message
+from agent_runs
+where id = 'run_bd41a833-f84b-4b20-930d-65732ffab564';
+
+select id, risk_tier, normalized_score
+from screening_reports
+where agent_run_id = 'run_bd41a833-f84b-4b20-930d-65732ffab564';
+```
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE28.1 | Whole-response JSON fallback | Static script | Hidden runner contains `parseWholeJsonPayload`, `stripJsonCodeFence`, expected-key routing, and `Array.isArray(record[expectedKey])` guard. |
+| CE28.2 | Marker-first behavior | Static review | Explicit marker extraction remains the primary path; fallback runs only when `startMarker` is absent. |
+| CE28.3 | Typecheck | Local + ECS | `pnpm --dir sentura/dashboard exec tsc --noEmit` passes after the parser change. |
+| CE28.4 | Static regression | Local + ECS | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 419/419. |
+| CE28.5 | ECS rollout | Target build/service | `pnpm --dir sentura/dashboard build` passes; `sentura-dashboard.service`, `nginx`, and root `openclaw-gateway` are active. |
+| CE28.6 | Production report backfill | API/store path | The CPR transcript payload is normalized and completed through the existing API/store path, not hand-written with raw SQL. |
+| CE28.7 | RDS terminal state | RDS query | `run_bd41a833-f84b-4b20-930d-65732ffab564` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE28.8 | Report visibility | Employee API smoke | `GET /api/employee/customers?query=CPR` shows `CPR Cell Phone Repair` with `screeningStatus = cautious`, `normalizedScore = 78.67`, and `latestScreeningReportId = RPT-20260625-CPR-001`. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 419/419.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `RPT-20260625-CPR-001`.
+  - risk tier `cautious`.
+  - normalized score `78.67`.
+  - address-footprint locations = 16.
+  - active Screening run count = 0.
+- Employee API smoke returned CPR with `screeningStatus = cautious`, `normalizedScore = 78.67`, and `screeningAgentRunId = run_bd41a833-f84b-4b20-930d-65732ffab564`.
+
+Boundary:
+
+- CE28 does not relax the prompt contract; agents are still instructed to output markers.
+- The fallback is deliberately narrow and only accepts full JSON/code-fenced JSON with the expected top-level array.
+- The production backfill used the existing completion route/store normalization path and did not create a synthetic test customer.
+
+## CE29 — Hidden Task Structured Output Repair Loop
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner structured-output enforcement for Lead, Screening, Accio, and screenshot preflight tasks.
+- Local and Alibaba ECS rollout of the format-repair path.
+- Public Employee/Admin reachability after the rebuilt Dashboard restart.
+
+Context:
+
+- CE28 fixed the production CPR Screening timeout by accepting valid whole-response fenced JSON when markers are omitted.
+- The remaining risk was malformed or prose-wrapped structured output that still cannot be parsed after marker and fenced-JSON fallback.
+- The user asked whether future tasks could still timeout because of formatting and whether there is an enforcement path to ensure a return.
+
+Fix:
+
+- Added `HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS = 90_000`.
+- Added timestamp-scoped transcript reads:
+  - Normal task polling can pass `minMessageTimestampMs` so preflight or previous turns are not parsed as current output.
+  - Repair polling reads only messages after the repair request timestamp.
+- Added `buildStructuredOutputRepairPrompt()`:
+  - Instructs the employee that the Dashboard could not read the JSON.
+  - Forbids new investigation, tool calls, added evidence, deleted evidence, or invented evidence.
+  - Requires only the existing result, rewritten as strict `JSON.parse`-compatible JSON.
+  - Requires the original task markers and the expected top-level array key.
+- Added `requestHiddenTaskFormatRepair()`:
+  - Sends one repair turn on malformed JSON or completed non-marker output.
+  - Polls the repair transcript for 90s.
+  - Preserves terminal backend failures separately from repair parse/timeout failures.
+- Wired repair into:
+  - screenshot preflight turns, where `chat.send` normally returns after the preflight turn completes;
+  - final Lead/Screening/Accio turns;
+  - final transcript grace handling after long `chat.send` timeouts.
+- Kept CE28's marker-first and fenced-JSON fallback path before the repair loop.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE29.1 | Repair prompt contract | Static script | `scripts/test-cross-border-agents.ts` asserts `buildStructuredOutputRepairPrompt`, `requestHiddenTaskFormatRepair`, `HIDDEN_TASK_FORMAT_REPAIR_TIMEOUT_MS`, and the no-reinvestigation/no-tool repair wording exist. |
+| CE29.2 | Timestamp-scoped transcript reads | Static script + code review | Hidden runner contains `minMessageTimestampMs` and uses it for preflight, final-task, and repair polling so stale transcript messages do not satisfy a later task. |
+| CE29.3 | Expected key enforcement | Static/code review | Repair prompt and fallback derive the expected top-level key from the original marker: `leads`, `reports`, `summaries`, or image `images`. |
+| CE29.4 | Preflight repair | Static/code review | Screenshot preflight calls `waitForHiddenTaskMarker()` with `repairOnAssistantText: true` only after the preflight `chat.send` completes. |
+| CE29.5 | Final task repair | Static/code review | Final Lead/Screening/Accio polling calls one repair round for parse errors, and for non-marker assistant output only when the send completed or the normal wait/grace window has elapsed. |
+| CE29.6 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 420/420; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE29.7 | ECS rollout | Target commands | ECS static 420/420, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, and generated `next-env.d.ts` is restored. |
+| CE29.8 | Public smoke | Public HTTPS | `https://app.sentura.ai/employee` returns 200 with the Employee shell; `https://admin.sentura.ai/admin/login` returns 200 with the Admin shell and not the Employee shell. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Local `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 420/420.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200; contains `跨境电商员工操作系统` and not `跨境电商管理者系统`.
+  - `https://admin.sentura.ai/admin/login`: 200; contains `跨境电商管理者系统` and not `跨境电商员工操作系统`.
+
+Boundary:
+
+- CE29 is not a guarantee that every task will succeed. It prevents format-only failures from being reported as local timeouts when the employee has already produced usable structured content or can rewrite it.
+- If the employee never reaches a final result, a provider/tool/backend failure occurs, or the repair turn also fails to produce parseable JSON, the task still fails explicitly with the corresponding error.
+- The repair prompt intentionally forbids new facts and tool calls, so it is a formatting guard rather than a second investigation pass.
+
+## CE30 — Nested OpenClaw Transcript Recovery
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner transcript compatibility for OpenClaw `chat.history`.
+- Production Screening recovery for the latest Cellairis run on Alibaba ECS/RDS.
+- Local and ECS rollout of the nested transcript parsing fix.
+
+Context:
+
+- After CE29 was deployed, the user ran another `背调` task from `app.sentura.ai` and saw the same local timeout.
+- RDS showed latest failed run `run_230efb76-4442-4e46-a5d0-0467dea30b8f` for `Cellairis`, with `error_code = timeout`.
+- OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/2cd1d554-f500-41d4-927b-8aa225f3d96c.jsonl` had already produced a valid marker-wrapped report at `2026-06-25T23:03:59.697Z`, before the Dashboard wrote the timeout at `2026-06-25T23:06:34.074Z`.
+- The raw session entries were shaped like `{ type, id, timestamp, message: { role, content } }`; the hidden runner only read flat `message.role` / `message.content` fields as `TranscriptMessage.role` / `TranscriptMessage.content`, so it saw no assistant text.
+
+Fix:
+
+- Updated `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`:
+  - Added `transcriptMessageRecord()`, `messageRole()`, and `messageContent()` helpers.
+  - Assistant text extraction now accepts both flat transcript messages and raw nested OpenClaw entries.
+  - Backend failure detection also checks nested assistant `stopReason` / content.
+  - Added `coerceTimestampMs()` to support ISO strings, numeric epoch milliseconds, numeric epoch seconds, and alternate timestamp fields such as `createdAt`, `created_at`, `updatedAt`, and `ts`.
+  - `transcriptMessagesSince()` now falls back to the full transcript when no row has a comparable timestamp, rather than dropping every row.
+- Updated `scripts/test-cross-border-agents.ts` with static regressions for nested transcript reading and timestamp fallback.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE30.1 | Nested assistant extraction | Static script | `scripts/test-cross-border-agents.ts` asserts the hidden runner contains `transcriptMessageRecord`, `messageRole`, `messageContent`, `asRecord(raw.message)`, and `messageRole(message) === "assistant"`. |
+| CE30.2 | Timestamp compatibility | Static script | Hidden runner contains `coerceTimestampMs`, nested timestamp parsing, `sawComparableTimestamp`, and the full-transcript fallback. |
+| CE30.3 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 422/422; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE30.4 | ECS rollout | Target commands | ECS static 422/422, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, and generated `next-env.d.ts` is restored. |
+| CE30.5 | Public smoke | Public HTTPS | `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return HTTP 200 after restart. |
+| CE30.6 | Production report recovery | API/store path | The Cellairis transcript payload is completed through `completeEmployeeScreeningRun()` / the existing Dashboard API/store normalization path, not hand-written with raw SQL. |
+| CE30.7 | RDS terminal state | RDS query | `run_230efb76-4442-4e46-a5d0-0467dea30b8f` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE30.8 | Report persistence | RDS query | Report `SR-20260625-CELLAIRIS-001` exists with score `88.44`, risk tier `trusted_candidate`, 29 evidence rows, 6 score blocks, and 14 address locations. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Local `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 422/422.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200.
+  - `https://admin.sentura.ai/admin/login`: 200.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `SR-20260625-CELLAIRIS-001`.
+  - risk tier `trusted_candidate`.
+  - normalized score `88.44`.
+  - saved evidence = 29.
+  - saved score blocks = 6.
+  - address-footprint locations = 14.
+  - active Screening run count = 0.
+
+Boundary:
+
+- CE30 fixes transcript-shape compatibility. It does not change the marker contract, CE28 fallback scope, or CE29 repair behavior.
+- If OpenClaw never writes a final assistant message, or the final assistant message lacks a valid payload after fallback/repair, the task still fails explicitly.
+
+## CE31 — Long Transcript and Repair-Result Recovery
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner transcript size and embedded fenced-JSON fallback.
+- Production Screening recovery for the Adorama run on Alibaba ECS/RDS.
+- Local regression coverage for long Screening sessions that produce a valid repair marker payload near the end of the transcript.
+
+Context:
+
+- The user ran another production `背调` task for `Adorama`.
+- RDS showed failed run `run_0ce71f21-efbc-43be-909d-6309c7039548` with `error_code = timeout` and error text `员工已返回结果，但格式修复超时，仍未收到可写入 JSON。`
+- The OpenClaw session file `/root/.openclaw/agents/cbe-buyer-screening/sessions/8f062995-9c46-43ce-bf7a-5eb985b760d3.jsonl` proved the employee produced:
+  - an original prose + ```json fenced Screening report;
+  - a repair response with `SCREENING_REPORTS_JSON_START` / `SCREENING_REPORTS_JSON_END` and top-level `reports`.
+- The session JSONL was about 333KB; the hidden runner requested only 300KB from `chat.history`, so the final repair marker payload was truncated away before parsing.
+- The first CE31 implementation briefly raised the read size to 2MB. CE32 superseded that transient setting because OpenClaw Gateway validates `chat.history.maxChars <= 500000`.
+
+Fix:
+
+- Raised `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` from `300_000` to the OpenClaw Gateway-safe `500_000` limit.
+- Added `parseJsonPayloadCandidate()` and `parseFencedJsonPayload()` so marker-less assistant replies that contain prose before a ```json fenced object can still be parsed when the expected top-level key matches.
+- Kept marker parsing first and expected-key guarded fallback second.
+- Added a final unscoped `readHiddenTaskPayload()` before `requestHiddenTaskFormatRepair()` declares repair timeout, so timestamp filtering cannot be the last reason a valid repair payload is missed.
+- Added static regressions in `scripts/test-cross-border-agents.ts` for embedded fenced JSON, full repair reread, and the 500KB transcript cap.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE31.1 | Larger transcript cap | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `500_000` and still passed to `client.getTranscript()`. |
+| CE31.2 | Embedded fenced JSON fallback | Static script/code review | Hidden runner contains `parseFencedJsonPayload()`, `parseJsonPayloadCandidate()`, and falls back from whole JSON to embedded fenced JSON when markers are absent. |
+| CE31.3 | Repair final reread | Static script/code review | `requestHiddenTaskFormatRepair()` performs a final full transcript read and returns a payload if found before throwing the repair-timeout error. |
+| CE31.4 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424; `pnpm --dir sentura/dashboard exec tsc --noEmit` passes; `git diff --check` passes. |
+| CE31.5 | ECS rollout | Target commands | ECS static 424/424, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, generated `next-env.d.ts` is restored, and public `app.sentura.ai/employee` plus `admin.sentura.ai/admin/login` remain HTTP 200. |
+| CE31.6 | Production report recovery | API/store path | The existing Adorama repair payload is completed through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer; reports are not hand-written with raw SQL. |
+| CE31.7 | RDS terminal state | RDS query | `run_0ce71f21-efbc-43be-909d-6309c7039548` is `completed`, `current_stage = screening_reports_saved`, and has no `error_code` / `error_message`. |
+| CE31.8 | Report persistence | RDS query | Report `cbe_sr_20260626_adorama_001` exists with score `59`, risk tier `high_risk`, 22 evidence rows, 6 score blocks, and 6 address locations. |
+| CE31.9 | Employee API projection | Local API | `GET /api/employee/customers?query=Adorama` returns Adorama with `screeningStatus = high_risk`, `normalizedScore = 59`, and the recovered run id. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- `git diff --check`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200 and contains `跨境电商员工操作系统`.
+  - `https://admin.sentura.ai/admin/login`: 200 and contains `跨境电商管理者系统`.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = screening_reports_saved`.
+  - `agent_runs.error_code = null`.
+  - saved reports = 1.
+  - report id `cbe_sr_20260626_adorama_001`.
+  - risk tier `high_risk`.
+  - normalized score `59`.
+  - saved evidence = 22.
+  - saved score blocks = 6.
+  - address-footprint locations = 6.
+  - active Screening run count = 0.
+- Employee API query for `Adorama`: HTTP 200, row has `screeningStatus = high_risk`, `normalizedScore = 59`, and `screeningAgentRunId = run_0ce71f21-efbc-43be-909d-6309c7039548`.
+
+Boundary:
+
+- CE31 prevents long completed transcripts from hiding valid final structured output.
+- It does not make `chat.history` unbounded and does not fabricate missing reports.
+- If a transcript exceeds the new cap and the final payload is still outside the returned history, or if the employee never writes a parseable payload after fallback/repair, the task still fails explicitly.
+
+## CE32 — OpenClaw chat.history Cap Compatibility and USB-C Lead Recovery
+
+Status: PASS (2026-06-26)
+
+Scope:
+
+- Employee hidden runner compatibility with OpenClaw Gateway `chat.history.maxChars` validation.
+- Production Lead recovery for the `USB-C charger / US` run on Alibaba ECS/RDS.
+- Local and ECS regression coverage for the Gateway-safe transcript cap.
+
+Context:
+
+- The user ran a production `寻找客户` task for `USB-C charger / US`.
+- RDS showed failed run `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f` with error text `invalid chat.history params: at /maxChars: must be <= 500000`.
+- The OpenClaw session map showed the underlying `cbe-lead-discovery` session completed:
+  - session key `agent:cbe-lead-discovery:user:0c01d63d-de13-4478-a6a7-af3680b979b6:cab9a635-ee0f-4216-82eb-c5c7e9647f8c`;
+  - session file `/root/.openclaw/agents/cbe-lead-discovery/sessions/22929183-100d-4872-9a65-06906b1e3f16.jsonl`;
+  - runtime about 120 seconds.
+- The session file contained `LEAD_CANDIDATES_JSON_START` / `LEAD_CANDIDATES_JSON_END` with 3 leads. The Dashboard failed before reading it because CE31's transient 2MB `maxChars` value exceeded Gateway validation.
+
+Fix:
+
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts` keeps `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS = 500_000`.
+- `scripts/test-cross-border-agents.ts` asserts the `500_000` value and that the runner still passes `maxChars` to `client.getTranscript()`.
+- The 500KB cap still covers the observed 333KB Adorama Screening transcript and 242KB USB-C Lead transcript while staying inside OpenClaw's validator.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE32.1 | Gateway maxChars compatibility | Static script | `scripts/test-cross-border-agents.ts` asserts `HIDDEN_TASK_TRANSCRIPT_MAX_CHARS` is `500_000`, not the transient 2MB value. |
+| CE32.2 | Local regression | Local commands | `pnpm exec tsx scripts/test-cross-border-agents.ts` passes 424/424 and `pnpm --dir sentura/dashboard exec tsc --noEmit` passes. |
+| CE32.3 | ECS rollout | Target commands | ECS static 424/424, Dashboard typecheck/build pass, `sentura-dashboard`, `nginx`, and root `openclaw-gateway` are active after restart, generated `next-env.d.ts` is restored, and public app/admin HTTPS smoke remains 200. |
+| CE32.4 | Production Lead recovery | API/store path | The existing USB-C Lead marker payload is completed through the Dashboard completion route/store path after minimal schema cleanup equivalent to the normalizer; lead rows are not hand-written with raw SQL. |
+| CE32.5 | RDS terminal state | RDS query | `run_e9dc249b-d1b0-4243-81c2-7eadd5f1549f` is `completed`, `current_stage = lead_results_saved`, and has no `error_code` / `error_message`. |
+| CE32.6 | Lead persistence | RDS query | Lead run `lead_run_58f1040e-4fc5-45d7-8fcc-c4f94859ff68` is `completed`, saved 3 candidates and 12 source rows, and active Lead scope count is 0. |
+| CE32.7 | Employee API projection | Local API | `GET /api/employee/customers?query=NEM`, `Entro`, or `Mighty` returns the recovered USB-C leads in the Employee API list. |
+
+Latest verification, 2026-06-26:
+
+- Local `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- Local `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 424/424.
+- ECS `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS, with the existing multiple-lockfile workspace-root warning only.
+- ECS services: `sentura-dashboard`, `nginx`, and root `openclaw-gateway` active.
+- Public HTTPS:
+  - `https://app.sentura.ai/employee`: 200 and contains `跨境电商员工操作系统`.
+  - `https://admin.sentura.ai/admin/login`: 200 and contains `跨境电商管理者系统`.
+- RDS:
+  - `agent_runs.status = completed`.
+  - `agent_runs.current_stage = lead_results_saved`.
+  - `agent_runs.error_code = null`.
+  - `lead_runs.status = completed`.
+  - saved lead candidates = 3.
+  - saved lead sources = 12.
+  - active Lead scope count = 0.
+- Recovered leads:
+  - `NEM Electronics Corp` (`nemusa.com`);
+  - `Entro Wholesale` (`entrowholesale.com`);
+  - `Mighty Wireless Wholesale Cellphone Accessories` (`mightywireless.com`).
+
+Boundary:
+
+- CE32 fixes the parameter-validation failure caused by requesting too much transcript history from OpenClaw.
+- It does not make `chat.history` unbounded. If a future transcript exceeds 500KB and the final payload is outside the returned history, the task can still fail explicitly until the runner switches to a streaming/session-file-aware retrieval strategy.
+
+## CE33 — Dynamic Lead/Screening Task Time Budgeting
+
+Status: PASS locally and on ECS/RDS (2026-06-26)
+
+Scope:
+
+- Dynamic hidden-task `estimatedMs` and `timeoutMs` for variable-size Lead and Screening tasks.
+- DB task-record metadata so refreshed/queued tasks keep the same wait budget.
+- Coordinator-aware queued-task wait windows for burst handling.
+
+Context:
+
+- The user asked whether fixed estimates would make legitimate long tasks fail when work size grows, e.g. a Screening task takes about 3 minutes for one target, while multiple targets should increase the planned duration.
+- Existing windows were too coarse:
+  - Lead estimates were target-count-aware but capped too tightly for larger requests.
+  - Screening used a low per-target estimate and did not reflect parent/child fan-out waves.
+  - DB-backed task hydration could fall back to fixed task-kind estimates.
+  - Queued coordinator records could lose expected queue delay in the local task wait window.
+
+Fix:
+
+- `employee-task-runner.ts` now uses named constants for task timing:
+  - Lead estimate = base + selected-condition breadth + requested target count + top-up overhead, capped at 20-minute estimate.
+  - Screening estimate = 3-minute single-target child duration plus paid-source overhead, scaled by `SCREENING_CHILD_CONCURRENCY = 3` fan-out waves and drain overhead.
+  - Task timeout = estimate + max(3 minutes, 50% grace), clamped to 6-30 minutes.
+- `employee-api.ts` now:
+  - persists `estimated_ms` and `timeout_ms` in Lead/Screening `metadata_json`;
+  - reconstructs estimates from DB metadata when older records do not yet have timing fields;
+  - reads `workload_admission.estimated_start_seconds` for queued records and adds it to the wait window.
+- `schemas.ts` and `lead-runs.ts` now allow Lead `metadata_json` and preserve timing metadata alongside coordinator metadata without changing the Lead scope hash.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE33.1 | Lead estimate scaling | Static script | `scripts/test-cross-border-agents.ts` asserts Lead timing includes per-target, selected-condition breadth, top-up, and max-estimate constants. |
+| CE33.2 | Screening fan-out timing | Static script | `scripts/test-cross-border-agents.ts` asserts Screening timing uses 3-child concurrency, 180-second child duration, paid-source overhead, and batch drain overhead. |
+| CE33.3 | Timeout grace/cap | Static script | `scripts/test-cross-border-agents.ts` asserts the 6-minute minimum, 30-minute cap, and 50%/3-minute grace logic. |
+| CE33.4 | DB timing metadata | Static script | `scripts/test-cross-border-phase2-store.ts` asserts Employee API creation/hydration paths use `estimated_ms`, `timeout_ms`, dynamic estimate helpers, and queued coordinator delay. |
+| CE33.5 | Local regression | Local commands | CBE static, Phase 2 store static, and Dashboard typecheck all pass. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 427/427.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 220/220.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- CE33 prevents expected long work from failing solely because the old fixed wait window was too short.
+- It does not remove all possible timeouts. Tasks still fail if the employee never produces a parseable result, the Gateway/provider/backend fails, or a burst queue exceeds the coordinator's own capacity/lease assumptions.
+- This has not been deployed to ECS in this session; deploy after commit/push and server pull/rebuild.
+
+## CE34 — Screening Batch Deduplication and Score Reconciliation
+
+Status: PASS locally and on ECS/RDS (2026-06-26)
+
+Scope:
+
+- Batch Screening result writes for existing Lead candidates.
+- Employee customer projection when a Lead has more than one historical `screening_targets` row.
+- Screening score consistency between the list row and report dialog.
+
+Context:
+
+- The user ran a production batch `背调` for three customers.
+- The Employee `获客与背调` list showed duplicate rows for BrandsMart USA and Altex Computers & Electronics: one scored row and one still `未评分`.
+- BrandsMart USA also showed `59/100` outside while the report score blocks indicated a much higher score.
+- RDS inspection showed multiple `screening_targets` rows attached to the same `lead_candidates.id`; the existing `cbe_customer_work_items` view joined all of them and therefore expanded one Lead into multiple list rows.
+- The bad BrandsMart report stored `normalized_score = 59` even though its score blocks and 100% evidence coverage recompute to a high final score under the existing `quality 80% + coverage 20%` rule.
+
+Fix:
+
+- `saveScreeningTargetMarker()` now resolves Lead candidates defensively from `target.lead_id`, `target.target_id`, normalized domain, and company/country fallback.
+- When a Lead candidate is resolved and no explicit `screening_target` id is supplied, the store reuses the latest non-Accio target for that Lead instead of inserting another target row.
+- Added migration `009_customer_work_items_deduped_screening.sql` so `cbe_customer_work_items` selects one latest report per Lead candidate rather than expanding every historical target. The historical `001_initial_schema.sql` migration remains immutable for checksum safety.
+- `employee-api.ts` and `employee-task-runner.ts` now recompute `normalized_score` from `score_blocks` plus `evidence_coverage`: score-block quality `sum(earned_points) / sum(max_points) * 100` contributes 80%, evidence coverage contributes 20%, and `risk_tier` follows that final score.
+- Report reads prefer the recomputed report score over the stored row score so stale reports cannot keep showing list/report mismatches.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE34.1 | Batch target reconnection | Static script | `scripts/test-cross-border-phase2-store.ts` asserts Screening reports resolve Lead candidates by id/domain/company and reuse existing non-Accio Lead targets. |
+| CE34.2 | Customer projection dedupe | Migration/static script | `009_customer_work_items_deduped_screening.sql` exists and the projection selects one latest Screening report per Lead candidate. |
+| CE34.3 | Score reconciliation | Static script | `scripts/test-cross-border-agents.ts` asserts Employee Screening score normalization is enforced from score blocks plus evidence coverage in both hidden runner and Employee API. |
+| CE34.4 | Local regression | Local commands | CBE static, Phase 2 store static, and Dashboard typecheck all pass after the store, migration, and score changes. |
+| CE34.5 | ECS/RDS deployment | Target migration + SQL verification + public smoke | ECS applies migration 009 through the normal runner, repairs existing mismatched scores, verifies the three affected customers project once each with aligned list/report scores, restarts Dashboard, and returns HTTP 200 for app/admin public routes. |
+
+Latest verification, 2026-06-26:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 428/428.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- ECS `pnpm --dir sentura/dashboard build`: PASS.
+- ECS migration: applied `009_customer_work_items_deduped_screening.sql`; skipped immutable historical migrations.
+- ECS RDS verification: BrandsMart USA, Altex Computers & Electronics, and Central Computers each project with `visible_duplicate_count = 1`; BrandsMart list/report score is `90.74`.
+- Public smoke: `https://app.sentura.ai/employee` and `https://admin.sentura.ai/admin/login` return HTTP 200.
+
+Boundary:
+
+- CE34 prevents future batch Screening runs from creating visible duplicate customer rows for the same Lead.
+- It also repairs score consistency going forward by enforcing the score formula in code.
+- Existing production rows on the Alibaba ECS/RDS target have been repaired for the observed mismatches; future score consistency is enforced in code.
+
+## CE35 — Lead Search Target Cap and Whole-Condition Search
+
+Status: PASS locally (2026-06-27)
+
+Scope:
+
+- Employee `寻找客户` sheet target/count controls.
+- Hidden Lead prompt and Lead workspace search procedure.
+- Legacy standalone Lead Discovery demo route/control cleanup.
+- Lead input schema cap and cost/timing estimates.
+
+Context:
+
+- A many-filter Lead request hit `Context overflow: estimated context size exceeds safe threshold during tool loop`.
+- The previous UI and prompt still encouraged grouped query planning: multiple products, buyer types, and countries could be expanded into many search combinations, with a per-group/per-query result limit.
+- The user asked to cap maximum requested customers at 10, remove the single-group search limit entirely, merge all selected conditions into one investigation brief, and keep only the first N compliant potential customers.
+
+Fix:
+
+- `MAX_LEAD_TARGET_COUNT` is now 10 and the store schema caps `target_count` at 10.
+- The Employee sheet removes `单组搜索上限`; the legacy standalone page removes `单查询上限`.
+- Employee API creation no longer accepts or persists `maxResultsPerQuery` / `max_results_per_query`.
+- The hidden Lead prompt tells the employee to merge all selected products, countries, and buyer types into one search brief, avoid Cartesian-product/group balancing, and retain the first `target_count` compliant non-duplicate downstream buyers in discovery order.
+- Cost and duration estimates scale by selected-condition breadth and target count, not by per-group result scans.
+- The Lead workspace skill and default config were aligned to the same whole-condition search behavior.
+
+Test cases:
+
+| ID | Area | Method | Expected |
+|---|---|---|---|
+| CE35.1 | Target cap | Static script | `scripts/test-cross-border-agents.ts` asserts the Employee UI, API, runner, and schema cap Lead target count at 10. |
+| CE35.2 | Removed per-group control | Static script | `scripts/test-cross-border-agents.ts` asserts Employee and standalone Lead UI no longer expose `单组搜索上限` / `单查询上限` or `maxResultsPerQuery`. |
+| CE35.3 | Whole-condition prompt | Static script | `scripts/test-cross-border-agents.ts` asserts the hidden Lead prompt uses one merged search brief, rejects `target_count * 3`, and removes `max_results_per_query`. |
+| CE35.4 | Coordinator/workspace alignment | Static script | `scripts/test-cross-border-phase2-concurrency.ts` asserts the Lead workspace documents strict target, pre-search denylist, top-up mode, and first-target compliant buyer behavior. |
+| CE35.5 | Local regression | Local commands | CBE static, Phase 2 store static, Phase 2 concurrency static/live, and Dashboard typecheck all pass. |
+
+Latest verification, 2026-06-27:
+
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 430/430.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: PASS, 222/222.
+- `pnpm exec tsx scripts/test-cross-border-phase2-concurrency.ts`: PASS, 23/23.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+
+Boundary:
+
+- CE35 reduces context pressure from wide filter selections by preventing grouped query loops.
+- It does not make searches unbounded. The employee still stops at 10 requested customers, must dedupe against DB identity keys, must skip denylisted/excluded domains, and may return fewer than requested when compliant results are exhausted.
+- This local change has not been deployed to ECS in this session; deploy after commit/push and server pull/rebuild/restart.

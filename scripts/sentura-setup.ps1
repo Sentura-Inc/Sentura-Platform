@@ -39,9 +39,27 @@ function Err { param([string]$Message) Write-Host "[sentura] $Message" -Foregrou
 
 # --- Helper: run OpenClaw CLI from within the openclaw directory ---
 
+function Invoke-NodeScript {
+    # Passing multi-line JS (with embedded double quotes) via `node -e $script`
+    # corrupts the string on Windows: PowerShell's native-argument marshalling
+    # mangles internal `"` characters when building the process command line.
+    # Writing the script to a temp .cjs file and running that avoids the
+    # command-line quoting entirely. .cjs forces CommonJS regardless of any
+    # surrounding package.json "type":"module".
+    param([string]$ScriptText)
+    $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sentura-setup-" + [System.Guid]::NewGuid().ToString("N") + ".cjs")
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($tempFile, $ScriptText, $utf8NoBom)
+    try {
+        & node $tempFile
+    } finally {
+        Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-OpenClawCli {
     param([string[]]$Arguments)
-    $runNode = Join-Path $OpenClawDir "scripts" "run-node.mjs"
+    $runNode = Join-Path $OpenClawDir "scripts\run-node.mjs"
     Push-Location $OpenClawDir
     try {
         & node $runNode @Arguments
@@ -77,7 +95,7 @@ function Resolve-PreferredMetaAgentModel {
         return "openai/gpt-5.5"
     }
 
-    $AuthProfilesPath = Join-Path $OpenClawState "agents" "main" "agent" "auth-profiles.json"
+    $AuthProfilesPath = Join-Path $OpenClawState "agents\main\agent\auth-profiles.json"
 
     if (Test-Path $AuthProfilesPath) {
         try {
@@ -194,7 +212,7 @@ Log "Step 2: Copying source-agent workspace files..."
 $MetaAgents = @("creator", "tuner", "orchestrator", "mcp-builder", "data-scavenger")
 $ClientDemoAgents = @("zuolian-travel-concierge", "cbe-lead-discovery", "cbe-buyer-screening", "cbe-accio-memory")
 $SourceAgents = @($MetaAgents + $ClientDemoAgents)
-$SenturaAgentsDir = Join-Path $ProjectRoot "sentura" "agents"
+$SenturaAgentsDir = Join-Path $ProjectRoot "sentura\agents"
 
 foreach ($agent in $MetaAgents) {
     $agentSource = Join-Path $SenturaAgentsDir $agent
@@ -280,7 +298,7 @@ if (typeof state.setupCompletedAt === "string" && state.setupCompletedAt.trim().
   process.stdout.write(`  ${AGENT_ID}: stamped setupCompletedAt=${STATE_NOW}\n`);
 }
 '@
-    & node -e $stampScript
+    Invoke-NodeScript $stampScript
     Remove-Item Env:AGENT_ID -ErrorAction SilentlyContinue
     Remove-Item Env:STATE_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:STATE_NOW -ErrorAction SilentlyContinue
@@ -618,7 +636,7 @@ console.log('  Patched agent configs: ' + Object.keys(overrides).join(', '));
 
 $env:SENTURA_META_AGENT_MODEL = $MetaAgentModel
 $env:OPENCLAW_STATE = $OpenClawState
-node -e $patchScript
+Invoke-NodeScript $patchScript
 Remove-Item Env:SENTURA_META_AGENT_MODEL -ErrorAction SilentlyContinue
 Remove-Item Env:OPENCLAW_STATE -ErrorAction SilentlyContinue
 
@@ -673,7 +691,7 @@ if (added > 0) {
 }
 "@
 
-node -e $tenancyScript
+Invoke-NodeScript $tenancyScript
 
 Ok "Agent tenancy applied."
 
@@ -708,7 +726,7 @@ if (updated > 0) {
 }
 "@
 
-node -e $memoryIsolationScript
+Invoke-NodeScript $memoryIsolationScript
 
 Ok "Per-agent LanceDB isolation configured."
 
@@ -732,7 +750,7 @@ if (config.gateway.controlUi.allowInsecureAuth !== true) {
 }
 "@
 
-node -e $dashboardScript
+Invoke-NodeScript $dashboardScript
 
 Ok "Gateway configured for local dashboard access."
 
@@ -741,7 +759,7 @@ Ok "Gateway configured for local dashboard access."
 Log "Step 6: Installing sentura-bootstrap hook..."
 
 $HooksDir = Join-Path $OpenClawState "hooks"
-$HookSource = Join-Path $ProjectRoot "sentura" "hooks" "sentura-bootstrap"
+$HookSource = Join-Path $ProjectRoot "sentura\hooks\sentura-bootstrap"
 $HookTarget = Join-Path $HooksDir "sentura-bootstrap"
 
 if (Test-Path $HookSource) {
@@ -769,7 +787,7 @@ fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('  Hook enabled in config');
 "@
 
-    node -e $hookScript
+    Invoke-NodeScript $hookScript
     Ok "sentura-bootstrap hook enabled."
 } else {
     Warn "Hook source not found at $HookSource - skipping hook installation"
@@ -785,7 +803,7 @@ console.log('  Hook enabled in config');
 
 Log "Step 6a: Wiring Sentura extensions (plugins.load.paths + plugins.entries)..."
 
-$SenturaExtensionsDir = Join-Path $ProjectRoot "sentura" "extensions"
+$SenturaExtensionsDir = Join-Path $ProjectRoot "sentura\extensions"
 $SenturaExtIds = @(
     "sentura-agents",
     "sentura-rbac",
@@ -915,7 +933,7 @@ if (memoryLancedbEmbeddingSeeded) {
   console.log('  seeded sentura-memory-lancedb.embedding (`${OPENAI_API_KEY}` + text-embedding-3-small)');
 }
 "@
-    node -e $extWiringScript
+    Invoke-NodeScript $extWiringScript
     Remove-Item Env:SENTURA_EXT_TUPLES -ErrorAction SilentlyContinue
     Ok "Sentura extensions wired."
 } else {
@@ -972,7 +990,7 @@ if (config.diagnostics.enabled !== true) {
   console.log('  diagnostics.enabled already true (no change)');
 }
 "@
-node -e $diagBusScript
+Invoke-NodeScript $diagBusScript
 Ok "Diagnostic-event bus enabled."
 
 # --- Step 6c: Wire OpenTelemetry via diagnostics-otel ---
@@ -1035,7 +1053,7 @@ if (entryFlipped || diagFlipped || otelFlipped) {
   console.log('  diagnostics-otel already configured (no change)');
 }
 "@
-    node -e $otelScript
+    Invoke-NodeScript $otelScript
     Ok "OpenTelemetry wired."
 } else {
     Log "  OTel disabled - set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace/metric export."
@@ -1061,7 +1079,7 @@ Log "Step 7: Seeding first platform admin (so no curl required)..."
 
 $RbacDataDir = Join-Path $OpenClawState "sentura-rbac"
 $RbacUsersFile = Join-Path $RbacDataDir "users.json"
-$DashboardEnvFile = Join-Path $ProjectRoot "sentura" "dashboard" ".env.local"
+$DashboardEnvFile = Join-Path $ProjectRoot "sentura\dashboard\.env.local"
 
 if (-not (Test-Path $RbacDataDir)) {
     New-Item -ItemType Directory -Path $RbacDataDir -Force | Out-Null
@@ -1079,7 +1097,7 @@ if (admin) {
   process.stdout.write('MISSING');
 }
 "@
-$AdminStatus = & node -e $adminStatusScript
+$AdminStatus = Invoke-NodeScript $adminStatusScript
 
 if ($AdminStatus -like "EXISTS*") {
     $parts = $AdminStatus -split "`t"
@@ -1154,7 +1172,7 @@ fs.writeFileSync(tmp, JSON.stringify(users, null, 2), 'utf8');
 fs.renameSync(tmp, p);
 process.stdout.write(user.id + '\t' + user.email + '\t' + user.userToken);
 "@
-    $SeedResult = & node -e $seedScript
+    $SeedResult = Invoke-NodeScript $seedScript
     $parts = $SeedResult -split "`t"
     $AdminId = $parts[0]
     $AdminEmail = $parts[1]
@@ -1164,21 +1182,32 @@ process.stdout.write(user.id + '\t' + user.email + '\t' + user.userToken);
     Ok "  -> token: $AdminToken"
 }
 
-Log "  Wiring dashboard .env.local with admin credentials..."
+Log "  Wiring dashboard .env.local with admin credentials + gateway auth..."
 
 $env:SENTURA_ADMIN_USER_ID = $AdminId
 $env:SENTURA_ADMIN_USER_TOKEN = $AdminToken
 $env:SENTURA_DASHBOARD_ENV_FILE = $DashboardEnvFile
+$env:SENTURA_OPENCLAW_CONFIG = $OpenClawConfig
 
-$envWireScript = @"
+$envWireScript = @'
 const fs = require('fs');
 const path = require('path');
 const p = process.env.SENTURA_DASHBOARD_ENV_FILE;
 const adminId = process.env.SENTURA_ADMIN_USER_ID;
 const adminToken = process.env.SENTURA_ADMIN_USER_TOKEN;
+const openclawConfigPath = process.env.SENTURA_OPENCLAW_CONFIG;
 
 let body = '';
 try { body = fs.readFileSync(p, 'utf8'); } catch (_) { body = ''; }
+
+let gatewayToken = '';
+try {
+  const config = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
+  gatewayToken =
+    typeof config?.gateway?.auth?.token === 'string' ? config.gateway.auth.token.trim() : '';
+} catch (_) {
+  gatewayToken = '';
+}
 
 function upsertLine(src, key, value, comment) {
   const re = new RegExp('^' + key.replace(/[.*+?^\${}()|[\\\\]\\\\\\\\]/g, '\\\\\$&') + '=.*$', 'm');
@@ -1194,6 +1223,10 @@ next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_USER_ID', adminId,
   'Sentura platform admin user id (seeded by scripts/sentura-setup.ps1, Step 7)');
 next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_ADMIN_TOKEN', adminToken,
   'Sentura platform admin userToken (sent as actorId on RBAC-guarded RPCs)');
+if (gatewayToken) {
+  next = upsertLine(next, 'NEXT_PUBLIC_GATEWAY_TOKEN', gatewayToken,
+    'OpenClaw gateway token for local WebSocket auth (required when gateway.auth.mode=token)');
+}
 next = upsertLine(next, 'NEXT_PUBLIC_SENTURA_CREATOR_HANDSHAKE_ENABLED', 'true',
   'When true, dashboard auto-creates a welcome session for newly-deployed employees on /create. Set to false to disable.');
 
@@ -1202,10 +1235,11 @@ if (next !== body) {
   fs.writeFileSync(p, next, 'utf8');
   console.log('  -> updated ' + p);
 } else {
-  console.log('  -> ' + p + ' already has admin keys');
+  console.log('  -> ' + p + ' already has all dashboard env keys');
 }
-"@
-node -e $envWireScript
+'@
+Invoke-NodeScript $envWireScript
+Remove-Item Env:SENTURA_OPENCLAW_CONFIG -ErrorAction SilentlyContinue
 
 Ok "Dashboard admin credentials wired."
 Log "  The dashboard will pick these up on next ``pnpm dev`` (or restart). No curl step required."

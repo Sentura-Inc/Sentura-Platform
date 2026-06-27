@@ -110,6 +110,7 @@ import {
   clearCbeEmployeeTaskAbortSignal,
   createCbeEmployeeTaskAbortSignal,
 } from "../_data/employee-task-cancellation";
+import { CBE_EMPLOYEE_MEMORY_PATH } from "@/lib/cross-border-routes";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
 type SheetMode = "lead" | "bulk" | "manual" | "detail" | "filters" | "delete" | null;
@@ -137,7 +138,6 @@ interface LeadSelectionState {
   buyerTypeIds: string[];
   countryCodes: string[];
   targetCount: number;
-  maxResultsPerQuery: number;
   excludeDomainIds: string[];
 }
 
@@ -165,7 +165,6 @@ const defaultLeadSelection: LeadSelectionState = {
   buyerTypeIds: ["repair-chain", "electronics-retailer", "accessory-retailer"],
   countryCodes: ["GB", "US"],
   targetCount: MAX_LEAD_TARGET_COUNT,
-  maxResultsPerQuery: 10,
   excludeDomainIds: ["marketplaces", "social", "directories", "supplier-directories"],
 };
 
@@ -193,7 +192,6 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 const sourceLabels: Record<CustomerListItem["source"], string> = {
   lead_discovery: "",
   manual_screening: "手动录入",
-  accio_handoff: "来自聊天记录",
 };
 
 const scoreTierLabels: Record<ScoreTier, string> = {
@@ -579,10 +577,7 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
 }
 
 function needsChatRecordSupplement(item: CustomerListItem) {
-  return (
-    (item.source === "accio_handoff" || item.source === "manual_screening") &&
-    item.screeningStatus === "insufficient_evidence"
-  );
+  return item.source === "manual_screening" && item.screeningStatus === "insufficient_evidence";
 }
 
 function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
@@ -636,7 +631,6 @@ function leadInputFromSelection(selection: LeadSelectionState): EmployeeLeadTask
     countries: countries.map((item) => item.code).join(", "),
     buyerTypes: buyerTypes.map((item) => item.keyword).join(", "),
     targetCount: selection.targetCount,
-    maxResultsPerQuery: selection.maxResultsPerQuery,
     excludeDomains: unique(excludedDomains).join(", "),
   };
 }
@@ -1101,10 +1095,7 @@ function CrossBorderCustomersPageContent() {
       supplementCompany: item.companyName,
       supplementSource: item.source,
     });
-    if (item.source === "accio_handoff") {
-      params.set("highlightRecord", item.customerId);
-    }
-    router.push(`/client-demos/cross-border/employee/memory?${params.toString()}`);
+    router.push(`${CBE_EMPLOYEE_MEMORY_PATH}?${params.toString()}`);
   };
 
   const openBulkScreening = () => {
@@ -2474,7 +2465,6 @@ function TaskSheet({
         buyerTypeCount: leadSelection.buyerTypeIds.length,
         countryCount: leadSelection.countryCodes.length,
         targetCount: effectiveLeadTargetCount,
-        maxResultsPerQuery: leadSelection.maxResultsPerQuery,
       }),
     [effectiveLeadTargetCount, leadSelection],
   );
@@ -2839,29 +2829,6 @@ function TaskSheet({
                       }))
                     }
                   />
-                ))}
-              </FilterGroup>
-
-              <FilterGroup
-                title={
-                  <span className="inline-flex items-center gap-1.5">
-                    单组搜索上限
-                    <InfoTooltip>每组产品、买家类型、国家组合最多读取多少条搜索结果。越高越贵，也越慢。</InfoTooltip>
-                  </span>
-                }
-              >
-                {[5, 10, 20].map((count) => (
-                  <Button
-                    key={count}
-                    type="button"
-                    variant={leadSelection.maxResultsPerQuery === count ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setLeadSelection((current) => ({ ...current, maxResultsPerQuery: count }))
-                    }
-                  >
-                    {count} 条
-                  </Button>
                 ))}
               </FilterGroup>
 

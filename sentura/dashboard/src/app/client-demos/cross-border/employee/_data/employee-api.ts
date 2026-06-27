@@ -29,6 +29,10 @@ import {
   EmployeeTaskError,
   SCREENING_AGENT_ID,
   createPlannedEmployeeSessionKey,
+  estimateEmployeeTaskTimeoutMs,
+  estimateLeadTaskDurationMs,
+  estimateScreeningTaskDurationMs,
+  estimateScreeningTaskDurationMsForTargetCount,
   type AccioMemoryTaskInput,
   type CbeEmployeeAgentId,
   type EmployeeLeadTaskInput,
@@ -36,14 +40,14 @@ import {
   type ManualScreeningInput,
   type ScreeningTarget,
 } from "./employee-task-runner";
+import { CBE_EMPLOYEE_API_BASE } from "@/lib/cross-border-routes";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
-import {
-  screeningEvidenceFindingText,
-  screeningScoreBlockText,
-  simplifyScreeningReportText,
-} from "@/components/cross-border/screening-report-copy";
 
 type JsonRecord = Record<string, unknown>;
+
+function employeeApi(path: `/${string}`) {
+  return `${CBE_EMPLOYEE_API_BASE}${path}`;
+}
 
 interface ApiPage<T> {
   items: T[];
@@ -118,6 +122,24 @@ export interface ApiScreeningChildRun {
   status: string;
   agentRun: ApiAgentRun;
   target: ScreeningTarget;
+  paidSourcePolicy?: {
+    paidEmailValidation?: {
+      enabled?: boolean;
+      allowed?: boolean;
+      reapprovalRequired?: boolean;
+      callCount?: number;
+      callStatus?: string;
+    };
+    paidTradeData?: {
+      enabled?: boolean;
+      allowed?: boolean;
+      reapprovalRequired?: boolean;
+      callCount?: number;
+      callStatus?: string;
+      budgetUsd?: number;
+      spendUsd?: number;
+    };
+  };
 }
 
 export interface CreateEmployeeScreeningRunResponse {
@@ -210,6 +232,9 @@ interface ApiAccioImport {
   id: string;
   agentRunId: string | null;
   sourceFileName: string | null;
+  sourceKind?: string | null;
+  inputFormat?: string | null;
+  attachmentMetadata?: JsonRecord[];
   validationStatus: string;
   classification: string;
   uploadedAt: string;
@@ -246,20 +271,22 @@ interface ApiMemoryRecord {
   agentRunId: string | null;
   agentRunStatus: string | null;
   sourceFileName: string | null;
+  sourceKind?: string | null;
+  inputFormat?: string | null;
+  attachmentMetadata?: JsonRecord[];
   companyName: string | null;
   country: string | null;
   conversationCount: number;
+  customerProfile?: JsonRecord | null;
+  purchaseIntent?: JsonRecord[];
+  negotiatedPrices?: JsonRecord[];
+  behaviorSignals?: JsonRecord | null;
   nextActions: string[];
   summaryText: string | null;
   memoryFactStatus: string | null;
   validationStatus: string;
   classification: string;
   uploadedAt: string;
-  supplementTarget?: {
-    customerId?: string;
-    companyName?: string;
-    source?: string;
-  } | null;
 }
 
 export interface EmployeeCostBudgetSnapshot extends CostBudget {
@@ -313,6 +340,7 @@ const ALLOWED_SOURCE_TYPES = new Set([
   "google_maps_places",
   "google_maps_geocoding",
   "google_maps_address_validation",
+  "paid_email_validation",
   "paid_trade_data",
   "demo_fixture",
   "self_reported",
@@ -498,7 +526,35 @@ function firstTextValue(...values: unknown[]) {
 }
 
 function simplifyDisplayText(value: string | null | undefined) {
-  return simplifyScreeningReportText(value);
+  if (!value) return value ?? undefined;
+  return value
+    .replace(/外部可追溯证据 URL/g, "可核验来源")
+    .replace(/可追溯证据 URL/g, "可核验来源")
+    .replace(/来源 URL/g, "来源链接")
+    .replace(/证据 URL/g, "核验来源")
+    .replace(/工具返回 URL/g, "工具返回的来源链接")
+    .replace(/\brdap\b/gi, "域名登记信息")
+    .replace(/\bdns\b/gi, "域名解析")
+    .replace(/\bjson\b/gi, "结构化结果")
+    .replace(/\bsec\b/gi, "财务公开信息")
+    .replace(/\bkyb\b/gi, "企业核验")
+    .replace(/\bapi_error\b/gi, "查询失败")
+    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
+    .replace(/\bAPI\b/gi, "工具查询")
+    .replace(/\bHTTP 401\b/gi, "查询权限错误")
+    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
+    .replace(/\bMX\b/gi, "收信设置")
+    .replace(/\bSPF\b/gi, "发信设置")
+    .replace(/\bDMARC\b/gi, "邮件安全设置")
+    .replace(/\bendpoint\b/gi, "查询入口")
+    .replace(/\bprovider\b/gi, "工具")
+    .replace(/\bobjectClassName\b/g, "对象类型")
+    .replace(/\bself link\b/gi, "来源链接")
+    .replace(/\blookup\b/gi, "查询")
+    .replace(/\bredirected\b/gi, "跳转")
+    .replace(/\breturned\b/gi, "返回")
+    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
+    .replace(/\bundeliverable\b/gi, "邮箱不可达");
 }
 
 function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
@@ -513,64 +569,69 @@ function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
 function normalizeScoreBlock(value: unknown): CustomerScoreBlock {
   const raw = asRecord(value);
   const status = asString(raw.status);
-  const block = scoreBlockId(raw.block ?? raw.score_block);
-  const normalizedStatus =
-    status === "scored" ||
-    status === "not_applicable" ||
-    status === "unavailable_api" ||
-    status === "disabled_by_budget" ||
-    status === "pending_human_input"
-      ? status
-      : "pending_human_input";
-  const text = screeningScoreBlockText({
-    block,
-    status: normalizedStatus,
-    summary: asString(raw.summary),
-    reason: asString(raw.reason),
-  });
   return {
-    block,
-    status: normalizedStatus,
+    block: scoreBlockId(raw.block ?? raw.score_block),
+    status:
+      status === "scored" ||
+      status === "not_applicable" ||
+      status === "unavailable_api" ||
+      status === "disabled_by_budget" ||
+      status === "pending_human_input"
+        ? status
+        : "pending_human_input",
     maxPoints: asNumber(raw.max_points ?? raw.maxPoints) ?? 10,
     earnedPoints: asNumber(raw.earned_points ?? raw.earnedPoints) ?? null,
     sourceCount: asNumber(raw.source_count ?? raw.sourceCount),
-    summary: text,
-    reason: normalizedStatus === "scored" ? undefined : text,
+    summary: simplifyDisplayText(asString(raw.summary)),
+    reason: simplifyDisplayText(asString(raw.reason)),
   };
+}
+
+function normalizedScoreFromScoreBlocks(blocks: CustomerScoreBlock[], evidenceCoverage?: number | null) {
+  let earnedPoints = 0;
+  let maxPoints = 0;
+  for (const block of blocks) {
+    if (
+      block.status === "scored" &&
+      typeof block.earnedPoints === "number" &&
+      typeof block.maxPoints === "number" &&
+      block.maxPoints > 0
+    ) {
+      earnedPoints += Math.max(0, Math.min(block.earnedPoints, block.maxPoints));
+      maxPoints += block.maxPoints;
+    }
+  }
+  if (maxPoints <= 0) return null;
+  const qualityScore = (earnedPoints / maxPoints) * 100;
+  const coverageScore = typeof evidenceCoverage === "number"
+    ? Math.max(0, Math.min(evidenceCoverage, 1)) * 100
+    : null;
+  const finalScore = typeof coverageScore === "number"
+    ? qualityScore * 0.8 + coverageScore * 0.2
+    : qualityScore;
+  return Number(finalScore.toFixed(2));
 }
 
 function normalizeEvidence(value: unknown): CustomerEvidenceItem {
   const raw = asRecord(value);
   const sourceUrl = toUrl(raw.source_url ?? raw.sourceUrl ?? raw.url) ?? "https://sentura.local/cross-border-intel/evidence";
-  const layer = (asString(raw.layer) ?? "public_footprint") as CustomerEvidenceItem["layer"];
-  const sourceTypeValue = sourceType(raw.source_type ?? raw.sourceType);
-  const scoreBlock = scoreBlockId(raw.score_block ?? raw.scoreBlock);
-  const scoreImpact =
-    raw.score_impact === "positive" ||
-    raw.score_impact === "negative" ||
-    raw.score_impact === "neutral" ||
-    raw.score_impact === "coverage_only"
-      ? raw.score_impact
-      : "neutral";
-  const confidence = asNumber(raw.confidence);
   return {
-    layer,
+    layer: (asString(raw.layer) ?? "public_footprint") as CustomerEvidenceItem["layer"],
     sourceUrl,
-    sourceType: sourceTypeValue,
+    sourceType: sourceType(raw.source_type ?? raw.sourceType),
     fetchedAt: toIsoTimestamp(raw.fetched_at ?? raw.fetchedAt),
-    finding: screeningEvidenceFindingText({
-      layer,
-      sourceType: sourceTypeValue,
-      scoreBlock,
-      scoreImpact,
-      confidence,
-      finding: asString(raw.finding ?? raw.summary ?? raw.excerpt),
-      sourceUrl,
-    }),
-    confidence,
-    scoreBlock,
-    scoreImpact,
+    finding: simplifyDisplayText(asString(raw.finding ?? raw.summary ?? raw.excerpt)) ?? "背调员工返回了证据项，但未提供可读摘要。",
+    confidence: asNumber(raw.confidence),
+    scoreBlock: scoreBlockId(raw.score_block ?? raw.scoreBlock),
+    scoreImpact:
+      raw.score_impact === "positive" ||
+      raw.score_impact === "negative" ||
+      raw.score_impact === "neutral" ||
+      raw.score_impact === "coverage_only"
+        ? raw.score_impact
+        : "neutral",
     affectsScore: typeof raw.affects_score === "boolean" ? raw.affects_score : undefined,
+    costPosture: asString(raw.cost_posture ?? raw.costPosture),
   };
 }
 
@@ -662,7 +723,7 @@ function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment
   return {
     scaleClass,
     confidence: asNumber(raw.confidence),
-    rationale: simplifyDisplayText(asString(raw.rationale ?? raw.reason ?? raw.summary)) ?? "公司规模仍需结合来源网址复核。",
+    rationale: asString(raw.rationale ?? raw.reason ?? raw.summary) ?? "背调员工未返回公司规模判断说明。",
     firstBlockStrategy,
   };
 }
@@ -810,7 +871,11 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
   if (!record.latestScreeningReportId && Object.keys(raw).length === 0) return undefined;
   const evidence = payloadArray(raw.evidence ?? [], "evidence").map(normalizeEvidence);
   const scoreBlocks = payloadArray(raw.score_blocks ?? raw.scoreBlocks ?? [], "score_blocks").map(normalizeScoreBlock);
-  const normalizedScore = asNumber(raw.normalized_score ?? raw.normalizedScore) ?? record.normalizedScore;
+  const evidenceCoverage = asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined;
+  const normalizedScore =
+    normalizedScoreFromScoreBlocks(scoreBlocks, evidenceCoverage) ??
+    asNumber(raw.normalized_score ?? raw.normalizedScore) ??
+    record.normalizedScore;
   const riskTier = normalizeRiskTier(raw.risk_tier ?? raw.riskTier ?? record.screeningStatus, normalizedScore);
   const normalizedCoverageGaps = payloadArray(raw.coverage_gaps ?? raw.coverageGaps ?? [], "coverage_gaps").map((item, index): CustomerCoverageGap => {
     const gap = asRecord(item);
@@ -834,7 +899,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     reportId: asString(raw.report_id ?? raw.reportId) ?? record.latestScreeningReportId ?? record.recordId,
     riskTier,
     normalizedScore,
-    evidenceCoverage: asNumber(raw.evidence_coverage ?? raw.evidenceCoverage) ?? record.evidenceCoverage ?? undefined,
+    evidenceCoverage,
     recommendedAction: simplifyDisplayText(asString(raw.recommended_action ?? raw.recommendedAction) ?? record.recommendedAction) ?? "复核背调报告后决定是否跟进。",
     createdAt: asString(raw.created_at ?? raw.createdAt) ?? record.updatedAt,
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
@@ -855,7 +920,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
 function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
   const report = reportFromRecord(record);
   const status = screeningStatusFromRecord(record);
-  const normalizedScore = record.normalizedScore ?? report?.normalizedScore ?? undefined;
+  const normalizedScore = report?.normalizedScore ?? record.normalizedScore ?? undefined;
   const website = toUrl(record.website) ?? (record.domain ? `https://${record.domain}` : undefined);
   const sourceUrls = Array.from(new Set([
     ...(record.sourceUrls ?? []),
@@ -865,12 +930,7 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
   ].filter((url): url is string => Boolean(url))));
   return {
     customerId: record.recordId,
-    source:
-      record.recordType === "accio_summary"
-        ? "accio_handoff"
-        : record.recordType === "screening_target"
-          ? "manual_screening"
-          : "lead_discovery",
+    source: record.recordType === "screening_target" ? "manual_screening" : "lead_discovery",
     companyName: record.companyName,
     country: record.country ?? "ZZ",
     countryName: countryName(record.country),
@@ -903,28 +963,56 @@ function taskKindLabel(kind: string) {
   return "寻找客户";
 }
 
-function taskEstimateMs(kind: string) {
-  if (kind === "screening") return 240_000;
+function positiveMs(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function queuedDelayMs(status: CbeEmployeeTaskStatus, metadata: JsonRecord) {
+  if (status !== "queued") return 0;
+  const workloadAdmission = asRecord(metadata.workload_admission);
+  const estimatedStartSeconds = positiveMs(
+    workloadAdmission.estimated_start_seconds ?? metadata.estimated_start_seconds,
+  );
+  return estimatedStartSeconds ? Math.ceil(estimatedStartSeconds * 1_000) : 0;
+}
+
+function stringList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return asStringArray(value);
+  return [];
+}
+
+function taskEstimateMs(kind: string, metadata: JsonRecord = {}) {
+  if (kind === "screening") {
+    const targetCount = positiveMs(metadata.target_count) ?? positiveMs(metadata.requested_target_count) ?? 1;
+    const options = asRecord(metadata.options);
+    return estimateScreeningTaskDurationMsForTargetCount(targetCount, {
+      paidEmailValidation: Boolean(options.paidEmailValidation),
+      paidTradeData: Boolean(options.paidTradeData),
+      maxPaidSpendUsd: positiveMs(options.maxPaidSpendUsd),
+    });
+  }
   if (kind === "accio_memory") return 180_000;
-  return 180_000;
+  const queryConfig = asRecord(metadata.query_config);
+  const targetCount = positiveMs(metadata.target_count) ?? positiveMs(metadata.requested_target_count) ?? 3;
+  return estimateLeadTaskDurationMs({
+    productKeywords: stringList(queryConfig.product_keywords ?? queryConfig.products).join(", "),
+    countries: stringList(queryConfig.countries).join(", "),
+    buyerTypes: stringList(queryConfig.buyer_types ?? queryConfig.buyer_personas).join(", "),
+    targetCount,
+    excludeDomains: stringList(queryConfig.exclude_domains).join(", "),
+    runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
+  });
 }
 
 function taskAffectedCustomerIds(metadata: JsonRecord) {
-  const supplementTarget = asRecord(metadata.supplement_target);
-  const supplementCustomerId = asString(supplementTarget.customer_id ?? supplementTarget.customerId);
   return Array.from(new Set([
     ...asStringArray(metadata.affected_customer_ids),
     ...asStringArray(metadata.saved_customer_ids),
     ...asStringArray(metadata.target_customer_ids),
     ...asStringArray(metadata.lead_candidate_ids),
     ...asStringArray(metadata.screening_target_ids),
-    ...(supplementCustomerId ? [supplementCustomerId] : []),
   ]));
-}
-
-function taskDisplayText(value: string | null | undefined) {
-  const text = value?.trim();
-  return text || undefined;
 }
 
 function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
@@ -951,7 +1039,11 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   )
     ? record.status
     : "queued";
-  const estimatedMs = taskEstimateMs(taskKind);
+  const estimatedMs = positiveMs(metadata.estimated_ms) ?? taskEstimateMs(taskKind, metadata);
+  const statusValue = status as CbeEmployeeTaskStatus;
+  const timeoutMs =
+    (positiveMs(metadata.timeout_ms) ?? estimateEmployeeTaskTimeoutMs(estimatedMs)) +
+    queuedDelayMs(statusValue, metadata);
   const notificationTitle = asString(metadata.notification_title);
   const notificationMessage = asString(metadata.notification_message);
   const notificationTargetLabel = asString(metadata.notification_target_label);
@@ -970,17 +1062,17 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     id: record.id,
     kind: taskKind === "screening" ? "screening" : taskKind === "accio_memory" ? "accio_memory" : "lead",
     title: notificationTitle ?? taskKindLabel(taskKind),
-    status: status as CbeEmployeeTaskStatus,
-    message: taskDisplayText(message) ?? "任务正在执行。",
+    status: statusValue,
+    message: simplifyDisplayText(message) ?? message,
     startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(),
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
     lastActivityAt: Number.isFinite(lastActivityAt) ? lastActivityAt : undefined,
     completedAt: finishedAt ? Date.parse(finishedAt) : undefined,
     estimatedMs,
-    timeoutMs: Math.max(estimatedMs + 120_000, 300_000),
-    deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + Math.max(estimatedMs + 120_000, 300_000),
+    timeoutMs,
+    deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + timeoutMs,
     sessionKey,
-    targetLabel: taskDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
+    targetLabel: simplifyDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
     resultCount: asNumber(metadata.saved_leads ?? metadata.saved_reports ?? metadata.saved_summaries),
     affectedCustomerIds: taskAffectedCustomerIds(metadata),
     error: record.errorMessage ?? record.error_message ?? undefined,
@@ -990,23 +1082,22 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   };
 }
 
+function memorySourceFromKind(sourceKind?: string | null, sourceFileName?: string | null): MemoryRecordItem["source"] {
+  if (sourceKind === "manual_json" || sourceKind === "manual_text" || sourceKind === "manual_image") {
+    return "manual_import";
+  }
+  if (sourceKind === "alibaba_international") return "alibaba_international";
+  if (sourceKind === "demo_data") return "demo_data";
+  if (sourceFileName?.toLowerCase().includes("alibaba")) return "alibaba_international";
+  return "accio";
+}
+
 function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
-  const pendingSupplementRefresh = Boolean(
-    record.summaryId &&
-    record.supplementTarget &&
-    (
-      record.agentRunStatus === "queued" ||
-      record.agentRunStatus === "running" ||
-      record.agentRunStatus === "polling" ||
-      record.agentRunStatus === "failed"
-    ),
-  );
-  const analyzed = Boolean(record.summaryId) && !pendingSupplementRefresh;
-  const supplementSource = record.supplementTarget?.source;
+  const analyzed = Boolean(record.summaryId);
   return {
-    recordId: pendingSupplementRefresh ? record.importId : record.summaryId ?? record.importId,
+    recordId: record.summaryId ?? record.importId,
     name: record.companyName ?? record.sourceFileName ?? "未命名聊天记录",
-    source: record.sourceFileName?.toLowerCase().includes("alibaba") ? "alibaba_international" : "accio",
+    source: memorySourceFromKind(record.sourceKind, record.sourceFileName),
     importedAt: record.uploadedAt,
     analysisStatus: analyzed
       ? "analyzed"
@@ -1023,30 +1114,26 @@ function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
         ? record.memoryFactStatus
         : "preview_only",
     summary:
-      pendingSupplementRefresh
-        ? "已补充聊天记录，等待记忆员工重新分析后更新客户画像和移交背调信息。"
-        : record.summaryText ??
+      record.summaryText ??
       record.nextActions[0] ??
-      (analyzed ? "记忆员工已生成结构化摘要。" : "已导入，等待记忆员工分析后生成写入预览。"),
-    handoffCompany: record.companyName ?? undefined,
-    supplementCustomerId: record.supplementTarget?.customerId,
-    supplementCompanyName: record.supplementTarget?.companyName,
-    supplementSource:
-      supplementSource === "lead_discovery" ||
-      supplementSource === "manual_screening" ||
-      supplementSource === "accio_handoff"
-        ? supplementSource
-        : undefined,
+      (analyzed ? "记忆员工已生成结构化摘要。" : "已导入，等待记忆员工分析后生成分析报告。"),
+    country: record.country ?? undefined,
+    customerProfile: record.customerProfile ?? undefined,
+    purchaseIntent: record.purchaseIntent ?? [],
+    negotiatedPrices: record.negotiatedPrices ?? [],
+    behaviorSignals: record.behaviorSignals ?? undefined,
+    nextActions: record.nextActions,
+    companyName: record.companyName ?? undefined,
   };
 }
 
 export async function fetchEmployeeCustomers() {
-  const page = await fetchEmployeeJson<ApiPage<ApiCustomerRecord>>("/api/client-demos/cross-border/employee/customers?limit=100");
+  const page = await fetchEmployeeJson<ApiPage<ApiCustomerRecord>>(employeeApi("/customers?limit=100"));
   return page.items.map(customerFromApi);
 }
 
 export async function fetchEmployeeMemoryRecords() {
-  const page = await fetchEmployeeJson<{ items: ApiMemoryRecord[] }>("/api/client-demos/cross-border/employee/memory");
+  const page = await fetchEmployeeJson<{ items: ApiMemoryRecord[] }>(employeeApi("/memory"));
   return page.items.map(memoryFromApi);
 }
 
@@ -1057,7 +1144,7 @@ export async function deleteEmployeeMemoryRecords(ids: string[]) {
     deletedSummaryIds: string[];
     deletedConversationIds: string[];
     deletedImportIds: string[];
-  }>("/api/client-demos/cross-border/employee/memory", {
+  }>(employeeApi("/memory"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1070,7 +1157,7 @@ export async function deleteEmployeeCustomers(ids: string[]) {
     deletedLeadCandidateIds: string[];
     deletedScreeningTargetIds: string[];
     deletedAccioSummaryIds: string[];
-  }>("/api/client-demos/cross-border/employee/customers", {
+  }>(employeeApi("/customers"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1078,7 +1165,7 @@ export async function deleteEmployeeCustomers(ids: string[]) {
 
 export async function fetchEmployeeAccioImportPayload(importId: string) {
   return fetchEmployeeJson<unknown>(
-    `/api/client-demos/cross-border/employee/memory/imports/${encodeURIComponent(importId)}`,
+    employeeApi(`/memory/imports/${encodeURIComponent(importId)}`),
   );
 }
 
@@ -1087,7 +1174,7 @@ export async function fetchEmployeeTasks() {
   let offset = 0;
   while (true) {
     const page = await fetchEmployeeJson<ApiPage<ApiAgentRun>>(
-      `/api/client-demos/cross-border/employee/tasks?limit=${EMPLOYEE_TASK_PAGE_SIZE}&offset=${offset}`,
+      employeeApi(`/tasks?limit=${EMPLOYEE_TASK_PAGE_SIZE}&offset=${offset}`),
     );
     records.push(...page.items);
     if (page.items.length < EMPLOYEE_TASK_PAGE_SIZE) break;
@@ -1097,7 +1184,7 @@ export async function fetchEmployeeTasks() {
 }
 
 export async function fetchEmployeeCostBudget(): Promise<EmployeeCostBudgetSnapshot> {
-  const body = await fetchEmployeeJson<JsonRecord>("/api/client-demos/cross-border/employee/cost-budget");
+  const body = await fetchEmployeeJson<JsonRecord>(employeeApi("/cost-budget"));
   return {
     period: "month",
     baseLimitUsd: asNumber(body.baseLimitUsd ?? body.base_limit_usd) ?? 0,
@@ -1115,12 +1202,12 @@ export async function fetchEmployeeCostBudget(): Promise<EmployeeCostBudgetSnaps
 
 export async function markEmployeeNotificationsRead(ids: string[]) {
   if (ids.length === 0) return { readIds: [] as string[] };
-  return jsonPost<{ readIds: string[] }>("/api/client-demos/cross-border/employee/notifications/read", { ids });
+  return jsonPost<{ readIds: string[] }>(employeeApi("/notifications/read"), { ids });
 }
 
 export async function deleteEmployeeNotifications(ids: string[]) {
   if (ids.length === 0) return { deletedIds: [] as string[] };
-  return fetchEmployeeJson<{ deletedIds: string[] }>("/api/client-demos/cross-border/employee/notifications", {
+  return fetchEmployeeJson<{ deletedIds: string[] }>(employeeApi("/notifications"), {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
@@ -1128,7 +1215,7 @@ export async function deleteEmployeeNotifications(ids: string[]) {
 
 export async function dismissEmployeeTaskInDb(id: string) {
   const result = await jsonPost<{ task: ApiAgentRun }>(
-    `/api/client-demos/cross-border/employee/tasks/${encodeURIComponent(id)}/dismiss`,
+    employeeApi(`/tasks/${encodeURIComponent(id)}/dismiss`),
     {},
   );
   return taskFromApi(result.task);
@@ -1136,7 +1223,7 @@ export async function dismissEmployeeTaskInDb(id: string) {
 
 export async function cancelEmployeeTaskInDb(input: { id: string; sessionKey?: string }) {
   const result = await jsonPost<{ task: ApiAgentRun }>(
-    `/api/client-demos/cross-border/employee/tasks/${encodeURIComponent(input.id)}/cancel`,
+    employeeApi(`/tasks/${encodeURIComponent(input.id)}/cancel`),
     { session_key: input.sessionKey },
   );
   return taskFromApi(result.task);
@@ -1150,29 +1237,40 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
   const productKeywords = asStringArray(input.productKeywords);
   const countries = asStringArray(input.countries).map((item) => item.toUpperCase());
   const buyerTypes = asStringArray(input.buyerTypes);
-  const maxResultsPerQuery = input.maxResultsPerQuery ?? 10;
   const estimatedCost = estimateLeadTaskCost({
     productCount: productKeywords.length,
     buyerTypeCount: buyerTypes.length,
     countryCount: countries.length,
     targetCount,
-    maxResultsPerQuery,
   });
+  const normalizedInput: EmployeeLeadTaskInput = {
+    ...input,
+    productKeywords: productKeywords.join(", "),
+    countries: countries.join(", "),
+    buyerTypes: buyerTypes.join(", "),
+    targetCount,
+    excludeDomains: asStringArray(input.excludeDomains).join(", "),
+  };
+  const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   return jsonPost<CreateEmployeeLeadRunResponse>(
-    "/api/client-demos/cross-border/employee/lead-runs",
+    employeeApi("/lead-runs"),
     {
       query_config: {
         product_keywords: productKeywords,
         countries,
         buyer_types: buyerTypes,
         exclude_domains: asStringArray(input.excludeDomains),
-        max_results_per_query: maxResultsPerQuery,
       },
       target_count: targetCount,
       run_mode: input.runMode ?? "new_scope",
       session_key: sessionKey,
       target_summary: `${input.productKeywords} / ${input.countries}`,
       estimated_cost_usd: estimatedCost.estimatedUsd,
+      metadata_json: {
+        estimated_ms: estimatedMs,
+        timeout_ms: timeoutMs,
+      },
     },
   );
 }
@@ -1188,10 +1286,12 @@ export async function createEmployeeScreeningRun(
     paidTradeData: options.paidTradeData,
     maxPaidSpendUsd: options.maxPaidSpendUsd,
   });
+  const estimatedMs = estimateScreeningTaskDurationMs(targets, options);
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   const childSessionKeys = targets.map((_, index) =>
     index === 0 ? sessionKey : createPlannedEmployeeSessionKey(SCREENING_AGENT_ID),
   );
-  return jsonPost<CreateEmployeeScreeningRunResponse>("/api/client-demos/cross-border/employee/screening-runs", {
+  return jsonPost<CreateEmployeeScreeningRunResponse>(employeeApi("/screening-runs"), {
     target_summary: targets.map((target) => target.company_name ?? target.target_id).join(", ").slice(0, 240),
     target_record_type: targets.length === 1 ? targets[0].source : "screening_batch",
     target_record_id: targets.length === 1 ? targets[0].lead_id ?? targets[0].target_id : undefined,
@@ -1200,6 +1300,8 @@ export async function createEmployeeScreeningRun(
     targets,
     estimated_cost_usd: estimatedCost.estimatedUsd,
     metadata_json: {
+      estimated_ms: estimatedMs,
+      timeout_ms: timeoutMs,
       target_count: targets.length,
       target_customer_ids: targets.map((target) => target.lead_id ?? target.target_id).filter(Boolean),
       target_sources: targets.map((target) => ({
@@ -1221,9 +1323,27 @@ export async function claimEmployeeQueuedScreeningRuns(input: {
     batch: ApiScreeningBatch | null;
     childRuns: ApiScreeningChildRun[];
     queuedRemaining: number;
-  }>("/api/client-demos/cross-border/employee/screening-runs/drain", {
+  }>(employeeApi("/screening-runs/drain"), {
     screening_batch_id: input.screeningBatchId,
     limit: input.limit ?? 3,
+  });
+}
+
+export async function retryEmployeeScreeningChildRun(input: {
+  agentRunId: string;
+  sessionKey?: string;
+  reapprovePaidEmail?: boolean;
+  reapprovePaidTrade?: boolean;
+  approvalReason?: string;
+}) {
+  return jsonPost<{
+    batch: ApiScreeningBatch | null;
+    childRun: ApiScreeningChildRun;
+  }>(employeeApi(`/screening-runs/${input.agentRunId}/retry`), {
+    session_key: input.sessionKey,
+    reapprove_paid_email: Boolean(input.reapprovePaidEmail),
+    reapprove_paid_trade: Boolean(input.reapprovePaidTrade),
+    approval_reason: input.approvalReason,
   });
 }
 
@@ -1274,43 +1394,22 @@ async function accioConversationsFromPayload(payload: unknown) {
   );
 }
 
-function supplementTargetFromPayload(payload: unknown): AccioMemoryTaskInput["supplementTarget"] | undefined {
-  const metadata = asRecord(asRecord(payload).export_metadata);
-  const target = asRecord(metadata.supplement_target);
-  const customerId = asString(target.customer_id ?? target.customerId);
-  const companyName = asString(target.company_name ?? target.companyName);
-  const source = asString(target.source);
-  if (
-    customerId &&
-    companyName &&
-    (source === "lead_discovery" || source === "manual_screening" || source === "accio_handoff")
-  ) {
-    return { customerId, companyName, source };
-  }
-  return undefined;
-}
-
 export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, sessionKey?: string) {
   const serialized = JSON.stringify(input.chatExport);
   const conversations = await accioConversationsFromPayload(input.chatExport);
   const estimatedCost = sessionKey ? estimateMemoryTaskCost(conversations.length) : { estimatedUsd: 0 };
-  const supplementTarget = input.supplementTarget ?? supplementTargetFromPayload(input.chatExport);
   return jsonPost<{ agentRun: ApiAgentRun; accioImport: ApiAccioImport }>(
-    "/api/client-demos/cross-border/employee/memory/imports",
+    employeeApi("/memory/imports"),
     {
       source_file_name: input.recordName,
+      source_kind: input.sourceKind ?? "manual_json",
+      input_format: input.inputFormat ?? "json",
+      attachment_metadata: input.attachmentMetadata ?? [],
       file_hash: await sha256Hex(serialized),
       storage_key: `local-browser-cache://${await sha256Hex(`${input.recordName}:${serialized.length}`)}`,
       classification: "T3",
       session_key: sessionKey,
       estimated_cost_usd: estimatedCost.estimatedUsd,
-      supplement_target: supplementTarget
-        ? {
-            customer_id: supplementTarget.customerId,
-            company_name: supplementTarget.companyName,
-            source: supplementTarget.source,
-          }
-        : undefined,
       conversations,
     },
   );
@@ -1384,15 +1483,9 @@ function normalizeScreeningPayload(payload: unknown) {
       const inferredTargetSource =
         sourceHint === "marketing_lead" ||
         sourceHint === "marketing_lead_batch" ||
-        sourceHint === "manual_input" ||
-        sourceHint === "accio_memory"
+        sourceHint === "manual_input"
           ? sourceHint
-          : targetLeadId?.startsWith("accio_summary") || targetId?.startsWith("accio_summary")
-            ? "accio_memory"
-            : targetId?.startsWith("screening_target") || targetLeadId?.startsWith("screening_target")
-              ? "manual_input"
-              : "manual_input";
-      const score = asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
+          : "manual_input";
       const evidenceRows = Array.isArray(report.evidence) ? report.evidence : [];
       const targetWebsite = toUrl(target.website);
       const addressFootprint = normalizeAddressFootprintPayload(report.address_footprint ?? report.addressFootprint);
@@ -1406,66 +1499,88 @@ function normalizeScreeningPayload(payload: unknown) {
           const sourceUrl = toUrl(evidenceRecord.source_url ?? evidenceRecord.sourceUrl ?? evidenceRecord.url);
           const usesGapMarker = !sourceUrl;
           if (usesGapMarker) traceabilityGap = true;
-          const layer = asString(evidenceRecord.layer) ?? "public_footprint";
-          const sourceTypeValue = usesGapMarker ? "unverified" : sourceType(evidenceRecord.source_type);
-          const scoreBlock = scoreBlockId(evidenceRecord.score_block ?? evidenceRecord.scoreBlock);
-          const scoreImpact =
-            usesGapMarker
-              ? "coverage_only"
-              : evidenceRecord.score_impact === "positive" ||
-                  evidenceRecord.score_impact === "negative" ||
-                  evidenceRecord.score_impact === "coverage_only"
-                ? evidenceRecord.score_impact
-                : "neutral";
-          const confidence = usesGapMarker ? 0 : asNumber(evidenceRecord.confidence);
-          const normalizedSourceUrl = sourceUrl ?? missingEvidenceUrl(companyName, evidenceIndex);
           return {
-            layer,
-            source_type: sourceTypeValue,
+            layer: asString(evidenceRecord.layer) ?? "public_footprint",
+            source_type: usesGapMarker ? "unverified" : sourceType(evidenceRecord.source_type),
             source: asString(evidenceRecord.source),
-            source_url: normalizedSourceUrl,
-            finding: screeningEvidenceFindingText({
-              layer,
-              sourceType: sourceTypeValue,
-              scoreBlock,
-              scoreImpact,
-              confidence,
-              finding: usesGapMarker
-                ? `未找到 ${companyName} 的可核验来源网址。`
-                : asString(evidenceRecord.finding ?? evidenceRecord.summary ?? evidenceRecord.excerpt),
-              sourceUrl: normalizedSourceUrl,
-            }),
-            confidence,
+            source_url: sourceUrl ?? missingEvidenceUrl(companyName, evidenceIndex),
+            finding: usesGapMarker
+              ? `背调员工未返回 ${companyName} 的可核验来源，已记录为证据缺口。`
+              : asString(evidenceRecord.finding ?? evidenceRecord.summary ?? evidenceRecord.excerpt) ?? "背调员工返回了证据项。",
+            confidence: usesGapMarker ? 0 : asNumber(evidenceRecord.confidence),
             fetched_at: toIsoTimestamp(evidenceRecord.fetched_at ?? evidenceRecord.fetchedAt, now),
             cost_usd: asNumber(evidenceRecord.cost_usd ?? evidenceRecord.costUsd),
-            score_block: scoreBlock,
-            score_impact: scoreImpact,
+            score_block: scoreBlockId(evidenceRecord.score_block ?? evidenceRecord.scoreBlock),
+            score_impact:
+              usesGapMarker
+                ? "coverage_only"
+                : evidenceRecord.score_impact === "positive" ||
+                    evidenceRecord.score_impact === "negative" ||
+                    evidenceRecord.score_impact === "coverage_only"
+                  ? evidenceRecord.score_impact
+                  : "neutral",
           };
         });
-      const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
       const scoreBlocks = payloadArray(report.score_blocks ?? report.scoreBlocks ?? [], "score_blocks");
+      const normalizedScoreBlocks = scoreBlocks.length
+        ? scoreBlocks.map((block) => {
+            const normalized = normalizeScoreBlock(block);
+            return {
+              block: scoreBlockId(normalized.block),
+              status: normalized.status,
+              max_points: normalized.maxPoints,
+              earned_points: normalized.earnedPoints,
+              source_count: normalized.sourceCount ?? evidence.length,
+              summary: normalized.summary,
+              reason: normalized.reason,
+            };
+          })
+        : [
+            {
+              block: "public_footprint",
+              status: "pending_human_input" as const,
+              max_points: 20,
+              earned_points: null,
+              source_count: evidence.length,
+              reason: traceabilityGap
+                ? `背调员工未返回 ${companyName} 的可核验来源。`
+                : "报告未返回评分来源，已保留核验依据供人工复核。",
+            },
+          ];
+      const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
+      const normalizedEvidenceCoverage = traceabilityGap
+        ? Math.min(evidenceCoverage ?? 0, 0.2)
+        : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0);
+      const score =
+        normalizedScoreFromScoreBlocks(normalizedScoreBlocks.map((block) => ({
+          block: block.block,
+          status: block.status,
+          maxPoints: block.max_points,
+          earnedPoints: block.earned_points,
+        })), normalizedEvidenceCoverage) ??
+        asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
+      const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
       const reportCoverageGaps = Array.isArray(report.coverage_gaps) ? report.coverage_gaps.map(asRecord) : [];
       const traceabilityGapRecord = {
         block: "public_footprint",
         status: "pending_human_input",
-        reason: `背调报告暂未提供 ${companyName} 的可核验来源，无法核验公开信息。`,
-        action: "补充官网、注册页、公开网页或其他来源网址后重新背调。",
+        reason: `背调员工未返回 ${companyName} 的可核验来源，无法核验公开信息。`,
+        action: "补充官网、注册页、公开网页或工具返回的来源链接后重新背调。",
       };
       const coverageGaps = traceabilityGap &&
         !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可核验来源"))
           ? [...reportCoverageGaps, traceabilityGapRecord]
           : reportCoverageGaps;
-      const evidenceCoverage = asNumber(report.evidence_coverage ?? report.evidenceCoverage);
       return {
         report_id: asString(report.report_id ?? report.reportId) ?? `screening-report-${Date.now()}-${index}`,
-        lead_id: targetLeadId ?? (inferredTargetSource === "accio_memory" ? targetId : null),
+        lead_id: targetLeadId ?? null,
         target_source: inferredTargetSource,
         company_name: companyName,
         ...(companyScaleAssessment ? { company_scale_assessment: companyScaleAssessmentPayload(companyScaleAssessment) } : {}),
         target: {
           target_id: targetId,
           source: inferredTargetSource,
-          lead_id: targetLeadId ?? (inferredTargetSource === "accio_memory" ? targetId : null),
+          lead_id: targetLeadId ?? null,
           company_name: companyName,
           country: toOptionalCountryCode(target.country ?? report.country),
           website: targetWebsite,
@@ -1478,35 +1593,11 @@ function normalizeScreeningPayload(payload: unknown) {
         },
         risk_tier: riskTier,
         normalized_score: traceabilityGap ? null : typeof score === "number" ? score : null,
-        evidence_coverage: traceabilityGap ? Math.min(evidenceCoverage ?? 0, 0.2) : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0),
+        evidence_coverage: normalizedEvidenceCoverage,
         recommended_action: traceabilityGap
-          ? `背调报告暂未提供 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
+          ? `背调员工未返回 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
           : asString(report.recommended_action ?? report.recommendedAction) ?? "复核背调报告后决定是否跟进。",
-        score_blocks: scoreBlocks.length
-          ? scoreBlocks.map((block) => {
-              const normalized = normalizeScoreBlock(block);
-              return {
-                block: scoreBlockId(normalized.block),
-                status: normalized.status,
-                max_points: normalized.maxPoints,
-                earned_points: normalized.earnedPoints,
-                source_count: normalized.sourceCount ?? evidence.length,
-                summary: screeningScoreBlockText(normalized),
-                reason: normalized.reason ? screeningScoreBlockText(normalized) : undefined,
-              };
-            })
-          : [
-              {
-                block: "public_footprint",
-                status: "pending_human_input",
-                max_points: 20,
-                earned_points: null,
-                source_count: evidence.length,
-                reason: traceabilityGap
-                  ? `背调报告暂未提供 ${companyName} 的可核验来源。`
-                  : "报告未说明评分来源，已保留核验依据供人工复核。",
-              },
-            ],
+        score_blocks: normalizedScoreBlocks,
         evidence,
         ...(addressFootprint ? { address_footprint: addressFootprint } : {}),
         coverage_gaps: coverageGaps,
@@ -1517,29 +1608,22 @@ function normalizeScreeningPayload(payload: unknown) {
   };
 }
 
-function normalizeAccioPayload(
-  payload: unknown,
-  sourceFileName: string,
-  supplementTarget?: AccioMemoryTaskInput["supplementTarget"],
-) {
+function normalizeAccioPayload(payload: unknown, sourceFileName: string) {
   return {
     summaries: payloadArray(payload, "summaries").map((item, index) => {
       const summary = asRecord(item);
       const profile = asRecord(summary.customer_profile);
       const memoryPreview = asRecord(summary.memory_preview ?? summary.memoryWritePreview ?? summary.memory_write_preview);
-      const handoff = asRecord(summary.screening_handoff_target ?? summary.screeningHandoffTarget);
       const behaviorSignals = asRecord(summary.behavior_signals ?? summary.behaviorSignals);
       const conversationId = asString(summary.conversation_id ?? summary.conversationId) ?? `conversation-${index + 1}`;
       const companyName =
-        supplementTarget?.companyName ??
-        firstTextValue(profile.company_name, handoff.company_name, memoryPreview.company_name, summary.company_name) ??
+        firstTextValue(profile.company_name, memoryPreview.company_name, summary.company_name) ??
         `Unknown company ${index + 1}`;
       const productInterest = firstTextValue(
         summary.product,
         summary.product_interest,
         memoryPreview.product,
         memoryPreview.product_interest,
-        handoff.product_interest,
       );
       const purchaseIntent = asRecordArray(summary.purchase_intent ?? summary.purchaseIntent);
       const negotiatedPricesFromPreview = asRecordArray(memoryPreview.negotiated_price_facts ?? memoryPreview.negotiated_prices);
@@ -1552,7 +1636,6 @@ function normalizeAccioPayload(
         memoryPreview.quantity,
         memoryPreview.target_quantity,
         memoryPreview.order_quantity,
-        handoff.quantity,
       );
       const derivedTargetPrice = firstTextValue(
         summary.target_price_usd,
@@ -1581,39 +1664,6 @@ function normalizeAccioPayload(
       const negotiationSummary =
         firstTextValue(summary.negotiation_summary, summary.summary, memoryPreview.summary, behaviorSignals.summary) ??
         "已完成聊天记录整理。";
-      const normalizedProductInterest = asStringArray(handoff.product_interest).length
-        ? asStringArray(handoff.product_interest)
-        : derivedProduct
-          ? [derivedProduct]
-          : ["mobile accessories"];
-      const hasCountry = Boolean(profile.country ?? handoff.country);
-      const hasWebsite = Boolean(profile.website ?? handoff.website);
-      const hasEmail = Boolean(profile.email ?? handoff.email);
-      const normalizedHandoff = {
-        ...handoff,
-        source:
-          supplementTarget?.source === "manual_screening"
-            ? "manual_input"
-            : asString(handoff.source) ?? "accio_memory",
-        lead_id: supplementTarget?.customerId ?? asString(handoff.lead_id ?? handoff.target_id) ?? conversationId,
-        target_id: supplementTarget?.customerId ?? asString(handoff.target_id),
-        company_name: companyName,
-        country: toOptionalCountryCode(handoff.country ?? profile.country),
-        website: toUrl(handoff.website ?? profile.website),
-        email: toEmail(handoff.email ?? profile.email),
-        contact_person: asString(handoff.contact_person ?? profile.contact_person),
-        product_interest: normalizedProductInterest,
-        supplied_fields: asStringArray(handoff.supplied_fields).length
-          ? asStringArray(handoff.supplied_fields)
-          : [
-              "company_name",
-              ...(hasCountry ? ["country"] : []),
-              ...(hasWebsite ? ["website"] : []),
-              ...(hasEmail ? ["email"] : []),
-              ...(normalizedProductInterest.length ? ["product_interest"] : []),
-            ],
-        missing_fields: asStringArray(handoff.missing_fields),
-      };
       const sourceReferences = Array.isArray(summary.source_references) && summary.source_references.length > 0
         ? summary.source_references
         : Array.isArray(memoryPreview.source_references) && memoryPreview.source_references.length > 0
@@ -1642,46 +1692,16 @@ function normalizeAccioPayload(
               ? [derivedPrice]
               : [],
         negotiation_summary: negotiationSummary,
-        next_actions: nextActions.length ? nextActions : ["复核记忆预览并决定是否移交背调"],
+        next_actions: nextActions.length ? nextActions : ["复核记忆整理报告并继续人工跟进"],
         behavior_signals: isNonEmptyRecord(behaviorSignals)
-          ? {
-              ...behaviorSignals,
-              ...(supplementTarget
-                ? {
-                    supplement_target: {
-                      customer_id: supplementTarget.customerId,
-                      company_name: supplementTarget.companyName,
-                      source: supplementTarget.source,
-                    },
-                  }
-                : {}),
-            }
+          ? behaviorSignals
           : memoryPreview.summary
             ? {
                 summary: memoryPreview.summary,
-                ...(supplementTarget
-                  ? {
-                      supplement_target: {
-                        customer_id: supplementTarget.customerId,
-                        company_name: supplementTarget.companyName,
-                        source: supplementTarget.source,
-                      },
-                    }
-                  : {}),
               }
             : {
                 summary: negotiationSummary,
-                ...(supplementTarget
-                  ? {
-                      supplement_target: {
-                        customer_id: supplementTarget.customerId,
-                        company_name: supplementTarget.companyName,
-                        source: supplementTarget.source,
-                      },
-                    }
-                  : {}),
               },
-        screening_handoff_target: normalizedHandoff,
         memory_preview: {
           ...memoryPreview,
           summary: firstTextValue(memoryPreview.summary, negotiationSummary),
@@ -1715,7 +1735,7 @@ export async function completeEmployeeLeadRun(input: {
   payload: unknown;
 }) {
   return jsonPost<CompleteEmployeeLeadRunResponse>(
-    `/api/client-demos/cross-border/employee/lead-runs/${input.leadRunId}/complete`,
+    employeeApi(`/lead-runs/${input.leadRunId}/complete`),
     {
       agent_run_id: input.agentRunId,
       session_key: input.sessionKey,
@@ -1729,7 +1749,7 @@ export async function completeEmployeeScreeningRun(input: {
   sessionKey: string;
   payload: unknown;
 }) {
-  return jsonPost<CompleteEmployeeScreeningRunResponse>(`/api/client-demos/cross-border/employee/screening-runs/${input.agentRunId}/complete`, {
+  return jsonPost<CompleteEmployeeScreeningRunResponse>(employeeApi(`/screening-runs/${input.agentRunId}/complete`), {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
     payload: normalizeScreeningPayload(input.payload),
@@ -1742,12 +1762,11 @@ export async function completeEmployeeAccioImport(input: {
   sessionKey: string;
   sourceFileName: string;
   payload: unknown;
-  supplementTarget?: AccioMemoryTaskInput["supplementTarget"];
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/memory/imports/${input.importId}/complete`, {
+  return jsonPost(employeeApi(`/memory/imports/${input.importId}/complete`), {
     agent_run_id: input.agentRunId,
     session_key: input.sessionKey,
-    payload: normalizeAccioPayload(input.payload, input.sourceFileName, input.supplementTarget),
+    payload: normalizeAccioPayload(input.payload, input.sourceFileName),
   });
 }
 
@@ -1762,7 +1781,7 @@ export async function failEmployeeTaskInDb(input: {
   error: unknown;
   message: string;
 }) {
-  return jsonPost(`/api/client-demos/cross-border/employee/tasks/${input.agentRunId}/fail`, {
+  return jsonPost(employeeApi(`/tasks/${input.agentRunId}/fail`), {
     session_key: input.sessionKey,
     error_code: employeeTaskFailureCode(input.error),
     error_message: input.message,

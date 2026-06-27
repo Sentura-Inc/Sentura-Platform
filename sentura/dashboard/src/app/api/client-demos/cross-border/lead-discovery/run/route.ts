@@ -14,11 +14,13 @@ interface RunRequest {
   buyer_personas?: unknown;
   countries?: unknown;
   languages?: unknown;
-  max_results_per_query?: unknown;
   daily_candidate_target?: unknown;
   exclude_domains?: unknown;
   max_queries?: unknown;
 }
+
+const LEAD_DISCOVERY_MAX_TARGET_COUNT = 10;
+const LEAD_DISCOVERY_INTERNAL_RESULTS_PER_QUERY = 10;
 
 interface QueryPlanEntry {
   id: string;
@@ -581,13 +583,12 @@ export async function POST(request: Request) {
     const excludeDomains = Array.from(
       new Set([...stringArray(body.exclude_domains, DEFAULT_EXCLUDE_DOMAINS), ...DEFAULT_EXCLUDE_DOMAINS, ...BLOCKED_LEAD_DOMAINS]),
     ).slice(0, 150);
-    const target = boundedNumber(body.daily_candidate_target, 50, 1, 200);
-    const maxResultsPerQuery = boundedNumber(body.max_results_per_query, 10, 1, 20);
+    const target = boundedNumber(body.daily_candidate_target, LEAD_DISCOVERY_MAX_TARGET_COUNT, 1, LEAD_DISCOVERY_MAX_TARGET_COUNT);
     const maxQueries = boundedNumber(
       body.max_queries,
-      Math.max(1, Math.ceil(target / maxResultsPerQuery)),
+      Math.max(1, Math.ceil(target / 5)),
       1,
-      24,
+      8,
     );
     const runId = typeof body.run_id === "string" && body.run_id.trim() ? body.run_id.trim() : `lead-run-${Date.now()}`;
     const fetchedAt = new Date().toISOString();
@@ -632,7 +633,7 @@ export async function POST(request: Request) {
         status: "sent",
       });
       try {
-        const results = await tavilySearch(query.query, maxResultsPerQuery, excludeDomains, signal);
+        const results = await tavilySearch(query.query, LEAD_DISCOVERY_INTERNAL_RESULTS_PER_QUERY, excludeDomains, signal);
         queryLog[queryLog.length - 1].status = "reviewed";
         for (const result of results) {
           const url = asText(result.url);

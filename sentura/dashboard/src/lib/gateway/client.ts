@@ -13,6 +13,7 @@ import type {
   CostSummary,
   EventFrame,
   GatewayClientOptions,
+  GatewayChatAttachment,
   GatewayEvent,
   GatewayEventType,
   GatewayHealth,
@@ -496,13 +497,14 @@ export class GatewayClient {
     message: string,
     sessionKey: string,
     idempotencyKey?: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; attachments?: GatewayChatAttachment[] },
   ): Promise<unknown> {
     return this.rpc("chat.send", {
       message,
       sessionKey,
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
       ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
     });
   }
 
@@ -510,7 +512,7 @@ export class GatewayClient {
     sessionKey: string,
     message: string,
     idempotencyKey?: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; attachments?: GatewayChatAttachment[] },
   ): Promise<unknown> {
     return this.sendChat(message, sessionKey, idempotencyKey, options);
   }

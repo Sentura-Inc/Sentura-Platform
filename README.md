@@ -218,6 +218,8 @@ Sentura-Platform/
 
 ### 1. Cloud API (Fastest)
 
+**macOS / Linux / WSL2:**
+
 ```bash
 git clone https://github.com/sentura/Sentura-Platform.git
 cd Sentura-Platform/openclaw
@@ -231,23 +233,28 @@ cd openclaw && pnpm gateway:watch
 # open the Control UI URL printed at the end
 ```
 
-### 2. Local with Ollama (Privacy-First)
+**Windows (native PowerShell):** PowerShell 5.1 doesn't support `&&` chaining, the setup script is `.ps1` not `.sh`, and `pnpm gateway:watch` requires `tmux` (not available on Windows) — use `gateway:watch:raw` instead.
 
-```bash
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull llama3.3:70b
-
+```powershell
 git clone https://github.com/sentura/Sentura-Platform.git
-cd Sentura-Platform/openclaw
+cd Sentura-Platform\openclaw
 
-pnpm install && pnpm ui:build && pnpm build
-pnpm openclaw onboard         # choose local provider
+pnpm install
+pnpm ui:build
+pnpm build
+pnpm openclaw onboard
+# follow prompts — provide your LLM API key (OpenAI, Anthropic, etc.)
 
-cd .. && ./scripts/sentura-setup.sh
-cd openclaw && pnpm gateway:watch
+cd ..
+.\scripts\sentura-setup.ps1   # registers Creator, Tuner, Orchestrator, MCP Builder
+cd openclaw
+pnpm gateway:watch:raw
+# open the Control UI URL printed at the end
 ```
 
-### 3. Development Setup
+### 2. Development Setup
+
+**macOS / Linux / WSL2:**
 
 ```bash
 git clone https://github.com/sentura/Sentura-Platform.git
@@ -261,6 +268,30 @@ cd openclaw && pnpm gateway:watch
 
 # In another terminal:
 cd sentura/dashboard && pnpm dev
+
+# OpenClaw Control UI → http://localhost:18789
+# Sentura Dashboard   → http://localhost:3000
+```
+
+**Windows (native PowerShell):**
+
+```powershell
+git clone https://github.com/sentura/Sentura-Platform.git
+cd Sentura-Platform\openclaw
+
+pnpm install
+pnpm ui:build
+pnpm build
+pnpm openclaw onboard
+
+cd ..
+.\scripts\sentura-setup.ps1
+cd openclaw
+pnpm gateway:watch:raw
+
+# In another terminal:
+cd sentura\dashboard
+pnpm dev
 
 # OpenClaw Control UI → http://localhost:18789
 # Sentura Dashboard   → http://localhost:3000
@@ -290,12 +321,15 @@ For production Docker: `cd openclaw && bash docker-setup.sh`. Do not create cust
 | [`座联互动/DESIGN.md`](座联互动/DESIGN.md) | Sitlink client-pilot design | On demand — for Sitlink tasks only |
 | [`跨境电商/DESIGN.md`](跨境电商/DESIGN.md) | Mobile-accessory cross-border e-commerce shared platform, database, deployment, MCP, and cross-agent design | On demand — for 跨境电商 tasks only |
 | [`跨境电商/PHASE-2.md`](跨境电商/PHASE-2.md) | Cross-border Phase 2 execution plan for production persistence, customer `admin`/`operator` levels, Admin monitoring, typed store, multi-user sessions, Lead coordinator, durable Screening/Accio workflows, and load-smoke testing | On demand — for 跨境电商 production/database/concurrency/customer-permission tasks only |
+| [`跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md`](跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md) | Cross-border Phase 2 P2.6 load-smoke, backup/restore drill, pressure-result labels, and conditional go-live checklist | On demand — for 跨境电商 load-smoke/readiness drills only |
 | [`跨境电商/UI.md`](跨境电商/UI.md) | Cross-border ordinary-user/Admin monitoring UI design, Employee page layouts, status colors, and hidden Agent task connection contract | On demand — for 跨境电商 UI/UX tasks only |
 | [`跨境电商/MARKET_ACQUISITION.md`](跨境电商/MARKET_ACQUISITION.md) | Cross-border Marketing Acquisition / Lead Discovery employee design, implementation status, and plan | On demand — for 跨境电商获客 tasks only |
 | [`跨境电商/SCREENING.md`](跨境电商/SCREENING.md) | Cross-border Screening and Background employee design, evidence model, Alibaba API plan, implementation status, and plan | On demand — for 跨境电商背调 tasks only |
 | [`跨境电商/MEMORY_PROCESSING.md`](跨境电商/MEMORY_PROCESSING.md) | Cross-border Accio Memory Processing employee design, fixture/upload workflow, memory policy, implementation status, and plan | On demand — for 跨境电商记忆处理 tasks only |
 | [`docs/SETUP.md`](docs/SETUP.md) | Local development setup (cross-platform) | When setting up a dev environment |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Production hosting, topology, security analysis | When deploying to production |
+| [`docs/ALIYUN-DEPLOYMENT.md`](docs/ALIYUN-DEPLOYMENT.md) | Alibaba Cloud / Aliyun deployment report: domain plan, SaaS admin/employee split, ECS/RDS/ALB/WAF sizing, DNS cutover, and production adjustments | When deploying Sentura on Alibaba Cloud |
+| [`docs/ALIYUN-FULL-STACK-RUNBOOK.md`](docs/ALIYUN-FULL-STACK-RUNBOOK.md) | Chinese Alibaba Cloud full-stack deployment runbook: Squarespace DNS `app`/`admin` CNAME records, WAF, ALB, ECS, RDS, ACR, OSS, SLS, CloudMonitor, KMS, IDaaS, Bastionhost, and go-live checks | When executing an Alibaba Cloud deployment |
 | [`docs/tests/tests-cross-border-phase2.md`](docs/tests/tests-cross-border-phase2.md) | Active Cross-border e-commerce / 跨境电商 Phase 2 detailed test cases (CE17+) | When running or updating CBE Phase 2 tests |
 | [`docs/tests/*`](docs/tests/) | Detailed per-person, cross-team, and independent-client test cases; `tests-cross-border-ecommerce.md` remains CBE Phase 1/MVP regression history | When running or updating tests |
 | [`Documents/Demo.md`](Documents/Demo.md) | Demo scenarios and workflows | When designing demo flows |

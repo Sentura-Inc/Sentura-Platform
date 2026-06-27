@@ -1,6 +1,7 @@
 import { withCbeTransaction, type CbeDb } from "./db";
 import { createCbeId } from "./ids";
 import { createAuditEvent } from "./audit";
+import { CbeStoreError } from "./errors";
 import type { CreateHandoffRequest, TenantContext } from "./schemas";
 
 export interface HandoffEventRecord {
@@ -81,6 +82,16 @@ export async function createHandoffEvent(
   context: TenantContext,
   input: CreateHandoffRequest,
 ) {
+  if (
+    input.from_agent_id === "cbe-accio-memory" ||
+    (input.to_agent_id === "cbe-buyer-screening" && input.source_record_type === "accio_summary")
+  ) {
+    throw new CbeStoreError(
+      400,
+      "accio_handoff_disabled",
+      "记忆整理已与获客/背调分离，不能移交背调。",
+    );
+  }
   return withCbeTransaction(async (client) => {
     const handoff = await insertHandoffEvent(client, context, input);
     await createAuditEvent(client, context, {

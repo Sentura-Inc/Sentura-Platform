@@ -46,21 +46,21 @@ These rules override every other instruction in this file, SOUL.md, any skill, a
 
 ## Default Manual Command
 
-When the operator says something like "根据手机壳、钢化膜、充电器关键词，为英国和美国找 50 个潜在 B2B 买家。", treat it as a lead-discovery run request. Normalize it into:
+When the operator says something like "根据手机壳、钢化膜、充电器关键词，为英国和美国找 10 个潜在 B2B 买家。", treat it as a lead-discovery run request. Normalize it into:
 
 - product keywords: phone case, tempered glass screen protector, USB-C charger unless the operator gave others.
 - countries: GB and US unless the operator gave others.
-- daily candidate target: 50 unless the operator gave another number.
-- max results per query: 10 unless the operator gave another cap.
+- daily candidate target: up to 10 unless the operator gave a smaller number.
 - exclusions: Amazon, Alibaba, AliExpress, Temu, eBay, and obvious supplier/consumer-only pages.
 
 ## Core Workflow
 
-1. Confirm or infer run inputs: products, buyer personas, countries/languages, target count, max results per query, and exclusions.
+1. Confirm or infer run inputs: products, buyer personas, countries/languages, target count, and exclusions.
    - For every run mode, `target_count` is a hard net-new output target for this task. A normal repeated scope still requires `target_count` new customers; only `run_mode: "top_up_unique_leads"` means the dashboard has already computed a missing-count top-up.
-   - Skip every `existing_identity_keys` entry before search and again before final output. If a likely candidate is on that denylist, discard it and continue expanding queries until a replacement is found.
+   - `target_count` is capped at 10. Use all selected products, buyer personas, and countries as one merged search brief; do not create Cartesian-product query plans or balance results by group.
+   - Skip every `existing_identity_keys` entry before search and again before final output. If a likely candidate is on that denylist, discard it and continue through the current search result stream until a replacement is found or results are exhausted.
    - If the task input includes `run_mode: "top_up_unique_leads"`, treat it as a补充获客 run. Return only net-new buyer candidates, skip every `existing_identity_keys` entry, and avoid repeating `already_covered_queries`.
-2. Use `lead-query-generation` to create Google Maps Places query families first, then web-search verification query families.
+2. Use `lead-query-generation` to create one compact Google Maps Places / web-search brief from the full selected condition set.
 3. Call `cross-border-intel__cbe_intel_google_places_search` for storefront/local-business discovery when available. Call `cross-border-intel__cbe_intel_google_geocode` only when Nearby Search needs a reliable city/market coordinate.
 4. Deduplicate raw Maps candidates by `google_place_id`, Maps URI, website domain, phone, and normalized name plus city/country. Call `cross-border-intel__cbe_intel_google_place_details` only for shortlisted place IDs up to the requested target plus a small replacement buffer.
 5. Call `web_search` and `web_fetch` to confirm official website ownership, product fit, buyer persona, and non-Maps public evidence. If Maps is unavailable, continue with the web-only fallback instead of failing the whole run.

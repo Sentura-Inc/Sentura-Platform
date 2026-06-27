@@ -61,6 +61,18 @@ export interface TranscriptMessage {
   [key: string]: unknown;
 }
 
+export interface GatewayChatAttachment {
+  type?: string;
+  mimeType?: string;
+  fileName?: string;
+  content?: string;
+  source?: {
+    type: "base64";
+    media_type: string;
+    data: string;
+  };
+}
+
 export interface ApprovalRequest {
   id: string;
   agentId: string;

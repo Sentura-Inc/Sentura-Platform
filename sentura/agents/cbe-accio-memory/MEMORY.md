@@ -1,8 +1,8 @@
 # 跨境记忆处理员工 — MEMORY
 
-No approved customer memory has been written yet.
+No customer memory has been written. This employee currently produces preview-only analysis reports.
 
-When an operator approves a memory preview in Phase 1, store only concise structured facts:
+Preview reports may contain concise structured facts:
 
 - buyer company and contact role,
 - requested products and quantities,
@@ -10,7 +10,6 @@ When an operator approves a memory preview in Phase 1, store only concise struct
 - next action,
 - behavior signal summary,
 - source file and conversation id,
-- Screening risk tier only after Screening has scored the buyer.
+- unverified-status notes for buyer identity claims.
 
-Do not store raw message transcripts here.
-
+Do not store raw message transcripts or extracted facts here.

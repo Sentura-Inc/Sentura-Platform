@@ -35,11 +35,11 @@ Use this skill when the operator asks for new overseas buyer discovery, a schedu
    - Use `cross-border-intel__cbe_intel_google_place_details` only for shortlisted place IDs after dedupe, with `field_mask_profile="lead_discovery_basic"` and purpose `lead_discovery`.
    - Accept Maps candidates only as discovery seeds until web evidence confirms official website/product/buyer fit.
    - If the tool returns `unavailable_api`, `rate_limited`, `api_error`, or no results, record the coverage gap and continue with web-only query families.
-6. Call `web_search` with enough generated queries to over-collect raw candidates before final dedupe.
-   - Cover every selected country and product where possible.
-   - Use at least the company-owned website, retail/repair buyer, store/location/contact proof, and reseller/import buyer families before declaring a shortage.
-   - Aim for at least `target_count * 3` raw candidate domains before final filtering; for targets under 5, aim for at least 12 raw candidates.
-   - `max_results_per_query` is only a per-query result hint. It is not a cap on total queries, total raw candidates, or final net-new leads.
+6. Call `web_search` with the selected product, country, and buyer persona values merged into one search brief.
+   - Do not build a Cartesian-product query plan from every product/country/persona combination.
+   - Do not balance results by group; the Dashboard only needs the first `target_count` compliant downstream buyer companies.
+   - Review search results in order. Keep the first concrete buyer companies that pass exclusions, dedupe, and evidence checks.
+   - Stop when `target_count` compliant net-new leads have been found or the overall search result stream is clearly exhausted.
 7. Use `web_fetch` only for public pages on a candidate company's own website that appear likely to prove company identity, product fit, contact candidate provenance, or buyer persona. If `web_fetch` is blocked by security policy, private-IP protection, timeout, or site access failure, keep the company as a candidate only when `web_search` provided a company-owned URL plus a relevant title/snippet, record that source as `public_web`, and continue searching for replacements.
 8. Record every query string with:
    - query text;
