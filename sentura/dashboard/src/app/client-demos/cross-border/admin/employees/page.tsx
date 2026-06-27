@@ -26,7 +26,9 @@ import {
 import { AdminCustomerListTable } from "../_components/customer-list-table";
 import {
   createAdminOperator,
+  createAdminOperators,
   deleteAdminOperator,
+  deleteAdminOperators,
   fetchAdminOperator,
   fetchAdminOperators,
   updateAdminOperator,
@@ -44,6 +46,7 @@ const ranges: Array<{ key: RangeKey; label: string }> = [
   { key: "all", label: "全部" },
 ];
 const ADMIN_EMPLOYEE_RANGE_STORAGE_KEY = "sentura:cbe:admin:employees-range:v1";
+const MAX_OPERATOR_ACCOUNTS = 20;
 
 function isRangeKey(value: unknown): value is RangeKey {
   return ranges.some((item) => item.key === value);
@@ -67,6 +70,29 @@ function operatorStatusLabel(status: unknown) {
   return status === "active" ? "正常" : "已停用";
 }
 
+function parseBatchCreateRows(value: string) {
+  const rows = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.includes(",") || line.includes("，") || line.includes("\t")
+        ? line.split(/\t|,|，/).map((part) => part.trim())
+        : line.split(/\s+/).map((part) => part.trim());
+      const [displayName = "", password = "", teamName = "", monthLimit = ""] = parts;
+      return { displayName, password, teamName, monthLimit };
+    });
+  const errors: string[] = [];
+  rows.forEach((row, index) => {
+    if (!row.displayName) errors.push(`第 ${index + 1} 行缺少员工姓名。`);
+    if (!row.password || row.password.length < 4) errors.push(`第 ${index + 1} 行密码至少 4 位。`);
+    if (row.monthLimit && !Number.isFinite(Number(row.monthLimit))) errors.push(`第 ${index + 1} 行月限额不是有效数字。`);
+  });
+  const names = rows.map((row) => row.displayName.toLowerCase()).filter(Boolean);
+  if (new Set(names).size !== names.length) errors.push("批量创建中存在重复员工姓名。");
+  return { rows, errors };
+}
+
 export default function AdminEmployeesPage() {
   const [range, setRange] = usePersistentUiState<RangeKey>(
     ADMIN_EMPLOYEE_RANGE_STORAGE_KEY,
@@ -79,8 +105,11 @@ export default function AdminEmployeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [createNotice, setCreateNotice] = useState<string | null>(null);
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<Set<string>>(() => new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminOperatorRow | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchCreateText, setBatchCreateText] = useState("");
   const [detail, setDetail] = useState<{
     profile: AdminOperatorRow | null;
     customers: AdminCustomerRow[];
@@ -94,6 +123,12 @@ export default function AdminEmployeesPage() {
   });
 
   const rangePrefix = range === "all" ? "all" : range;
+  const remainingOperatorSlots = Math.max(0, MAX_OPERATOR_ACCOUNTS - operators.length);
+  const selectedOperators = useMemo(
+    () => operators.filter((operator) => selectedOperatorIds.has(operator.user_id)),
+    [operators, selectedOperatorIds],
+  );
+  const allVisibleSelected = operators.length > 0 && operators.every((operator) => selectedOperatorIds.has(operator.user_id));
 
   const totals = useMemo(() => {
     return operators.reduce(
@@ -114,6 +149,10 @@ export default function AdminEmployeesPage() {
     try {
       const result = await fetchAdminOperators();
       setOperators(result.items);
+      setSelectedOperatorIds((current) => {
+        const validIds = new Set(result.items.map((operator) => operator.user_id));
+        return new Set(Array.from(current).filter((id) => validIds.has(id)));
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "员工列表加载失败。");
     } finally {
@@ -149,6 +188,10 @@ export default function AdminEmployeesPage() {
     setError(null);
     setCreateNotice(null);
     try {
+      if (remainingOperatorSlots <= 0) {
+        setError(`员工账号上限为 ${MAX_OPERATOR_ACCOUNTS} 个，请先删除不需要的员工。`);
+        return;
+      }
       const initialLimits = form.monthLimit.trim()
         ? [
             {
@@ -169,6 +212,44 @@ export default function AdminEmployeesPage() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "员工创建失败。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitBatchCreate() {
+    const parsed = parseBatchCreateRows(batchCreateText);
+    if (parsed.rows.length === 0) {
+      setError("请至少填写一行员工信息。");
+      return;
+    }
+    if (parsed.rows.length > remainingOperatorSlots) {
+      setError(`当前还可创建 ${remainingOperatorSlots} 个员工，本次填写 ${parsed.rows.length} 个，已超过 20 人上限。`);
+      return;
+    }
+    if (parsed.errors.length > 0) {
+      setError(parsed.errors[0]);
+      return;
+    }
+    setBusy("batch-create");
+    setError(null);
+    setCreateNotice(null);
+    try {
+      await createAdminOperators({
+        operators: parsed.rows.map((row) => ({
+          display_name: row.displayName,
+          password: row.password,
+          team_name: row.teamName || undefined,
+          initial_limits: row.monthLimit
+            ? [{ period: "month", limit_usd: money(row.monthLimit), enabled: true }]
+            : [],
+        })),
+      });
+      setBatchCreateText("");
+      setCreateNotice(`已批量创建 ${parsed.rows.length} 个员工账户。`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "员工批量创建失败。");
     } finally {
       setBusy(null);
     }
@@ -244,6 +325,49 @@ export default function AdminEmployeesPage() {
     }
   }
 
+  async function confirmBatchDeleteOperators() {
+    const ids = Array.from(selectedOperatorIds);
+    if (ids.length === 0) return;
+    setBusy("batch-delete");
+    setError(null);
+    setCreateNotice(null);
+    try {
+      await deleteAdminOperators(ids);
+      setSelectedOperatorIds(new Set());
+      setBatchDeleteOpen(false);
+      setCreateNotice(`已删除 ${ids.length} 个员工，相关未完成任务和待审批已取消。`);
+      if (selectedId && ids.includes(selectedId)) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "员工批量删除失败。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function toggleSelectedOperator(operatorId: string) {
+    setSelectedOperatorIds((current) => {
+      const next = new Set(current);
+      if (next.has(operatorId)) next.delete(operatorId);
+      else next.add(operatorId);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleOperators() {
+    setSelectedOperatorIds((current) => {
+      if (allVisibleSelected) {
+        const next = new Set(current);
+        operators.forEach((operator) => next.delete(operator.user_id));
+        return next;
+      }
+      return new Set([...Array.from(current), ...operators.map((operator) => operator.user_id)]);
+    });
+  }
+
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -313,10 +437,63 @@ export default function AdminEmployeesPage() {
       </Card>
 
       <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>批量创建员工</CardTitle>
+            <span className="text-sm text-muted-foreground">
+              当前 {operators.length}/{MAX_OPERATOR_ACCOUNTS}，还可创建 {remainingOperatorSlots} 个
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <textarea
+            className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            value={batchCreateText}
+            onChange={(event) => setBatchCreateText(event.target.value)}
+            placeholder={"每行一个员工：姓名，密码，团队，月限额\n例：王敏，1234，华南销售，20"}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              支持逗号、中文逗号、Tab 或空格分隔；密码至少 4 位。服务端会强制最多 20 个员工。
+            </p>
+            <Button onClick={submitBatchCreate} disabled={busy === "batch-create" || remainingOperatorSlots <= 0}>
+              {busy === "batch-create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              批量创建
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>员工账户</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">已选 {selectedOperators.length} 个</span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBatchDeleteOpen(true)}
+                disabled={selectedOperators.length === 0 || busy === "batch-delete"}
+              >
+                {busy === "batch-delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                批量删除
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="选择全部员工"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisibleOperators}
+                  />
+                </TableHead>
                 <TableHead>员工</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>团队</TableHead>
@@ -333,6 +510,14 @@ export default function AdminEmployeesPage() {
                 const monthlyRemaining = n(operator.month_limit_usd) + n(operator.month_allowance_usd) - n(operator.month_cost_usd);
                 return (
                   <TableRow key={operator.user_id}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        aria-label={`选择员工 ${operator.display_name}`}
+                        checked={selectedOperatorIds.has(operator.user_id)}
+                        onChange={() => toggleSelectedOperator(operator.user_id)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <button type="button" className="text-left font-medium text-primary hover:underline" onClick={() => openDetail(operator.user_id)}>
                         {operator.display_name}
@@ -396,12 +581,12 @@ export default function AdminEmployeesPage() {
               })}
               {!loading && operators.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无员工账户。</TableCell>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">暂无员工账户。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载员工数据...</TableCell>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">正在加载员工数据...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
@@ -471,6 +656,39 @@ export default function AdminEmployeesPage() {
                 <Trash2 className="h-4 w-4" />
               )}
               删除员工
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={batchDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) setBatchDeleteOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量删除员工</DialogTitle>
+            <DialogDescription>
+              将删除 {selectedOperators.length} 个员工账户，未完成任务与待审批会同步取消，历史客户和费用记录会保留。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-2 text-sm">
+            {selectedOperators.map((operator) => (
+              <div key={operator.user_id} className="flex items-center justify-between gap-3 py-1">
+                <span>{operator.display_name}</span>
+                <span className="text-xs text-muted-foreground">{operator.team_name ?? operator.user_id}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchDeleteOpen(false)} disabled={busy === "batch-delete"}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={confirmBatchDeleteOperators} disabled={selectedOperators.length === 0 || busy === "batch-delete"}>
+              {busy === "batch-delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              删除所选员工
             </Button>
           </DialogFooter>
         </DialogContent>

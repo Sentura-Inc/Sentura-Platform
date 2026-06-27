@@ -1,4 +1,34 @@
+# Active Task: Merge Remote `ecommerce` Backend, Stitch Local UI
+
+Started 2026-06-27 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked to merge remote branch `origin/ecommerce` into local work and treat the remote backend/overall architecture as authoritative.
+- Hard constraint: do not make backend changes; if local backend/store/gateway/API/schema changes conflict with remote, keep or restore the remote version, then adapt local UI to remote contracts.
+- Current branch after `git fetch origin --prune`: `wst1.0-ecommerce`, tracking `origin/ecommerce`, behind by 22 commits (`git rev-list --left-right --count HEAD...origin/ecommerce` returned `0 22`).
+- Worktree already had many local uncommitted edits before merge work, mostly CBE UI/theme/export/admin pages plus some store/gateway/API files. Do not casually revert UI work; do not preserve local backend edits if they contradict remote backend.
+- Remote 22 commits add broad OpenClaw packages/runtime architecture, CBE memory/screening retry/import migrations, API routes, gateway/store updates, and UI changes. Need analyze overlap before merging.
+- Immediate next actions: classify local dirty files vs remote changed files, preserve local UI patch set if needed, merge `origin/ecommerce`, restore backend/architecture files from remote where required, then fix UI type/API mismatches.
+
 # Sentura CBE Resume Card
+
+Completed task, 2026-06-25:
+
+- User asked to add one-click DOCX/PDF export for CBE `背调报告` and `成本明细`, synchronized across Employee and Manager surfaces, with orderly/concise/clear templates.
+- Implemented shared in-browser export generator: `sentura/dashboard/src/components/cross-border/document-export.ts`.
+- Wired Employee/Manager `背调报告` export through shared `CustomerReportDialog`.
+- Wired Employee `本月工具成本明细` export in `sentura/dashboard/src/components/cross-border/employee-cost.tsx`.
+- Wired Manager `员工费用明细` export in `sentura/dashboard/src/app/client-demos/cross-border/admin/costs/page.tsx`.
+- Export templates include report metadata, score/risk summary, conclusion, score blocks, Google Maps address footprint when present, evidence/gaps/audit appendix; cost exports include employee/period summary, spend/limit/remaining, source breakdown, ledger rows, pricing-status notes, and technical appendix.
+- No DB schema, scoring, cost math, or role scope behavior was intentionally changed.
+- Verification: Dashboard typecheck PASS; focused ESLint PASS; `git diff --check` PASS; local Employee route HTTP 200. Phase 2 store static script returned 195 passed / 1 failed because of an unrelated pre-existing Manager login static assertion in the dirty worktree.
+
+Previous UI task, 2026-06-25:
+
+- Workspace for this run: `/Users/purest./Documents/Sentura/Sentura-Platform`.
+- User is synchronously editing CBE UI layout requirements; avoid overwriting concurrent edits.
+- Current theme direction matches `https://www.sentura.ai/`: blue-white minimal background, dark ink text, glass surfaces, primary blue CTAs, typewriter welcome text, glowing brand icon blocks, and red alert-dot support classes.
+- Verification already passed: `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`, `git diff --check`, focused ESLint for shared UI/login/shell TSX files, and browser smoke on `http://localhost:3000` for login pages plus admin logged-in employees page.
+- Screenshots are in `outputs/theme-smoke/`; current non-blocking issue is Next image warning for `/sentura-logo-side.svg`, which should only be fixed after re-reading current login/header files.
 
 Workspace: `/Users/henry/Desktop/Sentura-Platform`
 

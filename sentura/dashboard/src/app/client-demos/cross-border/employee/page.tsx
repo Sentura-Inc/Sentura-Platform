@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
 import { EmployeeCostCard } from "@/components/cross-border/employee-cost";
 import {
   isCbeEmployeeTaskActive,
@@ -197,6 +198,8 @@ function CrossBorderEmployeeHomeContent() {
   const pendingCustomers = visibleCustomers.filter(
     (item) => item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence",
   );
+  const pendingPage = usePagedItems(pendingCustomers, 10);
+  const highScorePage = usePagedItems(highScoreCustomers, 10);
   const taskMessages = useMemo(
     () =>
       tasks
@@ -245,12 +248,12 @@ function CrossBorderEmployeeHomeContent() {
   ];
 
   const funnel = [
-    { label: "未背调", count: visibleCustomers.filter((item) => item.screeningStatus === "not_started").length, tone: "bg-slate-200" },
+    { label: "未背调", count: visibleCustomers.filter((item) => item.screeningStatus === "not_started").length, tone: "bg-[var(--sentura-blue-glow)]" },
     { label: "背调中", count: visibleCustomers.filter((item) => item.screeningStatus === "running").length, tone: "bg-sky-400" },
     { label: "高分", count: visibleCustomers.filter((item) => item.scoreTier === "high").length, tone: "bg-emerald-500" },
     { label: "中等", count: visibleCustomers.filter((item) => item.scoreTier === "medium").length, tone: "bg-amber-500" },
     { label: "低分", count: visibleCustomers.filter((item) => item.scoreTier === "low").length, tone: "bg-rose-500" },
-    { label: "证据不足", count: visibleCustomers.filter((item) => item.screeningStatus === "insufficient_evidence").length, tone: "bg-zinc-400" },
+    { label: "证据不足", count: visibleCustomers.filter((item) => item.screeningStatus === "insufficient_evidence").length, tone: "bg-[var(--sentura-muted)]" },
   ];
 
   async function deleteMessages(ids: string[]) {
@@ -352,25 +355,36 @@ function CrossBorderEmployeeHomeContent() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
               <CardTitle className="text-base">待处理事项</CardTitle>
-              <Badge variant={pendingCustomers.length > 0 ? "secondary" : "outline"}>
-                {pendingCustomers.length} 项
-              </Badge>
+              <div className="flex items-center gap-2">
+                {pendingCustomers.length > 0 ? <span className="sentura-alert-dot" aria-hidden="true" /> : null}
+                <Badge variant={pendingCustomers.length > 0 ? "secondary" : "outline"}>
+                  {pendingCustomers.length} 项
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
               {pendingCustomers.length > 0 ? (
-                pendingCustomers.map((item) => (
-                  <Link
-                    key={item.customerId}
-                    href={customerHighlightHref("pending", selectedRange, item.customerId)}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{item.companyName}</div>
-                      <div className="truncate text-xs text-muted-foreground">{item.recommendedAction}</div>
-                    </div>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                ))
+                <>
+                  {pendingPage.items.map((item) => (
+                    <Link
+                      key={item.customerId}
+                      href={customerHighlightHref("pending", selectedRange, item.customerId)}
+                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{item.companyName}</div>
+                        <div className="truncate text-xs text-muted-foreground">{item.recommendedAction}</div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </Link>
+                  ))}
+                  <ListPagination
+                    page={pendingPage.page}
+                    totalItems={pendingPage.totalItems}
+                    pageSize={pendingPage.pageSize}
+                    onPageChange={pendingPage.setPage}
+                  />
+                </>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
                   当前范围没有待处理客户。
@@ -385,21 +399,29 @@ function CrossBorderEmployeeHomeContent() {
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
               {highScoreCustomers.length > 0 ? (
-                highScoreCustomers.map((item) => (
-                  <Link
-                    key={item.customerId}
-                    href={customerHighlightHref("trusted", selectedRange, item.customerId)}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{item.companyName}</div>
-                      <div className="mt-0.5 truncate text-xs opacity-80">{item.recommendedAction}</div>
-                    </div>
-                    <Badge variant="outline" className="shrink-0 bg-background/70">
-                      {item.normalizedScore ?? "N/A"}/100
-                    </Badge>
-                  </Link>
-                ))
+                <>
+                  {highScorePage.items.map((item) => (
+                    <Link
+                      key={item.customerId}
+                      href={customerHighlightHref("trusted", selectedRange, item.customerId)}
+                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{item.companyName}</div>
+                        <div className="mt-0.5 truncate text-xs opacity-80">{item.recommendedAction}</div>
+                      </div>
+                      <Badge variant="outline" className="shrink-0 bg-background/70">
+                        {item.normalizedScore ?? "N/A"}/100
+                      </Badge>
+                    </Link>
+                  ))}
+                  <ListPagination
+                    page={highScorePage.page}
+                    totalItems={highScorePage.totalItems}
+                    pageSize={highScorePage.pageSize}
+                    onPageChange={highScorePage.setPage}
+                  />
+                </>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
                   当前范围暂无优先跟进客户。
@@ -482,7 +504,7 @@ function CrossBorderEmployeeHomeContent() {
                               day: "2-digit",
                               hour: "2-digit",
                               minute: "2-digit",
-                            }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.targetLabel ?? item.message}
+                            }).format(new Date(item.completedAt ?? item.updatedAt))} · {item.status === "failed" ? item.message : item.targetLabel ?? item.message}
                           </div>
                         </Link>
                         <Button

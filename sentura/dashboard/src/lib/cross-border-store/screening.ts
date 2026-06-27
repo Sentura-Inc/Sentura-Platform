@@ -727,6 +727,22 @@ function batchStatusFromAggregate(aggregate: ScreeningBatchAggregate): "queued" 
   return "queued";
 }
 
+function screeningBatchNotificationMessage(aggregate: ScreeningBatchAggregate) {
+  if (aggregate.terminal >= aggregate.total) {
+    if (aggregate.failed > 0 && aggregate.completed === 0) {
+      return `批量背调失败：${aggregate.failed} 个客户未完成，可稍后重试。`;
+    }
+    if (aggregate.failed > 0) {
+      return `已完成 ${aggregate.completed} 份背调报告，${aggregate.failed} 个客户失败，可稍后重试。`;
+    }
+    return `已完成 ${aggregate.completed} 份背调报告，客户评分已更新。`;
+  }
+  if (aggregate.failed > 0 || aggregate.completed > 0) {
+    return `已完成 ${aggregate.completed} 份背调报告，${aggregate.failed} 个客户失败，${aggregate.queued + aggregate.running} 个仍在处理中。`;
+  }
+  return `已拆分为 ${aggregate.total} 个单客户背调子任务。`;
+}
+
 async function refreshScreeningBatchAggregate(
   client: PoolClient,
   context: TenantContext,
@@ -790,6 +806,7 @@ async function refreshScreeningBatchAggregate(
     screening_batch_completed: aggregate.completed,
     screening_batch_failed: aggregate.failed,
     screening_batch_retryable: aggregate.retryable,
+    notification_message: screeningBatchNotificationMessage(aggregate),
   };
 
   await client.query(
@@ -805,11 +822,20 @@ async function refreshScreeningBatchAggregate(
   );
 
   if (aggregate.terminal >= aggregate.total) {
-    await completeAgentRun(client, context, {
-      agentRunId: row.parent_agent_run_id,
-      currentStage: aggregate.failed > 0 ? "screening_batch_completed_with_failures" : "screening_batch_completed",
-      metadataJson: metadata,
-    });
+    if (status === "failed") {
+      await failAgentRun(client, context, {
+        agentRunId: row.parent_agent_run_id,
+        errorCode: "screening_batch_failed",
+        errorMessage: screeningBatchNotificationMessage(aggregate),
+        metadataJson: metadata,
+      });
+    } else {
+      await completeAgentRun(client, context, {
+        agentRunId: row.parent_agent_run_id,
+        currentStage: aggregate.failed > 0 ? "screening_batch_completed_with_failures" : "screening_batch_completed",
+        metadataJson: metadata,
+      });
+    }
   } else {
     await client.query(
       `

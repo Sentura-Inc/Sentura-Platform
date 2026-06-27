@@ -2,27 +2,23 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, RefreshCw, Star } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Loader2, RefreshCw, Star, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { productLabel } from "@/components/cross-border/customer-labels";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { AdminCustomerReportButton } from "../_components/customer-list-table";
-import { fetchHighValueCustomers, type AdminCustomerRow } from "../_data/admin-api";
-import { cn } from "@/lib/utils";
+import { AdminCustomerListTable } from "../_components/customer-list-table";
+import { fetchAllAdminCustomers, type AdminCustomerRow } from "../_data/admin-api";
 
-function highlightFrameClass(active: boolean) {
-  return active
-    ? "animate-pulse bg-sky-50/60 outline outline-2 -outline-offset-2 outline-sky-300 shadow-[0_0_0_3px_rgba(125,211,252,0.22)]"
-    : "";
+function isScreenedCustomer(item: AdminCustomerRow) {
+  return Boolean(
+    item.latestScreeningReportId ||
+    item.reportJson ||
+    typeof item.normalizedScore === "number" ||
+    item.leadStatus === "screened",
+  );
+}
+
+function isPriorityCustomer(item: AdminCustomerRow) {
+  return isScreenedCustomer(item) && (item.normalizedScore ?? 0) >= 80;
 }
 
 function AdminHighValueCustomersContent() {
@@ -30,48 +26,43 @@ function AdminHighValueCustomersContent() {
   const [items, setItems] = useState<AdminCustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dismissedHighlights, setDismissedHighlights] = useState<Set<string>>(() => new Set());
   const highlightedCustomerId = searchParams.get("highlightCustomer");
 
   const stats = useMemo(() => {
-    const avgScore = items.length
-      ? items.reduce((sum, item) => sum + (item.normalizedScore ?? 0), 0) / items.length
+    const screened = items.filter(isScreenedCustomer);
+    const priority = screened.filter(isPriorityCustomer);
+    const other = screened.filter((item) => !isPriorityCustomer(item));
+    const avgScore = screened.length
+      ? screened.reduce((sum, item) => sum + (item.normalizedScore ?? 0), 0) / screened.length
       : 0;
-    return { count: items.length, avgScore };
+    return { screened, priority, other, avgScore };
   }, [items]);
 
   async function refresh() {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchHighValueCustomers();
-      setItems(result.items.filter((item) => (item.normalizedScore ?? 0) >= 80));
+      const result = await fetchAllAdminCustomers();
+      setItems(result.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "优先跟进客户加载失败。");
+      setError(err instanceof Error ? err.message : "客户列表加载失败。");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void refresh();
+    const initialLoad = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, []);
-
-  useEffect(() => {
-    if (!highlightedCustomerId) return;
-    const timer = window.setTimeout(() => {
-      document.getElementById(`high-value-${highlightedCustomerId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    }, 100);
-    return () => window.clearTimeout(timer);
-  }, [highlightedCustomerId, items.length]);
 
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">优先跟进客户</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">客户列表</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            汇总各员工背调后建议优先跟进的客户。
+            查看所有员工已完成背调的客户，并按优先跟进与其他客户分组管理。
           </p>
         </div>
         <Button variant="outline" onClick={refresh} disabled={loading}>
@@ -84,82 +75,50 @@ function AdminHighValueCustomersContent() {
 
       <div className="grid gap-3 md:grid-cols-3">
         <Card size="sm">
-          <CardHeader><CardTitle>客户数</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{stats.count}</CardContent>
+          <CardHeader><CardTitle>已背调客户</CardTitle></CardHeader>
+          <CardContent className="flex items-center gap-2 text-2xl font-semibold">
+            <UsersRound className="h-5 w-5 text-primary" />
+            {stats.screened.length}
+          </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader><CardTitle>平均评分</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{stats.avgScore.toFixed(1)}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>入选规则</CardTitle></CardHeader>
+          <CardHeader><CardTitle>优先跟进</CardTitle></CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <Star className="h-4 w-4 text-amber-600" />
-            评分 80 分及以上，建议优先跟进
+            {stats.priority.length} 个客户，评分 80 分及以上
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>客户</TableHead>
-                <TableHead>国家</TableHead>
-                <TableHead>产品</TableHead>
-                <TableHead>负责人</TableHead>
-                <TableHead>评分</TableHead>
-                <TableHead>背调时间</TableHead>
-                <TableHead>报告</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => {
-                const activeHighlight = highlightedCustomerId === item.recordId && !dismissedHighlights.has(item.recordId);
-                return (
-                <TableRow
-                  id={`high-value-${item.recordId}`}
-                  key={item.recordId}
-                  className={cn(highlightFrameClass(activeHighlight))}
-                  onClick={() => {
-                    if (activeHighlight) {
-                      setDismissedHighlights((current) => new Set(current).add(item.recordId));
-                    }
-                  }}
-                >
-                  <TableCell>
-                    <div className="font-medium">{item.companyName}</div>
-                    <div className="text-xs text-muted-foreground">{item.domain ?? item.website ?? item.recordId}</div>
-                  </TableCell>
-                  <TableCell>{item.country ?? "-"}</TableCell>
-                  <TableCell>{item.matchedProducts?.slice(0, 3).map(productLabel).join("、") || "-"}</TableCell>
-                  <TableCell>
-                    <div>{item.ownerName ?? "-"}</div>
-                    <div className="text-xs text-muted-foreground">{item.teamName ?? ""}</div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{item.normalizedScore ?? "-"}</Badge>
-                  </TableCell>
-                  <TableCell>{new Date(item.updatedAt).toLocaleString("zh-CN")}</TableCell>
-                  <TableCell><AdminCustomerReportButton customer={item} triggerLabel="查看报告" /></TableCell>
-                </TableRow>
-                );
-              })}
-              {!loading && items.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">暂无优先跟进客户。</TableCell>
-                </TableRow>
-              ) : null}
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">正在加载优先跟进客户...</TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {loading ? (
+        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          正在加载客户列表
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <AdminCustomerListTable
+            customers={stats.priority}
+            title="优先跟进客户"
+            description="评分 80 分及以上，建议优先跟进。"
+            showStatusFilters={false}
+            storageKeyPrefix="sentura:cbe:admin:priority-customers"
+            highlightedCustomerId={highlightedCustomerId}
+          />
+          <AdminCustomerListTable
+            customers={stats.other}
+            title="其他客户"
+            description="已完成背调但不满足优先跟进规则的客户。"
+            showStatusFilters={false}
+            storageKeyPrefix="sentura:cbe:admin:other-customers"
+            highlightedCustomerId={highlightedCustomerId}
+          />
+        </div>
+      )}
     </div>
   );
 }

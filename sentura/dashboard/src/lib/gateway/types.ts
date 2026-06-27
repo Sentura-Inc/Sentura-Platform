@@ -28,7 +28,10 @@ export interface SessionSummary {
   peer?: string;
   messageCount?: number;
   lastActive?: string;
-  status?: "active" | "idle" | "archived";
+  status?: "active" | "idle" | "archived" | "failed" | "error" | string;
+  abortedLastRun?: boolean;
+  errorMessage?: string;
+  runError?: string | { message?: string };
   /** Human-readable label assigned via sessions.create / sessions.patch. */
   label?: string;
   /** Optional derived/display fields emitted by `sessions.list`. */
@@ -133,6 +136,7 @@ export interface AgentFileContent extends AgentFileEntry {
 export interface SessionCreateResult {
   ok: boolean;
   key: string;
+  sessionKey?: string;
   sessionId?: string;
   entry?: SessionSummary;
   runStarted?: boolean;

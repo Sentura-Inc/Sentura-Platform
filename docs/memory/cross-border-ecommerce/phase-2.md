@@ -44,6 +44,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring design | Documented the new 25% `公司注册与线下门店/地址` first block, company-scale assessment, medium/large registry+Maps fusion, and small-local/offline Maps-only authenticity rule; implementation remains pending. |
 | 2026-06-23 | Phase 2 scale-aware Google Maps Screening scoring implementation | Implemented `company_scale_assessment`, `公司注册与线下门店/地址` labeling, MCP scoring propagation, Dashboard report rendering, static/live store validation, and live `cbe-buyer-screening` workspace sync. |
 | 2026-06-24 | Phase 2 Screening parent/child fan-out and queue drain | Implemented P2.5 parent batch plus single-target child run fan-out, queued child claim/drain, parent aggregate updates, Employee execution path, live CE22 PostgreSQL probe, and live OpenClaw validation with operator `吴思彤`. |
+| 2026-06-25 | Phase 2 report/cost document export | Added one-click DOCX/PDF export for shared Employee/Manager `背调报告`, Employee `本月工具成本明细`, and Manager `员工费用明细`, using existing UI data sources and shared in-browser templates; follow-up fixed PDF English/number spacing by rendering ASCII runs with Helvetica beside CJK text. |
 
 ## Current Phase 2 Ground Truth
 
@@ -58,6 +59,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - `获客与背调` keeps its current main row information but now uses lighter row backgrounds, a single `评分排序` select, no row-level delete buttons, expandable product overflow chips, Beijing `YYYY-MM-DD HH:mm:ss` found times, no `新找到` row badge, green `✅` screened status, and business score wording. Completed Lead/Screening task links use `highlightTask` to locate affected rows and flash a light-blue outline for 3 seconds.
 - The global message center closes when the user clicks outside its dialog. Terminal task-status banners persist dismissal locally and through the task dismiss API so dismissed completed banners do not reappear after route switching.
 - Manager-side `查看报告` uses the shared Employee `CustomerReportDialog` implementation. The report overlay renders through `document.body` so it is not clipped by the Manager employee-detail dialog's transform/overflow container; `X` and outside-click close are verified.
+- Employee and Manager `背调报告` can export concise DOCX/PDF documents from the shared `CustomerReportDialog`. Employee `本月工具成本明细` and Manager `员工费用明细` can export matching DOCX/PDF documents from their existing cost-detail dialogs. Export generation is client-side, uses the already-loaded UI data, and does not change report scoring, database writes, cost ledger math, or role scope boundaries. PDF output renders CJK text with STSong and English/numbers/symbols with Helvetica, preventing CJK full-width spacing on dates, names, emails, dollar amounts, and pricing statuses while leaving DOCX generation unchanged.
 - Manager has a dedicated `/client-demos/cross-border/admin/login` page matching the Employee login layout. The preset Manager account is `孙总` / `1234`; login submits `cbeRole: "admin"`. CBE login now writes role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) plus the legacy `sentura_cbe_session` compatibility cookie, and session checks pass `role=operator` or `role=admin` so Employee and Manager sessions can coexist without kicking each other back to login. Manager APIs rely on cookie session by default; `NEXT_PUBLIC_CBE_ADMIN_USER_ID` remains only as an explicit override.
 - Manual DB inspection for P2.3 should use `scripts/inspect-cross-border-live-db.sql`. The physical tables intentionally do not duplicate every UI projection field as same-named columns.
 - P2.4 workload coordinator and Lead Discovery coordinator are complete as of 2026-06-21. The Dashboard store now queues above 24 active OpenClaw CBE sessions, does not start normal work above the configured caps, and Lead exact/near/top-up scope decisions happen before hidden OpenClaw sessions start.
@@ -73,6 +75,38 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
 - Dashboard hidden Lead tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
+
+## 2026-06-25 — Phase 2 report/cost document export
+
+### Context
+
+The user asked to add one-click DOCX/PDF export for `背调报告` and `成本明细`, synchronized across Employee and Manager surfaces, with tidy, concise, clear document templates. The current implementation already had the shared Employee/Manager report dialog and Manager cost details in `费用监控`, so the implementation reused those data surfaces instead of adding new APIs or duplicate report/cost calculations.
+
+### Implementation
+
+- Added `sentura/dashboard/src/components/cross-border/document-export.ts`.
+- The shared exporter builds one internal document model and renders it as:
+  - DOCX: minimal Office Open XML package generated in-browser with a small local ZIP writer.
+  - PDF: simple CJK-capable PDF generated in-browser with clear text/table sections.
+- Report template includes metadata, score/risk summary, conclusion, company scale/verification strategy, score blocks, Google Maps address footprint when present, evidence rows, coverage gaps, source/audit appendix.
+- Cost template includes employee/period metadata, spend/limit/remaining summary, source breakdown, cost ledger rows, pricing status, and a technical appendix with scoped sessions/source details.
+- Wired report export buttons into `sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx`, so Employee and Manager report actions share the same DOCX/PDF export path.
+- Wired Employee cost export buttons into `sentura/dashboard/src/components/cross-border/employee-cost.tsx` inside `本月工具成本明细`.
+- Wired Manager cost export buttons into `sentura/dashboard/src/app/client-demos/cross-border/admin/costs/page.tsx` inside `员工费用明细`, reusing the selected `AdminCostRow` summary and `fetchAdminOperator(...).costEvents`.
+- No database schema, cost math, score calculation, or role authorization behavior was changed.
+
+### Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint for `src/components/cross-border/document-export.ts`, `src/components/cross-border/customer-report-dialog.tsx`, `src/components/cross-border/employee-cost.tsx`, and `src/app/client-demos/cross-border/admin/costs/page.tsx`: PASS.
+- `git diff --check`: PASS.
+- `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/client-demos/cross-border/employee`: PASS, HTTP 200 against the already-running dev server.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: 195 passed / 1 failed. The failing assertion was the pre-existing dirty Manager login page static check (`manager login page copies employee login layout and submits admin role`), outside this document export path.
+- Follow-up PDF typography verification: after logging into Manager as `孙总/1234`, Browser opened `/client-demos/cross-border/admin/costs`, opened Lin Yue cost detail, and temporarily downloaded `员工费用明细-Lin Yue.pdf` under `tmp/pdfs/`. Bundled `pdfinfo` read the file as valid PDF 1.7 with 23 A4 pages; static PDF stream inspection confirmed `/F2 Helvetica` for English/numbers; macOS Quick Look rendered the temporary PDF with visible Chinese and normal English/number spacing. Bundled Poppler rendered ASCII spacing correctly but could not render CJK without the Adobe-GB1 language pack, so Quick Look was used for the final visual check. Temporary PDF/PNG artifacts were cleaned after verification.
+
+### Boundary and next
+
+The export is intentionally a UI download feature. It does not persist generated documents, send files to the server, or introduce document history/versioning. If future requirements need server-side signed reports or archival, add a dedicated route/storage design instead of extending the current client-only exporter.
 
 ## 2026-06-24 — Phase 2 Screening parent/child fan-out and queue drain
 

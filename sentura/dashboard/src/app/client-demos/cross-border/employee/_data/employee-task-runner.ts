@@ -1,5 +1,10 @@
 import type { GatewayClient, TranscriptMessage } from "@/lib/gateway";
 import {
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+} from "@/components/cross-border/screening-report-copy";
+import {
   employeeProfile,
   MAX_LEAD_TARGET_COUNT,
   coverageGapsFromScoreBlocks,
@@ -244,6 +249,39 @@ function unknownErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function plainBackendErrorMessage(message: string) {
+  if (/Sandbox mode requires Docker|Docker daemon|failed to connect to the docker API|spawn docker ENOENT/i.test(message)) {
+    return "后台员工运行环境未启动，请启动 Docker Desktop 后重试。";
+  }
+  return message;
+}
+
+function backendFailure(message: string): { message: string; recoverable: boolean } {
+  const displayMessage = plainBackendErrorMessage(message);
+  if (/LLM idle timeout/i.test(message)) {
+    return {
+      message: `任务处理短暂超时，系统已继续等待重试结果：${displayMessage}`,
+      recoverable: true,
+    };
+  }
+  return { message: `任务处理失败：${displayMessage}`, recoverable: false };
+}
+
+function sessionKeyMatchesEvent(eventSessionKey: string | undefined, sessionKey: string) {
+  if (!eventSessionKey || !sessionKey) return false;
+  if (eventSessionKey === sessionKey) return true;
+  return sessionKey.endsWith(`:${eventSessionKey}`) || eventSessionKey.endsWith(`:${sessionKey}`);
+}
+
+function eventFailureMessage(payload: Record<string, unknown>, sessionKey: string) {
+  const eventSessionKey = asString(payload.sessionKey) ?? asString(payload.session) ?? asString(payload.key);
+  if (!sessionKeyMatchesEvent(eventSessionKey, sessionKey)) return undefined;
+  const phase = asString(payload.phase) ?? asString(payload.state) ?? asString(payload.status);
+  const error = asString(payload.error) ?? asString(payload.errorMessage) ?? asString(asRecord(payload.runError).message);
+  if (!error || !["error", "failed", "aborted"].includes(phase ?? "error")) return undefined;
+  return backendFailure(error);
+}
+
 export function estimateEmployeeTaskTimeoutMs(estimatedMs: number) {
   const graceMs = Math.max(120_000, Math.round(estimatedMs * 0.35));
   return clamp(estimatedMs + graceMs, 300_000, 1_200_000);
@@ -311,13 +349,11 @@ function transcriptFailureMessage(messages: TranscriptMessage[]): { message: str
     const nested = asRecord(raw.message);
     const errorMessage = asString(raw.errorMessage) ?? asString(nested.errorMessage);
     if (errorMessage) {
-      if (/LLM idle timeout/i.test(errorMessage)) {
-        return {
-          message: `任务处理短暂超时，系统已继续等待重试结果：${errorMessage}`,
-          recoverable: true,
-        };
-      }
-      return { message: `任务处理失败：${errorMessage}`, recoverable: false };
+      return backendFailure(errorMessage);
+    }
+    const text = contentToText(message.content);
+    if (/Sandbox mode requires Docker|Docker daemon|Embedded agent failed before reply|failed to connect to the docker API/i.test(text)) {
+      return backendFailure(text);
     }
     const stopReason = asString(raw.stopReason) ?? asString(nested.stopReason);
     if (message.role === "assistant" && stopReason === "aborted" && !contentToText(message.content)) {
@@ -427,6 +463,15 @@ async function runHiddenEmployeeTask(options: {
   emitProgress("queued", "正在创建任务...");
 
   let sessionKey = "";
+  let eventFailure: { message: string; recoverable: boolean } | undefined;
+  const unsubscribeAgentEvents = client.on("agent", (event) => {
+    const failure = eventFailureMessage(event.payload, sessionKey);
+    if (failure) eventFailure = failure;
+  });
+  const unsubscribeChatEvents = client.on("chat", (event) => {
+    const failure = eventFailureMessage(event.payload, sessionKey);
+    if (failure) eventFailure = failure;
+  });
   const abortGatewaySession = () => {
     if (!sessionKey) return;
     void client.deleteSession(sessionKey, { deleteTranscript: false }).catch(() => undefined);
@@ -438,13 +483,13 @@ async function runHiddenEmployeeTask(options: {
         label,
         key: plannedSessionKey ?? createEmployeeSessionKey(agentId),
       });
-      sessionKey = created.key;
+      sessionKey = created.key || created.sessionKey || "";
       throwIfTaskCancelled(signal, sessionKey);
       if (!sessionKey) {
         throw new EmployeeTaskError("gateway", "系统没有返回任务编号。");
       }
       if (created.runError) {
-        throw new EmployeeTaskError("gateway", created.runError, { sessionKey });
+        throw new EmployeeTaskError("gateway", plainBackendErrorMessage(created.runError), { sessionKey });
       }
       emitProgress("running", "任务已创建，正在提交。", sessionKey);
       throwIfTaskCancelled(signal, sessionKey);
@@ -490,6 +535,10 @@ async function runHiddenEmployeeTask(options: {
 
       const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
       throwIfTaskCancelled(signal, sessionKey);
+      if (eventFailure && !eventFailure.recoverable) {
+        emitProgress("failed", eventFailure.message, sessionKey);
+        throw new EmployeeTaskError("backend_error", eventFailure.message, { sessionKey, lastAssistantText });
+      }
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
         emitProgress("completed", "任务已返回结果。", sessionKey);
@@ -523,6 +572,10 @@ async function runHiddenEmployeeTask(options: {
       await sleep(pollMs);
       throwIfTaskCancelled(signal, sessionKey);
       const payloadRead = await readHiddenTaskPayload({ client, sessionKey, startMarker, endMarker });
+      if (eventFailure && !eventFailure.recoverable) {
+        emitProgress("failed", eventFailure.message, sessionKey);
+        throw new EmployeeTaskError("backend_error", eventFailure.message, { sessionKey, lastAssistantText });
+      }
       if (payloadRead.lastAssistantText) lastAssistantText = payloadRead.lastAssistantText;
       if (payloadRead.payload !== null) {
         emitProgress("completed", "任务已返回结果。", sessionKey);
@@ -542,6 +595,8 @@ async function runHiddenEmployeeTask(options: {
     throw new EmployeeTaskError("timeout", timeoutMessage, { sessionKey, lastAssistantText });
   } finally {
     signal?.removeEventListener("abort", abortGatewaySession);
+    unsubscribeAgentEvents();
+    unsubscribeChatEvents();
   }
 }
 
@@ -673,21 +728,28 @@ function normalizeEvidenceItem(item: unknown): CustomerEvidenceItem {
     asString(raw.sourceUrl) ??
     asString(raw.url) ??
     "https://sentura.local/cross-border-intel/evidence";
-  const finding =
-    evidenceSummaryText(raw) ??
-    "背调员工返回了证据项，但未提供可读摘要。";
   const scoreImpact = normalizeScoreImpact(raw.score_impact);
+  const layer = evidenceLayer(raw, scoreBlock, sourceUrl);
+  const sourceType = asString(raw.source_type) ?? asString(raw.sourceType);
+  const confidence = asNumber(raw.confidence);
   return {
-    layer: evidenceLayer(raw, scoreBlock, sourceUrl),
+    layer,
     sourceUrl,
-    sourceType: asString(raw.source_type) ?? asString(raw.sourceType),
+    sourceType,
     fetchedAt: asString(raw.fetched_at) ?? asString(raw.fetchedAt),
-    finding,
-    confidence: asNumber(raw.confidence),
+    finding: screeningEvidenceFindingText({
+      layer,
+      sourceType,
+      scoreBlock,
+      scoreImpact,
+      confidence,
+      finding: evidenceSummaryText(raw),
+      sourceUrl,
+    }),
+    confidence,
     scoreBlock,
     scoreImpact,
     affectsScore: asBool(raw.affects_score) ?? (scoreImpact === "positive" || scoreImpact === "negative"),
-    costPosture: asString(raw.cost_posture) ?? asString(raw.costPosture),
   };
 }
 
@@ -710,8 +772,21 @@ function normalizeScoreBlock(item: unknown): CustomerScoreBlock {
     maxPoints: asNumber(raw.max_points) ?? asNumber(raw.maxPoints) ?? 10,
     earnedPoints: asNumber(raw.earned_points) ?? asNumber(raw.earnedPoints) ?? null,
     sourceCount: asNumber(raw.source_count) ?? asNumber(raw.sourceCount),
-    summary: asString(raw.summary),
-    reason: asString(raw.reason),
+    summary: screeningScoreBlockText({
+      block,
+      status,
+      summary: asString(raw.summary),
+      reason: asString(raw.reason),
+    }),
+    reason:
+      status === "scored"
+        ? undefined
+        : screeningScoreBlockText({
+            block,
+            status,
+            summary: asString(raw.summary),
+            reason: asString(raw.reason),
+          }),
   };
 }
 
@@ -747,7 +822,7 @@ function synthesizeScoreBlocks(
         maxPoints: block.maxPoints,
         earnedPoints: null,
         sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未返回这一项单项分。",
+        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未说明这一项单项分。",
       };
     }
     return {
@@ -756,7 +831,7 @@ function synthesizeScoreBlocks(
       maxPoints: block.maxPoints,
       earnedPoints: Number(((block.maxPoints * normalizedScore) / 100).toFixed(2)),
       sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-      summary: "员工报告未返回单项分，系统按总分比例临时拆分展示。",
+      summary: "报告未说明单项分，系统按总分比例临时拆分展示。",
     };
   });
 }
@@ -771,8 +846,8 @@ function normalizeCoverageGap(item: unknown, index: number): CustomerCoverageGap
   const status = rawStatus ? normalizeEvidenceStatus(rawStatus) : undefined;
   return {
     block,
-    reason: asString(raw.reason) ?? asString(raw.summary) ?? asString(raw.note) ?? coverageGapReasonForBlock(block, status),
-    action: asString(raw.action) ?? asString(raw.recommended_action) ?? coverageGapActionForBlock(block, status),
+    reason: simplifyScreeningReportText(asString(raw.reason) ?? asString(raw.summary) ?? asString(raw.note)) ?? coverageGapReasonForBlock(block, status),
+    action: simplifyScreeningReportText(asString(raw.action) ?? asString(raw.recommended_action)) ?? coverageGapActionForBlock(block, status),
   };
 }
 
@@ -860,7 +935,7 @@ function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment
   return {
     scaleClass,
     confidence: asNumber(raw.confidence),
-    rationale: asString(raw.rationale) ?? asString(raw.reason) ?? asString(raw.summary) ?? "背调员工未返回公司规模判断说明。",
+    rationale: simplifyScreeningReportText(asString(raw.rationale) ?? asString(raw.reason) ?? asString(raw.summary)) ?? "公司规模仍需结合来源网址复核。",
     firstBlockStrategy,
   };
 }
@@ -964,7 +1039,7 @@ function screeningReportFromRaw(
     riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), score),
     normalizedScore: typeof score === "number" ? score : null,
     evidenceCoverage: asNumber(raw.evidence_coverage) ?? asNumber(raw.evidenceCoverage),
-    recommendedAction: asString(raw.recommended_action) ?? asString(raw.recommendedAction) ?? "复核背调报告后决定是否跟进。",
+    recommendedAction: simplifyScreeningReportText(asString(raw.recommended_action) ?? asString(raw.recommendedAction)) ?? "复核背调报告后决定是否跟进。",
     createdAt: nowLabel(),
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
     scoreBlocks,
@@ -1097,7 +1172,7 @@ function screeningRowsFromPayload(
             .map((item) => item.finding)
             .find(Boolean) ??
           "已返回背调报告，核验依据可在报告详情中查看。",
-        recommendedAction: asString(raw.recommended_action) ?? "复核背调报告后决定是否跟进。",
+        recommendedAction: simplifyScreeningReportText(asString(raw.recommended_action)) ?? "复核背调报告后决定是否跟进。",
         screeningReport,
       };
       return row;
@@ -1205,18 +1280,23 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
-- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名登记信息（RDAP）、邮箱设置（DNS）、官网公开联系信息、Google Maps（谷歌地图）地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC（美国证券交易委员会）/财务公开文件、Accio（阿里国际站聊天记录）/销售行为记录。
+- 对每个目标必须调用可用的域名登记信息（RDAP）、邮箱设置（DNS）、官方联系邮箱、公司注册、Google Maps（谷歌地图）本地经营线索、贸易/海关记录、SEC（美国证券交易委员会）/财务公开文件、买家评分工具；字段缺失、资料源不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- 报告内容必须全部使用中文，语言要通俗易懂。只允许保留英文公司名、域名、网址、产品专有名词，以及 Google Maps（谷歌地图）、SEC（美国证券交易委员会）、RDAP（域名登记信息）、DNS（域名解析）这类必须保留的专有词；保留时必须带中文括注。
+- 不要在 report、score_blocks、evidence、coverage_gaps、recommended_action、open_questions 中写工具名、API、HTTP 状态、JSON、payload、raw response、field mask、query、lookup、returned/返回了什么等技术过程。普通员工和管理者只需要看到业务结论。
+- evidence.finding 必须固定写成普通中文：是否找到对应信息、这条信息说明什么、可信度如何、是否建议人工复核。来源网址只放在 source_url，不要把网址或技术过程塞进 finding。
+- score_blocks.summary/reason 必须写成普通中文评分理由：这一项找到了什么、是否足以支持判断、缺什么。不要写“工具查询”“返回字段”“API 不可用”等技术表达。
+- recommended_action 必须用中文给出跟进建议：优先跟进、谨慎跟进、补充资料后再看、或暂缓跟进，并说明业务原因。
 - 评分前必须先输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
-- Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
+- Google Maps（谷歌地图）地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps（谷歌地图）上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。可用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造检索，但最终报告里不要展示具体检索语句或技术参数。
 - 对地址版图候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单逐个调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"，不请求 review text、photos 或原始 Google response。
 - 对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate，并把 verdict 写入 address_footprint.locations[].address_validation。
-- 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google API 缺 key、限流或无结果，address_footprint 仍必须返回 coverage_status="unavailable_api" 或 "not_found" 以及 coverage note。
+- 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google Maps（谷歌地图）没有找到匹配地址，address_footprint.coverage_status 必须用 "not_found"，并用中文说明“暂未找到可用公开地址线索”；只有资料源系统异常才可用 "unavailable_api"，但报告正文不要写“功能不可用”。
 - 每个地址候选要分类 relationship_status：confirmed_company_location、probable_company_location、possible_related_location、rejected_unrelated_location；地址角色 address_type：headquarters_or_office、storefront、warehouse_or_distribution、service_or_repair_location、unknown_business_location。
-- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
-- SEC/财务公开文件不能留空：即使目标不是美国上市申报主体，也要调用 SEC 查询或写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
-- 如果调用了 cross-border-intel 工具，必须把工具返回的关键结果摘要写入 evidence，不要只写最终结论。
-- 使用最低成本证据阶梯，缺失 API/付费证据只能标记 coverage gap，不能当作欺诈证据。
+- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps（谷歌地图）地址一致性，不能只靠 Google Maps（谷歌地图）拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps（谷歌地图）物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps（谷歌地图）公开门店/地址证据支持”，不要写成正式企业核验（KYB）或法律注册证明。
+- SEC（美国证券交易委员会）/财务公开文件不能留空：即使目标不是美国上市申报主体，也要写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
+- 如果调用了 cross-border-intel 工具，evidence 中只写普通中文业务摘要，不写工具名称、调用过程或返回字段。
+- 使用最低成本证据阶梯，缺失资料源/付费证据只能标记 coverage gap，不能当作欺诈证据。
 - 不发送外联、不写 CRM、不暴露密钥或完整个人联系信息。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
@@ -1224,17 +1304,17 @@ JSON 字段要求：
 - 顶层：reports。
 - reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
-- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
-- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
+- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，资料源/预算缺失用 unavailable_api 或 disabled_by_budget。summary/reason 必须是中文业务说明。
+- evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence。finding 必须是中文业务说明，不要写技术过程。
 - layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
 - address_footprint 必须包含：
-  - section_title="Google Maps 地址版图"
+  - section_title="Google Maps（谷歌地图）地址线索"
   - coverage_status="found|partial|not_found|unavailable_api|not_checked"
   - search_scope.queries_run、countries、capped、limitations
   - summary.total_locations、confirmed_locations、probable_locations、possible_related_locations、operational_locations、closed_locations、countries、cities
   - locations[]：google_place_id、display_name、address_type、relationship_status、formatted_address、city、region、country、business_status、types、website_uri、domain_match、phone_match、address_validation、google_maps_uri、match_confidence、match_reasons、source_type、fetched_at
   - open_questions
-- coverage_gaps 写清楚没查到、没启用、没提供还是 API 不可用。
+- coverage_gaps 写清楚没查到、没启用、没提供还是需要人工补充；必须使用中文业务说明，不要把“没查到结果”写成“功能暂不可用”。
 
 最终格式：
 ${REPORT_JSON_START}

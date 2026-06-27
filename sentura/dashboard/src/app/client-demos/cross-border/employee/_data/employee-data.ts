@@ -192,17 +192,17 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     return "付费贸易、邮箱或外部资料源未启用，未查询该付费资料。";
   }
   if (status === "unavailable_api") {
-    return "已尝试查询该资料源，但当前不可用或没有返回可用结果。";
+    return "本次未找到可用结果，报告未提供更具体原因。";
   }
   if (status === "not_applicable") {
     return "该客户当前没有适用的数据输入，不参与本次评分。";
   }
   if (status === "pending_human_input") {
-    return "报告未返回这一项可核验依据，需要人工补充或重新背调。";
+    return "报告未提供这一项可核验依据，需要人工补充或重新背调。";
   }
   switch (block) {
     case "legal_identity":
-      return "公司注册信息、官方注册页或可确认的 Google Maps 线下门店/地址未形成足够真实性证据。";
+      return "公司注册信息、官方注册页或可确认的 Google Maps（谷歌地图）线下门店/地址未形成足够真实性证据。";
     case "domain_email":
       return "官网域名、邮箱记录或邮箱验证未搜索到足够依据。";
     case "public_footprint":
@@ -214,13 +214,13 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     case "conversation_behavior":
       return "没有聊天或销售对话记录可用于行为判断。";
     default:
-      return "该资料源未返回可用结果；报告未提供更具体原因。";
+      return "本次未找到可用结果；报告未提供更具体原因。";
   }
 }
 
 export function coverageGapActionForBlock(block: string, status?: ScreeningEvidenceStatus) {
   if (status === "disabled_by_budget") return "开启对应付费来源或提高单次预算后重新背调。";
-  if (status === "unavailable_api") return "检查资料源配置、额度和可用性后重试。";
+  if (status === "unavailable_api") return "人工补充可核验的来源网址后重新复核。";
   if (status === "not_applicable") return "如后续产生聊天或销售记录，可再补充行为依据。";
   switch (block) {
     case "legal_identity":

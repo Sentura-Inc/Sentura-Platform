@@ -41,7 +41,7 @@
    * marketing / demo headlines (Mode B "10% productivity" scenario). */
   --font-size-display: 2.25rem;
   --line-height-display: 2.5rem;
-  --letter-spacing-display: -0.02em;
+  --letter-spacing-display: 0;
 }
 
 /* Light mode IAI colors — saturated enough to read as "branded" against

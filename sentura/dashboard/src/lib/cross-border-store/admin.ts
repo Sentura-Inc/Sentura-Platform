@@ -22,6 +22,13 @@ import { listEmployeeCustomers } from "./customers";
 const COST_EPSILON_USD = 0.005;
 // Manager and employee cost screens currently expose monthly controls only.
 const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"];
+const MAX_CBE_OPERATOR_ACCOUNTS = 20;
+
+type AdminOperatorProfileInput = AdminCreateOperatorRequest & {
+  user_id: string;
+  email?: string;
+  platform_role?: string;
+};
 
 export async function getAdminOverview(context: TenantContext) {
   const result = await queryCbe<{
@@ -1465,118 +1472,158 @@ export async function setAdminCostAllowance(
   };
 }
 
-export async function upsertAdminOperatorProfile(
+export async function upsertAdminOperatorProfiles(
   context: TenantContext,
-  input: AdminCreateOperatorRequest & {
-    user_id: string;
-    email?: string;
-    platform_role?: string;
-  },
+  inputs: AdminOperatorProfileInput[],
 ) {
+  if (inputs.length === 0) {
+    throw new CbeStoreError(400, "operator_batch_empty", "请至少提供一个员工账户。");
+  }
+  if (inputs.length > MAX_CBE_OPERATOR_ACCOUNTS) {
+    throw new CbeStoreError(400, "operator_batch_too_large", `一次最多创建 ${MAX_CBE_OPERATOR_ACCOUNTS} 个员工账户。`);
+  }
+  const normalizedNames = inputs.map((input) => input.display_name.trim().toLowerCase());
+  if (new Set(normalizedNames).size !== normalizedNames.length) {
+    throw new CbeStoreError(409, "operator_name_duplicate_in_batch", "批量创建中存在重复员工姓名，请先去重。");
+  }
+
   return withCbeTransaction(async (client) => {
-    const duplicateName = await client.query<{ user_id: string }>(
+    const inputIds = inputs.map((input) => input.user_id);
+    const currentCount = await client.query<{ count: string }>(
       `
-        select user_id
+        select count(*)::text as count
         from cbe_user_profiles
         where tenant_id = $1
           and cbe_role = 'operator'
           and status <> 'inactive'
-          and lower(display_name) = lower($2)
-          and user_id <> $3
+          and not (user_id = any($2::text[]))
+      `,
+      [context.tenantId, inputIds],
+    );
+    const totalAfterCreate = Number(currentCount.rows[0]?.count ?? 0) + inputs.length;
+    if (totalAfterCreate > MAX_CBE_OPERATOR_ACCOUNTS) {
+      throw new CbeStoreError(
+        409,
+        "operator_limit_exceeded",
+        `员工账号上限为 ${MAX_CBE_OPERATOR_ACCOUNTS} 个，请先删除或停用不需要的员工后再创建。`,
+      );
+    }
+
+    const duplicateName = await client.query<{ display_name: string }>(
+      `
+        select display_name
+        from cbe_user_profiles
+        where tenant_id = $1
+          and cbe_role = 'operator'
+          and status <> 'inactive'
+          and lower(display_name) = any($2::text[])
+          and not (user_id = any($3::text[]))
         limit 1
       `,
-      [context.tenantId, input.display_name, input.user_id],
+      [context.tenantId, normalizedNames, inputIds],
     );
     if (duplicateName.rows[0]) {
       throw new CbeStoreError(409, "operator_name_exists", "已有同名员工账户，请换一个员工姓名。");
     }
 
-    await client.query(
-      `
-        insert into sentura_users (id, tenant_id, display_name, role, department_id)
-        values ($1, $2, $3, $4, $5)
-        on conflict (id)
-        do update set
-          display_name = excluded.display_name,
-          role = excluded.role,
-          department_id = excluded.department_id
-      `,
-      [
-        input.user_id,
-        context.tenantId,
-        input.display_name,
-        input.platform_role ?? "end_user",
-        input.department_id ?? null,
-      ],
-    );
-    const profile = await client.query(
-      `
-        insert into cbe_user_profiles (
-          id,
-          tenant_id,
-          user_id,
-          cbe_role,
-          display_name,
-          team_name,
-          status,
-          email,
-          password_hash
-        )
-        values ($1, $2, $3, 'operator', $4, $5, 'active', $6, $7)
-        on conflict (tenant_id, user_id)
-        do update set
-          display_name = excluded.display_name,
-          team_name = excluded.team_name,
-          email = excluded.email,
-          password_hash = excluded.password_hash,
-          status = 'active',
-          updated_at = now()
-        returning user_id, display_name, team_name, status, email
-      `,
-      [
-        createCbeId("profile"),
-        context.tenantId,
-        input.user_id,
-        input.display_name,
-        input.team_name ?? null,
-        input.email ?? null,
-        hashCbePassword(input.password),
-      ],
-    );
-    for (const limit of input.initial_limits) {
+    const profiles: Array<Record<string, unknown>> = [];
+    for (const input of inputs) {
       await client.query(
         `
-          insert into cbe_cost_limits (
+          insert into sentura_users (id, tenant_id, display_name, role, department_id)
+          values ($1, $2, $3, $4, $5)
+          on conflict (id)
+          do update set
+            display_name = excluded.display_name,
+            role = excluded.role,
+            department_id = excluded.department_id
+        `,
+        [
+          input.user_id,
+          context.tenantId,
+          input.display_name,
+          input.platform_role ?? "end_user",
+          input.department_id ?? null,
+        ],
+      );
+      const profile = await client.query(
+        `
+          insert into cbe_user_profiles (
             id,
             tenant_id,
             user_id,
-            period,
-            limit_usd,
-            enabled,
-            created_by_user_id,
-            updated_by_user_id
+            cbe_role,
+            display_name,
+            team_name,
+            status,
+            email,
+            password_hash
           )
-          values ($1, $2, $3, $4, $5, $6, $7, $7)
-          on conflict (tenant_id, user_id, period)
+          values ($1, $2, $3, 'operator', $4, $5, 'active', $6, $7)
+          on conflict (tenant_id, user_id)
           do update set
-            limit_usd = excluded.limit_usd,
-            enabled = excluded.enabled,
-            updated_by_user_id = excluded.updated_by_user_id,
+            display_name = excluded.display_name,
+            team_name = excluded.team_name,
+            email = excluded.email,
+            password_hash = excluded.password_hash,
+            status = 'active',
             updated_at = now()
+          returning user_id, display_name, team_name, status, email
         `,
         [
-          createCbeId("cost_limit"),
+          createCbeId("profile"),
           context.tenantId,
           input.user_id,
-          limit.period,
-          limit.limit_usd,
-          limit.enabled,
-          context.userId,
+          input.display_name,
+          input.team_name ?? null,
+          input.email ?? null,
+          hashCbePassword(input.password),
         ],
       );
+      for (const limit of input.initial_limits) {
+        await client.query(
+          `
+            insert into cbe_cost_limits (
+              id,
+              tenant_id,
+              user_id,
+              period,
+              limit_usd,
+              enabled,
+              created_by_user_id,
+              updated_by_user_id
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $7)
+            on conflict (tenant_id, user_id, period)
+            do update set
+              limit_usd = excluded.limit_usd,
+              enabled = excluded.enabled,
+              updated_by_user_id = excluded.updated_by_user_id,
+              updated_at = now()
+          `,
+          [
+            createCbeId("cost_limit"),
+            context.tenantId,
+            input.user_id,
+            limit.period,
+            limit.limit_usd,
+            limit.enabled,
+            context.userId,
+          ],
+        );
+      }
+      profiles.push(profile.rows[0]);
     }
-    return profile.rows[0];
+    return profiles;
   });
+}
+
+export async function upsertAdminOperatorProfile(
+  context: TenantContext,
+  input: AdminOperatorProfileInput,
+) {
+  const profiles = await upsertAdminOperatorProfiles(context, [input]);
+  return profiles[0];
 }
 
 export async function updateAdminOperator(

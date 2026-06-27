@@ -11,6 +11,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  publicSourceUrl,
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+  sourceTypeText,
+} from "@/components/cross-border/screening-report-copy";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -27,35 +34,7 @@ function text(value: unknown, fallback = "-") {
 }
 
 function displayText(value: unknown, fallback = "-") {
-  const source = text(value, fallback);
-  return source
-    .replace(/外部可追溯证据 URL/g, "可核验来源")
-    .replace(/可追溯证据 URL/g, "可核验来源")
-    .replace(/来源 URL/g, "来源链接")
-    .replace(/证据 URL/g, "核验来源")
-    .replace(/工具返回 URL/g, "工具返回的来源链接")
-    .replace(/\brdap\b/gi, "域名登记信息")
-    .replace(/\bdns\b/gi, "域名解析")
-    .replace(/\bjson\b/gi, "结构化结果")
-    .replace(/\bsec\b/gi, "财务公开信息")
-    .replace(/\bkyb\b/gi, "企业核验")
-    .replace(/\bapi_error\b/gi, "查询失败")
-    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
-    .replace(/\bAPI\b/gi, "工具查询")
-    .replace(/\bHTTP 401\b/gi, "查询权限错误")
-    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
-    .replace(/\bMX\b/gi, "收信设置")
-    .replace(/\bSPF\b/gi, "发信设置")
-    .replace(/\bDMARC\b/gi, "邮件安全设置")
-    .replace(/\bendpoint\b/gi, "查询入口")
-    .replace(/\bprovider\b/gi, "工具")
-    .replace(/\bobjectClassName\b/g, "对象类型")
-    .replace(/\bself link\b/gi, "来源链接")
-    .replace(/\blookup\b/gi, "查询")
-    .replace(/\bredirected\b/gi, "跳转")
-    .replace(/\breturned\b/gi, "返回")
-    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
-    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+  return simplifyScreeningReportText(text(value, fallback), fallback) ?? fallback;
 }
 
 function numberText(value: unknown, suffix = "") {
@@ -70,15 +49,7 @@ function plainGapText(value: unknown) {
 
 function readableSourceType(value: unknown) {
   const raw = text(value, "");
-  const normalized = raw.toLowerCase();
-  if (!raw) return "公开资料";
-  if (normalized.includes("registry")) return "官方注册资料";
-  if (normalized.includes("dns") || normalized.includes("rdap") || normalized.includes("domain")) return "官网和邮箱资料";
-  if (normalized.includes("web")) return "公开网页";
-  if (normalized.includes("map") || normalized.includes("place")) return "公开地址资料";
-  if (normalized.includes("trade") || normalized.includes("custom")) return "贸易资料";
-  if (normalized.includes("financial") || normalized.includes("filing")) return "财务公开资料";
-  return "公开资料";
+  return sourceTypeText(raw) ?? "公开资料";
 }
 
 export function ScreeningReportDialog({
@@ -139,7 +110,14 @@ export function ScreeningReportDialog({
                     <div className="mt-1 text-xs text-muted-foreground">
                       得分 {numberText(block.earned_points)} / {numberText(block.max_points)}
                     </div>
-                    <p className="mt-2 text-sm leading-6">{displayText(block.reason ?? block.summary)}</p>
+                    <p className="mt-2 text-sm leading-6">
+                      {screeningScoreBlockText({
+                        block: text(block.block, ""),
+                        status: text(block.status, ""),
+                        summary: text(block.summary, ""),
+                        reason: text(block.reason, ""),
+                      })}
+                    </p>
                   </div>
                 ))}
                 {scoreBlocks.length === 0 ? <p className="text-sm text-muted-foreground">暂无评分明细。</p> : null}
@@ -151,16 +129,26 @@ export function ScreeningReportDialog({
               <div className="mt-2 space-y-2">
                 {evidence.map((item, index) => {
                   const url = text(item.source_url ?? item.url, "");
+                  const sourceUrl = publicSourceUrl(url);
                   return (
                     <div key={`${url}-${index}`} className="rounded-md border p-3">
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <Badge variant="outline">{readableSourceType(item.source_type ?? item.layer)}</Badge>
-                        <span>{text(item.fetched_at)}</span>
                       </div>
-                      <p className="mt-2 text-sm leading-6">{displayText(item.finding)}</p>
-                      {url ? (
-                        <a className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline" href={url} target="_blank" rel="noreferrer">
-                          查看来源
+                      <p className="mt-2 text-sm leading-6">
+                        {screeningEvidenceFindingText({
+                          layer: text(item.layer, ""),
+                          sourceType: text(item.source_type, ""),
+                          scoreBlock: text(item.score_block, ""),
+                          scoreImpact: text(item.score_impact, ""),
+                          confidence: typeof item.confidence === "number" ? item.confidence : undefined,
+                          finding: text(item.finding ?? item.summary ?? item.excerpt, ""),
+                          sourceUrl: url,
+                        })}
+                      </p>
+                      {sourceUrl ? (
+                        <a className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline" href={sourceUrl} target="_blank" rel="noreferrer">
+                          来源网址
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : null}

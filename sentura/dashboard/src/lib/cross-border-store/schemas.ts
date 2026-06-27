@@ -464,6 +464,11 @@ export const AdminCreateOperatorRequestSchema = z.object({
 });
 export type AdminCreateOperatorRequest = z.infer<typeof AdminCreateOperatorRequestSchema>;
 
+export const AdminBatchCreateOperatorsRequestSchema = z.object({
+  operators: z.array(AdminCreateOperatorRequestSchema).min(1).max(20),
+});
+export type AdminBatchCreateOperatorsRequest = z.infer<typeof AdminBatchCreateOperatorsRequestSchema>;
+
 export const AdminUpdateOperatorRequestSchema = z.object({
   status: z.enum(["active", "suspended"]).optional(),
   display_name: z.string().min(1).optional(),
@@ -471,6 +476,11 @@ export const AdminUpdateOperatorRequestSchema = z.object({
   password: z.string().min(4).optional(),
 });
 export type AdminUpdateOperatorRequest = z.infer<typeof AdminUpdateOperatorRequestSchema>;
+
+export const AdminBatchDeleteOperatorsRequestSchema = z.object({
+  user_ids: z.array(z.string().min(1)).min(1).max(20),
+});
+export type AdminBatchDeleteOperatorsRequest = z.infer<typeof AdminBatchDeleteOperatorsRequestSchema>;
 
 export const AdminCostLimitPatchRequestSchema = z.object({
   user_id: z.string().min(1),

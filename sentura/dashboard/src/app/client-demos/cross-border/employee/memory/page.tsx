@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
+import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import {
   isCbeEmployeeTaskActive,
@@ -157,7 +158,7 @@ function rowClass(status: MemoryRecordItem["analysisStatus"], isHighlighted = fa
   if (status === "running") return "bg-sky-50/70";
   if (status === "analyzed") return "bg-emerald-50/70";
   if (status === "failed") return "bg-rose-50/70";
-  return "bg-background";
+  return "bg-white/45";
 }
 
 function canDeleteMemoryRecord(item: MemoryRecordItem) {
@@ -168,7 +169,7 @@ function badgeClass(status: MemoryRecordItem["analysisStatus"]) {
   if (status === "running") return "border-sky-200 bg-sky-50 text-sky-800";
   if (status === "analyzed") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "failed") return "border-rose-200 bg-rose-50 text-rose-800";
-  return "border-slate-200 bg-white text-slate-700";
+  return "border-[var(--sentura-border-strong)] bg-white/72 text-[var(--sentura-muted)]";
 }
 
 function formatBeijingDateTime(value: string) {
@@ -430,12 +431,14 @@ function CrossBorderMemoryPageContent() {
 
   const canRun = state === "connected" && !!accioAgent;
   const activeFilterCount = activeFilterChips.length;
-  const selectableFiltered = filtered.filter(canDeleteMemoryRecord);
+  const memoryPage = usePagedItems(filtered, 10);
+  const pagedMemoryRecords = memoryPage.items;
+  const selectableVisibleRecords = pagedMemoryRecords.filter(canDeleteMemoryRecord);
   const selectedRecords = rows.filter((item) => selectedRecordIds.includes(item.recordId));
   const deleteTargets = rows.filter((item) => deleteIntentIds.includes(item.recordId));
   const allVisibleSelected =
-    selectableFiltered.length > 0 &&
-    selectableFiltered.every((item) => selectedRecordIds.includes(item.recordId));
+    selectableVisibleRecords.length > 0 &&
+    selectableVisibleRecords.every((item) => selectedRecordIds.includes(item.recordId));
 
   const showNotice = (text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
     setNotice({ tone, text });
@@ -490,7 +493,7 @@ function CrossBorderMemoryPageContent() {
   };
 
   const toggleAllVisibleRecords = () => {
-    const visibleIds = selectableFiltered.map((item) => item.recordId);
+    const visibleIds = selectableVisibleRecords.map((item) => item.recordId);
     if (visibleIds.length === 0) return;
     if (allVisibleSelected) {
       setSelectedRecordIds((current) => current.filter((recordId) => !visibleIds.includes(recordId)));
@@ -839,7 +842,7 @@ function CrossBorderMemoryPageContent() {
           ) : (
             <>
               <div className="grid gap-3 lg:hidden">
-                {filtered.map((item) => {
+                {pagedMemoryRecords.map((item) => {
                   const isHighlighted = highlightedRecordIds.has(item.recordId);
                   return (
                     <MemoryMobileCard
@@ -866,7 +869,7 @@ function CrossBorderMemoryPageContent() {
                           type="checkbox"
                           aria-label="选择当前筛选结果"
                           checked={allVisibleSelected}
-                          disabled={selectableFiltered.length === 0}
+                          disabled={selectableVisibleRecords.length === 0}
                           onChange={toggleAllVisibleRecords}
                         />
                       </th>
@@ -879,7 +882,7 @@ function CrossBorderMemoryPageContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((item) => {
+                    {pagedMemoryRecords.map((item) => {
                       const isHighlighted = highlightedRecordIds.has(item.recordId);
                       return (
                       <tr
@@ -930,6 +933,12 @@ function CrossBorderMemoryPageContent() {
                   </tbody>
                 </table>
               </div>
+              <ListPagination
+                page={memoryPage.page}
+                totalItems={memoryPage.totalItems}
+                pageSize={memoryPage.pageSize}
+                onPageChange={memoryPage.setPage}
+              />
             </>
           )}
         </CardContent>

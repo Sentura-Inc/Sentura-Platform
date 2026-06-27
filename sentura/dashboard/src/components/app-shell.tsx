@@ -11,7 +11,6 @@ import {
   Database,
   BadgeDollarSign,
   LogOut,
-  Search,
   ShieldCheck,
   Star,
   UserRound,
@@ -67,7 +66,7 @@ const adminNav = [
     icon: UsersRound,
   },
   {
-    label: "优先跟进客户",
+    label: "客户列表",
     href: "/client-demos/cross-border/admin/high-value-customers",
     icon: Star,
   },
@@ -323,7 +322,7 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
   const tasks = useCbeEmployeeStore((state) => state.tasks);
   const markTaskNotificationsRead = useCbeEmployeeStore((state) => state.markTaskNotificationsRead);
   const messages = tasks
-    .filter((task) => !isCbeEmployeeTaskActive(task) && !task.dismissed)
+    .filter((task) => !isCbeEmployeeTaskActive(task))
     .sort((left, right) => (right.completedAt ?? right.updatedAt) - (left.completedAt ?? left.updatedAt));
   const previewMessages = messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT);
   const notificationListMaxHeight = EMPLOYEE_NOTIFICATION_VISIBLE_COUNT * 56;
@@ -396,7 +395,7 @@ function EmployeeNotificationBell({ enabled }: { enabled: boolean }) {
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{item.title}</span>
                   <span className="mt-0.5 block truncate text-xs leading-5 text-muted-foreground">
-                    {item.targetLabel ?? item.message}
+                    {item.status === "failed" ? item.message : item.targetLabel ?? item.message}
                   </span>
                 </span>
               </DropdownMenuItem>
@@ -425,6 +424,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isEmployeePath = pathname.startsWith("/client-demos/cross-border/employee");
   const navItems = isAdminPath ? adminNav : employeeNav;
   const shellTitle = isAdminPath ? "跨境电商管理者系统" : "跨境电商员工操作系统";
+  const showHeaderTitle = !isAuthPath;
   const accountLabel = isAdminPath ? "管理者" : "员工";
   const setTasks = useCbeEmployeeStore((state) => state.setTasks);
   const [sessionUser, setSessionUser] = useState<{ displayName: string } | null>(null);
@@ -516,27 +516,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-slate-50 text-foreground">
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+    <div className="sentura-brand-bg flex min-h-full flex-col text-foreground">
+      <header className="sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-4 px-4 lg:px-6">
-          <div className="flex min-w-[168px] items-center" aria-label={`Sentura ${shellTitle}`}>
+          <div
+            className={cn("flex items-center", isAuthPath ? "min-w-[190px]" : "min-w-[168px]")}
+            aria-label={`Sentura ${shellTitle}`}
+          >
             <div className="min-w-0">
               <Image
                 src="/sentura-logo-side.svg"
                 alt="Sentura"
-                width={156}
-                height={28}
-                className="h-7 w-auto max-w-[156px]"
+                width={isAuthPath ? 190 : 156}
+                height={isAuthPath ? 34 : 28}
+                priority
+                className={cn("w-auto", isAuthPath ? "h-8 max-w-[190px] sm:h-9" : "h-7 max-w-[156px]")}
                 style={{ width: "auto" }}
               />
-              <div className="mt-0.5 text-[11px] font-medium text-muted-foreground">
-                {shellTitle}
-              </div>
+              {showHeaderTitle ? (
+                <div className="mt-0.5 text-[11px] font-medium leading-none text-[var(--sentura-muted)]">
+                  {shellTitle}
+                </div>
+              ) : null}
             </div>
           </div>
 
           {!isAuthPath ? (
-          <nav className="hidden items-center rounded-md border bg-muted/30 p-1 md:flex">
+          <nav className="hidden items-center rounded-lg border border-[var(--sentura-border)] bg-white/62 p-1 shadow-sm md:flex">
             {navItems.map((item) => {
               const active =
                 item.href === "/client-demos/cross-border/employee"
@@ -547,10 +553,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm font-medium transition-colors",
+                    "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
                     active
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
+                      ? "sentura-cta text-white shadow-sm"
+                      : "text-[var(--sentura-muted)] hover:bg-[var(--sentura-ice)]/72 hover:text-primary",
                   )}
                 >
                   <item.icon className="h-4 w-4" />
@@ -568,8 +574,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!isAdminPath && !isAuthPath ? <EmployeeNotificationBell enabled={!isAdminPath && !isAuthPath} /> : null}
             {!isAdminPath && !isAuthPath ? (
             <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-md border bg-background px-2 py-1.5 lg:flex">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+              <div className="hidden items-center gap-2 rounded-md border border-[var(--sentura-border)] bg-white/68 px-2 py-1.5 shadow-sm lg:flex">
+                <span className="sentura-cta flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground">
                   {(sessionUser?.displayName ?? accountLabel).slice(0, 1)}
                 </span>
                 <span className="text-sm font-medium">{sessionUser?.displayName ?? accountLabel}</span>
@@ -582,8 +588,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : null}
             {isAdminAppPath ? (
             <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-md border bg-background px-2 py-1.5 lg:flex">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+              <div className="hidden items-center gap-2 rounded-md border border-[var(--sentura-border)] bg-white/68 px-2 py-1.5 shadow-sm lg:flex">
+                <span className="sentura-cta flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground">
                   {(sessionUser?.displayName ?? accountLabel).slice(0, 1)}
                 </span>
                 <span className="text-sm font-medium">{sessionUser?.displayName ?? accountLabel}</span>
@@ -598,7 +604,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {!isAuthPath ? (
-        <nav className="grid grid-cols-3 border-t bg-background md:hidden">
+        <nav className="grid grid-cols-3 border-t border-[var(--sentura-border)] bg-white/80 md:hidden">
           {navItems.map((item) => {
             const active =
               item.href === "/client-demos/cross-border/employee"
@@ -610,7 +616,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={cn(
                   "flex h-12 flex-col items-center justify-center gap-0.5 text-xs font-medium",
-                  active ? "text-primary" : "text-muted-foreground",
+                  active ? "text-primary" : "text-[var(--sentura-muted)]",
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -631,15 +637,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
 
-      {!isAdminPath && !isAuthPath ? (
-      <div
-        className="fixed bottom-4 right-4 hidden rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm lg:flex"
-        title="你在页面提交任务后，系统会自动处理，不需要打开聊天框。"
-      >
-        <Search className="mr-2 h-3.5 w-3.5" />
-        页面任务 · 系统自动处理
-      </div>
-      ) : null}
     </div>
   );
 }

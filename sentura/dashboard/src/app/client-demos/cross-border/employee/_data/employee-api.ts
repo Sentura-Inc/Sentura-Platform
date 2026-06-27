@@ -37,6 +37,11 @@ import {
   type ScreeningTarget,
 } from "./employee-task-runner";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
+import {
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+} from "@/components/cross-border/screening-report-copy";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -493,35 +498,7 @@ function firstTextValue(...values: unknown[]) {
 }
 
 function simplifyDisplayText(value: string | null | undefined) {
-  if (!value) return value ?? undefined;
-  return value
-    .replace(/外部可追溯证据 URL/g, "可核验来源")
-    .replace(/可追溯证据 URL/g, "可核验来源")
-    .replace(/来源 URL/g, "来源链接")
-    .replace(/证据 URL/g, "核验来源")
-    .replace(/工具返回 URL/g, "工具返回的来源链接")
-    .replace(/\brdap\b/gi, "域名登记信息")
-    .replace(/\bdns\b/gi, "域名解析")
-    .replace(/\bjson\b/gi, "结构化结果")
-    .replace(/\bsec\b/gi, "财务公开信息")
-    .replace(/\bkyb\b/gi, "企业核验")
-    .replace(/\bapi_error\b/gi, "查询失败")
-    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
-    .replace(/\bAPI\b/gi, "工具查询")
-    .replace(/\bHTTP 401\b/gi, "查询权限错误")
-    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
-    .replace(/\bMX\b/gi, "收信设置")
-    .replace(/\bSPF\b/gi, "发信设置")
-    .replace(/\bDMARC\b/gi, "邮件安全设置")
-    .replace(/\bendpoint\b/gi, "查询入口")
-    .replace(/\bprovider\b/gi, "工具")
-    .replace(/\bobjectClassName\b/g, "对象类型")
-    .replace(/\bself link\b/gi, "来源链接")
-    .replace(/\blookup\b/gi, "查询")
-    .replace(/\bredirected\b/gi, "跳转")
-    .replace(/\breturned\b/gi, "返回")
-    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
-    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+  return simplifyScreeningReportText(value);
 }
 
 function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
@@ -536,44 +513,64 @@ function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
 function normalizeScoreBlock(value: unknown): CustomerScoreBlock {
   const raw = asRecord(value);
   const status = asString(raw.status);
+  const block = scoreBlockId(raw.block ?? raw.score_block);
+  const normalizedStatus =
+    status === "scored" ||
+    status === "not_applicable" ||
+    status === "unavailable_api" ||
+    status === "disabled_by_budget" ||
+    status === "pending_human_input"
+      ? status
+      : "pending_human_input";
+  const text = screeningScoreBlockText({
+    block,
+    status: normalizedStatus,
+    summary: asString(raw.summary),
+    reason: asString(raw.reason),
+  });
   return {
-    block: scoreBlockId(raw.block ?? raw.score_block),
-    status:
-      status === "scored" ||
-      status === "not_applicable" ||
-      status === "unavailable_api" ||
-      status === "disabled_by_budget" ||
-      status === "pending_human_input"
-        ? status
-        : "pending_human_input",
+    block,
+    status: normalizedStatus,
     maxPoints: asNumber(raw.max_points ?? raw.maxPoints) ?? 10,
     earnedPoints: asNumber(raw.earned_points ?? raw.earnedPoints) ?? null,
     sourceCount: asNumber(raw.source_count ?? raw.sourceCount),
-    summary: simplifyDisplayText(asString(raw.summary)),
-    reason: simplifyDisplayText(asString(raw.reason)),
+    summary: text,
+    reason: normalizedStatus === "scored" ? undefined : text,
   };
 }
 
 function normalizeEvidence(value: unknown): CustomerEvidenceItem {
   const raw = asRecord(value);
   const sourceUrl = toUrl(raw.source_url ?? raw.sourceUrl ?? raw.url) ?? "https://sentura.local/cross-border-intel/evidence";
+  const layer = (asString(raw.layer) ?? "public_footprint") as CustomerEvidenceItem["layer"];
+  const sourceTypeValue = sourceType(raw.source_type ?? raw.sourceType);
+  const scoreBlock = scoreBlockId(raw.score_block ?? raw.scoreBlock);
+  const scoreImpact =
+    raw.score_impact === "positive" ||
+    raw.score_impact === "negative" ||
+    raw.score_impact === "neutral" ||
+    raw.score_impact === "coverage_only"
+      ? raw.score_impact
+      : "neutral";
+  const confidence = asNumber(raw.confidence);
   return {
-    layer: (asString(raw.layer) ?? "public_footprint") as CustomerEvidenceItem["layer"],
+    layer,
     sourceUrl,
-    sourceType: sourceType(raw.source_type ?? raw.sourceType),
+    sourceType: sourceTypeValue,
     fetchedAt: toIsoTimestamp(raw.fetched_at ?? raw.fetchedAt),
-    finding: simplifyDisplayText(asString(raw.finding ?? raw.summary ?? raw.excerpt)) ?? "背调员工返回了证据项，但未提供可读摘要。",
-    confidence: asNumber(raw.confidence),
-    scoreBlock: scoreBlockId(raw.score_block ?? raw.scoreBlock),
-    scoreImpact:
-      raw.score_impact === "positive" ||
-      raw.score_impact === "negative" ||
-      raw.score_impact === "neutral" ||
-      raw.score_impact === "coverage_only"
-        ? raw.score_impact
-        : "neutral",
+    finding: screeningEvidenceFindingText({
+      layer,
+      sourceType: sourceTypeValue,
+      scoreBlock,
+      scoreImpact,
+      confidence,
+      finding: asString(raw.finding ?? raw.summary ?? raw.excerpt),
+      sourceUrl,
+    }),
+    confidence,
+    scoreBlock,
+    scoreImpact,
     affectsScore: typeof raw.affects_score === "boolean" ? raw.affects_score : undefined,
-    costPosture: asString(raw.cost_posture ?? raw.costPosture),
   };
 }
 
@@ -665,7 +662,7 @@ function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment
   return {
     scaleClass,
     confidence: asNumber(raw.confidence),
-    rationale: asString(raw.rationale ?? raw.reason ?? raw.summary) ?? "背调员工未返回公司规模判断说明。",
+    rationale: simplifyDisplayText(asString(raw.rationale ?? raw.reason ?? raw.summary)) ?? "公司规模仍需结合来源网址复核。",
     firstBlockStrategy,
   };
 }
@@ -925,6 +922,11 @@ function taskAffectedCustomerIds(metadata: JsonRecord) {
   ]));
 }
 
+function taskDisplayText(value: string | null | undefined) {
+  const text = value?.trim();
+  return text || undefined;
+}
+
 function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   const taskKind = record.taskKind ?? record.task_kind ?? "lead";
   const sessionKey = record.sessionKey ?? record.session_key ?? undefined;
@@ -969,7 +971,7 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     kind: taskKind === "screening" ? "screening" : taskKind === "accio_memory" ? "accio_memory" : "lead",
     title: notificationTitle ?? taskKindLabel(taskKind),
     status: status as CbeEmployeeTaskStatus,
-    message: simplifyDisplayText(message) ?? message,
+    message: taskDisplayText(message) ?? "任务正在执行。",
     startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(),
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
     lastActivityAt: Number.isFinite(lastActivityAt) ? lastActivityAt : undefined,
@@ -978,7 +980,7 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     timeoutMs: Math.max(estimatedMs + 120_000, 300_000),
     deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + Math.max(estimatedMs + 120_000, 300_000),
     sessionKey,
-    targetLabel: simplifyDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
+    targetLabel: taskDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
     resultCount: asNumber(metadata.saved_leads ?? metadata.saved_reports ?? metadata.saved_summaries),
     affectedCustomerIds: taskAffectedCustomerIds(metadata),
     error: record.errorMessage ?? record.error_message ?? undefined,
@@ -1404,26 +1406,40 @@ function normalizeScreeningPayload(payload: unknown) {
           const sourceUrl = toUrl(evidenceRecord.source_url ?? evidenceRecord.sourceUrl ?? evidenceRecord.url);
           const usesGapMarker = !sourceUrl;
           if (usesGapMarker) traceabilityGap = true;
+          const layer = asString(evidenceRecord.layer) ?? "public_footprint";
+          const sourceTypeValue = usesGapMarker ? "unverified" : sourceType(evidenceRecord.source_type);
+          const scoreBlock = scoreBlockId(evidenceRecord.score_block ?? evidenceRecord.scoreBlock);
+          const scoreImpact =
+            usesGapMarker
+              ? "coverage_only"
+              : evidenceRecord.score_impact === "positive" ||
+                  evidenceRecord.score_impact === "negative" ||
+                  evidenceRecord.score_impact === "coverage_only"
+                ? evidenceRecord.score_impact
+                : "neutral";
+          const confidence = usesGapMarker ? 0 : asNumber(evidenceRecord.confidence);
+          const normalizedSourceUrl = sourceUrl ?? missingEvidenceUrl(companyName, evidenceIndex);
           return {
-            layer: asString(evidenceRecord.layer) ?? "public_footprint",
-            source_type: usesGapMarker ? "unverified" : sourceType(evidenceRecord.source_type),
+            layer,
+            source_type: sourceTypeValue,
             source: asString(evidenceRecord.source),
-            source_url: sourceUrl ?? missingEvidenceUrl(companyName, evidenceIndex),
-            finding: usesGapMarker
-              ? `背调员工未返回 ${companyName} 的可核验来源，已记录为证据缺口。`
-              : asString(evidenceRecord.finding ?? evidenceRecord.summary ?? evidenceRecord.excerpt) ?? "背调员工返回了证据项。",
-            confidence: usesGapMarker ? 0 : asNumber(evidenceRecord.confidence),
+            source_url: normalizedSourceUrl,
+            finding: screeningEvidenceFindingText({
+              layer,
+              sourceType: sourceTypeValue,
+              scoreBlock,
+              scoreImpact,
+              confidence,
+              finding: usesGapMarker
+                ? `未找到 ${companyName} 的可核验来源网址。`
+                : asString(evidenceRecord.finding ?? evidenceRecord.summary ?? evidenceRecord.excerpt),
+              sourceUrl: normalizedSourceUrl,
+            }),
+            confidence,
             fetched_at: toIsoTimestamp(evidenceRecord.fetched_at ?? evidenceRecord.fetchedAt, now),
             cost_usd: asNumber(evidenceRecord.cost_usd ?? evidenceRecord.costUsd),
-            score_block: scoreBlockId(evidenceRecord.score_block ?? evidenceRecord.scoreBlock),
-            score_impact:
-              usesGapMarker
-                ? "coverage_only"
-                : evidenceRecord.score_impact === "positive" ||
-                    evidenceRecord.score_impact === "negative" ||
-                    evidenceRecord.score_impact === "coverage_only"
-                  ? evidenceRecord.score_impact
-                  : "neutral",
+            score_block: scoreBlock,
+            score_impact: scoreImpact,
           };
         });
       const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
@@ -1432,8 +1448,8 @@ function normalizeScreeningPayload(payload: unknown) {
       const traceabilityGapRecord = {
         block: "public_footprint",
         status: "pending_human_input",
-        reason: `背调员工未返回 ${companyName} 的可核验来源，无法核验公开信息。`,
-        action: "补充官网、注册页、公开网页或工具返回的来源链接后重新背调。",
+        reason: `背调报告暂未提供 ${companyName} 的可核验来源，无法核验公开信息。`,
+        action: "补充官网、注册页、公开网页或其他来源网址后重新背调。",
       };
       const coverageGaps = traceabilityGap &&
         !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可核验来源"))
@@ -1464,7 +1480,7 @@ function normalizeScreeningPayload(payload: unknown) {
         normalized_score: traceabilityGap ? null : typeof score === "number" ? score : null,
         evidence_coverage: traceabilityGap ? Math.min(evidenceCoverage ?? 0, 0.2) : evidenceCoverage ?? (evidence.length > 0 ? 0.5 : 0),
         recommended_action: traceabilityGap
-          ? `背调员工未返回 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
+          ? `背调报告暂未提供 ${companyName} 的可核验来源，已标记为证据不足；请补充官网、注册页或公开来源后重新评估。`
           : asString(report.recommended_action ?? report.recommendedAction) ?? "复核背调报告后决定是否跟进。",
         score_blocks: scoreBlocks.length
           ? scoreBlocks.map((block) => {
@@ -1475,8 +1491,8 @@ function normalizeScreeningPayload(payload: unknown) {
                 max_points: normalized.maxPoints,
                 earned_points: normalized.earnedPoints,
                 source_count: normalized.sourceCount ?? evidence.length,
-                summary: normalized.summary,
-                reason: normalized.reason,
+                summary: screeningScoreBlockText(normalized),
+                reason: normalized.reason ? screeningScoreBlockText(normalized) : undefined,
               };
             })
           : [
@@ -1487,8 +1503,8 @@ function normalizeScreeningPayload(payload: unknown) {
                 earned_points: null,
                 source_count: evidence.length,
                 reason: traceabilityGap
-                  ? `背调员工未返回 ${companyName} 的可核验来源。`
-                  : "报告未返回评分来源，已保留核验依据供人工复核。",
+                  ? `背调报告暂未提供 ${companyName} 的可核验来源。`
+                  : "报告未说明评分来源，已保留核验依据供人工复核。",
               },
             ],
         evidence,

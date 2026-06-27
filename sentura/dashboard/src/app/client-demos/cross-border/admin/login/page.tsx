@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
+import { LoginWelcomeHeader } from "@/components/cross-border/brand-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,19 +45,12 @@ export default function ManagerLoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-md items-center px-4">
-      <Card className="w-full border-border/70 shadow-sm">
-        <CardHeader className="justify-items-center pb-3 pt-6">
-          <Image
-            src="/logo-full.svg"
-            alt="Sentura"
-            width={129}
-            height={156}
-            priority
-            className="h-20 w-auto sm:h-24"
-          />
+    <main className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-4xl items-center justify-center px-4">
+      <Card className="sentura-login-card w-full max-w-md backdrop-blur-xl">
+        <CardHeader className="gap-0 px-7 pb-5 pt-8">
+          <LoginWelcomeHeader systemTitle="跨境电商管理者系统" />
         </CardHeader>
-        <CardContent className="space-y-3 px-6 pb-6">
+        <CardContent className="space-y-3 px-7 pb-8">
           <Input
             autoComplete="username"
             placeholder="管理者姓名"
@@ -78,7 +71,7 @@ export default function ManagerLoginPage() {
             }}
           />
           {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-          <Button className="w-full" onClick={submit} disabled={loading}>
+          <Button className="h-9 w-full" onClick={submit} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
             登录
           </Button>

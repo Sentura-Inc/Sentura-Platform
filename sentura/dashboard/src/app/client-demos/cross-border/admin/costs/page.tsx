@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, Loader2, RefreshCw, X } from "lucide-react";
+import { Check, Download, Loader2, RefreshCw, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,10 @@ import {
   type AdminOperatorRow,
 } from "../_data/admin-api";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
+import {
+  exportAdminCostDocument,
+  type ExportFormat,
+} from "@/components/cross-border/document-export";
 
 type RangeKey = "today" | "week" | "month" | "all";
 
@@ -115,6 +119,9 @@ function AdminCostsContent() {
   const [limitInputs, setLimitInputs] = useState<Record<string, string>>({});
   const [allowanceInputs, setAllowanceInputs] = useState<Record<string, string>>({});
   const [approvalInputs, setApprovalInputs] = useState<Record<string, string>>({});
+  const [selectedBudgetUserIds, setSelectedBudgetUserIds] = useState<Set<string>>(() => new Set());
+  const [batchLimitInput, setBatchLimitInput] = useState("");
+  const [batchAllowanceInput, setBatchAllowanceInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,11 +129,17 @@ function AdminCostsContent() {
   const [selectedCostUserId, setSelectedCostUserId] = useState<string | null>(null);
   const [costDetail, setCostDetail] = useState<{
     profile: AdminOperatorRow | null;
+    summary: AdminCostRow | null;
     costEvents: Record<string, unknown>[];
   } | null>(null);
 
   const highlightedApprovalId = searchParams.get("highlightApproval");
   const highlightedSection = searchParams.get("notify");
+  const selectedBudgetRows = useMemo(
+    () => items.filter((item) => selectedBudgetUserIds.has(item.user_id)),
+    [items, selectedBudgetUserIds],
+  );
+  const allBudgetRowsSelected = items.length > 0 && items.every((item) => selectedBudgetUserIds.has(item.user_id));
 
   const refresh = useCallback(async function refresh(nextRange = range, options: { background?: boolean } = {}) {
     if (!options.background) {
@@ -138,6 +151,10 @@ function AdminCostsContent() {
       setItems((current) => (sameJson(current, result.items) ? current : result.items));
       setApprovals((current) => (sameJson(current, result.approvals) ? current : result.approvals));
       setPool((current) => (sameJson(current, result.pool) ? current : result.pool));
+      setSelectedBudgetUserIds((current) => {
+        const validIds = new Set(result.items.map((item) => item.user_id));
+        return new Set(Array.from(current).filter((id) => validIds.has(id)));
+      });
       setLimitInputs((current) => {
         const next = { ...current };
         for (const item of result.items) {
@@ -206,6 +223,93 @@ function AdminCostsContent() {
     }
   }
 
+  function toggleBudgetRow(userId: string) {
+    setSelectedBudgetUserIds((current) => {
+      const next = new Set(current);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+
+  function toggleAllBudgetRows() {
+    setSelectedBudgetUserIds((current) => {
+      if (allBudgetRowsSelected) {
+        const next = new Set(current);
+        items.forEach((item) => next.delete(item.user_id));
+        return next;
+      }
+      return new Set([...Array.from(current), ...items.map((item) => item.user_id)]);
+    });
+  }
+
+  async function applyBatchBudget() {
+    const hasLimit = batchLimitInput.trim() !== "";
+    const hasAllowance = batchAllowanceInput.trim() !== "";
+    if (selectedBudgetRows.length === 0) {
+      setError("请先选择需要修改预算的员工。");
+      return;
+    }
+    if (!hasLimit && !hasAllowance) {
+      setError("请填写基础限额或临时额度，至少一项。");
+      return;
+    }
+    if (hasLimit && !Number.isFinite(Number(batchLimitInput))) {
+      setError("批量基础限额不是有效数字。");
+      return;
+    }
+    if (hasAllowance && !Number.isFinite(Number(batchAllowanceInput))) {
+      setError("批量临时额度不是有效数字。");
+      return;
+    }
+    setBusy("batch-budget");
+    setError(null);
+    try {
+      for (const row of selectedBudgetRows) {
+        if (hasLimit) {
+          await updateAdminCostLimit({
+            user_id: row.user_id,
+            period: "month",
+            limit_usd: money(batchLimitInput),
+            enabled: true,
+          });
+        }
+        if (hasAllowance) {
+          await updateAdminCostAllowance({
+            user_id: row.user_id,
+            period: "month",
+            amount_usd: money(batchAllowanceInput),
+          });
+        }
+      }
+      if (hasLimit) {
+        setLimitInputs((current) => {
+          const next = { ...current };
+          selectedBudgetRows.forEach((row) => {
+            next[row.user_id] = moneyInput(batchLimitInput);
+          });
+          return next;
+        });
+      }
+      if (hasAllowance) {
+        setAllowanceInputs((current) => {
+          const next = { ...current };
+          selectedBudgetRows.forEach((row) => {
+            next[row.user_id] = moneyInput(batchAllowanceInput);
+          });
+          return next;
+        });
+      }
+      setBatchLimitInput("");
+      setBatchAllowanceInput("");
+      await refresh(range, { background: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量预算更新失败。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function decide(approval: AdminApprovalRow, decision: "approved" | "rejected") {
     setBusy(`approval:${approval.id}:${decision}`);
     setError(null);
@@ -249,6 +353,7 @@ function AdminCostsContent() {
       const detail = await fetchAdminOperator(item.user_id);
       setCostDetail({
         profile: detail.profile,
+        summary: item,
         costEvents: detail.costEvents,
       });
     } catch (err) {
@@ -260,6 +365,16 @@ function AdminCostsContent() {
 
   function dismissHighlight(key: string) {
     setDismissedHighlights((current) => new Set(current).add(key));
+  }
+
+  function exportCostDetail(format: ExportFormat) {
+    if (!costDetail) return;
+    exportAdminCostDocument({
+      profile: costDetail.profile,
+      summary: costDetail.summary,
+      rangeLabel: ranges.find((item) => item.key === range)?.label ?? range,
+      events: costDetail.costEvents,
+    }, format);
   }
 
   return (
@@ -307,12 +422,72 @@ function AdminCostsContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>员工费用情况</CardTitle>
+          <CardTitle>批量修改预算</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">本月基础限额</div>
+              <div className="relative">
+                <Input
+                  className="pr-7 text-right"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="不修改"
+                  value={batchLimitInput}
+                  onChange={(event) => setBatchLimitInput(event.target.value)}
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">本月临时额度</div>
+              <div className="relative">
+                <Input
+                  className="pr-7 text-right"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="不修改"
+                  value={batchAllowanceInput}
+                  onChange={(event) => setBatchAllowanceInput(event.target.value)}
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+              </div>
+            </div>
+            <div className="flex items-end">
+              <Button onClick={applyBatchBudget} disabled={selectedBudgetRows.length === 0 || busy === "batch-budget"}>
+                {busy === "batch-budget" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                应用到 {selectedBudgetRows.length} 人
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            先在下方员工费用表勾选员工；留空的字段不会被修改。临时额度为替换当前本月临时额度。
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>员工费用情况</CardTitle>
+            <span className="text-sm text-muted-foreground">已选 {selectedBudgetRows.length} 人</span>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="选择全部费用员工"
+                    checked={allBudgetRowsSelected}
+                    onChange={toggleAllBudgetRows}
+                  />
+                </TableHead>
                 <TableHead>员工</TableHead>
                 <TableHead>已发生费用</TableHead>
                 <TableHead>预计费用</TableHead>
@@ -327,6 +502,14 @@ function AdminCostsContent() {
             <TableBody>
               {items.map((item) => (
                 <TableRow key={item.user_id}>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${item.display_name} 的预算`}
+                      checked={selectedBudgetUserIds.has(item.user_id)}
+                      onChange={() => toggleBudgetRow(item.user_id)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <button
                       type="button"
@@ -386,12 +569,12 @@ function AdminCostsContent() {
               ))}
               {!loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
@@ -412,6 +595,16 @@ function AdminCostsContent() {
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{costDetail?.profile?.display_name ?? "员工费用明细"}</DialogTitle>
             <DialogDescription>展示最近 100 条费用记录。</DialogDescription>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => exportCostDetail("docx")} disabled={!costDetail}>
+                <Download className="h-3.5 w-3.5" />
+                导出 DOCX
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => exportCostDetail("pdf")} disabled={!costDetail}>
+                <Download className="h-3.5 w-3.5" />
+                导出 PDF
+              </Button>
+            </div>
           </DialogHeader>
           <ScrollArea className="min-h-0 px-5 pb-5">
             {!costDetail ? (

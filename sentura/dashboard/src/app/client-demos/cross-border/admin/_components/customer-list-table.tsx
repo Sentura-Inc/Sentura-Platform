@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDownWideNarrow,
   CheckCircle2,
@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
   buyerTypeLabel,
@@ -19,6 +20,11 @@ import {
   canonicalProduct,
   productLabel,
 } from "@/components/cross-border/customer-labels";
+import {
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+} from "@/components/cross-border/screening-report-copy";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
@@ -45,8 +51,9 @@ const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
 };
 
 type AdminStatusFilter = "all" | "not_started" | "screened" | "insufficient_evidence";
-type AdminScoreSort = "none" | "score_desc" | "score_asc";
+type AdminCustomerSort = "none" | "score_desc" | "score_asc" | "screening_desc" | "screening_asc";
 interface AdminCustomerFilters {
+  owners: string[];
   countries: string[];
   buyerTypes: string[];
   products: string[];
@@ -58,27 +65,36 @@ type FilterOption = {
 };
 
 const quickStatusFilters = ["all", "not_started", "screened", "insufficient_evidence"] as const;
-const adminScoreSortValues: AdminScoreSort[] = ["none", "score_desc", "score_asc"];
+const adminCustomerSortValues: AdminCustomerSort[] = ["none", "score_desc", "score_asc", "screening_desc", "screening_asc"];
 const ADMIN_CUSTOMER_STATUS_FILTER_STORAGE_KEY = "sentura:cbe:admin:customer-list:status-filter:v1";
-const ADMIN_CUSTOMER_SCORE_SORT_STORAGE_KEY = "sentura:cbe:admin:customer-list:score-sort:v1";
+const ADMIN_CUSTOMER_SORT_STORAGE_KEY = "sentura:cbe:admin:customer-list:sort:v1";
 const emptyAdminFilters: AdminCustomerFilters = {
+  owners: [],
   countries: [],
   buyerTypes: [],
   products: [],
+};
+
+type AdminListCustomerItem = CustomerListItem & {
+  ownerUserId?: string | null;
+  ownerName?: string | null;
+  teamName?: string | null;
 };
 
 function isAdminStatusFilter(value: unknown): value is AdminStatusFilter {
   return typeof value === "string" && quickStatusFilters.includes(value as AdminStatusFilter);
 }
 
-function isAdminScoreSort(value: unknown): value is AdminScoreSort {
-  return typeof value === "string" && adminScoreSortValues.includes(value as AdminScoreSort);
+function isAdminCustomerSort(value: unknown): value is AdminCustomerSort {
+  return typeof value === "string" && adminCustomerSortValues.includes(value as AdminCustomerSort);
 }
 
-const scoreSortLabels: Record<AdminScoreSort, string> = {
+const customerSortLabels: Record<AdminCustomerSort, string> = {
   none: "默认排序",
   score_desc: "评分高到低",
   score_asc: "评分低到高",
+  screening_desc: "背调时间新到旧",
+  screening_asc: "背调时间旧到新",
 };
 
 const sourceLabels: Record<CustomerListItem["source"], string> = {
@@ -196,35 +212,7 @@ function scoreImpact(value: unknown): ScreeningScoreImpact {
 }
 
 function simplifyDisplayText(value: string | null | undefined) {
-  if (!value) return value ?? undefined;
-  return value
-    .replace(/外部可追溯证据 URL/g, "可核验来源")
-    .replace(/可追溯证据 URL/g, "可核验来源")
-    .replace(/来源 URL/g, "来源链接")
-    .replace(/证据 URL/g, "核验来源")
-    .replace(/工具返回 URL/g, "工具返回的来源链接")
-    .replace(/\brdap\b/gi, "域名登记信息")
-    .replace(/\bdns\b/gi, "域名解析")
-    .replace(/\bjson\b/gi, "结构化结果")
-    .replace(/\bsec\b/gi, "财务公开信息")
-    .replace(/\bkyb\b/gi, "企业核验")
-    .replace(/\bapi_error\b/gi, "查询失败")
-    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
-    .replace(/\bAPI\b/gi, "工具查询")
-    .replace(/\bHTTP 401\b/gi, "查询权限错误")
-    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
-    .replace(/\bMX\b/gi, "收信设置")
-    .replace(/\bSPF\b/gi, "发信设置")
-    .replace(/\bDMARC\b/gi, "邮件安全设置")
-    .replace(/\bendpoint\b/gi, "查询入口")
-    .replace(/\bprovider\b/gi, "工具")
-    .replace(/\bobjectClassName\b/g, "对象类型")
-    .replace(/\bself link\b/gi, "来源链接")
-    .replace(/\blookup\b/gi, "查询")
-    .replace(/\bredirected\b/gi, "跳转")
-    .replace(/\breturned\b/gi, "返回")
-    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
-    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+  return simplifyScreeningReportText(value);
 }
 
 function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined {
@@ -242,20 +230,40 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
     maxPoints: asNumber(block.max_points ?? block.maxPoints) ?? 0,
     earnedPoints: asNumber(block.earned_points ?? block.earnedPoints) ?? null,
     sourceCount: asNumber(block.source_count ?? block.sourceCount),
-    summary: simplifyDisplayText(asString(block.summary)) || undefined,
-    reason: simplifyDisplayText(asString(block.reason)) || undefined,
+    summary: screeningScoreBlockText({
+      block: asString(block.block, "public_footprint"),
+      status: evidenceStatus(block.status),
+      summary: asString(block.summary),
+      reason: asString(block.reason),
+    }),
+    reason:
+      evidenceStatus(block.status) === "scored"
+        ? undefined
+        : screeningScoreBlockText({
+            block: asString(block.block, "public_footprint"),
+            status: evidenceStatus(block.status),
+            summary: asString(block.summary),
+            reason: asString(block.reason),
+          }),
   }));
   const evidence = asRecordArray(reportJson.evidence).map((item): CustomerEvidenceItem => ({
     layer: evidenceLayer(item.layer ?? item.score_block ?? item.scoreBlock),
     sourceUrl: asString(item.source_url ?? item.url ?? item.source, "-"),
     sourceType: asString(item.source_type ?? item.sourceType) || undefined,
     fetchedAt: asString(item.fetched_at ?? item.fetchedAt) || undefined,
-    finding: simplifyDisplayText(asString(item.finding)) ?? "报告暂未返回这一条说明。",
+    finding: screeningEvidenceFindingText({
+      layer: evidenceLayer(item.layer ?? item.score_block ?? item.scoreBlock),
+      sourceType: asString(item.source_type ?? item.sourceType) || undefined,
+      scoreBlock: asString(item.score_block ?? item.scoreBlock) || undefined,
+      scoreImpact: scoreImpact(item.score_impact ?? item.scoreImpact),
+      confidence: asNumber(item.confidence),
+      finding: asString(item.finding ?? item.summary ?? item.excerpt),
+      sourceUrl: asString(item.source_url ?? item.url ?? item.source, "-"),
+    }),
     confidence: asNumber(item.confidence),
     scoreBlock: asString(item.score_block ?? item.scoreBlock) || undefined,
     scoreImpact: scoreImpact(item.score_impact ?? item.scoreImpact),
     affectsScore: item.affects_score === undefined ? true : Boolean(item.affects_score),
-    costPosture: asString(item.cost_posture ?? item.costPosture) || undefined,
   }));
   const coverageGaps = asRecordArray(reportJson.coverage_gaps).map((gap) => ({
     block: asString(gap.block ?? gap.score_block, "public_footprint"),
@@ -280,7 +288,7 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
   };
 }
 
-function adminCustomerToListItem(row: AdminCustomerRow): CustomerListItem {
+function adminCustomerToListItem(row: AdminCustomerRow): AdminListCustomerItem {
   const country = row.country ?? "ZZ";
   const source = sourceFromRecordType(row.recordType);
   const report = parseReport(row);
@@ -307,7 +315,18 @@ function adminCustomerToListItem(row: AdminCustomerRow): CustomerListItem {
     evidenceSummary: simplifyDisplayText(row.recommendedAction) ?? "暂无背调结论。",
     recommendedAction: simplifyDisplayText(row.recommendedAction),
     screeningReport: report,
+    ownerUserId: row.ownerUserId ?? null,
+    ownerName: row.ownerName ?? null,
+    teamName: row.teamName ?? null,
   };
+}
+
+function dedupeCustomerListItems(rows: AdminListCustomerItem[]) {
+  const byId = new Map<string, AdminListCustomerItem>();
+  for (const row of rows) {
+    byId.set(row.customerId, { ...byId.get(row.customerId), ...row });
+  }
+  return Array.from(byId.values());
 }
 
 function customerCountryLabel(item: CustomerListItem) {
@@ -357,14 +376,14 @@ function formatBeijingDateTime(value: string) {
 
 function rowClass(item: CustomerListItem) {
   if (item.screeningStatus === "running") return "bg-sky-50/35";
-  if (item.screeningStatus === "not_started") return "bg-sky-50/10";
+  if (item.screeningStatus === "not_started") return "bg-[var(--sentura-ice)]/20";
   if (item.screeningStatus === "failed") return "bg-rose-50/35";
   if (item.scoreTier === "high") return "bg-emerald-50/35";
   if (item.scoreTier === "medium") return "bg-amber-50/35";
   if (item.scoreTier === "low") return "bg-rose-50/35";
-  if (item.screeningStatus === "insufficient_evidence") return "bg-zinc-50/60";
+  if (item.screeningStatus === "insufficient_evidence") return "bg-[var(--sentura-surface-2)]/60";
   if (item.screeningStatus === "screened") return "bg-emerald-50/20";
-  return "bg-background";
+  return "bg-white/45";
 }
 
 function workflowBadge(item: CustomerListItem) {
@@ -392,8 +411,8 @@ function statusBadgeClass(item: CustomerListItem) {
   if (item.scoreTier === "high") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (item.scoreTier === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
   if (item.scoreTier === "low") return "border-rose-200 bg-rose-50 text-rose-800";
-  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
-  return "border-slate-200 bg-white text-slate-700";
+  if (item.screeningStatus === "insufficient_evidence") return "border-[var(--sentura-border-strong)] bg-[var(--sentura-surface-2)] text-[var(--sentura-muted)]";
+  return "border-[var(--sentura-border-strong)] bg-white/72 text-[var(--sentura-muted)]";
 }
 
 function scoreLabel(item: CustomerListItem) {
@@ -422,8 +441,8 @@ function CustomerProductBadges({
 
   return (
     <div className="flex flex-wrap gap-1">
-      {visibleProducts.map((product) => (
-        <Badge key={product} variant="secondary">
+      {visibleProducts.map((product, index) => (
+        <Badge key={`${canonicalProduct(product) || product}-${index}`} variant="secondary">
           {productLabel(product)}
         </Badge>
       ))}
@@ -502,28 +521,58 @@ export function AdminCustomerReportButton({
   );
 }
 
-export function AdminCustomerListTable({ customers }: { customers: AdminCustomerRow[] }) {
+export function AdminCustomerListTable({
+  customers,
+  title,
+  description,
+  showStatusFilters = true,
+  storageKeyPrefix = "sentura:cbe:admin:customer-list",
+  highlightedCustomerId,
+}: {
+  customers: AdminCustomerRow[];
+  title?: string;
+  description?: string;
+  showStatusFilters?: boolean;
+  storageKeyPrefix?: string;
+  highlightedCustomerId?: string | null;
+}) {
   const [expandedProductRows, setExpandedProductRows] = useState<Set<string>>(() => new Set());
   const [activeCustomer, setActiveCustomer] = useState<CustomerListItem | null>(null);
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<AdminCustomerFilters>(emptyAdminFilters);
   const [statusFilter, setStatusFilter] = usePersistentUiState<AdminStatusFilter>(
-    ADMIN_CUSTOMER_STATUS_FILTER_STORAGE_KEY,
+    `${storageKeyPrefix}:${ADMIN_CUSTOMER_STATUS_FILTER_STORAGE_KEY}`,
     "all",
     isAdminStatusFilter,
   );
-  const [scoreSort, setScoreSort] = usePersistentUiState<AdminScoreSort>(
-    ADMIN_CUSTOMER_SCORE_SORT_STORAGE_KEY,
+  const [customerSort, setCustomerSort] = usePersistentUiState<AdminCustomerSort>(
+    `${storageKeyPrefix}:${ADMIN_CUSTOMER_SORT_STORAGE_KEY}`,
     "none",
-    isAdminScoreSort,
+    isAdminCustomerSort,
   );
-  const rows = useMemo(() => customers.map(adminCustomerToListItem), [customers]);
+  const rows = useMemo(() => dedupeCustomerListItems(customers.map(adminCustomerToListItem)), [customers]);
+
+  useEffect(() => {
+    if (!highlightedCustomerId) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`${storageKeyPrefix}-${highlightedCustomerId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [highlightedCustomerId, rows.length, storageKeyPrefix]);
+
   const filterOptions = useMemo(() => {
+    const owners = new Map<string, string>();
     const countryMap = new Map<string, string>();
     const buyerTypes = new Map<string, string>();
     const products = new Map<string, string>();
     for (const item of rows) {
+      if (item.ownerUserId) {
+        owners.set(
+          item.ownerUserId,
+          item.teamName ? `${item.ownerName ?? item.ownerUserId} / ${item.teamName}` : item.ownerName ?? item.ownerUserId,
+        );
+      }
       if (item.country) countryMap.set(item.country, item.countryName);
       const buyerTypeValue = canonicalBuyerType(item.buyerType);
       if (buyerTypeValue) buyerTypes.set(buyerTypeValue, buyerTypeLabel(item.buyerType));
@@ -533,6 +582,9 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
       });
     }
     return {
+      owners: Array.from(owners.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
       countries: Array.from(countryMap.entries())
         .map(([code, name]) => ({ value: code, label: name || code }))
         .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
@@ -546,6 +598,14 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
   }, [rows]);
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ key: string; label: string; clear: () => void }> = [];
+    for (const owner of filters.owners) {
+      const label = filterOptions.owners.find((item) => item.value === owner)?.label ?? owner;
+      chips.push({
+        key: `owner-${owner}`,
+        label: `负责人：${label}`,
+        clear: () => setFilters((current) => ({ ...current, owners: current.owners.filter((item) => item !== owner) })),
+      });
+    }
     for (const country of filters.countries) {
       const label = filterOptions.countries.find((item) => item.value === country)?.label ?? country;
       chips.push({
@@ -570,48 +630,53 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
         clear: () => setFilters((current) => ({ ...current, products: current.products.filter((item) => item !== product) })),
       });
     }
-    if (statusFilter !== "all") {
+    if (showStatusFilters && statusFilter !== "all") {
       chips.push({
         key: `status-${statusFilter}`,
         label: `状态：${statusLabels[statusFilter]}`,
         clear: () => setStatusFilter("all"),
       });
     }
-    if (scoreSort !== "none") {
+    if (customerSort !== "none") {
       chips.push({
-        key: "score-sort",
-        label: `排序：${scoreSortLabels[scoreSort]}`,
-        clear: () => setScoreSort("none"),
+        key: "customer-sort",
+        label: `排序：${customerSortLabels[customerSort]}`,
+        clear: () => setCustomerSort("none"),
       });
     }
     return chips;
-  }, [filterOptions.buyerTypes, filterOptions.countries, filterOptions.products, filters, scoreSort, statusFilter, setScoreSort, setStatusFilter]);
+  }, [customerSort, filterOptions.buyerTypes, filterOptions.countries, filterOptions.owners, filterOptions.products, filters, showStatusFilters, statusFilter, setCustomerSort, setStatusFilter]);
   const activeFilterCount = activeFilterChips.length;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const next = rows.filter((item) => {
       const matchesQuery =
         !normalizedQuery ||
-        item.companyName.toLowerCase().includes(normalizedQuery) ||
-        item.products.join(" ").toLowerCase().includes(normalizedQuery) ||
-        item.products.map(productLabel).join(" ").toLowerCase().includes(normalizedQuery) ||
-        buyerTypeLabel(item.buyerType).toLowerCase().includes(normalizedQuery) ||
-        item.countryName.toLowerCase().includes(normalizedQuery);
-      const matchesStatus = statusFilter === "all" || item.screeningStatus === statusFilter;
+        item.companyName.toLowerCase().includes(normalizedQuery);
+      const matchesStatus = !showStatusFilters || statusFilter === "all" || item.screeningStatus === statusFilter;
+      const matchesOwner = filters.owners.length === 0 || (item.ownerUserId ? filters.owners.includes(item.ownerUserId) : false);
       const matchesCountry = filters.countries.length === 0 || filters.countries.includes(item.country);
       const matchesBuyerType = filters.buyerTypes.length === 0 || filters.buyerTypes.includes(canonicalBuyerType(item.buyerType));
       const itemProducts = item.products.map(canonicalProduct);
       const matchesProduct = filters.products.length === 0 || itemProducts.some((product) => filters.products.includes(product));
-      return matchesQuery && matchesStatus && matchesCountry && matchesBuyerType && matchesProduct;
+      return matchesQuery && matchesStatus && matchesOwner && matchesCountry && matchesBuyerType && matchesProduct;
     });
-    if (scoreSort === "score_desc") {
+    if (customerSort === "score_desc") {
       next.sort((a, b) => (b.normalizedScore ?? -1) - (a.normalizedScore ?? -1));
     }
-    if (scoreSort === "score_asc") {
+    if (customerSort === "score_asc") {
       next.sort((a, b) => (a.normalizedScore ?? 101) - (b.normalizedScore ?? 101));
     }
+    if (customerSort === "screening_desc") {
+      next.sort((a, b) => (parseCustomerDate(b.foundAt)?.getTime() ?? 0) - (parseCustomerDate(a.foundAt)?.getTime() ?? 0));
+    }
+    if (customerSort === "screening_asc") {
+      next.sort((a, b) => (parseCustomerDate(a.foundAt)?.getTime() ?? 0) - (parseCustomerDate(b.foundAt)?.getTime() ?? 0));
+    }
     return next;
-  }, [filters, query, rows, scoreSort, statusFilter]);
+  }, [customerSort, filters, query, rows, showStatusFilters, statusFilter]);
+  const customerPage = usePagedItems(filtered, 10);
+  const pagedCustomers = customerPage.items;
 
   const toggleProductsExpanded = (customerId: string) => {
     setExpandedProductRows((current) => {
@@ -624,15 +689,31 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-md border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
-        暂无客户记录。
-      </div>
+      <Card>
+        {title ? (
+          <CardHeader>
+            <CardTitle>{title}</CardTitle>
+            {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+          </CardHeader>
+        ) : null}
+        <CardContent>
+          <div className="rounded-md border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
+            暂无客户记录。
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
     <>
       <Card>
+        {title ? (
+          <CardHeader>
+            <CardTitle>{title}</CardTitle>
+            {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+          </CardHeader>
+        ) : null}
         <CardContent className="space-y-3 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
@@ -656,7 +737,7 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
                 筛选客户
                 {activeFilterCount > 0 ? `（${activeFilterCount}）` : ""}
               </Button>
-              {quickStatusFilters.map((status) => (
+              {showStatusFilters ? quickStatusFilters.map((status) => (
                 <Button
                   key={status}
                   variant={statusFilter === status ? "default" : "outline"}
@@ -665,18 +746,18 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
                 >
                   {status === "all" ? "全部" : statusLabels[status]}
                 </Button>
-              ))}
+              )) : null}
               <label className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2 text-sm text-muted-foreground">
                 <ArrowDownWideNarrow className="h-3.5 w-3.5" />
                 <select
-                  aria-label="评分排序"
-                  value={scoreSort}
-                  onChange={(event) => setScoreSort(event.target.value as AdminScoreSort)}
+                  aria-label="排序客户"
+                  value={customerSort}
+                  onChange={(event) => setCustomerSort(event.target.value as AdminCustomerSort)}
                   className="h-full bg-transparent text-sm font-medium text-foreground outline-none"
                 >
-                  {(["none", "score_desc", "score_asc"] as const).map((sort) => (
+                  {adminCustomerSortValues.map((sort) => (
                     <option key={sort} value={sort}>
-                      {scoreSortLabels[sort]}
+                      {customerSortLabels[sort]}
                     </option>
                   ))}
                 </select>
@@ -686,7 +767,19 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
 
           {filtersOpen ? (
             <div className="space-y-4 rounded-md border bg-muted/20 p-3">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
+                <AdminFilterGroup
+                  title="负责人"
+                  options={filterOptions.owners}
+                  selectedValues={filters.owners}
+                  emptyText="暂无负责人可筛选。"
+                  onToggle={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      owners: toggleFilterValue(current.owners, value),
+                    }))
+                  }
+                />
                 <AdminFilterGroup
                   title="国家"
                   options={filterOptions.countries}
@@ -747,7 +840,7 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
                   setQuery("");
                   setFilters(emptyAdminFilters);
                   setStatusFilter("all");
-                  setScoreSort("none");
+                  setCustomerSort("none");
                 }}
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -763,13 +856,14 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
             </div>
           ) : (
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[1040px] text-sm">
+              <table className="w-full min-w-[1160px] text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left">公司名称</th>
                     <th className="px-3 py-2 text-left">国家</th>
                     <th className="px-3 py-2 text-left">类型</th>
                     <th className="px-3 py-2 text-left">产品</th>
+                    <th className="px-3 py-2 text-left">负责人</th>
                     <th className="px-3 py-2 text-left">网站</th>
                     <th className="px-3 py-2 text-left">找到时间</th>
                     <th className="px-3 py-2 text-left">评分</th>
@@ -777,13 +871,20 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((item) => {
+                  {pagedCustomers.map((item) => {
                     const itemWorkflowBadge = workflowBadge(item);
                     return (
                       <tr
+                        id={`${storageKeyPrefix}-${item.customerId}`}
                         key={item.customerId}
                         data-customer-id={item.customerId}
-                        className={cn("border-t align-top transition-colors", rowClass(item))}
+                        className={cn(
+                          "border-t align-top transition-colors",
+                          rowClass(item),
+                          highlightedCustomerId === item.customerId
+                            ? "animate-pulse outline outline-2 -outline-offset-2 outline-sky-300"
+                            : "",
+                        )}
                       >
                         <td className="px-3 py-3">
                           <button type="button" className="text-left" onClick={() => setActiveCustomer(item)}>
@@ -814,6 +915,10 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
                           />
                         </td>
                         <td className="px-3 py-3">
+                          <div>{item.ownerName ?? "-"}</div>
+                          <div className="text-xs text-muted-foreground">{item.teamName ?? ""}</div>
+                        </td>
+                        <td className="px-3 py-3">
                           {item.website ? (
                             <a href={item.website} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary">
                               {item.website.replace(/^https?:\/\//, "")}
@@ -841,6 +946,12 @@ export function AdminCustomerListTable({ customers }: { customers: AdminCustomer
               </table>
             </div>
           )}
+          <ListPagination
+            page={customerPage.page}
+            totalItems={customerPage.totalItems}
+            pageSize={customerPage.pageSize}
+            onPageChange={customerPage.setPage}
+          />
         </CardContent>
       </Card>
       {activeCustomer ? (

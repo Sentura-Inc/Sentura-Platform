@@ -472,7 +472,13 @@ export class GatewayClient {
     if (label) params.label = label;
     const key = options?.key?.trim();
     if (key) params.key = key;
-    return this.rpc<SessionCreateResult>("sessions.create", params);
+    const result = await this.rpc<SessionCreateResult>("sessions.create", params);
+    const canonicalKey =
+      (typeof result.key === "string" && result.key.trim()) ||
+      (typeof result.sessionKey === "string" && result.sessionKey.trim()) ||
+      result.entry?.key?.trim() ||
+      "";
+    return { ...result, key: canonicalKey, sessionKey: canonicalKey || result.sessionKey };
   }
 
   async createChatSession(

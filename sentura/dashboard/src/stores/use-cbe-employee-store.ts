@@ -109,6 +109,18 @@ function trimTasks(tasks: CbeEmployeeTaskRecord[]) {
   return [...tasks].sort(taskSort);
 }
 
+function dedupeCustomerRows(rows: CustomerListItem[]) {
+  const byId = new Map<string, CustomerListItem>();
+  for (const row of rows) {
+    byId.set(row.customerId, { ...byId.get(row.customerId), ...row });
+  }
+  return Array.from(byId.values());
+}
+
+function isDatabaseBackedTask(task: CbeEmployeeTaskRecord) {
+  return task.id.startsWith("run_") || task.id.startsWith("cost_notice_");
+}
+
 function mergeTasksWithLocalDismissals(
   incomingTasks: CbeEmployeeTaskRecord[],
   currentTasks: CbeEmployeeTaskRecord[],
@@ -203,7 +215,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
       draftCache: {},
       setRows: (updater) =>
         set((state) => ({
-          rows: applyRowUpdater(state.rows, updater),
+          rows: dedupeCustomerRows(applyRowUpdater(state.rows, updater)),
         })),
       upsertRows: (updates) =>
         set((state) => ({
@@ -367,6 +379,15 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
             state.tasks.map((task) => {
               if (!isCbeEmployeeTaskActive(task) || now <= task.deadlineAt + STALE_GRACE_MS) {
                 return task;
+              }
+              if (isDatabaseBackedTask(task)) {
+                return {
+                  ...task,
+                  status: task.status === "queued" ? "running" : task.status,
+                  message: "后台仍在处理这个任务，系统会继续读取结果。若长时间无变化，请查看任务编号后重试。",
+                  deadlineAt: now + STALE_GRACE_MS,
+                  updatedAt: now,
+                };
               }
               return {
                 ...task,

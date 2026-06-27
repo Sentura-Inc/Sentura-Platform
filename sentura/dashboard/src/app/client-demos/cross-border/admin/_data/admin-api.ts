@@ -21,7 +21,9 @@ export interface AdminCustomerRow {
   domain: string | null;
   matchedProducts: string[];
   website: string | null;
+  leadStatus?: string | null;
   screeningStatus: string;
+  latestScreeningReportId?: string | null;
   normalizedScore: number | null;
   evidenceCoverage: number | null;
   recommendedAction: string | null;
@@ -102,6 +104,20 @@ export function createAdminOperator(input: {
   );
 }
 
+export function createAdminOperators(input: {
+  operators: Array<{
+    display_name: string;
+    password: string;
+    team_name?: string;
+    initial_limits: Array<{ period: string; limit_usd: number; enabled: boolean }>;
+  }>;
+}) {
+  return adminFetch<{ items: AdminOperatorRow[]; tokenDisplayPolicy?: string }>(
+    "/api/client-demos/cross-border/admin/operators",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
 export function updateAdminOperator(
   id: string,
   input: {
@@ -124,6 +140,13 @@ export function deleteAdminOperator(id: string) {
   );
 }
 
+export function deleteAdminOperators(userIds: string[]) {
+  return adminFetch<{ items: Array<{ operator: AdminOperatorRow }> }>(
+    "/api/client-demos/cross-border/admin/operators",
+    { method: "DELETE", body: JSON.stringify({ user_ids: userIds }) },
+  );
+}
+
 export function fetchAdminOperator(id: string) {
   return adminFetch<{
     profile: AdminOperatorRow | null;
@@ -135,6 +158,21 @@ export function fetchAdminOperator(id: string) {
 
 export function fetchHighValueCustomers() {
   return adminFetch<{ items: AdminCustomerRow[] }>("/api/client-demos/cross-border/admin/high-value-customers?limit=100&range=all");
+}
+
+export async function fetchAllAdminCustomers() {
+  const allItems: AdminCustomerRow[] = [];
+  let offset = 0;
+  const limit = 100;
+  for (let page = 0; page < 20; page += 1) {
+    const result = await adminFetch<{ items: AdminCustomerRow[]; limit: number; offset: number }>(
+      `/api/client-demos/cross-border/admin/customers?limit=${limit}&offset=${offset}&range=all`,
+    );
+    allItems.push(...result.items);
+    if (result.items.length < limit) break;
+    offset += limit;
+  }
+  return { items: allItems };
 }
 
 export function fetchAdminCosts(range: string) {

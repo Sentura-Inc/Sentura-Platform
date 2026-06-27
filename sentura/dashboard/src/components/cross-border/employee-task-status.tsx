@@ -31,7 +31,7 @@ const statusLabels: Record<CbeEmployeeTaskRecord["status"], string> = {
 function taskIcon(task: CbeEmployeeTaskRecord) {
   if (task.status === "completed") return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
   if (task.status === "failed") return <AlertTriangle className="h-4 w-4 text-rose-600" />;
-  if (task.status === "cancelled") return <X className="h-4 w-4 text-slate-600" />;
+  if (task.status === "cancelled") return <X className="h-4 w-4 text-[var(--sentura-muted)]" />;
   if (task.status === "queued") return <Clock3 className="h-4 w-4 text-sky-700" />;
   return <Loader2 className="h-4 w-4 animate-spin text-sky-700" />;
 }
@@ -39,7 +39,7 @@ function taskIcon(task: CbeEmployeeTaskRecord) {
 function taskTone(task: CbeEmployeeTaskRecord) {
   if (task.status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (task.status === "failed") return "border-rose-200 bg-rose-50 text-rose-950";
-  if (task.status === "cancelled") return "border-slate-200 bg-slate-50 text-slate-900";
+  if (task.status === "cancelled") return "border-[var(--sentura-border-strong)] bg-[var(--sentura-surface-2)] text-[var(--sentura-ink)]";
   return "border-sky-200 bg-sky-50 text-sky-950";
 }
 
@@ -73,13 +73,8 @@ export function EmployeeTaskStatusBar() {
   const [now, setNow] = useState(() => Date.now());
 
   const closeTaskStatus = (task: CbeEmployeeTaskRecord) => {
-    const taskIds = isCbeEmployeeTaskActive(task)
-      ? [task.id]
-      : tasks.filter((item) => !isCbeEmployeeTaskActive(item)).map((item) => item.id);
-    for (const taskId of taskIds) {
-      dismissTask(taskId);
-      void dismissEmployeeTaskInDb(taskId).catch(() => undefined);
-    }
+    dismissTask(task.id);
+    void dismissEmployeeTaskInDb(task.id).catch(() => undefined);
   };
 
   const cancelTaskStatus = (task: CbeEmployeeTaskRecord) => {
@@ -113,7 +108,7 @@ export function EmployeeTaskStatusBar() {
   }
 
   return (
-    <div className="border-b bg-background">
+    <div className="border-b border-[var(--sentura-border)] bg-white/58 backdrop-blur">
       <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-4 py-3 lg:px-6">
         {visibleTasks.length > 1 ? (
           <div className="text-xs font-medium text-muted-foreground">
@@ -202,7 +197,7 @@ export function EmployeeTaskStatusBar() {
                     visibleTask.status === "failed"
                       ? "bg-rose-500"
                       : visibleTask.status === "cancelled"
-                        ? "bg-slate-500"
+                        ? "bg-[var(--sentura-muted)]"
                       : visibleTask.status === "completed"
                         ? "bg-emerald-500"
                         : "bg-sky-500",

@@ -2,11 +2,19 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, ExternalLink, MapPin, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, ExternalLink, MapPin, ShieldCheck, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { buyerTypeLabel, productLabel } from "@/components/cross-border/customer-labels";
+import {
+  businessStatusText,
+  publicSourceUrl,
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+  sourceTypeText,
+} from "@/components/cross-border/screening-report-copy";
 import type {
   CustomerEvidenceItem,
   CustomerListItem,
@@ -18,6 +26,7 @@ import type {
   CustomerAddressFootprint,
   ScreeningEvidenceLayer,
 } from "@/app/client-demos/cross-border/employee/_data/employee-data";
+import { exportCustomerReportDocument } from "@/components/cross-border/document-export";
 
 const statusLabels: Record<CustomerListItem["screeningStatus"], string> = {
   not_started: "未背调",
@@ -35,7 +44,7 @@ const riskTierLabels: Record<string, string> = {
 };
 
 const scoreBlockLabels: Record<string, string> = {
-  legal_identity: "公司注册信息",
+  legal_identity: "公司注册与线下门店/地址",
   domain_email: "官网和邮箱",
   google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
@@ -120,8 +129,8 @@ function statusBadgeClass(item: CustomerListItem) {
   if (item.scoreTier === "high") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (item.scoreTier === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
   if (item.scoreTier === "low") return "border-rose-200 bg-rose-50 text-rose-800";
-  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
-  return "border-slate-200 bg-white text-slate-700";
+  if (item.screeningStatus === "insufficient_evidence") return "border-[var(--sentura-border-strong)] bg-[var(--sentura-surface-2)] text-[var(--sentura-muted)]";
+  return "border-[var(--sentura-border-strong)] bg-white/72 text-[var(--sentura-muted)]";
 }
 
 function scoreLabel(item: CustomerListItem) {
@@ -142,15 +151,7 @@ function percentLabel(value: number | undefined) {
 }
 
 function sourceTypeLabel(value?: string) {
-  if (!value) return null;
-  const normalized = value.toLowerCase();
-  if (normalized.includes("registry")) return "官方注册资料";
-  if (normalized.includes("dns") || normalized.includes("rdap") || normalized.includes("domain")) return "官网和邮箱资料";
-  if (normalized.includes("web")) return "公开网页";
-  if (normalized.includes("map") || normalized.includes("place")) return "公开地址资料";
-  if (normalized.includes("trade") || normalized.includes("custom")) return "贸易资料";
-  if (normalized.includes("financial") || normalized.includes("filing")) return "财务公开资料";
-  return "公开资料";
+  return sourceTypeText(value) ?? "公开资料";
 }
 
 function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
@@ -161,35 +162,7 @@ function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
 }
 
 function simplifyDisplayText(value: string | null | undefined) {
-  if (!value) return value ?? undefined;
-  return value
-    .replace(/外部可追溯证据 URL/g, "可核验来源")
-    .replace(/可追溯证据 URL/g, "可核验来源")
-    .replace(/来源 URL/g, "来源链接")
-    .replace(/证据 URL/g, "核验来源")
-    .replace(/工具返回 URL/g, "工具返回的来源链接")
-    .replace(/\brdap\b/gi, "域名登记信息")
-    .replace(/\bdns\b/gi, "域名解析")
-    .replace(/\bjson\b/gi, "结构化结果")
-    .replace(/\bsec\b/gi, "财务公开信息")
-    .replace(/\bkyb\b/gi, "企业核验")
-    .replace(/\bapi_error\b/gi, "查询失败")
-    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
-    .replace(/\bAPI\b/gi, "工具查询")
-    .replace(/\bHTTP 401\b/gi, "查询权限错误")
-    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
-    .replace(/\bMX\b/gi, "收信设置")
-    .replace(/\bSPF\b/gi, "发信设置")
-    .replace(/\bDMARC\b/gi, "邮件安全设置")
-    .replace(/\bendpoint\b/gi, "查询入口")
-    .replace(/\bprovider\b/gi, "工具")
-    .replace(/\bobjectClassName\b/g, "对象类型")
-    .replace(/\bself link\b/gi, "来源链接")
-    .replace(/\blookup\b/gi, "查询")
-    .replace(/\bredirected\b/gi, "跳转")
-    .replace(/\breturned\b/gi, "返回")
-    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
-    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+  return simplifyScreeningReportText(value);
 }
 
 function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
@@ -231,9 +204,9 @@ function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
 
 function scoreSegmentClass(block: CustomerScoreBlock) {
   if (block.status === "scored") return "bg-emerald-500";
-  if (block.status === "not_applicable") return "bg-slate-300";
+  if (block.status === "not_applicable") return "bg-[var(--sentura-border-strong)]";
   if (block.status === "disabled_by_budget") return "bg-amber-400";
-  if (block.status === "unavailable_api") return "bg-zinc-400";
+  if (block.status === "unavailable_api") return "bg-[var(--sentura-muted)]";
   return "bg-sky-300";
 }
 
@@ -241,7 +214,7 @@ function statusText(status: CustomerScoreBlock["status"]) {
   const labels: Record<CustomerScoreBlock["status"], string> = {
     scored: "已评分",
     not_applicable: "不适用",
-    unavailable_api: "暂不可用",
+    unavailable_api: "未找到资料",
     disabled_by_budget: "未开启",
     pending_human_input: "待补充",
   };
@@ -257,29 +230,31 @@ const scaleClassLabels: Record<CompanyScaleAssessment["scaleClass"], string> = {
 };
 
 const firstBlockStrategyLabels: Record<CompanyScaleAssessment["firstBlockStrategy"], string> = {
-  registry_disclosure_primary_maps_support: "注册/披露为主，Maps 地址辅助",
-  maps_physical_address_primary: "Maps 物理地址和营业状态为主",
+  registry_disclosure_primary_maps_support: "注册/披露为主，Google Maps（谷歌地图）地址辅助",
+  maps_physical_address_primary: "Google Maps（谷歌地图）物理地址和营业状态为主",
   domain_public_source_primary: "官网/公开来源为主",
-  try_registry_and_maps: "注册与 Maps 双路径待确认",
+  try_registry_and_maps: "注册与 Google Maps（谷歌地图）双路径待确认",
 };
 
 function CompanyScalePanel({ assessment }: { assessment?: CompanyScaleAssessment }) {
   if (!assessment) return null;
   return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="mt-2 rounded-md border border-[var(--sentura-border)] bg-[var(--sentura-surface-2)]/70 px-3 py-2">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-slate-800">公司规模评估</span>
-        <Badge variant="outline" className="bg-white text-slate-700">
+        <span className="text-xs font-semibold text-[var(--sentura-ink)]">公司规模评估</span>
+        <Badge variant="outline" className="bg-white/72 text-[var(--sentura-muted)]">
           {scaleClassLabels[assessment.scaleClass]}
         </Badge>
-        <Badge variant="outline" className="bg-white text-slate-700">
+        <Badge variant="outline" className="bg-white/72 text-[var(--sentura-muted)]">
           {firstBlockStrategyLabels[assessment.firstBlockStrategy]}
         </Badge>
         {typeof assessment.confidence === "number" ? (
           <span className="text-xs text-muted-foreground">置信度 {Math.round(assessment.confidence * 100)}%</span>
         ) : null}
       </div>
-      <p className="text-xs leading-5 text-muted-foreground">{assessment.rationale}</p>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {simplifyDisplayText(assessment.rationale) ?? "公司规模仍需结合来源网址复核。"}
+      </p>
     </div>
   );
 }
@@ -290,7 +265,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (
       <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-        本次报告暂未返回评分来源。
+        本次报告暂未提供评分来源。
       </div>
     );
   }
@@ -342,7 +317,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
                 )}
               </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {simplifyDisplayText(block.summary ?? block.reason) ?? "这一项暂无说明。"}
+                {screeningScoreBlockText(block)}
               </div>
             </div>
           );
@@ -365,24 +340,32 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
               {scoreImpactLabel(item.scoreImpact)}
             </Badge>
             {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
-            {item.costPosture ? <span className="text-xs text-muted-foreground">{item.costPosture}</span> : null}
           </div>
-          <div className="mt-2 leading-6">{simplifyDisplayText(item.finding) ?? "暂无核验说明。"}</div>
-          {item.sourceUrl.startsWith("http") ? (
+          <div className="mt-2 leading-6">
+            {screeningEvidenceFindingText({
+              layer: item.layer,
+              sourceType: item.sourceType,
+              scoreBlock: item.scoreBlock,
+              scoreImpact: item.scoreImpact,
+              confidence: item.confidence,
+              finding: item.finding,
+              sourceUrl: item.sourceUrl,
+            })}
+          </div>
+          {publicSourceUrl(item.sourceUrl) ? (
             <a
               href={item.sourceUrl}
               target="_blank"
               rel="noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
             >
-              查看来源
+              来源网址
               <ExternalLink className="h-3 w-3" />
             </a>
           ) : null}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>来源分类 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+            {item.scoreBlock ? <span>对应信息：{scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
             {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
-            {item.fetchedAt ? <span>{item.fetchedAt}</span> : null}
           </div>
         </div>
       ))}
@@ -444,7 +427,7 @@ function addressFootprintStatusText(status: CustomerAddressFootprint["coverageSt
     found: "已发现",
     partial: "部分发现",
     not_found: "未发现",
-    unavailable_api: "暂不可用",
+    unavailable_api: "未找到地址",
     not_checked: "未查询",
   };
   return labels[status];
@@ -454,7 +437,7 @@ function relationshipClass(status: AddressFootprintRelationshipStatus) {
   if (status === "confirmed_company_location") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "probable_company_location") return "border-sky-200 bg-sky-50 text-sky-800";
   if (status === "possible_related_location") return "border-amber-200 bg-amber-50 text-amber-800";
-  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+  return "border-[var(--sentura-border-strong)] bg-[var(--sentura-surface-2)] text-[var(--sentura-muted)]";
 }
 
 function addressValidationText(location: CustomerAddressFootprint["locations"][number]) {
@@ -462,8 +445,8 @@ function addressValidationText(location: CustomerAddressFootprint["locations"][n
   if (!validation?.status && typeof validation?.addressComplete !== "boolean") return "未验证";
   const complete = typeof validation.addressComplete === "boolean"
     ? validation.addressComplete ? "完整" : "不完整"
-    : "完整性未返回";
-  return [validation.status, complete, validation.possibleNextAction].filter(Boolean).join(" / ");
+    : "完整性待确认";
+  return [simplifyDisplayText(validation.status), complete, simplifyDisplayText(validation.possibleNextAction)].filter(Boolean).join(" / ");
 }
 
 function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootprint }) {
@@ -490,7 +473,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
     },
   ];
   const rejectedCount = footprint.locations.filter((item) => item.relationshipStatus === "rejected_unrelated_location").length;
-  const cappedNote = footprint.searchScope.capped ? "搜索已触发上限" : "搜索未触发上限";
+  const cappedNote = footprint.searchScope.capped ? "已按结果上限整理" : "已整理公开地址结果";
 
   return (
     <section className="rounded-md border-2 border-sky-200 bg-sky-50/50 p-3">
@@ -498,7 +481,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-sky-950">
             <MapPin className="h-4 w-4 text-sky-700" />
-            <span>{footprint.sectionTitle || "线下地址线索"}</span>
+            <span>{simplifyDisplayText(footprint.sectionTitle) || "Google Maps（谷歌地图）地址线索"}</span>
           </div>
           <p className="mt-1 text-xs leading-5 text-sky-900/75">
             展示公开地址线索，用来辅助判断客户是否有实际经营地点；公司注册结论仍以注册信息为准。
@@ -534,7 +517,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
       {footprint.searchScope.limitations.length || footprint.openQuestions.length ? (
         <div className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs leading-5 text-sky-950">
           {[...footprint.searchScope.limitations, ...footprint.openQuestions].map((item, index) => (
-            <div key={`${item}-${index}`}>{item}</div>
+            <div key={`${item}-${index}`}>{simplifyDisplayText(item) ?? item}</div>
           ))}
         </div>
       ) : null}
@@ -553,28 +536,28 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
                 {group.locations.map((location, index) => (
                   <div key={`${location.googlePlaceId ?? location.googleMapsUri ?? location.formattedAddress}-${index}`} className="px-3 py-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="min-w-0 break-words text-sm font-medium text-slate-950">{location.displayName}</span>
+                      <span className="min-w-0 break-words text-sm font-medium text-[var(--sentura-ink)]">{location.displayName}</span>
                       <Badge variant="outline" className={relationshipClass(location.relationshipStatus)}>
                         {relationshipLabels[location.relationshipStatus]}
                       </Badge>
                       <Badge variant="secondary">{addressTypeLabels[location.addressType]}</Badge>
-                      {location.businessStatus ? <Badge variant="outline">{location.businessStatus}</Badge> : null}
+                      {location.businessStatus ? <Badge variant="outline">{businessStatusText(location.businessStatus)}</Badge> : null}
                     </div>
-                    <div className="mt-2 text-sm leading-6 text-slate-800">{location.formattedAddress}</div>
+                    <div className="mt-2 text-sm leading-6 text-[var(--sentura-text)]">{location.formattedAddress}</div>
                     <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
                       <div>地址验证：{addressValidationText(location)}</div>
                       <div>
                         匹配度：
-                        {typeof location.matchConfidence === "number" ? `${Math.round(location.matchConfidence * 100)}%` : "未返回"}
+                        {typeof location.matchConfidence === "number" ? `${Math.round(location.matchConfidence * 100)}%` : "待确认"}
                       </div>
-                      <div>官网匹配：{typeof location.domainMatch === "boolean" ? (location.domainMatch ? "是" : "否") : location.domainMatch ?? "未检查"}</div>
-                      <div>电话匹配：{typeof location.phoneMatch === "boolean" ? (location.phoneMatch ? "是" : "否") : location.phoneMatch ?? "未检查"}</div>
+                      <div>官网匹配：{typeof location.domainMatch === "boolean" ? (location.domainMatch ? "是" : "否") : "待确认"}</div>
+                      <div>电话匹配：{typeof location.phoneMatch === "boolean" ? (location.phoneMatch ? "是" : "否") : "待确认"}</div>
                     </div>
                     {location.matchReasons.length ? (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {location.matchReasons.map((reason) => (
-                          <Badge key={reason} variant="outline" className="bg-slate-50 text-[11px]">
-                            {reason}
+                          <Badge key={reason} variant="outline" className="bg-white/72 text-[11px]">
+                            {simplifyDisplayText(reason) ?? reason}
                           </Badge>
                         ))}
                       </div>
@@ -586,7 +569,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
                         rel="noreferrer"
                         className="mt-2 inline-flex items-center gap-1 break-all text-xs font-medium text-primary hover:underline"
                       >
-                        打开 Google Maps
+                        来源网址（Google Maps / 谷歌地图）
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : null}
@@ -599,14 +582,9 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
       </div>
 
       {footprint.searchScope.queriesRun.length ? (
-        <details className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-sky-900">查看查询范围</summary>
-          <div className="mt-2 space-y-1">
-            {footprint.searchScope.queriesRun.map((query) => (
-              <div key={query} className="break-words font-mono">{query}</div>
-            ))}
-          </div>
-        </details>
+        <div className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900">
+          已围绕公司名称、官网、国家/城市和公开地址线索做过核验；具体检索语句不在普通报告中展示。
+        </div>
       ) : null}
     </section>
   );
@@ -666,9 +644,29 @@ export function CustomerReportDialog({
                 {customer.countryName} · {buyerTypeLabel(customer.buyerType)}
               </p>
             </div>
-            <Button variant="ghost" size="icon" aria-label="关闭报告详情" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => exportCustomerReportDocument(customer, "docx")}
+              >
+                <Download className="h-3.5 w-3.5" />
+                DOCX
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => exportCustomerReportDocument(customer, "pdf")}
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </Button>
+              <Button variant="ghost" size="icon" aria-label="关闭报告详情" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -766,9 +764,9 @@ export function CustomerReportDialog({
                           <Badge variant="outline" className="mr-2 align-middle text-[11px]">
                             {scoreBlockLabels[gap.block] ?? gap.block}
                           </Badge>
-                          <span>{gap.reason}</span>
+                          <span>{simplifyDisplayText(gap.reason) ?? gap.reason}</span>
                         </div>
-                        {gap.action ? <div className="text-xs text-muted-foreground">{gap.action}</div> : null}
+                        {gap.action ? <div className="text-xs text-muted-foreground">{simplifyDisplayText(gap.action) ?? gap.action}</div> : null}
                       </div>
                     ))}
                   </div>

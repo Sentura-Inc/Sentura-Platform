@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
+import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
@@ -47,6 +48,13 @@ import {
   canonicalProduct,
   productLabel,
 } from "@/components/cross-border/customer-labels";
+import {
+  publicSourceUrl,
+  screeningEvidenceFindingText,
+  screeningScoreBlockText,
+  simplifyScreeningReportText,
+  sourceTypeText,
+} from "@/components/cross-border/screening-report-copy";
 import {
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
@@ -202,7 +210,7 @@ const riskTierLabels: Record<string, string> = {
 };
 
 const scoreBlockLabels: Record<string, string> = {
-  legal_identity: "公司注册信息",
+  legal_identity: "公司注册与线下门店/地址",
   domain_email: "官网和邮箱",
   google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
@@ -355,14 +363,14 @@ function highlightFrameClass(active: boolean) {
 function rowClass(item: CustomerListItem, isHighlighted = false) {
   if (isHighlighted) return cn("bg-sky-50/60", highlightFrameClass(true));
   if (item.screeningStatus === "running") return "bg-sky-50/35";
-  if (item.screeningStatus === "not_started") return "bg-sky-50/10";
+  if (item.screeningStatus === "not_started") return "bg-[var(--sentura-ice)]/20";
   if (item.screeningStatus === "failed") return "bg-rose-50/35";
   if (item.scoreTier === "high") return "bg-emerald-50/35";
   if (item.scoreTier === "medium") return "bg-amber-50/35";
   if (item.scoreTier === "low") return "bg-rose-50/35";
-  if (item.screeningStatus === "insufficient_evidence") return "bg-zinc-50/60";
+  if (item.screeningStatus === "insufficient_evidence") return "bg-[var(--sentura-surface-2)]/60";
   if (item.screeningStatus === "screened") return "bg-emerald-50/20";
-  return "bg-background";
+  return "bg-white/45";
 }
 
 function workflowBadge(item: CustomerListItem) {
@@ -390,8 +398,8 @@ function statusBadgeClass(item: CustomerListItem) {
   if (item.scoreTier === "high") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (item.scoreTier === "medium") return "border-amber-200 bg-amber-50 text-amber-800";
   if (item.scoreTier === "low") return "border-rose-200 bg-rose-50 text-rose-800";
-  if (item.screeningStatus === "insufficient_evidence") return "border-zinc-200 bg-zinc-50 text-zinc-800";
-  return "border-slate-200 bg-white text-slate-700";
+  if (item.screeningStatus === "insufficient_evidence") return "border-[var(--sentura-border-strong)] bg-[var(--sentura-surface-2)] text-[var(--sentura-muted)]";
+  return "border-[var(--sentura-border-strong)] bg-white/72 text-[var(--sentura-muted)]";
 }
 
 function scoreLabel(item: CustomerListItem) {
@@ -420,8 +428,8 @@ function CustomerProductBadges({
 
   return (
     <div className="flex flex-wrap gap-1">
-      {visibleProducts.map((product) => (
-        <Badge key={product} variant="secondary">
+      {visibleProducts.map((product, index) => (
+        <Badge key={`${canonicalProduct(product) || product}-${index}`} variant="secondary">
           {productLabel(product)}
         </Badge>
       ))}
@@ -527,15 +535,7 @@ function percentLabel(value: number | undefined) {
 }
 
 function sourceTypeLabel(value?: string) {
-  if (!value) return null;
-  const normalized = value.toLowerCase();
-  if (normalized.includes("registry")) return "官方注册资料";
-  if (normalized.includes("dns") || normalized.includes("rdap") || normalized.includes("domain")) return "官网和邮箱资料";
-  if (normalized.includes("web")) return "公开网页";
-  if (normalized.includes("map") || normalized.includes("place")) return "公开地址资料";
-  if (normalized.includes("trade") || normalized.includes("custom")) return "贸易资料";
-  if (normalized.includes("financial") || normalized.includes("filing")) return "财务公开资料";
-  return "公开资料";
+  return sourceTypeText(value) ?? "公开资料";
 }
 
 function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
@@ -546,35 +546,7 @@ function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
 }
 
 function simplifyDisplayText(value: string | null | undefined) {
-  if (!value) return value ?? undefined;
-  return value
-    .replace(/外部可追溯证据 URL/g, "可核验来源")
-    .replace(/可追溯证据 URL/g, "可核验来源")
-    .replace(/来源 URL/g, "来源链接")
-    .replace(/证据 URL/g, "核验来源")
-    .replace(/工具返回 URL/g, "工具返回的来源链接")
-    .replace(/\brdap\b/gi, "域名登记信息")
-    .replace(/\bdns\b/gi, "域名解析")
-    .replace(/\bjson\b/gi, "结构化结果")
-    .replace(/\bsec\b/gi, "财务公开信息")
-    .replace(/\bkyb\b/gi, "企业核验")
-    .replace(/\bapi_error\b/gi, "查询失败")
-    .replace(/\bAPI authorization failure\b/gi, "工具权限异常")
-    .replace(/\bAPI\b/gi, "工具查询")
-    .replace(/\bHTTP 401\b/gi, "查询权限错误")
-    .replace(/\bHTTP \d{3}\b/gi, "查询返回")
-    .replace(/\bMX\b/gi, "收信设置")
-    .replace(/\bSPF\b/gi, "发信设置")
-    .replace(/\bDMARC\b/gi, "邮件安全设置")
-    .replace(/\bendpoint\b/gi, "查询入口")
-    .replace(/\bprovider\b/gi, "工具")
-    .replace(/\bobjectClassName\b/g, "对象类型")
-    .replace(/\bself link\b/gi, "来源链接")
-    .replace(/\blookup\b/gi, "查询")
-    .replace(/\bredirected\b/gi, "跳转")
-    .replace(/\breturned\b/gi, "返回")
-    .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
-    .replace(/\bundeliverable\b/gi, "邮箱不可达");
+  return simplifyScreeningReportText(value);
 }
 
 function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
@@ -1071,6 +1043,8 @@ function CrossBorderCustomersPageContent() {
   const canRunScreening = state === "connected" && !!screeningAgent;
   const checkingLeadAgent = state === "connected" && leadLoading;
   const activeFilterCount = activeFilterChips.length;
+  const customerPage = usePagedItems(filtered, 10);
+  const pagedCustomers = customerPage.items;
   const latestLeadFailure = useMemo(
     () =>
       tasks
@@ -1806,20 +1780,20 @@ function CrossBorderCustomersPageContent() {
           ) : (
             <>
               <div className="grid gap-3 lg:hidden">
-                {filtered.map((item) => {
+                {pagedCustomers.map((item) => {
                   const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
                   const requiresMemoryRefresh = needsChatRecordSupplement(item);
                   return (
                     <CustomerMobileCard
                       key={item.customerId}
-	                      item={item}
-	                      selected={selectedIds.includes(item.customerId)}
-	                      isNewlyAdded={isNewlyAdded}
-	                      toggleSelected={toggleSelected}
-	                      openDetail={openDetail}
-	                      clearHighlight={clearCustomerHighlight}
-                        openMemoryRefresh={requiresMemoryRefresh ? () => openMemoryRefresh(item) : undefined}
-	                      startScreening={() => {
+                      item={item}
+                      selected={selectedIds.includes(item.customerId)}
+                      isNewlyAdded={isNewlyAdded}
+                      toggleSelected={toggleSelected}
+                      openDetail={openDetail}
+                      clearHighlight={clearCustomerHighlight}
+                      openMemoryRefresh={requiresMemoryRefresh ? () => openMemoryRefresh(item) : undefined}
+                      startScreening={() => {
                         setSelectedIds([item.customerId]);
                         setSheetMode("bulk");
                       }}
@@ -1846,17 +1820,17 @@ function CrossBorderCustomersPageContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((item) => {
+                    {pagedCustomers.map((item) => {
                       const itemWorkflowBadge = workflowBadge(item);
                       const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
                       const requiresMemoryRefresh = needsChatRecordSupplement(item);
                       return (
-	                      <tr
-	                        key={item.customerId}
-	                        data-customer-id={item.customerId}
-	                        onMouseDown={() => clearCustomerHighlight(item.customerId)}
-	                        className={cn("border-t align-top transition-colors", rowClass(item, isNewlyAdded))}
-	                      >
+                      <tr
+                        key={item.customerId}
+                        data-customer-id={item.customerId}
+                        onMouseDown={() => clearCustomerHighlight(item.customerId)}
+                        className={cn("border-t align-top transition-colors", rowClass(item, isNewlyAdded))}
+                      >
                         <td className="px-3 py-3">
                           <input
                             type="checkbox"
@@ -1935,6 +1909,12 @@ function CrossBorderCustomersPageContent() {
                   </tbody>
                 </table>
               </div>
+              <ListPagination
+                page={customerPage.page}
+                totalItems={customerPage.totalItems}
+                pageSize={customerPage.pageSize}
+                onPageChange={customerPage.setPage}
+              />
             </>
           )}
         </CardContent>
@@ -2070,9 +2050,9 @@ function CustomerMobileCard({
 
 function scoreSegmentClass(block: CustomerScoreBlock) {
   if (block.status === "scored") return "bg-emerald-500";
-  if (block.status === "not_applicable") return "bg-slate-300";
+  if (block.status === "not_applicable") return "bg-[var(--sentura-border-strong)]";
   if (block.status === "disabled_by_budget") return "bg-amber-400";
-  if (block.status === "unavailable_api") return "bg-zinc-400";
+  if (block.status === "unavailable_api") return "bg-[var(--sentura-muted)]";
   return "bg-sky-300";
 }
 
@@ -2080,7 +2060,7 @@ function statusText(status: CustomerScoreBlock["status"]) {
   const labels: Record<CustomerScoreBlock["status"], string> = {
     scored: "已评分",
     not_applicable: "不适用",
-    unavailable_api: "暂不可用",
+    unavailable_api: "未找到资料",
     disabled_by_budget: "未开启",
     pending_human_input: "待补充",
   };
@@ -2093,7 +2073,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (
       <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-        本次报告暂未返回评分来源。
+        本次报告暂未提供评分来源。
       </div>
     );
   }
@@ -2145,7 +2125,7 @@ function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
                 )}
               </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {simplifyDisplayText(block.summary ?? block.reason) ?? "这一项暂无说明。"}
+                {screeningScoreBlockText(block)}
               </div>
             </div>
           );
@@ -2168,24 +2148,32 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
               {scoreImpactLabel(item.scoreImpact)}
             </Badge>
             {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
-            {item.costPosture ? <span className="text-xs text-muted-foreground">{item.costPosture}</span> : null}
           </div>
-          <div className="mt-2 leading-6">{simplifyDisplayText(item.finding) ?? "暂无核验说明。"}</div>
-          {item.sourceUrl.startsWith("http") ? (
+          <div className="mt-2 leading-6">
+            {screeningEvidenceFindingText({
+              layer: item.layer,
+              sourceType: item.sourceType,
+              scoreBlock: item.scoreBlock,
+              scoreImpact: item.scoreImpact,
+              confidence: item.confidence,
+              finding: item.finding,
+              sourceUrl: item.sourceUrl,
+            })}
+          </div>
+          {publicSourceUrl(item.sourceUrl) ? (
             <a
               href={item.sourceUrl}
               target="_blank"
               rel="noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
             >
-              查看来源
+              来源网址
               <ExternalLink className="h-3 w-3" />
             </a>
           ) : null}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>来源分类 {scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+            {item.scoreBlock ? <span>对应信息：{scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
             {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
-            {item.fetchedAt ? <span>{item.fetchedAt}</span> : null}
           </div>
         </div>
       ))}

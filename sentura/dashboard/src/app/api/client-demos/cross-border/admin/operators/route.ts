@@ -1,12 +1,16 @@
 import {
   cbeJson,
   cbeRouteError,
+  AdminBatchCreateOperatorsRequestSchema,
+  AdminBatchDeleteOperatorsRequestSchema,
   AdminCreateOperatorRequestSchema,
   listAdminOperators,
   parseJsonRequest,
   requireCbeAdmin,
   resolveCbeTenantContext,
+  deleteAdminOperator,
   upsertAdminOperatorProfile,
+  upsertAdminOperatorProfiles,
 } from "@/lib/cross-border-store";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +44,26 @@ export async function POST(request: Request) {
   try {
     const context = await resolveCbeTenantContext(request);
     requireCbeAdmin(context);
-    const body = await parseJsonRequest(request, AdminCreateOperatorRequestSchema);
+    const body = await parseJsonRequest(
+      request,
+      AdminCreateOperatorRequestSchema.or(AdminBatchCreateOperatorsRequestSchema),
+    );
+    if ("operators" in body) {
+      const operators = body.operators.map((operator) => {
+        const platformUser = createLocalOperatorIdentity(operator);
+        return {
+          ...operator,
+          user_id: platformUser.id,
+          email: platformUser.email ?? operator.email,
+          platform_role: platformUser.role ?? "end_user",
+        };
+      });
+      const created = await upsertAdminOperatorProfiles(context, operators);
+      return cbeJson({
+        items: created,
+        tokenDisplayPolicy: "password_only",
+      }, 201);
+    }
     const platformUser = createLocalOperatorIdentity(body);
     const operator = await upsertAdminOperatorProfile(context, {
       ...body,
@@ -52,6 +75,22 @@ export async function POST(request: Request) {
       operator,
       tokenDisplayPolicy: "password_only",
     }, 201);
+  } catch (error) {
+    return cbeRouteError(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const context = await resolveCbeTenantContext(request);
+    requireCbeAdmin(context);
+    const body = await parseJsonRequest(request, AdminBatchDeleteOperatorsRequestSchema);
+    const userIds = Array.from(new Set(body.user_ids.map((id) => id.trim()).filter(Boolean)));
+    const deleted = [];
+    for (const userId of userIds) {
+      deleted.push(await deleteAdminOperator(context, userId));
+    }
+    return cbeJson({ items: deleted });
   } catch (error) {
     return cbeRouteError(error);
   }

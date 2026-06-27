@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, DollarSign, RefreshCw, WalletCards } from "lucide-react";
+import { AlertTriangle, DollarSign, Download, RefreshCw, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +21,10 @@ import {
   fetchEmployeeTasks,
   type EmployeeCostBudgetSnapshot,
 } from "@/app/client-demos/cross-border/employee/_data/employee-api";
+import {
+  exportEmployeeCostDocument,
+  type ExportFormat,
+} from "@/components/cross-border/document-export";
 
 interface EmployeeCostSnapshot {
   spendUsd: number;
@@ -334,6 +338,29 @@ export function EmployeeCostMini() {
     await refresh();
   }, [flashDetails, refresh]);
 
+  const exportDetails = useCallback((format: ExportFormat) => {
+    exportEmployeeCostDocument({
+      spendUsd: snapshot.spendUsd,
+      totalTokens: snapshot.totalTokens,
+      totalCalls: snapshot.totalCalls,
+      unpricedCalls: snapshot.unpricedCalls,
+      events: snapshot.events,
+      sourceBreakdown: snapshot.sourceBreakdown,
+      scopedSessionCount: snapshot.scopedSessionCount,
+      outsideScopeCount: snapshot.outsideScopeCount,
+      costBudget: {
+        period: costBudget.period,
+        baseLimitUsd: costBudget.baseLimitUsd,
+        activeAllowanceUsd: costBudget.activeAllowanceUsd,
+        limitUsd: costBudget.limitUsd,
+        limitEnabled: costBudget.limitEnabled,
+        remainingUsd: costBudget.remainingUsd,
+        source: costBudget.source,
+        updatedAt: costBudget.updatedAt,
+      },
+    }, format);
+  }, [costBudget, snapshot]);
+
   useEffect(() => {
     return () => {
       if (detailsFlashTimerRef.current !== null) {
@@ -390,6 +417,16 @@ export function EmployeeCostMini() {
             <DialogDescription>
               逐条展示本月已记录的智能处理和外部资料查询费用；已折算美元的计入已用，免费或暂未折算的项目会单独标明。
             </DialogDescription>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => exportDetails("docx")}>
+                <Download className="h-3.5 w-3.5" />
+                导出 DOCX
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => exportDetails("pdf")}>
+                <Download className="h-3.5 w-3.5" />
+                导出 PDF
+              </Button>
+            </div>
             <details className="mt-2 text-xs text-muted-foreground">
               <summary className="cursor-pointer">查看技术详情</summary>
               <p className="mt-1">
