@@ -1,0 +1,170 @@
+{
+  "generatedAt": "2026-06-27T19:23:05.181Z",
+  "base": "http://localhost:3000",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "results": [
+    {
+      "name": "employee-login-mobile",
+      "route": "/employee/login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-employee-login-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/login",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 41,
+        "mainTextLength": 37,
+        "headerHeight": 65,
+        "visibleArticleCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-login-mobile",
+      "route": "/admin/login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-admin-login-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/login",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 40,
+        "mainTextLength": 36,
+        "headerHeight": 65,
+        "visibleArticleCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "employee-home-mobile",
+      "route": "/employee",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-employee-home-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 4369,
+        "mainTextLength": 4283,
+        "headerHeight": 120,
+        "visibleArticleCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "employee-customers-mobile",
+      "route": "/employee/customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-employee-customers-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/customers",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 1132,
+        "mainTextLength": 1046,
+        "headerHeight": 120,
+        "visibleArticleCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "employee-memory-mobile",
+      "route": "/employee/memory",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-employee-memory-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/memory",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 1491,
+        "mainTextLength": 1405,
+        "headerHeight": 120,
+        "visibleArticleCount": 3,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-employees-mobile",
+      "route": "/admin/employees",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-admin-employees-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/employees",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 362,
+        "mainTextLength": 333,
+        "headerHeight": 120,
+        "visibleArticleCount": 3,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-high-value-customers-mobile",
+      "route": "/admin/high-value-customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-admin-high-value-customers-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/high-value-customers",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 2563,
+        "mainTextLength": 2534,
+        "headerHeight": 120,
+        "visibleArticleCount": 15,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-costs-mobile",
+      "route": "/admin/costs",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/verified-admin-costs-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/costs",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 500,
+        "mainTextLength": 471,
+        "headerHeight": 120,
+        "visibleArticleCount": 3,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    }
+  ]
+}

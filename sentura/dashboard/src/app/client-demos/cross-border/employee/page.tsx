@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
+import { AnimatedList } from "@/components/cross-border/animated-list";
 import { EmployeeCostCard } from "@/components/cross-border/employee-cost";
 import {
   isCbeEmployeeTaskActive,
@@ -29,7 +30,12 @@ import {
   CBE_SESSION_API_PATH,
 } from "@/lib/cross-border-routes";
 import {
+  setCbeSessionDisplayName,
+  useCbeSessionDisplayName,
+} from "@/lib/cbe-session-display-name";
+import {
   employeeProfile,
+  type CustomerListItem,
 } from "./_data/employee-data";
 import {
   deleteEmployeeNotifications,
@@ -65,12 +71,20 @@ function isHomeRange(value: unknown): value is HomeRange {
   return rangeOptions.some((item) => item.id === value);
 }
 
-function customerHighlightHref(scope: CustomerHighlightScope, range: HomeRange, customerId?: string) {
+function customerHighlightHref(
+  scope: CustomerHighlightScope,
+  range: HomeRange,
+  options: {
+    customerId?: string;
+    status?: CustomerListItem["screeningStatus"];
+  } = {},
+) {
   const params = new URLSearchParams({
     highlight: scope,
     highlightRange: range,
   });
-  if (customerId) params.set("highlightCustomer", customerId);
+  if (options.customerId) params.set("highlightCustomer", options.customerId);
+  if (options.status) params.set("highlightStatus", options.status);
   return `${customerPagePath}?${params.toString()}`;
 }
 
@@ -122,7 +136,7 @@ function CrossBorderEmployeeHomeContent() {
     isHomeRange,
   );
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sessionDisplayName, setSessionDisplayName] = useState<string | null>(null);
+  const sessionDisplayName = useCbeSessionDisplayName("operator");
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<string>>(() => new Set());
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [costHighlightActive, setCostHighlightActive] = useState(false);
@@ -165,10 +179,10 @@ function CrossBorderEmployeeHomeContent() {
           ? body.user.displayName.trim()
           : "";
         if (!cancelled && response.ok && body?.user?.cbeRole === "operator" && displayName) {
-          setSessionDisplayName(displayName);
+          setCbeSessionDisplayName("operator", displayName);
         }
       } catch {
-        if (!cancelled) setSessionDisplayName(null);
+        // Keep the already-confirmed name stable; AppShell handles auth redirects.
       }
     }
     void refreshSessionName();
@@ -196,7 +210,6 @@ function CrossBorderEmployeeHomeContent() {
     () => customerRows.filter((item) => isInHomeRange(item.foundAt, selectedRange)),
     [customerRows, selectedRange],
   );
-  const currentEmployeeName = sessionDisplayName ?? employeeProfile.name;
   const selectedRangeLabel = rangeOptions.find((item) => item.id === selectedRange)?.label ?? "本月";
   const screenedCustomers = visibleCustomers.filter((item) => item.screeningStatus === "screened");
   const highScoreCustomers = visibleCustomers.filter((item) => item.scoreTier === "high");
@@ -302,7 +315,9 @@ function CrossBorderEmployeeHomeContent() {
             <Badge variant="secondary">{employeeProfile.role}</Badge>
             <Badge variant="outline">{employeeProfile.tenant}</Badge>
           </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-normal">你好，{currentEmployeeName}</h1>
+          <h1 className="mt-3 min-h-8 text-2xl font-semibold tracking-normal">
+            你好{sessionDisplayName ? `，${sessionDisplayName}` : ""}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             当前查看 {selectedRangeLabel} 数据。建议优先处理待背调、失败或需补充线索的客户。
           </p>
@@ -370,19 +385,24 @@ function CrossBorderEmployeeHomeContent() {
             <CardContent className="space-y-2 p-4 pt-0">
               {pendingCustomers.length > 0 ? (
                 <>
-                  {pendingPage.items.map((item) => (
-                    <Link
-                      key={item.customerId}
-                      href={customerHighlightHref("pending", selectedRange, item.customerId)}
-                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
-                    >
+                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false}>
+                    {pendingPage.items.map((item) => (
+	                    <Link
+	                      key={item.customerId}
+	                      href={customerHighlightHref("pending", selectedRange, {
+	                        customerId: item.customerId,
+	                        status: item.screeningStatus,
+	                      })}
+	                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
+	                    >
                       <div className="min-w-0">
                         <div className="truncate font-medium">{item.companyName}</div>
                         <div className="truncate text-xs text-muted-foreground">{item.recommendedAction}</div>
                       </div>
                       <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                     </Link>
-                  ))}
+                    ))}
+                  </AnimatedList>
                   <ListPagination
                     page={pendingPage.page}
                     totalItems={pendingPage.totalItems}
@@ -405,12 +425,13 @@ function CrossBorderEmployeeHomeContent() {
             <CardContent className="space-y-2 p-4 pt-0">
               {highScoreCustomers.length > 0 ? (
                 <>
-                  {highScorePage.items.map((item) => (
-                    <Link
-                      key={item.customerId}
-                      href={customerHighlightHref("trusted", selectedRange, item.customerId)}
-                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
-                    >
+                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false}>
+                    {highScorePage.items.map((item) => (
+	                    <Link
+	                      key={item.customerId}
+	                      href={customerHighlightHref("trusted", selectedRange, { customerId: item.customerId })}
+	                      className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-950 hover:bg-emerald-100/70"
+	                    >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{item.companyName}</div>
                         <div className="mt-0.5 truncate text-xs opacity-80">{item.recommendedAction}</div>
@@ -419,7 +440,8 @@ function CrossBorderEmployeeHomeContent() {
                         {item.normalizedScore ?? "N/A"}/100
                       </Badge>
                     </Link>
-                  ))}
+                    ))}
+                  </AnimatedList>
                   <ListPagination
                     page={highScorePage.page}
                     totalItems={highScorePage.totalItems}
@@ -449,17 +471,19 @@ function CrossBorderEmployeeHomeContent() {
               <CardTitle className="text-base">我的客户漏斗</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-4 pt-0">
-              {funnel.map((item) => (
-                <div key={item.label}>
-                  <div className="mb-1 flex justify-between text-sm">
-                    <span>{item.label}</span>
-                    <span className="font-mono text-muted-foreground">{item.count}</span>
+              <AnimatedList viewportClassName="space-y-3 overflow-visible" displayScrollbar={false}>
+                {funnel.map((item) => (
+                  <div key={item.label}>
+                    <div className="mb-1 flex justify-between text-sm">
+                      <span>{item.label}</span>
+                      <span className="font-mono text-muted-foreground">{item.count}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div className={cn("h-2 rounded-full", item.tone)} style={{ width: `${Math.min(100, Math.max(8, item.count * 20))}%` }} />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div className={cn("h-2 rounded-full", item.tone)} style={{ width: `${Math.max(8, item.count * 20)}%` }} />
-                  </div>
-                </div>
-              ))}
+                ))}
+              </AnimatedList>
             </CardContent>
           </Card>
 
@@ -488,7 +512,11 @@ function CrossBorderEmployeeHomeContent() {
                 </div>
               ) : null}
               {taskMessages.length > 0 ? (
-                <div className="max-h-[360px] space-y-2 overflow-y-auto overscroll-contain pr-1">
+                <AnimatedList
+                  className="rounded-md"
+                  viewportClassName="max-h-[360px] space-y-2 overscroll-contain pr-1"
+                  showGradients
+                >
                   {taskMessages.map((item) => (
                     <div key={item.id} className="rounded-md border px-3 py-2 text-sm">
                       <div className="flex items-start gap-2">
@@ -530,7 +558,7 @@ function CrossBorderEmployeeHomeContent() {
                       </div>
                     </div>
                   ))}
-                </div>
+                </AnimatedList>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
                   暂无任务通知。

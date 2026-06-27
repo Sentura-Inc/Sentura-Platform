@@ -1,11 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  Building2,
   CheckCircle2,
-  Clock3,
   Database,
   Eye,
   FileJson,
@@ -13,10 +13,13 @@ import {
   Filter,
   Image as ImageIcon,
   Loader2,
+  MapPin,
+  PackageSearch,
   RotateCcw,
   Search,
   Trash2,
   Upload,
+  UserRound,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -43,14 +46,20 @@ import { useAgent, useGateway } from "@/lib/gateway";
 import { CBE_EMPLOYEE_MEMORY_PATH } from "@/lib/cross-border-routes";
 import { cn } from "@/lib/utils";
 import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
+import { AnimatedList, AnimatedTableRow } from "@/components/cross-border/animated-list";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
+import { MemoryAnalysisContent, MemorySourceTranscript } from "@/components/cross-border/memory-chat-customer-list";
+import { buyerTypeLabel, canonicalBuyerType, canonicalProduct, productLabel } from "@/components/cross-border/customer-labels";
 import {
+  CBE_EMPLOYEE_TASK_RETRY_EVENT,
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
+  type CbeEmployeeTaskRecord,
 } from "@/stores/use-cbe-employee-store";
 import {
   type MemoryRecordItem,
   estimateMemoryTaskCost,
+  leadBuyerTypeOptions,
 } from "../_data/employee-data";
 import {
   ACCIO_AGENT_ID,
@@ -58,12 +67,14 @@ import {
   createPlannedEmployeeSessionKey,
   employeeTaskErrorMessage,
   estimateEmployeeTaskTimeoutMs,
+  isEmployeeTaskCancellation,
   runAccioMemoryTask,
   type AccioMemoryTaskInput,
   type EmployeeTaskProgress,
 } from "../_data/employee-task-runner";
 import {
   CbeEmployeeApiError,
+  cancelEmployeeTaskInDb,
   completeEmployeeAccioImport,
   createEmployeeAccioImport,
   deleteEmployeeMemoryRecords,
@@ -71,6 +82,7 @@ import {
   fetchEmployeeAccioImportPayload,
   fetchEmployeeMemoryRecords,
   fetchEmployeeTasks,
+  startEmployeeAccioImportAnalysis,
 } from "../_data/employee-api";
 import {
   normalizeImageMemoryImport,
@@ -81,22 +93,72 @@ import {
   type MemoryImportInputFormat,
   type MemoryImportSourceKind,
 } from "../_data/memory-import-normalizer";
+import {
+  clearCbeEmployeeTaskAbortSignal,
+  createCbeEmployeeTaskAbortSignal,
+} from "../_data/employee-task-cancellation";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 
 type SheetMode = "add" | "detail" | "filters" | null;
 type ImportMode = "json" | "text" | "image";
 type ImportRange = "all" | "today" | "7d" | "30d";
 type MemoryHighlightScope = "memory-results";
+type ChatCustomerFilter = "all" | "sufficient" | "insufficient" | "priced" | "clear_intent";
+type MemoryAnalyzeResult = "completed" | "queued" | "cancelled" | "failed" | "skipped";
 
 interface MemoryFilters {
   sources: MemoryRecordItem["source"][];
   importRange: ImportRange;
+  countries: string[];
+  buyerTypes: string[];
+  products: string[];
+}
+
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
+interface ChatCustomerRow {
+  record: MemoryRecordItem;
+  companyName: string;
+  displayName: string;
+  companyNameMissing: boolean;
+  contact?: string;
+  country?: string;
+  website?: string;
+  email?: string;
+  buyerRole?: string;
+  buyerType?: string;
+  products: string[];
+  productCategories: string[];
+  intentSummary?: string;
+  priceSummary?: string;
+  behaviorSummary?: string;
+  nextAction?: string;
+  missingLabels: string[];
+  infoSufficient: boolean;
+  hasPrice: boolean;
+  demandClear: boolean;
+  searchText: string;
 }
 
 const emptyFilters: MemoryFilters = {
   sources: [],
   importRange: "all",
+  countries: [],
+  buyerTypes: [],
+  products: [],
 };
+
+const memoryBuyerTypeValues = new Set([
+  ...leadBuyerTypeOptions.map((item) => item.id),
+  "repair-store",
+  "distributor",
+  "wholesaler",
+  "retailer",
+  "e-commerce-seller",
+]);
 
 const statusLabels: Record<MemoryRecordItem["analysisStatus"], string> = {
   not_started: "未分析",
@@ -149,6 +211,269 @@ function intentLine(item: Record<string, unknown>) {
   ], "；");
 }
 
+function stringFromUnknown(value: unknown) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function textListFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(/[;,，；]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((item) => {
+      const text = stringFromUnknown(item);
+      if (text) return [text];
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const record = item as Record<string, unknown>;
+        return [
+          recordTextValue(record, "product_zh", "product", "name", "label", "action_zh", "action", "value"),
+        ].filter((entry): entry is string => Boolean(entry));
+      }
+      return [];
+    })
+    .filter(Boolean);
+}
+
+function uniqueText(values: Array<string | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function weakCustomerName(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return !normalized ||
+    normalized === "unknown" ||
+    normalized.startsWith("unknown company") ||
+    normalized.includes("待确认") ||
+    normalized.includes("未命名");
+}
+
+function usableCountry(value: string | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const upper = normalized.toUpperCase();
+  if (upper === "ZZ" || upper === "UNKNOWN" || normalized.includes("待确认") || normalized.includes("未知")) return undefined;
+  return normalized;
+}
+
+function customerProducts(record: MemoryRecordItem) {
+  const profile = record.customerProfile ?? {};
+  const profileProducts = [
+    ...textListFromUnknown(profile.product_interest),
+    ...textListFromUnknown(profile.products),
+    ...textListFromUnknown(profile.matched_products),
+    ...textListFromUnknown(profile.product_categories),
+    ...textListFromUnknown(profile.categories),
+    recordTextValue(profile, "product_zh", "product", "product_name", "product_category", "category", "product_type"),
+  ];
+  const intentProducts = (record.purchaseIntent ?? []).flatMap((item) => [
+    recordTextValue(item, "product_category", "category", "product_type", "product_zh", "product", "product_name"),
+  ]);
+  return uniqueText([...profileProducts, ...intentProducts]).slice(0, 5);
+}
+
+function customerProductCategories(record: MemoryRecordItem) {
+  return uniqueText(
+    customerProducts(record)
+      .map(canonicalProduct)
+      .filter((value) => value && productLabel(value) !== "产品待确认"),
+  );
+}
+
+function customerCountry(record: MemoryRecordItem) {
+  const profile = record.customerProfile ?? {};
+  return usableCountry(record.country ?? recordTextValue(profile, "country", "country_code", "market"));
+}
+
+function customerBuyerType(record: MemoryRecordItem) {
+  const profile = record.customerProfile ?? {};
+  const rawType = recordTextValue(
+    profile,
+    "business_type",
+    "buyer_type",
+    "customer_type",
+    "company_type",
+    "store_type",
+    "channel_type",
+    "industry",
+    "vertical",
+    "segment",
+    "market_segment",
+    "category",
+  );
+  if (!rawType) return undefined;
+  const canonical = canonicalBuyerType(rawType);
+  return memoryBuyerTypeValues.has(canonical) ? canonical : undefined;
+}
+
+function customerIdentity(record: MemoryRecordItem) {
+  const profile = record.customerProfile ?? {};
+  return recordTextValue(
+    profile,
+    "self_described_identity",
+    "shop_or_store_name",
+    "store_name",
+    "decision_role",
+    "role",
+    "buyer_type",
+  );
+}
+
+function uniqueSorted(values: Array<string | undefined>) {
+  return uniqueText(values).sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function buyerTypeFilterOptions(records: MemoryRecordItem[]): FilterOption[] {
+  return uniqueText(records.map(customerBuyerType))
+    .map((value) => ({ value, label: buyerTypeLabel(value) }))
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+}
+
+function productFilterOptions(records: MemoryRecordItem[]): FilterOption[] {
+  const products = new Map<string, string>();
+  for (const record of records) {
+    for (const product of customerProducts(record)) {
+      const value = canonicalProduct(product);
+      const label = value ? productLabel(value) : "产品待确认";
+      if (value && label !== "产品待确认") products.set(value, label);
+    }
+  }
+  return Array.from(products.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+}
+
+function containsSelected(values: string[], selected: string[]) {
+  if (selected.length === 0) return true;
+  const normalizedValues = new Set(values.map((value) => value.toLowerCase()));
+  return selected.some((value) => normalizedValues.has(value.toLowerCase()));
+}
+
+function memoryRecordSearchText(item: MemoryRecordItem) {
+  const profile = item.customerProfile ?? {};
+  const behaviorSignals = item.behaviorSignals ?? {};
+  return [
+    item.name,
+    item.summary,
+    item.companyName,
+    item.country,
+    recordTextValue(profile, "company_name", "customer_name", "name"),
+    recordTextValue(profile, "contact_person", "contact_name", "contact", "buyer_name"),
+    recordTextValue(profile, "country", "country_code", "market"),
+    recordTextValue(
+      profile,
+      "city",
+      "website",
+      "email",
+      "self_described_identity",
+      "buyer_type",
+      "business_type",
+      "customer_type",
+      "company_type",
+      "shop_or_store_name",
+      "store_name",
+      "decision_role",
+    ),
+    customerBuyerType(item) ? buyerTypeLabel(customerBuyerType(item) ?? "") : undefined,
+    ...customerProducts(item),
+    ...customerProductCategories(item).map(productLabel),
+    ...(item.purchaseIntent ?? []).map(intentLine),
+    ...(item.negotiatedPrices ?? []).map(priceLine),
+    recordTextValue(behaviorSignals, "summary_zh", "summary", "decision_role"),
+    ...textListFromUnknown(behaviorSignals.risk_flags),
+    ...textListFromUnknown(behaviorSignals.inference_notes),
+    ...(item.nextActions ?? []),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function chatCustomerFromRecord(record: MemoryRecordItem): ChatCustomerRow | null {
+  if (record.analysisStatus !== "analyzed") return null;
+  const profile = record.customerProfile ?? {};
+  const behaviorSignals = record.behaviorSignals ?? {};
+  const companyName =
+    recordTextValue(profile, "company_name", "customer_name", "company", "name") ??
+    record.companyName ??
+    record.name.replace(/\s+-\s+聊天记录$/u, "");
+  const contact = recordTextValue(profile, "contact_person", "contact_name", "contact", "buyer_name");
+  const country = customerCountry(record);
+  const website = recordTextValue(profile, "website", "url", "domain");
+  const email = recordTextValue(profile, "email", "contact_email");
+  const buyerRole = customerIdentity(record);
+  const buyerType = customerBuyerType(record);
+  const companyNameMissing = weakCustomerName(companyName);
+  const displayName = companyNameMissing ? buyerRole ?? contact ?? "待确认客户" : companyName;
+  const products = customerProducts(record);
+  const productCategories = customerProductCategories(record);
+  const intentSummary = (record.purchaseIntent ?? []).map(intentLine).find(Boolean);
+  const priceSummary = (record.negotiatedPrices ?? []).map(priceLine).find(Boolean);
+  const behaviorSummary = recordTextValue(behaviorSignals, "summary_zh", "summary");
+  const nextAction = (record.nextActions ?? []).find((item) => item.trim());
+  const demandClear = products.length > 0 || Boolean(intentSummary);
+  const missingLabels = [
+    companyNameMissing && !buyerRole ? "公司名" : undefined,
+    country ? undefined : "国家/地区",
+    contact || email ? undefined : "联系人",
+    demandClear ? undefined : "采购需求",
+  ].filter((item): item is string => Boolean(item));
+  const infoSufficient = missingLabels.length === 0;
+  const searchText = [
+    memoryRecordSearchText(record),
+    companyName,
+    displayName,
+    contact,
+    country,
+    website,
+    email,
+    buyerRole,
+    buyerType ? buyerTypeLabel(buyerType) : undefined,
+    ...productCategories.map(productLabel),
+    intentSummary,
+    priceSummary,
+    behaviorSummary,
+    nextAction,
+    missingLabels.join(" "),
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  return {
+    record,
+    companyName,
+    displayName,
+    companyNameMissing,
+    contact,
+    country,
+    website,
+    email,
+    buyerRole,
+    buyerType,
+    products,
+    productCategories,
+    intentSummary,
+    priceSummary,
+    behaviorSummary,
+    nextAction,
+    missingLabels,
+    infoSufficient,
+    hasPrice: Boolean(priceSummary || (record.negotiatedPrices ?? []).length > 0),
+    demandClear,
+    searchText,
+  };
+}
+
 const importModeLabels: Record<ImportMode, string> = {
   json: "JSON 文件",
   text: "粘贴文字",
@@ -179,12 +504,28 @@ const importModeInputFormats: Record<ImportMode, MemoryImportInputFormat> = {
   image: "image",
 };
 
-const memoryStatusFilterChoices = ["all", "not_started", "analyzed"] as const;
-const memoryStatusFilterValues: Array<MemoryRecordItem["analysisStatus"] | "all"> = ["all", "not_started", "analyzed"];
+const memoryStatusFilterChoices = ["all", "not_started", "analyzed", "failed"] as const;
+const memoryStatusFilterValues: Array<MemoryRecordItem["analysisStatus"] | "all"> = ["all", "not_started", "analyzed", "failed"];
+const chatCustomerFilterChoices: Array<{ value: ChatCustomerFilter; label: string }> = [
+  { value: "all", label: "全部客户" },
+  { value: "sufficient", label: "信息充足" },
+  { value: "insufficient", label: "信息不足" },
+  { value: "priced", label: "有报价" },
+  { value: "clear_intent", label: "需求明确" },
+];
+const chatCustomerFilterValues = chatCustomerFilterChoices.map((item) => item.value);
+const chatCustomerFilterLabels: Record<ChatCustomerFilter, string> = {
+  all: "全部客户",
+  sufficient: "信息充足",
+  insufficient: "信息不足",
+  priced: "有报价",
+  clear_intent: "需求明确",
+};
 const memorySourceValues: MemoryRecordItem["source"][] = ["accio", "alibaba_international", "manual_import", "demo_data", "other"];
 const importRangeValues: ImportRange[] = ["all", "today", "7d", "30d"];
 const MEMORY_STATUS_FILTER_STORAGE_KEY = "sentura:cbe:employee:memory:status-filter:v1";
 const MEMORY_FILTERS_STORAGE_KEY = "sentura:cbe:employee:memory:filters:v1";
+const CHAT_CUSTOMER_FILTER_STORAGE_KEY = "sentura:cbe:employee:memory:chat-customer-filter:v1";
 
 function isMemoryStatusFilter(value: unknown): value is MemoryRecordItem["analysisStatus"] | "all" {
   return typeof value === "string" && memoryStatusFilterValues.includes(value as MemoryRecordItem["analysisStatus"] | "all");
@@ -198,10 +539,23 @@ function isImportRange(value: unknown): value is ImportRange {
   return typeof value === "string" && importRangeValues.includes(value as ImportRange);
 }
 
+function isChatCustomerFilter(value: unknown): value is ChatCustomerFilter {
+  return typeof value === "string" && chatCustomerFilterValues.includes(value as ChatCustomerFilter);
+}
+
+function isStringFilterList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
 function isMemoryFilters(value: unknown): value is MemoryFilters {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const filters = value as Partial<Record<keyof MemoryFilters, unknown>>;
-  return Array.isArray(filters.sources) && filters.sources.every(isMemorySource) && isImportRange(filters.importRange);
+  return Array.isArray(filters.sources) &&
+    filters.sources.every(isMemorySource) &&
+    isImportRange(filters.importRange) &&
+    isStringFilterList(filters.countries) &&
+    isStringFilterList(filters.buyerTypes) &&
+    isStringFilterList(filters.products);
 }
 
 const importRangeLabels: Record<ImportRange, string> = {
@@ -227,6 +581,24 @@ function rowClass(status: MemoryRecordItem["analysisStatus"], isHighlighted = fa
 
 function canDeleteMemoryRecord(item: MemoryRecordItem) {
   return item.analysisStatus !== "running";
+}
+
+function markMemoryRecordRunning(rows: MemoryRecordItem[], recordId: string) {
+  return rows.map((item) =>
+    item.recordId === recordId ? { ...item, analysisStatus: "running" as const } : item,
+  );
+}
+
+function restoreMemoryRecord(rows: MemoryRecordItem[], original: MemoryRecordItem) {
+  return rows.map((item) =>
+    item.recordId === original.recordId ? original : item,
+  );
+}
+
+function markMemoryRecordFailed(rows: MemoryRecordItem[], recordId: string) {
+  return rows.map((item) =>
+    item.recordId === recordId ? { ...item, analysisStatus: "failed" as const } : item,
+  );
 }
 
 function badgeClass(status: MemoryRecordItem["analysisStatus"]) {
@@ -274,8 +646,27 @@ function toggleValue<T extends string>(values: T[], value: T) {
     : [...values, value];
 }
 
+function chatCustomerMatchesFilter(row: ChatCustomerRow, filter: ChatCustomerFilter) {
+  if (filter === "sufficient") return row.infoSufficient;
+  if (filter === "insufficient") return !row.infoSufficient;
+  if (filter === "priced") return row.hasPrice;
+  if (filter === "clear_intent") return row.demandClear;
+  return true;
+}
+
+function memoryRecordMatchesDimensionFilters(item: MemoryRecordItem, filters: MemoryFilters) {
+  return containsSelected([customerCountry(item)].filter((value): value is string => Boolean(value)), filters.countries) &&
+    containsSelected([customerBuyerType(item)].filter((value): value is string => Boolean(value)), filters.buyerTypes) &&
+    containsSelected(customerProductCategories(item), filters.products);
+}
+
 function normalizeMemoryHighlightScope(value: string | null): MemoryHighlightScope | null {
   return value === "memory-results" ? value : null;
+}
+
+function normalizeMemoryHighlightStatus(value: string | null): MemoryRecordItem["analysisStatus"] | null {
+  if (value === "not_started" || value === "running" || value === "analyzed" || value === "failed") return value;
+  return null;
 }
 
 function memoryRowSelector(recordId: string) {
@@ -283,6 +674,35 @@ function memoryRowSelector(recordId: string) {
     ? CSS.escape(recordId)
     : recordId.replace(/["\\]/g, "\\$&");
   return `[data-record-id="${escaped}"]`;
+}
+
+function scrollMemoryRecordIntoView(recordId: string) {
+  window.requestAnimationFrame(() => {
+    const rowCandidates = Array.from(document.querySelectorAll<HTMLElement>(memoryRowSelector(recordId)));
+    const visibleRow = rowCandidates.find((element) => element.getClientRects().length > 0) ?? rowCandidates[0];
+    visibleRow?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  });
+}
+
+function highlightedPageForRecordIds(rows: MemoryRecordItem[], recordIds: string[], pageSize: number) {
+  const highlighted = new Set(recordIds);
+  const index = rows.findIndex((item) => highlighted.has(item.recordId));
+  if (index < 0) return 1;
+  return Math.floor(index / pageSize) + 1;
+}
+
+function firstHighlightedRecordIdOnPage(
+  rows: MemoryRecordItem[],
+  recordIds: string[],
+  page: number,
+  pageSize: number,
+) {
+  const highlighted = new Set(recordIds);
+  const start = (page - 1) * pageSize;
+  return rows.slice(start, start + pageSize).find((item) => highlighted.has(item.recordId))?.recordId ?? recordIds[0];
 }
 
 export default function CrossBorderMemoryPage() {
@@ -306,6 +726,7 @@ function CrossBorderMemoryPageContent() {
   const updateTaskProgress = useCbeEmployeeStore((store) => store.updateTaskProgress);
   const completeTask = useCbeEmployeeStore((store) => store.completeTask);
   const failTask = useCbeEmployeeStore((store) => store.failTask);
+  const cancelTask = useCbeEmployeeStore((store) => store.cancelTask);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = usePersistentUiState<MemoryRecordItem["analysisStatus"] | "all">(
     MEMORY_STATUS_FILTER_STORAGE_KEY,
@@ -317,6 +738,11 @@ function CrossBorderMemoryPageContent() {
     emptyFilters,
     isMemoryFilters,
   );
+  const [chatCustomerFilter, setChatCustomerFilter] = usePersistentUiState<ChatCustomerFilter>(
+    CHAT_CUSTOMER_FILTER_STORAGE_KEY,
+    "all",
+    isChatCustomerFilter,
+  );
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
   const [activeRecord, setActiveRecord] = useState<MemoryRecordItem | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
@@ -327,13 +753,19 @@ function CrossBorderMemoryPageContent() {
   const [imageAttachments, setImageAttachments] = useState<MemoryImageAttachment[]>([]);
   const [attachmentMetadata, setAttachmentMetadata] = useState<Array<Record<string, unknown>>>([]);
   const [highlightedRecordIds, setHighlightedRecordIds] = useState<Set<string>>(() => new Set());
+  const [pendingMemoryHighlight, setPendingMemoryHighlight] = useState<{ ids: string[] } | null>(null);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [deleteIntentIds, setDeleteIntentIds] = useState<string[]>([]);
   const [deletingMemory, setDeletingMemory] = useState(false);
+  const [batchAnalyzing, setBatchAnalyzing] = useState(false);
   const handledHighlightRequestRef = useRef<string | null>(null);
+  const submitExistingMemoryTaskRef = useRef<(
+    (record: MemoryRecordItem, options?: { silentSuccess?: boolean }) => Promise<MemoryAnalyzeResult>
+  ) | null>(null);
   const memoryHighlightScope = normalizeMemoryHighlightScope(searchParams.get("highlight"));
   const highlightRecordId = searchParams.get("highlightRecord");
   const highlightTaskId = searchParams.get("highlightTask");
+  const highlightStatus = normalizeMemoryHighlightStatus(searchParams.get("highlightStatus"));
   const taskRunning = tasks.some((task) => task.kind === "accio_memory" && isCbeEmployeeTaskActive(task));
 
   useEffect(() => {
@@ -365,22 +797,11 @@ function CrossBorderMemoryPageContent() {
     };
   }, [setRows, setTasks]);
 
-  const highlightMemoryRecords = (recordIds: string[]) => {
+  const highlightMemoryRecords = useCallback((recordIds: string[]) => {
     const ids = Array.from(new Set(recordIds.filter(Boolean)));
     if (ids.length === 0) return;
     setHighlightedRecordIds(new Set(ids));
-  };
-
-  const scrollMemoryRecordIntoView = (recordId: string) => {
-    window.requestAnimationFrame(() => {
-      const rowCandidates = Array.from(document.querySelectorAll<HTMLElement>(memoryRowSelector(recordId)));
-      const visibleRow = rowCandidates.find((element) => element.getClientRects().length > 0) ?? rowCandidates[0];
-      visibleRow?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    });
-  };
+  }, []);
 
   const clearMemoryHighlight = (recordId: string) => {
     setHighlightedRecordIds((current) => {
@@ -391,48 +812,71 @@ function CrossBorderMemoryPageContent() {
     });
   };
 
-  useEffect(() => {
-    const highlightRequestKey = [memoryHighlightScope ?? "", highlightRecordId ?? "", highlightTaskId ?? ""].join("|");
-    const hasHighlightRequest = Boolean(memoryHighlightScope || highlightRecordId || highlightTaskId);
-    if (!hasHighlightRequest || handledHighlightRequestRef.current === highlightRequestKey || rows.length === 0) return;
-    const ids = highlightRecordId
-      ? rows.some((item) => item.recordId === highlightRecordId) ? [highlightRecordId] : []
-      : highlightTaskId
-        ? rows
-            .filter((item) => item.latestAgentRunId === highlightTaskId)
-            .map((item) => item.recordId)
-      : rows.map((item) => item.recordId);
-    if (ids.length === 0) return;
-    handledHighlightRequestRef.current = highlightRequestKey;
-    setQuery("");
-    setFilters(emptyFilters);
-    setStatusFilter("all");
-    highlightMemoryRecords(ids);
-    scrollMemoryRecordIntoView(ids[0]);
-    showNotice(`已定位 ${ids.length} 条记忆记录。`, "info");
-  }, [highlightRecordId, highlightTaskId, memoryHighlightScope, rows]);
-
   const filterOptions = useMemo(
     () => ({
       sources: Array.from(new Set(rows.map((item) => item.source))),
+      countries: uniqueSorted(rows.map(customerCountry)),
+      buyerTypes: buyerTypeFilterOptions(rows),
+      products: productFilterOptions(rows),
     }),
     [rows],
   );
+
+  useEffect(() => {
+    const allowedBuyerTypes = new Set(filterOptions.buyerTypes.map((item) => item.value));
+    setFilters((current) => {
+      if (current.buyerTypes.length === 0) return current;
+      const buyerTypes = current.buyerTypes.filter((value) => allowedBuyerTypes.has(value));
+      return buyerTypes.length === current.buyerTypes.length ? current : { ...current, buyerTypes };
+    });
+  }, [filterOptions.buyerTypes, setFilters]);
+
+  useEffect(() => {
+    const allowedProducts = new Set(filterOptions.products.map((item) => item.value));
+    setFilters((current) => {
+      if (current.products.length === 0) return current;
+      const products = current.products.filter((value) => allowedProducts.has(value));
+      return products.length === current.products.length ? current : { ...current, products };
+    });
+  }, [filterOptions.products, setFilters]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return rows.filter((item) => {
       const matchesSource = filters.sources.length === 0 || filters.sources.includes(item.source);
       const matchesImportRange = importedAtInRange(item.importedAt, filters.importRange);
-      const matchesQuery =
-        !normalized ||
-        item.name.toLowerCase().includes(normalized) ||
-        item.summary.toLowerCase().includes(normalized) ||
-        (item.companyName?.toLowerCase().includes(normalized) ?? false);
+      const matchesQuery = !normalized || memoryRecordSearchText(item).includes(normalized);
       const matchesStatus = statusFilter === "all" || item.analysisStatus === statusFilter;
-      return matchesSource && matchesImportRange && matchesQuery && matchesStatus;
+      const matchesDimensions = memoryRecordMatchesDimensionFilters(item, filters);
+      return matchesSource && matchesImportRange && matchesQuery && matchesStatus && matchesDimensions;
     });
   }, [filters, query, rows, statusFilter]);
+
+  const chatCustomers = useMemo(
+    () => rows.map(chatCustomerFromRecord).filter((item): item is ChatCustomerRow => Boolean(item)),
+    [rows],
+  );
+
+  const filteredChatCustomers = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return chatCustomers.filter((row) => {
+      const item = row.record;
+      const matchesSource = filters.sources.length === 0 || filters.sources.includes(item.source);
+      const matchesImportRange = importedAtInRange(item.importedAt, filters.importRange);
+      const matchesStatus = statusFilter === "all" || statusFilter === "analyzed";
+      const matchesQuery = !normalized || row.searchText.includes(normalized);
+      const matchesDimensions =
+        containsSelected([row.country].filter((value): value is string => Boolean(value)), filters.countries) &&
+        containsSelected([row.buyerType].filter((value): value is string => Boolean(value)), filters.buyerTypes) &&
+        containsSelected(row.productCategories, filters.products);
+      return matchesSource &&
+        matchesImportRange &&
+        matchesStatus &&
+        matchesQuery &&
+        matchesDimensions &&
+        chatCustomerMatchesFilter(row, chatCustomerFilter);
+    });
+  }, [chatCustomerFilter, chatCustomers, filters, query, statusFilter]);
 
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ key: string; label: string; clear: () => void }> = [];
@@ -450,6 +894,29 @@ function CrossBorderMemoryPageContent() {
         clear: () => setFilters((current) => ({ ...current, importRange: "all" })),
       });
     }
+    for (const country of filters.countries) {
+      chips.push({
+        key: `country-${country}`,
+        label: `国家：${country}`,
+        clear: () => setFilters((current) => ({ ...current, countries: current.countries.filter((item) => item !== country) })),
+      });
+    }
+    for (const buyerType of filters.buyerTypes) {
+      const label = filterOptions.buyerTypes.find((item) => item.value === buyerType)?.label ?? buyerTypeLabel(buyerType);
+      chips.push({
+        key: `buyer-type-${buyerType}`,
+        label: `类型：${label}`,
+        clear: () => setFilters((current) => ({ ...current, buyerTypes: current.buyerTypes.filter((item) => item !== buyerType) })),
+      });
+    }
+    for (const product of filters.products) {
+      const label = filterOptions.products.find((item) => item.value === product)?.label ?? productLabel(product);
+      chips.push({
+        key: `product-${product}`,
+        label: `产品：${label}`,
+        clear: () => setFilters((current) => ({ ...current, products: current.products.filter((item) => item !== product) })),
+      });
+    }
     if (statusFilter !== "all") {
       chips.push({
         key: `status-${statusFilter}`,
@@ -457,28 +924,108 @@ function CrossBorderMemoryPageContent() {
         clear: () => setStatusFilter("all"),
       });
     }
+    if (chatCustomerFilter !== "all") {
+      chips.push({
+        key: `chat-customer-${chatCustomerFilter}`,
+        label: `客户信息：${chatCustomerFilterLabels[chatCustomerFilter]}`,
+        clear: () => setChatCustomerFilter("all"),
+      });
+    }
     return chips;
-  }, [filters, statusFilter]);
+  }, [chatCustomerFilter, filterOptions.buyerTypes, filterOptions.products, filters, setChatCustomerFilter, setFilters, setStatusFilter, statusFilter]);
 
   const canRun = state === "connected" && !!accioAgent;
   const activeFilterCount = activeFilterChips.length;
+  const chatCustomerPage = usePagedItems(filteredChatCustomers, 5);
   const memoryPage = usePagedItems(filtered, 10);
+  const {
+    page: currentMemoryPage,
+    pageSize: memoryPageSize,
+    setPage: setMemoryPage,
+  } = memoryPage;
   const pagedMemoryRecords = memoryPage.items;
   const selectableVisibleRecords = pagedMemoryRecords.filter(canDeleteMemoryRecord);
   const selectedRecords = rows.filter((item) => selectedRecordIds.includes(item.recordId));
+  const selectedNotStartedRecords = selectedRecords.filter((item) => item.analysisStatus === "not_started");
+  const filteredNotStartedRecords = filtered.filter((item) => item.analysisStatus === "not_started");
+  const batchAnalyzeTargets = selectedNotStartedRecords.length > 0 ? selectedNotStartedRecords : filteredNotStartedRecords;
+  const batchAnalyzeUsesSelection = selectedNotStartedRecords.length > 0;
+  const batchAnalyzeCount = batchAnalyzeTargets.length;
+  const batchAnalyzeLabel = batchAnalyzeUsesSelection ? "批量分析所选未分析" : "批量分析当前未分析";
   const deleteTargets = rows.filter((item) => deleteIntentIds.includes(item.recordId));
   const allVisibleSelected =
     selectableVisibleRecords.length > 0 &&
     selectableVisibleRecords.every((item) => selectedRecordIds.includes(item.recordId));
 
-  const showNotice = (text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
+  const showNotice = useCallback((text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
     setNotice({ tone, text });
     if (timeoutMs > 0) {
       window.setTimeout(() => {
         setNotice((current) => (current?.text === text ? null : current));
       }, timeoutMs);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const highlightRequestKey = [memoryHighlightScope ?? "", highlightTaskId ?? "", highlightRecordId ?? "", highlightStatus ?? ""].join("|");
+    const hasHighlightRequest = Boolean(memoryHighlightScope || highlightTaskId || highlightRecordId);
+    if (!hasHighlightRequest || handledHighlightRequestRef.current === highlightRequestKey || rows.length === 0) return;
+    let ids: string[] = [];
+    if (highlightTaskId) {
+      ids = rows
+        .filter((item) => item.latestAgentRunId === highlightTaskId)
+        .map((item) => item.recordId);
+    } else if (highlightRecordId) {
+      ids = rows.some((item) => item.recordId === highlightRecordId) ? [highlightRecordId] : [];
+    } else if (memoryHighlightScope) {
+      ids = rows.map((item) => item.recordId);
+    }
+    ids = Array.from(new Set(ids));
+    if (ids.length === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      handledHighlightRequestRef.current = highlightRequestKey;
+      setQuery("");
+      setFilters(emptyFilters);
+      setStatusFilter(highlightStatus ?? "all");
+      setChatCustomerFilter("all");
+      setPendingMemoryHighlight({ ids });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightRecordId, highlightStatus, highlightTaskId, memoryHighlightScope, rows, setChatCustomerFilter, setFilters, setStatusFilter]);
+
+  useEffect(() => {
+    if (!pendingMemoryHighlight) return;
+    const visibleHighlightedIds = pendingMemoryHighlight.ids.filter((recordId) =>
+      filtered.some((item) => item.recordId === recordId),
+    );
+    if (visibleHighlightedIds.length === 0) return;
+    const targetPage = highlightedPageForRecordIds(filtered, visibleHighlightedIds, memoryPageSize);
+    if (currentMemoryPage !== targetPage) {
+      const frame = window.requestAnimationFrame(() => setMemoryPage(targetPage));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const targetRecordId = firstHighlightedRecordIdOnPage(
+      filtered,
+      visibleHighlightedIds,
+      currentMemoryPage,
+      memoryPageSize,
+    );
+    const frame = window.requestAnimationFrame(() => {
+      highlightMemoryRecords(visibleHighlightedIds);
+      scrollMemoryRecordIntoView(targetRecordId);
+      showNotice(`已定位 ${visibleHighlightedIds.length} 条记忆记录。`, "info");
+      setPendingMemoryHighlight(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    currentMemoryPage,
+    filtered,
+    highlightMemoryRecords,
+    memoryPageSize,
+    pendingMemoryHighlight,
+    setMemoryPage,
+    showNotice,
+  ]);
 
   const resetImportState = (mode: ImportMode = "json") => {
     setImportMode(mode);
@@ -659,6 +1206,7 @@ function CrossBorderMemoryPageContent() {
       setAttachmentMetadata([]);
       setStatusFilter("not_started");
       setFilters(emptyFilters);
+      setChatCustomerFilter("all");
       await refreshDbBackedMemory();
       highlightMemoryRecords([created.accioImport.id]);
       window.setTimeout(() => scrollMemoryRecordIntoView(created.accioImport.id), 0);
@@ -669,7 +1217,7 @@ function CrossBorderMemoryPageContent() {
     }
   };
 
-  const submitMemoryTask = async (input: AccioMemoryTaskInput, failedRecordId?: string) => {
+  const submitMemoryTask = async (input: AccioMemoryTaskInput, failedRecordId?: string): Promise<MemoryAnalyzeResult> => {
     if (!canRun) {
       showNotice(
         state === "connected"
@@ -677,13 +1225,14 @@ function CrossBorderMemoryPageContent() {
           : "系统暂未连接，暂时不能执行记忆整理。",
         "error",
       );
-      return;
+      return "skipped";
     }
     const plannedSessionKey = createPlannedEmployeeSessionKey(ACCIO_AGENT_ID);
     const estimatedMs = input.inputFormat === "image"
       ? Math.min(1_200_000, 300_000 + Math.max(1, input.attachments?.length ?? 0) * 45_000)
       : 180_000;
     let taskId: string | undefined;
+    let abortSignal: AbortSignal | undefined;
     let createdImport: Awaited<ReturnType<typeof createEmployeeAccioImport>> | null = null;
     setSheetMode(null);
     try {
@@ -699,11 +1248,11 @@ function CrossBorderMemoryPageContent() {
           }).catch(() => undefined);
           await refreshDbBackedMemory().catch(() => undefined);
           showNotice(message, "error", 8000);
-          return;
+          return "failed";
         }
         showNotice("当前任务较多，记忆整理已进入排队；系统不会重复启动超出容量的任务。", "info", 8000);
         await refreshDbBackedMemory().catch(() => undefined);
-        return;
+        return "queued";
       }
       const activeSessionKey = createdImport.agentRun.sessionKey;
       const localTaskId = startTask({
@@ -715,20 +1264,23 @@ function CrossBorderMemoryPageContent() {
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
         targetLabel: input.recordName,
+        metadata: {
+          retry_record_name: input.recordName,
+          retry_source_label: input.sourceLabel,
+          retry_input_format: input.inputFormat ?? "json",
+          retry_source_kind: input.sourceKind ?? "manual_json",
+        },
       });
       taskId = localTaskId;
+      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
       if (failedRecordId) {
-        setRows((current) =>
-          current.map((item) =>
-            item.recordId === failedRecordId ? { ...item, analysisStatus: "running" } : item,
-          ),
-        );
+        setRows((current) => markMemoryRecordRunning(current, failedRecordId));
       }
       const result = await runAccioMemoryTask(
         client,
         input,
         createProgressHandler(localTaskId),
-        { sessionKey: activeSessionKey },
+        { sessionKey: activeSessionKey, signal: abortSignal },
       );
       await completeEmployeeAccioImport({
         importId: createdImport.accioImport.id,
@@ -741,16 +1293,27 @@ function CrossBorderMemoryPageContent() {
       completeTask(localTaskId, result.records.length, message, result.sessionKey);
       await refreshDbBackedMemory();
       showNotice(message);
+      clearCbeEmployeeTaskAbortSignal(localTaskId);
+      taskId = undefined;
+      return "completed";
     } catch (error) {
-      if (failedRecordId) {
-        setRows((current) =>
-          current.map((item) =>
-            item.recordId === failedRecordId ? { ...item, analysisStatus: "failed" } : item,
-          ),
-        );
-      }
       const message = employeeTaskErrorMessage(error);
       const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (isEmployeeTaskCancellation(error)) {
+        if (createdImport) {
+          await cancelEmployeeTaskInDb({
+            id: createdImport.agentRun.id,
+            sessionKey: sessionKey ?? plannedSessionKey,
+          }).catch(() => undefined);
+        }
+        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        await refreshDbBackedMemory().catch(() => undefined);
+        showNotice(message, "info", 6000);
+        return "cancelled";
+      }
+      if (failedRecordId) {
+        setRows((current) => markMemoryRecordFailed(current, failedRecordId));
+      }
       if (createdImport && shouldWriteFailure(error)) {
         await failEmployeeTaskInDb({
           agentRunId: createdImport.agentRun.id,
@@ -762,6 +1325,9 @@ function CrossBorderMemoryPageContent() {
       if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
       await refreshDbBackedMemory().catch(() => undefined);
       showNotice(message, "error", 8000);
+      return "failed";
+    } finally {
+      if (taskId) clearCbeEmployeeTaskAbortSignal(taskId);
     }
   };
 
@@ -782,23 +1348,29 @@ function CrossBorderMemoryPageContent() {
     });
   };
 
-  const submitExistingMemoryTask = async (record: MemoryRecordItem) => {
-    setRows((current) =>
-      current.map((item) =>
-        item.recordId === record.recordId ? { ...item, analysisStatus: "running" } : item,
-      ),
-    );
+  const submitExistingMemoryTask = async (
+    record: MemoryRecordItem,
+    options: { silentSuccess?: boolean } = {},
+  ): Promise<MemoryAnalyzeResult> => {
+    if (!canRun) {
+      showNotice(
+        state === "connected"
+          ? "记忆整理暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行记忆整理。",
+        "error",
+      );
+      return "skipped";
+    }
+    const originalRecord = record;
+    const importId = record.importId ?? record.recordId;
+    setRows((current) => markMemoryRecordRunning(current, record.recordId));
     let storedPayload: unknown;
     try {
-      storedPayload = await fetchEmployeeAccioImportPayload(record.recordId);
+      storedPayload = await fetchEmployeeAccioImportPayload(importId);
     } catch (error) {
-      setRows((current) =>
-        current.map((item) =>
-          item.recordId === record.recordId ? { ...item, analysisStatus: "failed" } : item,
-        ),
-      );
+      setRows((current) => markMemoryRecordFailed(current, record.recordId));
       showNotice(error instanceof Error ? error.message : "无法读取已导入聊天记录。", "error", 8000);
-      return;
+      return "failed";
     }
     const metadata = storedPayload && typeof storedPayload === "object" && !Array.isArray(storedPayload)
       ? ((storedPayload as { export_metadata?: unknown }).export_metadata ?? {})
@@ -824,23 +1396,183 @@ function CrossBorderMemoryPageContent() {
         )
       : [];
     if (inputFormat === "image") {
-      setRows((current) =>
-        current.map((item) =>
-          item.recordId === record.recordId ? { ...item, analysisStatus: "failed" } : item,
-        ),
-      );
+      setRows((current) => markMemoryRecordFailed(current, record.recordId));
       showNotice("这条记录来自截图导入，系统未保存原图，无法直接重新分析；请重新上传截图。", "error", 8000);
+      return "failed";
+    }
+    const plannedSessionKey = createPlannedEmployeeSessionKey(ACCIO_AGENT_ID);
+    const estimatedMs = 180_000;
+    const estimatedCost = estimateMemoryTaskCost(Math.max(1, record.conversationCount)).estimatedUsd;
+    let taskId: string | undefined;
+    let abortSignal: AbortSignal | undefined;
+    try {
+      const started = await startEmployeeAccioImportAnalysis({
+        importId,
+        sessionKey: plannedSessionKey,
+        estimatedCostUsd: estimatedCost,
+      });
+      if (started.agentRun.status === "queued" || !started.agentRun.sessionKey) {
+        setRows((current) => restoreMemoryRecord(current, originalRecord));
+        showNotice("当前任务较多，这条记忆记录仍保持未分析，稍后可重新点击批量分析。", "info", 8000);
+        await refreshDbBackedMemory().catch(() => undefined);
+        return "queued";
+      }
+      const activeSessionKey = started.agentRun.sessionKey;
+      const localTaskId = startTask({
+        id: started.agentRun.id,
+        kind: "accio_memory",
+        title: "记忆整理",
+        message: "记忆整理任务已启动，正在分析聊天记录。",
+        estimatedMs,
+        timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
+        sessionKey: activeSessionKey,
+        targetLabel: record.name,
+        metadata: {
+          accio_import_id: importId,
+          retry_record_name: record.name,
+          retry_source_label: sourceLabels[record.source],
+          retry_input_format: inputFormat,
+          retry_source_kind: sourceKind,
+        },
+      });
+      taskId = localTaskId;
+      abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
+      const result = await runAccioMemoryTask(
+        client,
+        {
+          recordName: record.name,
+          sourceLabel: sourceLabels[record.source],
+          inputFormat,
+          sourceKind,
+          chatExport: storedPayload,
+          attachmentMetadata: storedAttachmentMetadata,
+        },
+        createProgressHandler(localTaskId),
+        { sessionKey: activeSessionKey, signal: abortSignal },
+      );
+      await completeEmployeeAccioImport({
+        importId,
+        agentRunId: started.agentRun.id,
+        sessionKey: result.sessionKey,
+        sourceFileName: record.name,
+        payload: result.payload,
+      });
+      const message = `已整理 ${result.records.length} 份聊天记录，当前列表已更新。`;
+      completeTask(localTaskId, result.records.length, message, result.sessionKey);
+      await refreshDbBackedMemory();
+      if (!options.silentSuccess) showNotice(message);
+      clearCbeEmployeeTaskAbortSignal(localTaskId);
+      taskId = undefined;
+      return "completed";
+    } catch (error) {
+      const message = employeeTaskErrorMessage(error);
+      const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : undefined;
+      if (isEmployeeTaskCancellation(error)) {
+        setRows((current) => restoreMemoryRecord(current, originalRecord));
+        if (taskId) cancelTask(taskId, message, sessionKey ?? plannedSessionKey);
+        await cancelEmployeeTaskInDb({
+          id: taskId ?? record.latestAgentRunId ?? importId,
+          sessionKey: sessionKey ?? plannedSessionKey,
+        }).catch(() => undefined);
+        await refreshDbBackedMemory().catch(() => undefined);
+        showNotice("分析已取消，未完成的原始记录已恢复为未分析。", "info", 6000);
+        return "cancelled";
+      }
+      setRows((current) => markMemoryRecordFailed(current, record.recordId));
+      if (taskId && shouldWriteFailure(error)) {
+        await failEmployeeTaskInDb({
+          agentRunId: taskId,
+          sessionKey: sessionKey ?? plannedSessionKey,
+          error,
+          message,
+        }).catch(() => undefined);
+      }
+      if (taskId) failTask(taskId, message, sessionKey ?? plannedSessionKey);
+      await refreshDbBackedMemory().catch(() => undefined);
+      showNotice(message, "error", 8000);
+      return "failed";
+    } finally {
+      if (taskId) clearCbeEmployeeTaskAbortSignal(taskId);
+    }
+  };
+
+  const analyzeBatchMemoryRecords = async () => {
+    if (batchAnalyzing || taskRunning) return;
+    if (!canRun) {
+      showNotice(
+        state === "connected"
+          ? "记忆整理暂不可用，请先完成系统初始化。"
+          : "系统暂未连接，暂时不能执行记忆整理。",
+        "error",
+      );
       return;
     }
-    await submitMemoryTask({
-      recordName: record.name,
-      sourceLabel: sourceLabels[record.source],
-      inputFormat,
-      sourceKind,
-      chatExport: storedPayload,
-      attachmentMetadata: storedAttachmentMetadata,
-    }, record.recordId);
+    const targets = batchAnalyzeTargets.filter((item) => item.analysisStatus === "not_started");
+    if (targets.length === 0) {
+      showNotice("当前没有可批量分析的未分析原始记录。", "info");
+      return;
+    }
+    setBatchAnalyzing(true);
+    setStatusFilter("not_started");
+    setChatCustomerFilter("all");
+    let completed = 0;
+    let failed = 0;
+    let queued = 0;
+    try {
+      showNotice(
+        batchAnalyzeUsesSelection
+          ? `开始批量分析所选 ${targets.length} 条未分析记录。`
+          : `开始批量分析当前筛选下 ${targets.length} 条未分析记录。`,
+        "info",
+        5000,
+      );
+      for (const target of targets) {
+        const result = await submitExistingMemoryTask(target, { silentSuccess: true });
+        if (result === "completed") completed += 1;
+        if (result === "failed") failed += 1;
+        if (result === "queued") queued += 1;
+        if (result === "cancelled") return;
+      }
+      await refreshDbBackedMemory().catch(() => undefined);
+      if (completed > 0 || failed > 0 || queued > 0) {
+        showNotice(
+          `批量分析结束：完成 ${completed} 条${queued > 0 ? `，排队 ${queued} 条` : ""}${failed > 0 ? `，失败 ${failed} 条` : ""}。`,
+          failed > 0 ? "error" : "success",
+          failed > 0 ? 10000 : 6000,
+        );
+      }
+    } finally {
+      setBatchAnalyzing(false);
+    }
   };
+
+  useEffect(() => {
+    submitExistingMemoryTaskRef.current = submitExistingMemoryTask;
+  });
+
+  useEffect(() => {
+    const handleRetryTask = (event: Event) => {
+      const task = (event as CustomEvent<{ task?: CbeEmployeeTaskRecord }>).detail?.task;
+      if (!task || task.status !== "failed" || task.kind !== "accio_memory") return;
+      event.preventDefault();
+
+      const retryRecord = rows.find(
+        (item) =>
+          item.latestAgentRunId === task.id ||
+          item.recordId === task.id ||
+          (task.targetLabel ? item.name === task.targetLabel : false),
+      );
+      if (!retryRecord) {
+        setStatusFilter("failed");
+        showNotice("未能直接定位这次失败的聊天记录，请在失败记录行点击“重试分析”。", "error", 8000);
+        return;
+      }
+      void submitExistingMemoryTaskRef.current?.(retryRecord);
+    };
+
+    window.addEventListener(CBE_EMPLOYEE_TASK_RETRY_EVENT, handleRetryTask);
+    return () => window.removeEventListener(CBE_EMPLOYEE_TASK_RETRY_EVENT, handleRetryTask);
+  }, [rows, setStatusFilter, showNotice]);
 
   return (
     <div className="space-y-4">
@@ -848,7 +1580,7 @@ function CrossBorderMemoryPageContent() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">记忆整理</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            共 {filtered.length} 条记录，当前筛选：{statusFilter === "all" ? "全部状态" : statusLabels[statusFilter]}
+            共 {filtered.length} 条记录，当前聊天客户 {filteredChatCustomers.length} 个
           </p>
         </div>
         <Button onClick={() => setSheetMode("add")}>
@@ -880,14 +1612,14 @@ function CrossBorderMemoryPageContent() {
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="按名称搜索"
+                placeholder="按公司、联系人、产品、报价或下一步搜索"
                 className="pl-9"
               />
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => setSheetMode("filters")}>
                 <Filter className="h-3.5 w-3.5" />
-                来源 / 导入时间
+                筛选记忆记录
                 {activeFilterCount > 0 ? (
                   <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
                     {activeFilterCount}
@@ -934,12 +1666,86 @@ function CrossBorderMemoryPageContent() {
               <Button variant="ghost" size="sm" onClick={() => {
                 setFilters(emptyFilters);
                 setStatusFilter("all");
+                setChatCustomerFilter("all");
               }}>
                 <RotateCcw className="h-3.5 w-3.5" />
                 重置筛选
               </Button>
             </div>
           ) : null}
+
+          <section className="rounded-md border bg-background/75 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold tracking-normal">聊天客户列表</h2>
+                  <Badge variant="secondary">{filteredChatCustomers.length} 个客户</Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  基于已分析聊天记录整理客户信息；这里只展示预览整理结果，不写入背调结论。
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {chatCustomerFilterChoices.map((choice) => (
+                  <Button
+                    key={choice.value}
+                    variant={chatCustomerFilter === choice.value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setChatCustomerFilter(choice.value)}
+                  >
+                    {choice.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {filteredChatCustomers.length === 0 ? (
+              <div className="mt-3 rounded-md border border-dashed bg-muted/20 px-4 py-7 text-center">
+                <div className="text-sm font-medium">暂无符合条件的聊天客户</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  导入并分析聊天记录后，系统会按公司、联系人、商品、报价和下一步整理到这里。
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <AnimatedList viewportClassName="grid gap-3 overflow-visible" displayScrollbar={false}>
+                  {chatCustomerPage.items.map((row) => (
+                    <ChatCustomerCard
+                      key={row.record.recordId}
+                      row={row}
+                      openDetail={openDetail}
+                    />
+                  ))}
+                </AnimatedList>
+                <ListPagination
+                  page={chatCustomerPage.page}
+                  totalItems={chatCustomerPage.totalItems}
+                  pageSize={chatCustomerPage.pageSize}
+                  onPageChange={chatCustomerPage.setPage}
+                />
+              </div>
+            )}
+          </section>
+
+          <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold tracking-normal">原始记忆记录</h2>
+              <p className="text-sm text-muted-foreground">
+                保留导入批次、分析状态和删除/重试操作。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{filtered.length} 条记录</Badge>
+              <Button
+                size="sm"
+                disabled={!canRun || taskRunning || batchAnalyzing || batchAnalyzeCount === 0}
+                onClick={analyzeBatchMemoryRecords}
+              >
+                {batchAnalyzing || taskRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+                {batchAnalyzeLabel}{batchAnalyzeCount > 0 ? `（${batchAnalyzeCount}）` : ""}
+              </Button>
+            </div>
+          </div>
 
           {filtered.length === 0 ? (
             <div className="rounded-md border border-dashed bg-muted/20 px-4 py-10 text-center">
@@ -954,7 +1760,7 @@ function CrossBorderMemoryPageContent() {
             </div>
           ) : (
             <>
-              <div className="grid gap-3 lg:hidden">
+              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false}>
                 {pagedMemoryRecords.map((item) => {
                   const isHighlighted = highlightedRecordIds.has(item.recordId);
                   return (
@@ -968,10 +1774,11 @@ function CrossBorderMemoryPageContent() {
                       openDetail={openDetail}
                       clearHighlight={clearMemoryHighlight}
                       submitTask={submitExistingMemoryTask}
+                      taskRunning={taskRunning || batchAnalyzing}
                     />
                   );
                 })}
-              </div>
+              </AnimatedList>
 
               <div className="hidden overflow-x-auto rounded-md border lg:block">
                 <table className="w-full min-w-[820px] text-sm">
@@ -995,10 +1802,12 @@ function CrossBorderMemoryPageContent() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedMemoryRecords.map((item) => {
+                    {pagedMemoryRecords.map((item, index) => {
                       const isHighlighted = highlightedRecordIds.has(item.recordId);
                       return (
-                      <tr
+                      <AnimatedTableRow
+                        index={index}
+                        preserveTableRowBase={false}
                         key={item.recordId}
                         data-record-id={item.recordId}
                         onMouseDown={() => clearMemoryHighlight(item.recordId)}
@@ -1034,13 +1843,18 @@ function CrossBorderMemoryPageContent() {
                               {item.analysisStatus === "analyzed" ? "查看报告" : item.analysisStatus === "running" ? "查看进度" : "详情"}
                             </Button>
                             {item.analysisStatus === "not_started" ? (
-                              <Button variant="outline" size="sm" disabled={!canRun || taskRunning} onClick={() => submitExistingMemoryTask(item)}>
+                              <Button variant="outline" size="sm" disabled={!canRun || taskRunning || batchAnalyzing} onClick={() => submitExistingMemoryTask(item)}>
                                 开始分析
+                              </Button>
+                            ) : item.analysisStatus === "failed" ? (
+                              <Button variant="outline" size="sm" disabled={!canRun || taskRunning || batchAnalyzing} onClick={() => submitExistingMemoryTask(item)}>
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                重试分析
                               </Button>
                             ) : null}
                           </div>
                         </td>
-                      </tr>
+                      </AnimatedTableRow>
                       );
                     })}
                   </tbody>
@@ -1066,6 +1880,8 @@ function CrossBorderMemoryPageContent() {
         setFilters={setFilters}
         statusFilter={statusFilter}
         setStatusFilter={setStatusFilter}
+        chatCustomerFilter={chatCustomerFilter}
+        setChatCustomerFilter={setChatCustomerFilter}
         filterOptions={filterOptions}
         activeFilterCount={activeFilterCount}
         importMode={importMode}
@@ -1114,6 +1930,7 @@ function MemoryMobileCard({
   openDetail,
   clearHighlight,
   submitTask,
+  taskRunning,
 }: {
   item: MemoryRecordItem;
   isHighlighted: boolean;
@@ -1123,6 +1940,7 @@ function MemoryMobileCard({
   openDetail: (item: MemoryRecordItem) => void;
   clearHighlight: (recordId: string) => void;
   submitTask: (item: MemoryRecordItem) => void;
+  taskRunning: boolean;
 }) {
   return (
     <div
@@ -1168,13 +1986,128 @@ function MemoryMobileCard({
           {item.analysisStatus === "analyzed" ? "查看报告" : "详情"}
         </Button>
         {item.analysisStatus === "not_started" ? (
-          <Button size="sm" disabled={!canRun} onClick={() => submitTask(item)}>
+          <Button size="sm" disabled={!canRun || taskRunning} onClick={() => submitTask(item)}>
             <Database className="h-3.5 w-3.5" />
             开始分析
+          </Button>
+        ) : item.analysisStatus === "failed" ? (
+          <Button variant="outline" size="sm" disabled={!canRun || taskRunning} onClick={() => submitTask(item)}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            重试分析
           </Button>
         ) : null}
       </div>
     </div>
+  );
+}
+
+function ChatCustomerCard({
+  row,
+  openDetail,
+}: {
+  row: ChatCustomerRow;
+  openDetail: (item: MemoryRecordItem) => void;
+}) {
+  const contactLine = uniqueText([row.contact, row.buyerRole]).join(" / ") || "待提取";
+  const locationLine = compactJoin([row.country, row.website ?? row.email], " · ") || "暂无";
+  const intentLineText = row.intentSummary ?? (row.products.length > 0 ? row.products.join("、") : "待提取");
+  const priceAndAction = compactJoin([row.priceSummary, row.nextAction], "；") || "暂无明确报价或下一步";
+
+  return (
+    <article className="rounded-md border bg-white/70 p-3 text-sm shadow-sm shadow-sky-950/5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="min-w-0 truncate text-left text-base font-semibold tracking-normal"
+              onClick={() => openDetail(row.record)}
+            >
+              {row.displayName}
+            </button>
+            <Badge
+              variant="outline"
+              className={row.infoSufficient ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}
+            >
+              {row.infoSufficient ? "信息充足" : "信息不足"}
+            </Badge>
+            {row.hasPrice ? <Badge variant="secondary">有报价</Badge> : null}
+            {row.demandClear ? <Badge variant="secondary">需求明确</Badge> : null}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {sourceLabels[row.record.source]} · {formatBeijingDateTime(row.record.importedAt)} · {row.record.conversationCount} 条对话
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => openDetail(row.record)}>
+          <Eye className="h-3.5 w-3.5" />
+          查看分析
+        </Button>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <ChatCustomerFact
+          icon={<UserRound className="h-3.5 w-3.5" />}
+          label="联系人"
+          value={contactLine}
+          onOpen={() => openDetail(row.record)}
+        />
+        <ChatCustomerFact
+          icon={<MapPin className="h-3.5 w-3.5" />}
+          label="定位信息"
+          value={locationLine}
+          onOpen={() => openDetail(row.record)}
+        />
+        <ChatCustomerFact
+          icon={<PackageSearch className="h-3.5 w-3.5" />}
+          label="采购需求"
+          value={intentLineText}
+          onOpen={() => openDetail(row.record)}
+        />
+        <ChatCustomerFact
+          icon={<Building2 className="h-3.5 w-3.5" />}
+          label="报价 / 下一步"
+          value={priceAndAction}
+          onOpen={() => openDetail(row.record)}
+        />
+      </div>
+
+      {row.behaviorSummary || row.missingLabels.length > 0 ? (
+        <div className="mt-3 rounded-md bg-muted/35 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {row.behaviorSummary ? <span>{row.behaviorSummary}</span> : null}
+          {row.missingLabels.length > 0 ? (
+            <span className="block text-amber-800">
+              待补充：{row.missingLabels.join("、")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ChatCustomerFact({
+  icon,
+  label,
+  value,
+  onOpen,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="min-w-0 rounded-md border bg-background/80 px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-white hover:shadow-md hover:shadow-sky-950/10 active:translate-y-0 active:scale-[0.99]"
+      onClick={onOpen}
+    >
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-1 whitespace-normal break-words font-medium leading-5">{value}</div>
+    </button>
   );
 }
 
@@ -1185,6 +2118,8 @@ function MemorySheet({
   setFilters,
   statusFilter,
   setStatusFilter,
+  chatCustomerFilter,
+  setChatCustomerFilter,
   filterOptions,
   activeFilterCount,
   importMode,
@@ -1210,8 +2145,13 @@ function MemorySheet({
   setFilters: Dispatch<SetStateAction<MemoryFilters>>;
   statusFilter: MemoryRecordItem["analysisStatus"] | "all";
   setStatusFilter: Dispatch<SetStateAction<MemoryRecordItem["analysisStatus"] | "all">>;
+  chatCustomerFilter: ChatCustomerFilter;
+  setChatCustomerFilter: Dispatch<SetStateAction<ChatCustomerFilter>>;
   filterOptions: {
     sources: MemoryRecordItem["source"][];
+    countries: string[];
+    buyerTypes: FilterOption[];
+    products: FilterOption[];
   };
   activeFilterCount: number;
   importMode: ImportMode;
@@ -1246,7 +2186,8 @@ function MemorySheet({
 
   useEffect(() => {
     if (mode !== "add") return;
-    setRecordName("");
+    const frame = window.requestAnimationFrame(() => setRecordName(""));
+    return () => window.cancelAnimationFrame(frame);
   }, [mode]);
 
   return (
@@ -1257,7 +2198,7 @@ function MemorySheet({
             <SheetHeader>
               <SheetTitle>筛选记忆记录</SheetTitle>
               <SheetDescription>
-                按来源、导入时间和分析状态筛选；名称搜索会继续生效。
+                按来源、导入时间、分析状态、客户信息、国家、类型和产品筛选；搜索词会继续生效。
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-5 px-4">
@@ -1304,6 +2245,73 @@ function MemorySheet({
                   </Button>
                 ))}
               </FilterGroup>
+
+              <FilterGroup title="客户信息">
+                {chatCustomerFilterChoices.map((choice) => (
+                  <Button
+                    key={choice.value}
+                    variant={chatCustomerFilter === choice.value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setChatCustomerFilter(choice.value)}
+                  >
+                    {choice.label}
+                  </Button>
+                ))}
+              </FilterGroup>
+
+              <FilterGroup title="国家">
+                {filterOptions.countries.length > 0 ? filterOptions.countries.map((country) => (
+                  <Button
+                    key={country}
+                    variant={filters.countries.includes(country) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        countries: toggleValue(current.countries, country),
+                      }))
+                    }
+                  >
+                    {country}
+                  </Button>
+                )) : <EmptyFilterOption />}
+              </FilterGroup>
+
+              <FilterGroup title="类型">
+                {filterOptions.buyerTypes.length > 0 ? filterOptions.buyerTypes.map((buyerType) => (
+                  <Button
+                    key={buyerType.value}
+                    variant={filters.buyerTypes.includes(buyerType.value) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        buyerTypes: toggleValue(current.buyerTypes, buyerType.value),
+                      }))
+                    }
+                  >
+                    {buyerType.label}
+                  </Button>
+                )) : <EmptyFilterOption />}
+              </FilterGroup>
+
+              <FilterGroup title="产品">
+                {filterOptions.products.length > 0 ? filterOptions.products.map((product) => (
+                  <Button
+                    key={product.value}
+                    variant={filters.products.includes(product.value) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        products: toggleValue(current.products, product.value),
+                      }))
+                    }
+                  >
+                    {product.label}
+                  </Button>
+                )) : <EmptyFilterOption />}
+              </FilterGroup>
             </div>
             <SheetFooter>
               <Button
@@ -1311,6 +2319,7 @@ function MemorySheet({
                 onClick={() => {
                   setFilters(emptyFilters);
                   setStatusFilter("all");
+                  setChatCustomerFilter("all");
                 }}
               >
                 <RotateCcw className="h-4 w-4" />
@@ -1329,7 +2338,7 @@ function MemorySheet({
             <SheetHeader>
               <SheetTitle>添加新记录</SheetTitle>
               <SheetDescription>
-                导入手动聊天记录，支持 JSON、粘贴文字和聊天截图；本板块只生成记忆分析报告，不移交背调、不写入长期记忆。
+                导入手动聊天记录，支持 JSON、粘贴文字和聊天截图；分析完成后自动写入结构化长期记忆。
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4">
@@ -1401,14 +2410,18 @@ function MemorySheet({
                     />
                   </label>
                   {imageAttachments.length > 0 ? (
-                    <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                    <AnimatedList
+                      className="rounded-md border bg-muted/20"
+                      viewportClassName="max-h-32 space-y-1 px-3 py-2 text-xs"
+                      showGradients
+                    >
                       {imageAttachments.map((attachment) => (
                         <div key={`${attachment.sha256}-${attachment.fileName}`} className="flex items-center justify-between gap-3">
                           <span className="truncate">{attachment.fileName}</span>
                           <span className="shrink-0 text-muted-foreground">{(attachment.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
                         </div>
                       ))}
-                    </div>
+                    </AnimatedList>
                   ) : null}
                 </div>
               ) : null}
@@ -1424,7 +2437,7 @@ function MemorySheet({
                 className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
                 title="这是内部安全分级，表示这类数据是业务聊天记录，默认只展示摘要和预览。"
               >
-                数据安全：业务聊天记录只生成分析报告预览；截图原图不写入长期记忆
+                数据安全：业务聊天记录完成分析后自动写入结构化长期记忆，截图原图不会进入长期记忆
               </div>
               <TaskCostNotice {...uploadEstimate} />
               {importMode === "image" ? (
@@ -1478,7 +2491,7 @@ function MemoryDeleteDialog({
             删除后会移除对应聊天记录和整理结果；不会影响获客或背调板块。
           </DialogDescription>
         </DialogHeader>
-        <div className="max-h-64 space-y-2 overflow-y-auto">
+        <AnimatedList viewportClassName="max-h-64 space-y-2" showGradients>
           {targets.map((item) => (
             <div key={item.recordId} className="rounded-md border px-3 py-2 text-sm">
               <div className="truncate font-medium">{item.name}</div>
@@ -1487,7 +2500,7 @@ function MemoryDeleteDialog({
               </div>
             </div>
           ))}
-        </div>
+        </AnimatedList>
         <DialogFooter>
           <Button variant="outline" disabled={deleting} onClick={onCancel}>
             取消
@@ -1509,139 +2522,59 @@ function MemoryReportDialog({
   activeRecord: MemoryRecordItem;
   onClose: () => void;
 }) {
-  const customerProfile = activeRecord.customerProfile ?? {};
-  const purchaseIntent = activeRecord.purchaseIntent ?? [];
-  const negotiatedPrices = activeRecord.negotiatedPrices ?? [];
-  const nextActions = activeRecord.nextActions ?? [];
-  const behaviorSignals = activeRecord.behaviorSignals ?? {};
-  const profileSummary = compactJoin([
-    recordTextValue(customerProfile, "company_name") ?? activeRecord.companyName,
-    recordTextValue(customerProfile, "contact_person"),
-    recordTextValue(customerProfile, "country") ?? activeRecord.country,
-    recordTextValue(customerProfile, "city"),
-    recordTextValue(customerProfile, "website"),
-    recordTextValue(customerProfile, "email"),
-  ]);
-  const behaviorSummary = recordTextValue(behaviorSignals, "summary_zh", "summary");
+  const [sourceState, setSourceState] = useState<{
+    importId: string;
+    payload: unknown | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
+  const sourceImportId = activeRecord.importId ?? activeRecord.recordId;
+  const sourcePayload = sourceState?.importId === sourceImportId ? sourceState.payload : null;
+  const sourceLoading = sourceState?.importId === sourceImportId ? sourceState.loading : false;
+  const sourceError = sourceState?.importId === sourceImportId ? sourceState.error : null;
+  const loadSourcePayload = useCallback(async () => {
+    if (sourceState?.importId === sourceImportId && (sourceState.payload || sourceState.loading)) return;
+    setSourceState({ importId: sourceImportId, payload: null, loading: true, error: null });
+    try {
+      const payload = await fetchEmployeeAccioImportPayload(sourceImportId);
+      setSourceState({ importId: sourceImportId, payload, loading: false, error: null });
+    } catch (error) {
+      setSourceState({
+        importId: sourceImportId,
+        payload: null,
+        loading: false,
+        error: error instanceof Error ? error.message : "完整聊天记录读取失败。",
+      });
+    }
+  }, [sourceImportId, sourceState]);
+  const sourceSlot = (
+    <details
+      className="text-xs text-muted-foreground"
+      onToggle={(event) => {
+        if (event.currentTarget.open) void loadSourcePayload();
+      }}
+    >
+      <summary className="cursor-pointer font-medium text-foreground">
+        查看完整聊天记录
+      </summary>
+      <MemorySourceTranscript
+        payload={sourcePayload}
+        loading={sourceLoading}
+        error={sourceError}
+        fallbackName={activeRecord.name}
+      />
+    </details>
+  );
 
   return (
     <Dialog open onOpenChange={(open) => {
       if (!open) onClose();
     }}>
       <DialogContent className="flex max-h-[calc(100vh-2rem)] max-w-5xl flex-col overflow-hidden rounded-lg p-0 sm:max-h-[calc(100vh-4rem)] sm:max-w-5xl">
-        <DialogHeader className="border-b px-4 py-4 pr-12 sm:px-5">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={badgeClass(activeRecord.analysisStatus)}>
-              {statusLabels[activeRecord.analysisStatus]}
-            </Badge>
-            <Badge variant="secondary">{sourceLabels[activeRecord.source]}</Badge>
-          </div>
-          <DialogTitle className="break-words text-xl font-semibold tracking-normal">
-            {activeRecord.name}
-          </DialogTitle>
-          <DialogDescription>
-            {formatBeijingDateTime(activeRecord.importedAt)} · {activeRecord.conversationCount} 条对话
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <main className="space-y-4">
-              <section className="rounded-md border p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  分析报告
-                </div>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {activeRecord.analysisStatus === "analyzed"
-                    ? activeRecord.summary
-                    : "等待整理完成后展示客户画像、需求商品、价格、付款/物流条款和跟进上下文。"}
-                </p>
-              </section>
-
-              <section className="rounded-md border p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <Clock3 className="h-4 w-4 text-sky-600" />
-                  客户画像
-                </div>
-                <div className="space-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
-                  <div>公司：{recordTextValue(customerProfile, "company_name") ?? activeRecord.companyName ?? "待提取"}</div>
-                  {profileSummary ? <div className="text-muted-foreground">{profileSummary}</div> : null}
-                  {behaviorSummary ? <div className="text-muted-foreground">{behaviorSummary}</div> : null}
-                </div>
-              </section>
-
-              <section className="rounded-md border p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <Database className="h-4 w-4 text-primary" />
-                  整理结果预览
-                </div>
-                <div className="space-y-3 rounded-md bg-muted/40 p-3 text-sm">
-                  <div>
-                    <div className="mb-1 font-medium">采购需求</div>
-                    {purchaseIntent.length > 0 ? (
-                      <div className="space-y-2 text-muted-foreground">
-                        {purchaseIntent.slice(0, 3).map((item, index) => (
-                          <div key={`intent-${index}`}>{intentLine(item) || "已识别一条采购需求。"}</div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-muted-foreground">暂未提取到明确采购需求。</div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="mb-1 font-medium">价格与条款</div>
-                    {negotiatedPrices.length > 0 ? (
-                      <div className="space-y-2 text-muted-foreground">
-                        {negotiatedPrices.slice(0, 5).map((item, index) => (
-                          <div key={`price-${index}`}>{priceLine(item) || "已识别一条价格信息。"}</div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-muted-foreground">暂未提取到明确价格条款。</div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="mb-1 font-medium">下一步</div>
-                    {nextActions.length > 0 ? (
-                      <div className="space-y-1 text-muted-foreground">
-                        {nextActions.slice(0, 5).map((action, index) => (
-                          <div key={`action-${index}`}>{index + 1}. {action}</div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-muted-foreground">暂无明确下一步。</div>
-                    )}
-                  </div>
-                </div>
-              </section>
-            </main>
-
-            <aside className="space-y-4">
-              <section className="rounded-md border p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                  <FileJson className="h-4 w-4 text-primary" />
-                  原始记录概览
-                </div>
-                <dl className="grid gap-3 text-sm">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">来源</dt>
-                    <dd className="mt-1 font-medium">{sourceLabels[activeRecord.source]}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">处理编号</dt>
-                    <dd className="mt-1">
-                      <details className="text-xs text-muted-foreground">
-                        <summary className="cursor-pointer">查看诊断信息</summary>
-                        <span className="mt-1 block break-all font-mono">{activeRecord.latestAgentRunId ?? "暂无"}</span>
-                      </details>
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-            </aside>
-          </div>
-        </div>
+        <MemoryAnalysisContent
+          activeRecord={activeRecord}
+          sourceSlot={sourceSlot}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -1660,6 +2593,10 @@ function FilterGroup({
       <div className="flex flex-wrap gap-2">{children}</div>
     </section>
   );
+}
+
+function EmptyFilterOption() {
+  return <span className="text-xs text-muted-foreground">暂无可筛选项</span>;
 }
 
 function SystemNotice({ text }: { text: string }) {

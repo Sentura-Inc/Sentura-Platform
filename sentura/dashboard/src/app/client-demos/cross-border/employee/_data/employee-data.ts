@@ -206,13 +206,13 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
     case "domain_email":
       return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够依据。";
     case "public_footprint":
-      return "公开网页或线下地址线索未找到足够业务足迹。";
+      return "公开资料或线下地址信息未找到足够业务足迹。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
     case "trade_financial":
       return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
     case "conversation_behavior":
-      return "没有聊天或销售对话记录可用于行为判断。";
+      return "该项目已不纳入当前背调评分。";
     default:
       return "本次未找到可用结果；报告未提供更具体原因。";
   }
@@ -230,7 +230,7 @@ export function coverageGapActionForBlock(block: string, status?: ScreeningEvide
     case "trade_financial":
       return "开启贸易/财务数据源，或补充进口商名称、注册号后重新搜索。";
     case "conversation_behavior":
-      return "导入聊天记录或销售跟进记录后再评估。";
+      return undefined;
     default:
       return undefined;
   }
@@ -255,6 +255,7 @@ export type MemoryStatus = "not_started" | "running" | "analyzed" | "failed";
 
 export interface MemoryRecordItem {
   recordId: string;
+  importId?: string;
   name: string;
   source: "accio" | "alibaba_international" | "manual_import" | "demo_data" | "other";
   importedAt: string;
@@ -491,10 +492,9 @@ function reportBlocks(overrides: Partial<Record<string, Partial<CustomerScoreBlo
   const base: CustomerScoreBlock[] = [
     { block: "legal_identity", status: "scored", maxPoints: 25, earnedPoints: 20, sourceCount: 1, summary: "公司主体或官方来源已核验。" },
     { block: "domain_email", status: "scored", maxPoints: 25, earnedPoints: 21, sourceCount: 2, summary: "官网和邮箱信号基本稳定。" },
-    { block: "public_footprint", status: "scored", maxPoints: 20, earnedPoints: 16, sourceCount: 2, summary: "公开网页与业务画像匹配。" },
+    { block: "public_footprint", status: "scored", maxPoints: 20, earnedPoints: 16, sourceCount: 2, summary: "公开资料与业务画像匹配。" },
     { block: "business_fit", status: "scored", maxPoints: 20, earnedPoints: 18, sourceCount: 2, summary: "产品和渠道与手机配件采购匹配。" },
     { block: "trade_financial", status: "unavailable_api", maxPoints: 10, earnedPoints: null, sourceCount: 0, reason: "贸易或财务资料未启用或未命中。" },
-    { block: "conversation_behavior", status: "not_applicable", maxPoints: 15, earnedPoints: null, sourceCount: 0, reason: "冷启动找客户记录没有聊天行为数据。" },
   ];
   return base.map((block) => ({ ...block, ...(overrides[block.block] ?? {}) }));
 }
@@ -583,7 +583,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "public_footprint",
           scoreImpact: "positive",
           affectsScore: true,
-          costPosture: "公开网页",
+          costPosture: "公开资料",
         },
         {
           layer: "public_footprint",
@@ -594,7 +594,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "business_fit",
           scoreImpact: "positive",
           affectsScore: true,
-          costPosture: "公开网页",
+          costPosture: "公开资料",
         },
       ],
       coverageGaps: coverageGaps(
@@ -665,7 +665,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "domain_email",
           scoreImpact: "neutral",
           affectsScore: true,
-          costPosture: "公开网页",
+          costPosture: "公开资料",
         },
         {
           layer: "public_footprint",
@@ -676,7 +676,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "public_footprint",
           scoreImpact: "neutral",
           affectsScore: true,
-          costPosture: "公开网页",
+          costPosture: "公开资料",
         },
       ],
       coverageGaps: coverageGaps(
@@ -732,7 +732,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "public_footprint",
           scoreImpact: "negative",
           affectsScore: true,
-          costPosture: "公开网页",
+          costPosture: "公开资料",
         },
         {
           layer: "trade_customs",
@@ -743,7 +743,7 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "trade_financial",
           scoreImpact: "coverage_only",
           affectsScore: false,
-          costPosture: "公开网页弱证据",
+          costPosture: "公开资料弱证据",
         },
       ],
       coverageGaps: coverageGaps(
@@ -769,6 +769,38 @@ export const memoryRows: MemoryRecordItem[] = [
     latestAgentRunId: "run-accio-20260611-1722",
     memoryPreviewStatus: "preview_only",
     summary: "提取了 OLED 屏、维修配件、目标价和下一步报价动作。",
+    country: "BR",
+    customerProfile: {
+      company_name: "Brasil Cell Parts",
+      contact_person: "Marcos",
+      country: "BR",
+      buyer_type: "维修配件批发商",
+      website: "待确认",
+      missing_fields: ["公司官网", "公司注册号"],
+    },
+    purchaseIntent: [
+      {
+        product_zh: "OLED 手机屏",
+        product: "OLED phone screens",
+        quantity: "500",
+        unit: "pcs",
+        payment_terms_zh: "希望确认批发价和样品政策",
+        summary_zh: "客户关注维修配件批发供货和持续补货。",
+      },
+    ],
+    negotiatedPrices: [
+      {
+        product: "OLED phone screens",
+        quantity_context: "500 pcs 起订讨论",
+        price_context_zh: "要求卖家给出含包装的批发报价",
+      },
+    ],
+    behaviorSignals: {
+      summary_zh: "客户围绕维修配件库存、批发价格和样品确认沟通，价格敏感度中高。",
+      decision_role: "采购/店主",
+      inference_notes: ["官网和注册主体需要人工补充确认"],
+    },
+    nextActions: ["补充公司官网或注册信息", "发送 500 pcs OLED 屏阶梯报价和样品政策"],
     companyName: "Brasil Cell Parts",
   },
   {

@@ -9,11 +9,12 @@ import { cn } from "@/lib/utils";
 import { buyerTypeLabel, productLabel } from "@/components/cross-border/customer-labels";
 import {
   businessStatusText,
+  isCoverageGapDisplay,
   publicSourceUrl,
+  screeningCoverageGapDisplay,
   screeningEvidenceFindingText,
   screeningScoreBlockText,
   simplifyScreeningReportText,
-  sourceTypeText,
 } from "@/components/cross-border/screening-report-copy";
 import type {
   CustomerEvidenceItem,
@@ -80,6 +81,13 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "accio_behavior",
 ];
 
+const hiddenScoreBlocks = new Set(["conversation_behavior"]);
+const hiddenEvidenceLayers = new Set<ScreeningEvidenceLayer>([
+  "google_maps_local_presence",
+  "address_validation",
+  "accio_behavior",
+]);
+
 const addressTypeLabels: Record<AddressFootprintAddressType, string> = {
   headquarters_or_office: "总部 / 办公",
   storefront: "门店",
@@ -123,6 +131,14 @@ function formatBeijingDateTime(value: string) {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+function screeningTimeLabel(item: CustomerListItem) {
+  if (item.screeningReport?.createdAt) return formatBeijingDateTime(item.screeningReport.createdAt);
+  if (item.screeningStatus === "running") return "背调中";
+  if (item.screeningStatus === "failed") return "背调失败";
+  if (item.screeningStatus === "screened" || item.screeningStatus === "insufficient_evidence") return "时间待确认";
+  return "未背调";
+}
+
 function statusBadgeClass(item: CustomerListItem) {
   if (item.screeningStatus === "running") return "border-sky-200 bg-sky-50 text-sky-800";
   if (item.screeningStatus === "failed") return "border-rose-200 bg-rose-50 text-rose-800";
@@ -150,19 +166,16 @@ function percentLabel(value: number | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
-function sourceTypeLabel(value?: string) {
-  return sourceTypeText(value) ?? "公开资料";
-}
-
-function scoreImpactLabel(value?: CustomerEvidenceItem["scoreImpact"]) {
-  if (value === "positive") return "正向依据";
-  if (value === "negative") return "风险依据";
-  if (value === "coverage_only") return "仅作覆盖";
-  return "参考依据";
-}
-
 function simplifyDisplayText(value: string | null | undefined) {
   return simplifyScreeningReportText(value);
+}
+
+function visibleEvidenceItems(evidence: CustomerEvidenceItem[]) {
+  return evidence.filter((item) => !hiddenEvidenceLayers.has(item.layer));
+}
+
+function visibleEvidenceCount(report: CustomerScreeningReport) {
+  return visibleEvidenceItems(report.evidence).length;
 }
 
 function riskTierForScore(score?: number | null): CustomerScreeningReport["riskTier"] {
@@ -260,7 +273,7 @@ function CompanyScalePanel({ assessment }: { assessment?: CompanyScaleAssessment
 }
 
 function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
-  const displayBlocks = blocks.length > 0 ? blocks : [];
+  const displayBlocks = blocks.filter((block) => !hiddenScoreBlocks.has(block.block));
   const maxTotal = displayBlocks.reduce((sum, block) => sum + block.maxPoints, 0);
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (
@@ -333,51 +346,66 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
   }
   return (
     <div className="space-y-2">
-      {evidence.map((item, index) => (
-        <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
-              {scoreImpactLabel(item.scoreImpact)}
-            </Badge>
-            {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
+      {evidence.map((item, index) => {
+        const sourceUrl = publicSourceUrl(item.sourceUrl);
+        return (
+          <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
+            <div className="leading-6">
+              {screeningEvidenceFindingText({
+                layer: item.layer,
+                sourceType: item.sourceType,
+                scoreBlock: item.scoreBlock,
+                scoreImpact: item.scoreImpact,
+                confidence: item.confidence,
+                finding: item.finding,
+                sourceUrl: item.sourceUrl,
+              })}
+            </div>
+            {sourceUrl ? (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                来源网址
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            {typeof item.confidence === "number" ? (
+              <div className="mt-1 text-xs text-muted-foreground">可信度 {Math.round(item.confidence * 100)}%</div>
+            ) : null}
           </div>
-          <div className="mt-2 leading-6">
-            {screeningEvidenceFindingText({
-              layer: item.layer,
-              sourceType: item.sourceType,
-              scoreBlock: item.scoreBlock,
-              scoreImpact: item.scoreImpact,
-              confidence: item.confidence,
-              finding: item.finding,
-              sourceUrl: item.sourceUrl,
-            })}
-          </div>
-          {publicSourceUrl(item.sourceUrl) ? (
-            <a
-              href={item.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              来源网址
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          ) : null}
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>对应信息：{scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
-            {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+function PublicSourceLinks({ urls }: { urls: string[] }) {
+  const sourceUrls = Array.from(new Set(urls.map(publicSourceUrl).filter((url): url is string => Boolean(url))));
+  if (sourceUrls.length === 0) {
+    return <p className="text-xs text-muted-foreground">暂无可直接打开的来源网址。</p>;
+  }
+  return sourceUrls.map((url, index) => (
+    <a
+      key={url}
+      className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+    >
+      查看来源 {index + 1}
+      <ExternalLink className="h-3 w-3" />
+    </a>
+  ));
 }
 
 function ReportEvidenceSections({ report }: { report: CustomerScreeningReport }) {
   const grouped = evidenceByLayer(report.evidence);
   return (
     <div className="space-y-3">
-      {evidenceLayerOrder.map((layer) => {
+      {evidenceLayerOrder.filter((layer) => !hiddenEvidenceLayers.has(layer)).map((layer) => {
         const items = grouped.get(layer) ?? [];
         return (
           <section key={layer} className="rounded-md border p-3">
@@ -447,6 +475,78 @@ function addressValidationText(location: CustomerAddressFootprint["locations"][n
     ? validation.addressComplete ? "完整" : "不完整"
     : "完整性待确认";
   return [simplifyDisplayText(validation.status), complete, simplifyDisplayText(validation.possibleNextAction)].filter(Boolean).join(" / ");
+}
+
+function googleMapsQuery(location: CustomerAddressFootprint["locations"][number]) {
+  return [
+    location.formattedAddress,
+    location.displayName,
+    location.city,
+    location.region,
+    location.country,
+  ].filter((item): item is string => Boolean(item?.trim())).join(", ");
+}
+
+function googleMapsSearchUrl(location: CustomerAddressFootprint["locations"][number]) {
+  if (location.googleMapsUri) return location.googleMapsUri;
+  const query = googleMapsQuery(location);
+  if (!query) return null;
+  const params = new URLSearchParams({
+    api: "1",
+    query,
+  });
+  if (location.googlePlaceId) params.set("query_place_id", location.googlePlaceId);
+  return `https://www.google.com/maps/search/?${params.toString()}`;
+}
+
+function googleMapsEmbedUrl(location: CustomerAddressFootprint["locations"][number]) {
+  const query = googleMapsQuery(location) || location.googlePlaceId;
+  if (!query) return null;
+  const params = new URLSearchParams({
+    q: query,
+    z: "15",
+    output: "embed",
+  });
+  return `https://maps.google.com/maps?${params.toString()}`;
+}
+
+function GoogleMapPreview({ location }: { location: CustomerAddressFootprint["locations"][number] }) {
+  const mapsUrl = googleMapsSearchUrl(location);
+  const embedUrl = googleMapsEmbedUrl(location);
+  if (!mapsUrl || !embedUrl) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-sky-100 bg-white p-3">
+      <div className="mb-2 flex items-start gap-2">
+        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-sky-950">线下地图</div>
+        </div>
+      </div>
+      <div className="relative h-44 overflow-hidden rounded-lg border border-sky-100 bg-[var(--sentura-surface-2)] sm:h-56">
+        <iframe
+          title={`${location.displayName} Google Maps preview`}
+          src={embedUrl}
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          className="pointer-events-none h-full w-full border-0"
+        />
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`在 Google Maps 中打开 ${location.displayName}`}
+          className="absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="sr-only">在 Google Maps 中打开 {location.displayName}</span>
+        </a>
+        <div className="pointer-events-none absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-md bg-white/95 px-2 py-1 text-xs font-medium text-sky-900 shadow-sm">
+          打开 Google Maps
+          <ExternalLink className="h-3 w-3" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootprint }) {
@@ -543,7 +643,7 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
                       <Badge variant="secondary">{addressTypeLabels[location.addressType]}</Badge>
                       {location.businessStatus ? <Badge variant="outline">{businessStatusText(location.businessStatus)}</Badge> : null}
                     </div>
-                    <div className="mt-2 text-sm leading-6 text-[var(--sentura-text)]">{location.formattedAddress}</div>
+                    <GoogleMapPreview location={location} />
                     <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
                       <div>地址验证：{addressValidationText(location)}</div>
                       <div>
@@ -561,17 +661,6 @@ function AddressFootprintPanel({ footprint }: { footprint?: CustomerAddressFootp
                           </Badge>
                         ))}
                       </div>
-                    ) : null}
-                    {location.googleMapsUri ? (
-                      <a
-                        href={location.googleMapsUri}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 break-all text-xs font-medium text-primary hover:underline"
-                      >
-                        来源网址（Google Maps / 谷歌地图）
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
                     ) : null}
                   </div>
                 ))}
@@ -600,6 +689,11 @@ export function CustomerReportDialog({
   const report = reportForCustomer(customer);
   const riskLabel = report ? riskTierLabels[report.riskTier] ?? report.riskTier : "未背调";
   const productsLabel = customer.products.map(productLabel).join(", ") || "未记录";
+  const coverageGaps = report
+    ? report.coverageGaps
+        .map(screeningCoverageGapDisplay)
+        .filter(isCoverageGapDisplay)
+    : [];
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -671,7 +765,15 @@ export function CustomerReportDialog({
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <ReportMetric label="产品兴趣" value={productsLabel} />
-            <ReportMetric label="找到时间" value={formatBeijingDateTime(customer.foundAt)} />
+            <ReportMetric
+              label="时间"
+              value={
+                <div className="space-y-1">
+                  <div>获客 {formatBeijingDateTime(customer.foundAt)}</div>
+                  <div>背调 {screeningTimeLabel(customer)}</div>
+                </div>
+              }
+            />
             <ReportMetric label="综合评分" value={scoreLabel(customer)} />
             <ReportMetric label="证据覆盖" value={report ? percentLabel(report.evidenceCoverage) : "未计算"} />
           </div>
@@ -692,8 +794,6 @@ export function CustomerReportDialog({
 
               {report ? (
                 <>
-                  <AddressFootprintPanel footprint={report.addressFootprint} />
-
                   <ReportPanel
                     title="评分来源"
                     icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
@@ -701,10 +801,12 @@ export function CustomerReportDialog({
                     <ScoreBreakdownChart blocks={report.scoreBlocks} />
                   </ReportPanel>
 
+                  <AddressFootprintPanel footprint={report.addressFootprint} />
+
                   <section>
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div className="text-sm font-medium">核验依据</div>
-                      <Badge variant="outline">{report.evidence.length} 条</Badge>
+                      <Badge variant="outline">{visibleEvidenceCount(report)} 条</Badge>
                     </div>
                     <ReportEvidenceSections report={report} />
                   </section>
@@ -716,18 +818,7 @@ export function CustomerReportDialog({
                 >
                   <p className="text-sm leading-6 text-muted-foreground">{simplifyDisplayText(customer.evidenceSummary) ?? "暂无核验说明。"}</p>
                   <div className="mt-3 space-y-2">
-                    {customer.sourceUrls.map((url, index) => (
-                      <a
-                        key={url}
-                        className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        查看来源 {index + 1}
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ))}
+                    <PublicSourceLinks urls={customer.sourceUrls} />
                   </div>
                 </ReportPanel>
               )}
@@ -755,18 +846,14 @@ export function CustomerReportDialog({
                 </dl>
               </ReportPanel>
 
-              {report?.coverageGaps.length ? (
+              {coverageGaps.length ? (
                 <ReportPanel title="还缺什么" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}>
                   <div className="space-y-2">
-                    {report.coverageGaps.map((gap, index) => (
-                      <div key={`${gap.block}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
-                        <div className="mb-1">
-                          <Badge variant="outline" className="mr-2 align-middle text-[11px]">
-                            {scoreBlockLabels[gap.block] ?? gap.block}
-                          </Badge>
-                          <span>{simplifyDisplayText(gap.reason) ?? gap.reason}</span>
-                        </div>
-                        {gap.action ? <div className="text-xs text-muted-foreground">{simplifyDisplayText(gap.action) ?? gap.action}</div> : null}
+                    {coverageGaps.map((gap, index) => (
+                      <div key={`${gap.title}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-6">
+                        <div className="font-medium text-[var(--sentura-ink)]">{gap.title}</div>
+                        <div className="mt-0.5">{gap.reason}</div>
+                        {gap.action ? <div className="mt-1 text-xs text-muted-foreground">{gap.action}</div> : null}
                       </div>
                     ))}
                   </div>

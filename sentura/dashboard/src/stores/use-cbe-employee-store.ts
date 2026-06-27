@@ -37,6 +37,12 @@ export interface CbeEmployeeTaskRecord {
   metadata?: Record<string, unknown>;
 }
 
+export const CBE_EMPLOYEE_TASK_RETRY_EVENT = "sentura:cbe-employee-task-retry";
+
+export interface CbeEmployeeTaskRetryEventDetail {
+  task: CbeEmployeeTaskRecord;
+}
+
 type RowUpdater = CustomerListItem[] | ((current: CustomerListItem[]) => CustomerListItem[]);
 type MemoryRowUpdater = MemoryRecordItem[] | ((current: MemoryRecordItem[]) => MemoryRecordItem[]);
 
@@ -49,6 +55,7 @@ interface StartTaskInput {
   timeoutMs: number;
   sessionKey?: string;
   targetLabel?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface TaskProgressInput {
@@ -283,6 +290,7 @@ export const useCbeEmployeeStore = create<CbeEmployeeState>()(
           deadlineAt: now + input.timeoutMs,
           sessionKey: input.sessionKey,
           targetLabel: input.targetLabel,
+          metadata: input.metadata,
         };
         set((state) => ({ tasks: trimTasks([task, ...state.tasks]) }));
         return id;

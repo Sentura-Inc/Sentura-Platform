@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
+import { AnimatedTableRow } from "@/components/cross-border/animated-list";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
   buyerTypeLabel,
@@ -30,6 +31,11 @@ import { cn } from "@/lib/utils";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 import type { AdminCustomerRow } from "../_data/admin-api";
 import type {
+  AddressFootprintAddressType,
+  AddressFootprintCoverageStatus,
+  AddressFootprintRelationshipStatus,
+  CompanyScaleAssessment,
+  CustomerAddressFootprint,
   CustomerEvidenceItem,
   CustomerListItem,
   CustomerScoreBlock,
@@ -93,8 +99,8 @@ const customerSortLabels: Record<AdminCustomerSort, string> = {
   none: "默认排序",
   score_desc: "评分高到低",
   score_asc: "评分低到高",
-  screening_desc: "背调时间新到旧",
-  screening_asc: "背调时间旧到新",
+  screening_desc: "时间新到旧",
+  screening_asc: "时间旧到新",
 };
 
 const sourceLabels: Record<CustomerListItem["source"], string> = {
@@ -170,6 +176,38 @@ function asNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function asBool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function toUrl(value: unknown) {
+  const raw = asString(value);
+  if (!raw) return undefined;
+  const candidate = raw.includes("://") ? raw : `https://${raw}`;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function isNonEmptyRecord(value: JsonRecord) {
+  return Object.keys(value).length > 0;
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
 function sourceFromRecordType(value: string): CustomerListItem["source"] {
   if (value.includes("manual")) return "manual_screening";
   return "lead_discovery";
@@ -211,6 +249,165 @@ function scoreImpact(value: unknown): ScreeningScoreImpact {
 
 function simplifyDisplayText(value: string | null | undefined) {
   return simplifyScreeningReportText(value);
+}
+
+function normalizeAddressCoverageStatus(value: unknown): AddressFootprintCoverageStatus {
+  if (
+    value === "found" ||
+    value === "partial" ||
+    value === "not_found" ||
+    value === "unavailable_api" ||
+    value === "not_checked"
+  ) {
+    return value;
+  }
+  return "not_checked";
+}
+
+function normalizeAddressType(value: unknown): AddressFootprintAddressType {
+  if (
+    value === "headquarters_or_office" ||
+    value === "storefront" ||
+    value === "warehouse_or_distribution" ||
+    value === "service_or_repair_location" ||
+    value === "unknown_business_location"
+  ) {
+    return value;
+  }
+  return "unknown_business_location";
+}
+
+function normalizeRelationshipStatus(value: unknown): AddressFootprintRelationshipStatus {
+  if (
+    value === "confirmed_company_location" ||
+    value === "probable_company_location" ||
+    value === "possible_related_location" ||
+    value === "rejected_unrelated_location"
+  ) {
+    return value;
+  }
+  return "possible_related_location";
+}
+
+function normalizeAddressValidation(value: unknown) {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  return {
+    status: asString(raw.status) || undefined,
+    addressComplete: asBool(raw.address_complete) ?? asBool(raw.addressComplete),
+    possibleNextAction: asString(raw.possible_next_action ?? raw.possibleNextAction) || undefined,
+  };
+}
+
+function normalizeDomainMatch(value: unknown): boolean | "not_checked" | undefined {
+  if (typeof value === "boolean") return value;
+  return asString(value) === "not_checked" ? "not_checked" : undefined;
+}
+
+function normalizePhoneMatch(value: unknown): boolean | "not_checked" | "conflict" | undefined {
+  if (typeof value === "boolean") return value;
+  const raw = asString(value);
+  return raw === "not_checked" || raw === "conflict" ? raw : undefined;
+}
+
+function normalizeCompanyScaleAssessment(value: unknown): CompanyScaleAssessment | undefined {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  const scaleClass = asString(raw.scale_class ?? raw.scaleClass);
+  const firstBlockStrategy = asString(raw.first_block_strategy ?? raw.firstBlockStrategy);
+  if (
+    scaleClass !== "listed_or_public" &&
+    scaleClass !== "medium_large_registered" &&
+    scaleClass !== "small_local_offline" &&
+    scaleClass !== "small_online_only" &&
+    scaleClass !== "unknown_scale"
+  ) {
+    return undefined;
+  }
+  if (
+    firstBlockStrategy !== "registry_disclosure_primary_maps_support" &&
+    firstBlockStrategy !== "maps_physical_address_primary" &&
+    firstBlockStrategy !== "domain_public_source_primary" &&
+    firstBlockStrategy !== "try_registry_and_maps"
+  ) {
+    return undefined;
+  }
+  return {
+    scaleClass,
+    confidence: asNumber(raw.confidence),
+    rationale: asString(raw.rationale ?? raw.reason ?? raw.summary, "背调员工未返回公司规模判断说明。"),
+    firstBlockStrategy,
+  };
+}
+
+function normalizeAddressFootprint(value: unknown): CustomerAddressFootprint | undefined {
+  const raw = asRecord(value);
+  if (!isNonEmptyRecord(raw)) return undefined;
+  const locations = (Array.isArray(raw.locations) ? raw.locations : [])
+    .map((item, index) => {
+      const location = asRecord(item);
+      const formattedAddress = asString(
+        location.formatted_address ?? location.formattedAddress ?? location.address,
+      );
+      return {
+        googlePlaceId: asString(location.google_place_id ?? location.googlePlaceId) || undefined,
+        displayName: asString(
+          location.display_name ?? location.displayName,
+          `Google Maps location ${index + 1}`,
+        ),
+        addressType: normalizeAddressType(location.address_type ?? location.addressType),
+        relationshipStatus: normalizeRelationshipStatus(location.relationship_status ?? location.relationshipStatus),
+        formattedAddress,
+        city: asString(location.city) || undefined,
+        region: asString(location.region) || undefined,
+        country: asString(location.country) || undefined,
+        businessStatus: asString(location.business_status ?? location.businessStatus) || undefined,
+        types: asStringArray(location.types),
+        websiteUri: toUrl(location.website_uri ?? location.websiteUri),
+        domainMatch: normalizeDomainMatch(location.domain_match ?? location.domainMatch),
+        phoneMatch: normalizePhoneMatch(location.phone_match ?? location.phoneMatch),
+        addressValidation: normalizeAddressValidation(location.address_validation ?? location.addressValidation),
+        googleMapsUri: toUrl(location.google_maps_uri ?? location.googleMapsUri),
+        matchConfidence: asNumber(location.match_confidence ?? location.matchConfidence),
+        matchReasons: asStringArray(location.match_reasons ?? location.matchReasons),
+        sourceType: asString(location.source_type ?? location.sourceType, "google_maps_places"),
+        fetchedAt: asString(location.fetched_at ?? location.fetchedAt) || undefined,
+      };
+    })
+    .filter((location) => location.formattedAddress || location.googleMapsUri || location.googlePlaceId);
+  const summary = asRecord(raw.summary);
+  const searchScope = asRecord(raw.search_scope ?? raw.searchScope);
+  const confirmed = locations.filter((item) => item.relationshipStatus === "confirmed_company_location").length;
+  const probable = locations.filter((item) => item.relationshipStatus === "probable_company_location").length;
+  const possible = locations.filter((item) => item.relationshipStatus === "possible_related_location").length;
+  const operational = locations.filter((item) => item.businessStatus === "OPERATIONAL").length;
+  const closed = locations.filter((item) => /CLOSED/i.test(item.businessStatus ?? "")).length;
+  return {
+    sectionTitle: asString(raw.section_title ?? raw.sectionTitle, "线下地址线索"),
+    coverageStatus: normalizeAddressCoverageStatus(raw.coverage_status ?? raw.coverageStatus),
+    searchScope: {
+      queriesRun: asStringArray(searchScope.queries_run ?? searchScope.queriesRun),
+      countries: asStringArray(searchScope.countries),
+      capped: asBool(searchScope.capped) ?? false,
+      limitations: asStringArray(searchScope.limitations),
+    },
+    summary: {
+      totalLocations: asNumber(summary.total_locations ?? summary.totalLocations) ?? locations.length,
+      confirmedLocations: asNumber(summary.confirmed_locations ?? summary.confirmedLocations) ?? confirmed,
+      probableLocations: asNumber(summary.probable_locations ?? summary.probableLocations) ?? probable,
+      possibleRelatedLocations: asNumber(summary.possible_related_locations ?? summary.possibleRelatedLocations) ?? possible,
+      operationalLocations: asNumber(summary.operational_locations ?? summary.operationalLocations) ?? operational,
+      closedLocations: asNumber(summary.closed_locations ?? summary.closedLocations) ?? closed,
+      countries: asStringArray(summary.countries).length
+        ? asStringArray(summary.countries)
+        : uniqueStrings(locations.map((item) => item.country)),
+      cities: asStringArray(summary.cities).length
+        ? asStringArray(summary.cities)
+        : uniqueStrings(locations.map((item) => item.city)),
+    },
+    locations,
+    openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
+  };
 }
 
 function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined {
@@ -279,9 +476,11 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
     evidenceCoverage: row.evidenceCoverage ?? asNumber(reportJson.evidence_coverage),
     recommendedAction: simplifyDisplayText(asString(reportJson.recommended_action, row.recommendedAction ?? "复核背调结果后再决定是否跟进。")) ?? "复核背调结果后再决定是否跟进。",
     createdAt: asString(reportJson.created_at ?? row.updatedAt) || undefined,
+    companyScaleAssessment: normalizeCompanyScaleAssessment(reportJson.company_scale_assessment ?? reportJson.companyScaleAssessment),
     scoreBlocks,
     evidence,
     coverageGaps,
+    addressFootprint: normalizeAddressFootprint(reportJson.address_footprint ?? reportJson.addressFootprint),
     openQuestions,
   };
 }
@@ -309,7 +508,11 @@ function adminCustomerToListItem(row: AdminCustomerRow): AdminListCustomerItem {
     normalizedScore: row.normalizedScore ?? undefined,
     scoreTier: scoreTierForScore(row.normalizedScore),
     reportId: report?.reportId,
-    sourceUrls: row.website ? [row.website] : row.domain ? [`https://${row.domain}`] : [],
+    sourceUrls: Array.from(new Set([
+      row.website,
+      row.domain ? `https://${row.domain}` : undefined,
+      ...(report?.addressFootprint?.locations.map((item) => item.googleMapsUri).filter(Boolean) ?? []),
+    ].filter((url): url is string => Boolean(url)))),
     evidenceSummary: simplifyDisplayText(row.recommendedAction) ?? "暂无背调结论。",
     recommendedAction: simplifyDisplayText(row.recommendedAction),
     screeningReport: report,
@@ -370,6 +573,29 @@ function formatBeijingDateTime(value: string) {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((item) => item.type === type)?.value ?? "00";
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
+function customerScreeningTimeLabel(item: CustomerListItem) {
+  if (item.screeningReport?.createdAt) return formatBeijingDateTime(item.screeningReport.createdAt);
+  if (item.screeningStatus === "running") return "背调中";
+  if (item.screeningStatus === "failed") return "背调失败";
+  if (item.screeningStatus === "screened" || item.screeningStatus === "insufficient_evidence") return "时间待确认";
+  return "未背调";
+}
+
+function CustomerTimeStack({ item }: { item: CustomerListItem }) {
+  return (
+    <div className="space-y-1 font-mono text-xs leading-5">
+      <div>
+        <span className="mr-1 text-muted-foreground">获客</span>
+        {formatBeijingDateTime(item.foundAt)}
+      </div>
+      <div>
+        <span className="mr-1 text-muted-foreground">背调</span>
+        {customerScreeningTimeLabel(item)}
+      </div>
+    </div>
+  );
 }
 
 function rowClass(item: CustomerListItem) {
@@ -519,6 +745,91 @@ export function AdminCustomerReportButton({
   );
 }
 
+function AdminCustomerMobileCard({
+  item,
+  highlighted,
+  productsExpanded,
+  toggleProductsExpanded,
+  openDetail,
+}: {
+  item: AdminListCustomerItem;
+  highlighted: boolean;
+  productsExpanded: boolean;
+  toggleProductsExpanded: () => void;
+  openDetail: () => void;
+}) {
+  const itemWorkflowBadge = workflowBadge(item);
+  return (
+    <article
+      data-admin-customer-anchor={item.customerId}
+      className={cn(
+        "rounded-md border p-3 text-sm shadow-sm shadow-sky-950/5 transition-colors",
+        rowClass(item),
+        highlighted ? "animate-pulse outline outline-2 -outline-offset-2 outline-sky-300" : "",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" className="min-w-0 text-left" onClick={openDetail}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{item.companyName}</span>
+            {itemWorkflowBadge ? (
+              <Badge variant="outline" className={cn("gap-1 text-[11px]", itemWorkflowBadge.className)}>
+                {itemWorkflowBadge.icon === "check" ? (
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                ) : null}
+                {itemWorkflowBadge.label ? <span>{itemWorkflowBadge.label}</span> : null}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {customerSubtitle(item, { includeCountry: true, includeBuyerType: true })}
+          </div>
+        </button>
+        <Badge variant="outline" className={cn("shrink-0 whitespace-nowrap", statusBadgeClass(item))}>
+          {scoreLabel(item)}
+        </Badge>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1">
+        <CustomerProductBadges
+          products={item.products}
+          expanded={productsExpanded}
+          onToggle={toggleProductsExpanded}
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <div className="text-muted-foreground">负责人</div>
+          <div className="font-medium">{item.ownerName ?? "-"}</div>
+          <div className="truncate text-muted-foreground">{item.teamName ?? ""}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">时间</div>
+          <CustomerTimeStack item={item} />
+        </div>
+        <div className="col-span-2">
+          <div className="text-muted-foreground">网站</div>
+          {item.website ? (
+            <a href={item.website} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-primary">
+              {item.website.replace(/^https?:\/\//, "")}
+            </a>
+          ) : (
+            <span className="text-muted-foreground">未提供</span>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={openDetail}>
+          <Eye className="h-3.5 w-3.5" />
+          {item.screeningReport ? "查看报告" : item.screeningStatus === "running" ? "查看进度" : "详情"}
+        </Button>
+      </div>
+    </article>
+  );
+}
+
 export function AdminCustomerListTable({
   customers,
   title,
@@ -554,10 +865,12 @@ export function AdminCustomerListTable({
   useEffect(() => {
     if (!highlightedCustomerId) return;
     const timer = window.setTimeout(() => {
-      document.getElementById(`${storageKeyPrefix}-${highlightedCustomerId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+      const target = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-customer-anchor]"))
+        .find((element) => element.dataset.adminCustomerAnchor === highlightedCustomerId && element.getClientRects().length > 0);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
     }, 100);
     return () => window.clearTimeout(timer);
-  }, [highlightedCustomerId, rows.length, storageKeyPrefix]);
+  }, [highlightedCustomerId, rows.length]);
 
   const filterOptions = useMemo(() => {
     const owners = new Map<string, string>();
@@ -853,7 +1166,20 @@ export function AdminCustomerListTable({
               <p className="mt-1 text-sm text-muted-foreground">调整筛选条件后查看客户记录。</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-md border">
+            <>
+            <div className="space-y-3 md:hidden">
+              {pagedCustomers.map((item) => (
+                <AdminCustomerMobileCard
+                  key={item.customerId}
+                  item={item}
+                  highlighted={highlightedCustomerId === item.customerId}
+                  productsExpanded={expandedProductRows.has(item.customerId)}
+                  toggleProductsExpanded={() => toggleProductsExpanded(item.customerId)}
+                  openDetail={() => setActiveCustomer(item)}
+                />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto rounded-md border md:block">
               <table className="w-full min-w-[1160px] text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
@@ -863,19 +1189,21 @@ export function AdminCustomerListTable({
                     <th className="px-3 py-2 text-left">产品</th>
                     <th className="px-3 py-2 text-left">负责人</th>
                     <th className="px-3 py-2 text-left">网站</th>
-                    <th className="px-3 py-2 text-left">找到时间</th>
+                    <th className="px-3 py-2 text-left">时间</th>
                     <th className="px-3 py-2 text-left">评分</th>
                     <th className="px-3 py-2 text-left">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedCustomers.map((item) => {
+                  {pagedCustomers.map((item, index) => {
                     const itemWorkflowBadge = workflowBadge(item);
                     return (
-                      <tr
-                        id={`${storageKeyPrefix}-${item.customerId}`}
+                      <AnimatedTableRow
+                        index={index}
+                        preserveTableRowBase={false}
                         key={item.customerId}
                         data-customer-id={item.customerId}
+                        data-admin-customer-anchor={item.customerId}
                         className={cn(
                           "border-t align-top transition-colors",
                           rowClass(item),
@@ -925,7 +1253,9 @@ export function AdminCustomerListTable({
                             <span className="text-muted-foreground">未提供</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 font-mono text-xs">{formatBeijingDateTime(item.foundAt)}</td>
+                        <td className="px-3 py-3">
+                          <CustomerTimeStack item={item} />
+                        </td>
                         <td className="px-3 py-3">
                           <Badge variant="outline" className={cn("whitespace-nowrap", statusBadgeClass(item))}>
                             {scoreLabel(item)}
@@ -937,12 +1267,13 @@ export function AdminCustomerListTable({
                             {item.screeningReport ? "查看报告" : item.screeningStatus === "running" ? "查看进度" : "详情"}
                           </Button>
                         </td>
-                      </tr>
+                      </AnimatedTableRow>
                     );
                   })}
                 </tbody>
               </table>
             </div>
+            </>
           )}
           <ListPagination
             page={customerPage.page}

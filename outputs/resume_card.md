@@ -1,3 +1,124 @@
+# Active Task: CBE Automatic Long-Term Memory Write And Admin Full Transcript Read
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User clarified in Chinese that no background-screening handoff is needed. Required behavior is: Employee `记忆整理` automatically writes structured long-term memory after analysis, and Manager/Admin can read employee-side memory data plus complete stored chat transcripts.
+- Deployment meaning: current code is local/dev until deployed to ECS. Local `localhost` can work against the configured DB; public ECS domains will not see this change until pull/build/restart/deploy.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Automatic Long-Term Memory And Admin Full Transcript 2026-06-28`.
+- Implemented:
+  - Employee Accio summary completion creates approved structured `memory_facts` automatically and still returns `handoffIds: []`.
+  - Employee `memory/facts` PATCH route is disabled with `memory_fact_review_disabled`; review decisions are no longer a product flow.
+  - Employee/Admin memory dialogs no longer show long-term-memory status, write, or reject controls.
+  - Manager `/admin/memory` remains read-only and reads selected employees' full stored source transcripts through an Admin-scoped payload route.
+  - Tests/docs updated for CE37: automatic long-term memory write is enabled; Screening handoff/customer projection/supplement interop remain disabled.
+- Verification:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - Focused ESLint on touched Employee/Admin memory/API/store files: PASS.
+  - `git diff --check`: PASS.
+  - Local route smoke: `/employee/memory` HTTP 200 and `/admin/memory` HTTP 200.
+  - `scripts/test-cross-border-phase2-store.ts`: relevant memory checks PASS; full script still has 4 unrelated existing failures.
+  - `scripts/test-cross-border-agents.ts`: relevant memory/Admin transcript checks PASS; full script still has 9 unrelated existing failures.
+- Current state: implementation complete locally; not deployed to ECS. Do not treat older resume-card statements saying "Employee approval/write" as current; CE37 now means automatic structured long-term memory write after analysis only.
+
+# Active Task: CBE Admin Memory All Chat Customer Table
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked to add a Manager/Admin `全部聊天客户列表` under `员工账户列表` on `/admin/memory`, following the Admin `客户列表` page's table/filter logic, showing all employees' chat customers in one total list.
+- Required behavior: aggregate all employees' chat customers, owner-aware filtering, pagination at 10 customers per page, remove `点击员工打开对应聊天客户列表`, and remove the modal `10 条记忆记录` display.
+- Hard constraints: read-only Admin memory view; do not write long-term memory, create Screening handoffs, alter task execution/scoring/auth/session behavior, or revert unrelated dirty files.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Admin Memory All Chat Customer Table 2026-06-28`.
+- Implemented:
+  - `MemoryChatCustomerList` now supports configurable `pageSize`, table mode, owner metadata, owner filtering, and owner-aware search/chips.
+  - Admin `/admin/memory` loads each operator's memory records, attaches owner metadata, and renders `全部聊天客户列表` below `员工账户列表`.
+  - Aggregate Admin list uses table layout and paginates 10 customers per page.
+  - Removed `点击员工打开对应聊天客户列表`.
+  - Removed modal count badge such as `10 条记忆记录`.
+- Verification:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - Focused ESLint on Admin memory page and shared memory list component: PASS.
+  - Source deletion check, trailing-whitespace scan, and `git diff --check`: PASS.
+  - Local `/admin/memory`: HTTP 200.
+- Current state: implementation complete locally; not deployed to ECS/public domains.
+
+# Active Task: CBE Admin Memory Organization Page
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked in Chinese to add a Manager/Admin-side `记忆整理` page.
+- Required behavior: show an employee/operator list by account, with responsible owner and chat-record count. Clicking an employee opens the same Employee-side chat-customer list from `记忆整理`, including all existing search and filter functions.
+- Hard constraints: preserve Employee memory behavior and preview-only Accio memory boundaries; do not create approved long-term memory facts or screening handoff from this admin page; do not change auth/session/scoring/task runtime; do not revert unrelated dirty worktree files.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Admin Memory Organization Page 2026-06-28`.
+- Implemented:
+  - Added `/admin/memory`.
+  - Put `记忆整理` immediately to the right of `客户列表` in the Admin nav.
+  - Added employee account rows/table with responsible owner, chat-record count, and analyzed chat-customer count.
+  - Added read-only selected-operator memory API and Admin data helper.
+  - Added `MemoryChatCustomerList` so the manager page keeps the Employee-side chat-customer search/filter/card/detail behavior.
+- Verification:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - Focused ESLint on touched Admin/page/component/API/store/nav files: PASS with 3 pre-existing warnings in `src/lib/cross-border-store/admin.ts`.
+  - `git diff --check`: PASS.
+  - Local `/admin/memory`: HTTP 200, SSR HTML includes `记忆整理`, `员工账户列表`, and `聊天客户列表`.
+- Current state: implementation complete locally; not deployed to ECS. Optional next action is an authenticated browser click-through test on `/admin/memory`, then deploy if needed.
+
+# Active Task: CBE Memory Pagination And Admin Chat Customer Modal
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked for Employee/Admin `记忆整理` parity: `聊天客户列表` pagination at 5 customers per page, `原始记忆记录` pagination at 10 records per page, Admin list opening as a centered chat-customer modal instead of inline under the employee account list, and Admin analysis detail content exactly matching the Employee template.
+- Hard constraints: keep Accio memory preview-only; prefer shared Employee/Admin components/templates; do not alter screening handoff, auth, task execution, or unrelated dirty files.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Memory Pagination And Admin Chat Customer Modal 2026-06-28`.
+- Implemented:
+  - Employee `聊天客户列表`: 5 customers per page.
+  - Shared/Admin `聊天客户列表`: 5 customers per page.
+  - Employee `原始记忆记录`: confirmed 10 records per page.
+  - Admin `记忆整理`: selecting an employee opens a centered `聊天客户列表` Dialog instead of rendering inline below `员工账户列表`.
+  - Shared `MemoryAnalysisContent`: Employee and Admin chat-customer analysis details now use the same content template. Employee keeps source transcript and memory-review controls; Admin is read-only.
+- Verification:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - Focused ESLint on the Employee memory page, Admin memory page, and shared memory list component: PASS.
+  - Trailing-whitespace scan: PASS, no matches.
+  - Local `/employee/memory`: HTTP 200.
+  - Local `/admin/memory`: HTTP 200.
+- Current state: implementation complete locally; not deployed to ECS/public domains. Automated Playwright screenshots were not run because `sentura/dashboard` does not currently expose the Playwright CLI.
+
+# Active Task: CBE Raw Memory Batch Analyze And Cancel Rollback
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked in Chinese to add batch analysis for `未分析` raw memory records on Employee `记忆整理`, and ensure cancelling analysis returns records to their original `未分析` state instead of leaving them as `分析中` and hidden from the unanalyzed list.
+- Hard constraints: keep Accio memory preview-only boundaries; do not approve long-term memory facts or trigger screening handoff from this UI; do not change auth/session/scoring/backend behavior unrelated to this fix; do not revert unrelated dirty worktree files.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Raw Memory Batch Analyze And Cancel Rollback 2026-06-28`.
+- Likely files: `sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx`, `employee/_data/employee-task-runner.ts`, `employee/_data/employee-api.ts`, `sentura/dashboard/src/stores/use-cbe-employee-store.ts`, and related Employee memory/task API routes.
+- Implemented first pass:
+  - `schemas.ts`: added `StartAccioImportAnalysisRequestSchema`.
+  - `accio.ts`: added `startAccioImportAnalysis(...)` to reuse the original raw Accio import/run and patched memory list projection to include running/polling raw imports.
+  - Added API route `memory/imports/[id]/start/route.ts`.
+  - `employee-api.ts`: added `startEmployeeAccioImportAnalysis(...)`.
+  - `employee/memory/page.tsx`: existing raw analysis now reuses original import/run, registers abort signal, restores original row on cancellation, and exposes `批量分析所选未分析 / 批量分析当前未分析`.
+- Verification so far:
+  - `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+  - Focused ESLint on the touched Employee memory/API/store files: PASS.
+  - `git diff --check` on touched files and handoff files: PASS.
+  - In-app browser before server restart at 390x844 shows `批量分析当前未分析（4）`, raw section visible, and `docOverflowPx: 0`.
+  - Restarted `pnpm --dir sentura/dashboard dev` on `localhost:3000`; post-restart `curl` confirmed server HTML contains the new batch button/header and no longer contains the old raw-record header.
+- Current state: code edits are complete. Browser policy blocked the final post-restart reload of the local URL and explicitly forbade alternate browser workarounds, so only source checks, SSR `curl`, and the pre-restart mobile layout smoke are available.
+- Next action: final reply in Chinese with the completed scope and verification caveat.
+
+# Previous Active Task: CBE Employee/Admin Mobile Responsiveness Audit And Repair
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User asked in Chinese to comprehensively inspect every Sentura cross-border e-commerce Employee-side and Admin-side page/effect on mobile, then adjust the platform so it can be fully used on phones.
+- Hard constraints: keep backend/runtime/task execution/auth/data behavior unchanged; preserve current CBE product semantics, scoring, costs, and role boundaries; do not revert unrelated dirty worktree files.
+- Main handoff: `outputs/task_handoff.md`, top section `Sentura CBE Mobile Responsiveness Audit And Repair 2026-06-28`.
+- App: `sentura/dashboard`, Next.js 16.2.2, React 19.2.4, Tailwind v4, pnpm.
+- Initial route inventory: Employee home/customers/memory; Admin overview/employees/costs/high-value-customers plus admin customer table/dialog; login pages; legacy/demo lead-discovery/screening/accio-memory routes if still reachable.
+- Completed mobile repair: AppShell header compacts on phone, Employee customers no longer blanks/hydration-errors, Employee home funnel bars are clamped, Admin employees/costs/customer-list pages use mobile cards instead of visible wide tables.
+- Verification: `tsc --noEmit` PASS; focused ESLint PASS with 4 existing warnings in `employee/customers/page.tsx`; `git diff --check` PASS; `outputs/mobile-audit/verified-mobile-audit.json` shows 390px Employee login/home/customers/memory and Admin login/employees/high-value-customers/costs all `docOverflowPx: 0`, `errors: 0`, `warnings: 0`, `offenders: 0`.
+- Dev server left running for review: `http://localhost:3000`.
+
 # Active Task: Merge Remote `ecommerce` Backend, Stitch Local UI
 
 Started 2026-06-27 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
@@ -260,7 +381,7 @@ Previous fix, 2026-06-25:
 
 - User clarified the memory Agent / `记忆整理` board must be separated from `获客与背调`; it should not provide backcheck, write, or cross-board handoff options.
 - Implemented separation end to end:
-  - Employee `记忆整理` is preview-only. Removed `批准写入`, `发送到背调`, write-status display, supplement-target state, and Screening route actions.
+  - Employee `记忆整理` was preview-only at that point. Removed the old manual memory-write UI, `发送到背调`, write-status display, supplement-target state, and Screening route actions.
   - Employee `获客与背调` no longer offers `补充聊天记录` / route-back-to-memory actions and no longer projects Accio rows as customer sources.
   - Standalone `/client-demos/cross-border/accio-memory` no longer exposes Screening handoff copy/send behavior.
   - Accio store completion persists summaries but returns `memoryFactIds: []` and `handoffIds: []`; stale `supplement_target` payloads are rejected with `accio_interop_disabled`.

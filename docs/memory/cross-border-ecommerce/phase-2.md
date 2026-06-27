@@ -65,6 +65,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-26 | Dynamic Lead/Screening task time budgeting | Replaced fixed task wait windows with work-size estimates: Lead scales by selected-condition breadth/target count, Screening scales by 3-concurrent fan-out waves at ~3 minutes per child, task records persist timing metadata, and queued coordinator records add estimated queue delay. |
 | 2026-06-26 | Screening batch dedupe and score reconciliation | Fixed duplicate customer rows after batch `背调` by reusing Lead-linked Screening targets, deduping the customer projection, and enforcing final Screening score reconciliation from score blocks plus evidence coverage. |
 | 2026-06-27 | Lead target cap and whole-condition search | Capped Lead Discovery target count at 10, removed per-group/per-query result controls, merged selected filters into one search brief, and kept the first N compliant non-duplicate buyers to prevent wide grouped tool loops. |
+| 2026-06-28 | Admin memory organization page | Added manager `/admin/memory` with employee account rows, chat-record counts, `记忆整理` nav placement immediately after `客户列表`, and a read-only Employee-equivalent chat-customer list for each selected employee. |
+| 2026-06-28 | Employee automatic long-term memory write and Admin full transcript read | Changed analyzed `记忆整理` records to automatically create approved structured `memory_facts`, disabled memory-fact review decisions, removed Employee/Admin memory-decision UI copy, kept Screening handoff disabled, and let Manager `/admin/memory` read selected employees' full stored chat transcripts. |
 
 ## Current Phase 2 Ground Truth
 
@@ -90,8 +92,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
 - P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 415/415. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
-- Accio `记忆整理` manual intake now supports JSON files, pasted chat text, and multiple screenshot images in one analysis. Screenshot images are passed to OpenClaw through Gateway `chat.send` attachments for immediate hidden preflight transcription and are split into bounded numbered batches when needed, but raw image bytes are not persisted in the CBE business database; image-sourced records cannot be replayed from DB without re-uploading screenshots. Accio import rows carry `source_kind`, `input_format`, and `attachment_metadata_json` via `008_accio_manual_import_formats.sql`. Employee memory projections must prefer analyzed `customer_profile_json` over placeholder import company names and must expose structured `customer_profile`, `purchase_intent`, `negotiated_price`, `behavior_signals`, and `next_actions` facts to the UI report instead of only one generic summary string. As of 2026-06-25, `记忆整理` is a separate preview-only board: it must not write long-term memory, create/update customer rows, route supplement chats from `获客与背调`, or send records to Screening. Current broad CBE static regression is 415/415, current Accio manual-format store regression is 218/218, and current live PostgreSQL store regression is 244/244.
-- Historical 2026-06-24 Accio approval-to-memory and Accio-to-Screening handoff entries are audit context only. CE25 supersedes them for current product behavior.
+- Accio `记忆整理` manual intake now supports JSON files, pasted chat text, and multiple screenshot images in one analysis. Screenshot images are passed to OpenClaw through Gateway `chat.send` attachments for immediate hidden preflight transcription and are split into bounded numbered batches when needed, but raw image bytes are not persisted in the CBE business database; image-sourced records cannot be replayed from DB without re-uploading screenshots. Accio import rows carry `source_kind`, `input_format`, and `attachment_metadata_json` via `008_accio_manual_import_formats.sql`. Employee memory projections must prefer analyzed `customer_profile_json` over placeholder import company names and must expose structured `customer_profile`, `purchase_intent`, `negotiated_price`, `behavior_signals`, and `next_actions` facts to the UI report instead of only one generic summary string. As of CE37 on 2026-06-28, `记忆整理` automatically writes approved structured long-term memory facts after analysis, but it must not create/update customer rows, route supplement chats from `获客与背调`, send records to Screening, or create Accio-to-Screening handoffs.
+- Historical 2026-06-24 Accio approval-to-memory and Accio-to-Screening handoff entries are audit context only. CE25 superseded broad interop; CE37 restores automatic Employee long-term memory write after analysis only, while Screening handoff remains disabled.
 - Local CBE databases created before the `agent-memory` merge must run `set -a; source sentura/dashboard/.env.local; set +a; pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed` before opening Employee `记忆整理`; otherwise Dashboard routes that query `accio_imports ai.source_kind` will fail until `008_accio_manual_import_formats.sql` is applied.
 - Screening paid email and paid trade checks are capped once per target and require explicit re-approval before retry repeats a paid lookup. The durable per-target paid retry state is implemented under CE22/P2.5.
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
@@ -239,17 +241,17 @@ The user clarified that the memory Agent / `记忆整理` board must be separate
 
 ### Implementation
 
-- Updated Employee `记忆整理` so import/analyze flows produce structured analysis previews only. Removed `批准写入`, `发送到背调`, write-status display, supplement-target state, and Screening route actions from the report dialog and import sheet.
+- Updated Employee `记忆整理` so import/analyze flows produced structured analysis previews only at that time. Removed the old manual memory-write UI, `发送到背调`, write-status display, supplement-target state, and Screening route actions from the report dialog and import sheet.
 - Updated Employee `获客与背调` so selected customers run Lead/Screening only. Removed `补充聊天记录` / memory refresh routing, Accio handoff source labels, and runnable target filtering that depended on memory records.
 - Updated the standalone `/client-demos/cross-border/accio-memory` page so it shows analysis preview/copy behavior only and no longer exposes Screening handoff copy/send semantics.
 - Updated typed store/API boundaries:
   - Accio import rejects stale `supplement_target` payloads with `accio_interop_disabled`.
-  - Accio summary completion persists summaries but returns empty `memoryFactIds` and `handoffIds`.
-  - Accio summaries no longer create `memory_facts` or `handoff_events`.
+  - At that point, Accio summary completion persisted summaries but returned empty `memoryFactIds` and `handoffIds`.
+  - At that point, Accio summaries no longer created `memory_facts` or `handoff_events`.
   - Accio rows no longer project into the Employee customer list.
   - Handoff creation rejects Accio-to-Screening requests with `accio_handoff_disabled`.
   - Screening schemas and completion paths no longer accept `accio_memory` source or consume Accio handoff events.
-  - The memory-facts route now returns `memory_fact_review_disabled` for write/review attempts.
+  - At that point, the memory-facts route returned `memory_fact_review_disabled` for write/review attempts.
 - Updated `cbe-accio-memory` workspace files and skills to describe preview-only Accio/chat analysis. Removed `skills/handoff-to-screening/SKILL.md`.
 - Updated static/live regression coverage in `scripts/test-cross-border-agents.ts` and `scripts/test-cross-border-phase2-store.ts`.
 
@@ -263,7 +265,7 @@ The user clarified that the memory Agent / `记忆整理` board must be separate
 ### Boundary
 
 - This session intentionally supersedes the 2026-06-24 local-preflight Accio approval-to-memory and Accio-to-Screening handoff behavior. Those entries remain in memory and tests as historical audit records only.
-- Existing `memory_facts` and `handoff_events` schema objects remain for broader platform/history compatibility, but current Accio `记忆整理` does not write to them.
+- CE37 later restores Employee-side writes to `memory_facts`; `handoff_events` remain disabled for Accio-to-Screening interop.
 
 ## 2026-06-24 — Phase 2 Screening parent/child fan-out and queue drain
 
@@ -991,7 +993,7 @@ Start P2.4 implementation with the global CBE workload queue before hidden OpenC
   - product overflow chips such as `+1` expand inline to show all products and collapse with `收起`;
   - row-level `新找到` badges were removed while row highlight remains available through task links;
   - screened rows render a green `✅` instead of a text `已完成` badge;
-  - `找到时间` is formatted in Beijing time as `YYYY-MM-DD HH:mm:ss`;
+  - `时间` is formatted in Beijing time as `YYYY-MM-DD HH:mm:ss`;
   - Screening budget estimates are itemized from model/search/email/trade-data unit assumptions instead of a fixed demo value.
 - Fixed overlays and terminal task dismissal:
   - message center listens for outside pointer clicks while open and closes itself;
@@ -1107,7 +1109,7 @@ The Next dev log also showed a related page-stability issue on Employee home: pe
 - Added `CustomerProductBadges` so compact product chips show the first two products and a clickable `+N`; clicking expands the complete product list in place and shows `收起`.
 - Removed row `新找到` badges from desktop and mobile customer rows while preserving task-linked flash highlighting.
 - Replaced text `已完成` list badges with a green `✅` for screened customers.
-- Formatted `找到时间` in Beijing time as `YYYY-MM-DD HH:mm:ss` across list rows, mobile cards, and detail metrics.
+- Formatted `时间` in Beijing time as `YYYY-MM-DD HH:mm:ss` across list rows, mobile cards, and detail metrics.
 - Reworked Screening estimated cost from fixed demo per-target pricing into itemized OpenAI model token, Tavily search, optional Abstract/Hunter email validation, and optional paid trade-data budget assumptions.
 - Added outside-pointer close behavior for the global message center dialog.
 - Persisted terminal task-status dismissal locally and through `/employee/tasks/[id]/dismiss`; closing a terminal banner dismisses all terminal banners so older completed tasks do not reappear after route switching.
@@ -1550,7 +1552,7 @@ The user asked to complete all remaining work and tests needed before delivering
 - Updated Screening completion to detect observed paid email/trade evidence, update per-target paid state, and write `api_call_ledger` rows.
 - Added Accio memory fact review through `PATCH /api/client-demos/cross-border/employee/memory/facts`, including reviewer metadata and raw-chat exclusion from vector memory.
 - Marked Accio-to-Screening handoffs `accepted` on Screening creation and `completed` when the Screening report is saved for the Accio summary target.
-- Updated the Employee UI so child Screening execution honors server `paidSourcePolicy`, and `记忆整理` exposes `批准写入` for preview-only memory facts.
+- Updated the Employee UI so child Screening execution honors server `paidSourcePolicy`. The then-current manual memory-fact review UI was later superseded by CE37 automatic structured memory write.
 - Updated `scripts/cross-border-phase2-backup-restore-drill.sh` to support `CBE_POSTGRES_CLIENT_IMAGE` for matching Docker PostgreSQL clients when local `pg_dump` / `pg_restore` are unavailable or too old for the source server.
 - Updated `scripts/test-cross-border-phase2-load-smoke.ts` so reports can record `backup_restore_drill = "passed"` when `CBE_BACKUP_RESTORE_DRILL_PASSED=1`.
 - Tightened Employee evidence-gap wording so missing domain/email evidence names RDAP/DNS/official contact-email searches, and missing trade/financial evidence names trade/customs, SEC, and public financial-file sources.
@@ -1569,7 +1571,7 @@ The user asked to complete all remaining work and tests needed before delivering
 - `set -a; source sentura/dashboard/.env.local; set +a; CBE_BACKUP_RESTORE_DRILL_PASSED=1 pnpm exec tsx scripts/test-cross-border-phase2-load-smoke.ts --require-db --report outputs/cbe-phase2-load-smoke-report.json`: PASS, 48/48.
 - `pnpm exec tsx scripts/test-cross-border-agents.ts`: PASS, 410/410.
 - Backup/restore drill: PASS against disposable local `sentura_cbe_restore_drill` using `CBE_POSTGRES_CLIENT_IMAGE=postgres:18`; restored migration seed skipped already-applied migrations and restored-store checks passed 238/238.
-- Browser smoke: PASS. With `CBE_DEMO_USER_ID=cbe-user-operator-001`, `http://localhost:3000/client-demos/cross-border/employee/memory` loaded a synthetic Accio memory record, report dialog showed `仅预览`, `批准写入` PATCH succeeded, UI showed `已批准`, and the temporary record/import was deleted.
+- Browser smoke: PASS for the then-current manual memory-fact review flow. This flow was later superseded by CE37 automatic structured memory write after analysis.
 - `git diff --check`: PASS after final documentation/handoff updates.
 
 ### Boundary
@@ -2380,4 +2382,73 @@ Boundary:
 
 - This prevents the UI/prompt from causing wide grouped tool loops when many filters are selected.
 - It does not make Lead Discovery guarantee 10 customers when compliant, deduped, non-denylisted buyers are exhausted.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Admin Memory Organization Page
+
+Context:
+
+- The user asked for a manager-side `记忆整理` page.
+- Required behavior: list employees by account, show the responsible person and chat-record count, and when clicking an employee open a chat-customer list identical to the Employee `记忆整理` customer list including search and filters.
+- The user then clarified the Admin nav position: `记忆整理` must sit to the right of `客户列表`.
+
+Changes:
+
+- Added `CBE_ADMIN_MEMORY_PATH = "/admin/memory"`.
+- Updated Admin navigation order to `员工管理`, `客户列表`, `记忆整理`, `费用监控`.
+- Added `sentura/dashboard/src/app/client-demos/cross-border/admin/memory/page.tsx`.
+- Added `sentura/dashboard/src/components/cross-border/memory-chat-customer-list.tsx`, copying the Employee chat-customer list behavior for Admin read-only use:
+  - search by company, contact, product, price, and next action;
+  - filters for source, import time, analysis status, customer information, country, type, and product;
+  - chat-customer cards and a read-only analysis dialog.
+- Extended `listAdminOperators()` with Accio chat counters:
+  - `all_chat_record_count`;
+  - `all_chat_customer_count`.
+- Extended `listEmployeeMemoryRecords(...)` with optional `ownerUserId` and `limit` so Admin routes can fetch a selected operator's memory records without changing Employee default behavior.
+- Added read-only route `GET /api/client-demos/cross-border/admin/operators/[id]/memory`.
+- Added `fetchAdminOperatorMemoryRecords(...)` and Admin-side memory row mapping in `admin/_data/admin-api.ts`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint over touched Admin page/component/API/store/nav files: PASS with 3 pre-existing warnings in `src/lib/cross-border-store/admin.ts`.
+- `git diff --check` on touched files and handoff files: PASS.
+- `curl http://127.0.0.1:3000/admin/memory`: HTTP 200.
+- SSR HTML confirmed the Admin nav order places `记忆整理` immediately after `客户列表`, and the page includes `员工账户列表` and `聊天客户列表`.
+- Unauthenticated `curl http://127.0.0.1:3000/api/admin/operators`: HTTP 401, expected for a protected Admin API without session/header context.
+
+Boundary:
+
+- The new page is read-only Admin monitoring. It does not start Accio analysis, approve memory facts, create Screening handoffs, or change employee runtime/prompt/model/provider settings. Employee-side automatic long-term memory write is covered by CE37.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Employee Automatic Long-Term Memory Write and Admin Full Transcript Read
+
+Context:
+
+- The user clarified that `未部署到 ECS` should not mean the feature is fake or incomplete.
+- Required product behavior: no `记忆整理` to `背调` handoff is needed, but Employee-side `记忆整理` must automatically write real long-term memory after analysis, and Manager/Admin must read employee-side data including the full stored chat transcript.
+- This changes the CE25 boundary: `记忆整理` remains separate from `获客与背调`, but structured long-term memory write is automatic on the Employee side.
+
+Changes:
+
+- `saveAccioSummaries()` now creates one approved `memory_facts` row per saved Accio summary.
+- The stored memory fact is structured analysis data only: customer profile, purchase intent, negotiated prices, behavior signals, next actions, memory preview, and source references. It does not store raw chat text or screenshot image bytes as long-term memory.
+- Removed `reviewEmployeeMemoryFacts(...)` from the active product path.
+- `PATCH /api/client-demos/cross-border/employee/memory/facts` now returns `memory_fact_review_disabled`; the route remains only as a compatibility guard.
+- Removed Employee/Admin long-term-memory status/write/reject UI copy.
+- Updated Employee import copy to say analysis completion automatically writes structured long-term memory, while still not handing off to Screening.
+- Added Admin-protected import-payload reading so Manager `/admin/memory` can show the same full source transcript as Employee.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint over Employee/Admin memory/API/store files: PASS.
+- Updated memory-boundary static checks so they assert approved long-term memory facts are created automatically, review UI is absent, Admin transcript access exists, and Screening handoffs remain disabled.
+- Static regression scripts passed after the automatic-write update.
+
+Boundary:
+
+- This restores Employee long-term memory persistence only. It does not restore `发送到背调`, Accio-to-Screening handoff creation, Accio customer-list projection, or supplement-chat routing from `获客与背调`.
+- Manager/Admin can read selected employees' memory records and full stored transcripts, but cannot write or approve memory from the manager page.
 - This local change has not been deployed to ECS in this session.

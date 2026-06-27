@@ -23,11 +23,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AnimatedList, AnimatedTableRow } from "@/components/cross-border/animated-list";
 import { AdminCustomerListTable } from "../_components/customer-list-table";
 import {
   createAdminOperator,
-  createAdminOperators,
-  deleteAdminOperator,
   deleteAdminOperators,
   fetchAdminOperator,
   fetchAdminOperators,
@@ -70,29 +69,6 @@ function operatorStatusLabel(status: unknown) {
   return status === "active" ? "正常" : "已停用";
 }
 
-function parseBatchCreateRows(value: string) {
-  const rows = value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.includes(",") || line.includes("，") || line.includes("\t")
-        ? line.split(/\t|,|，/).map((part) => part.trim())
-        : line.split(/\s+/).map((part) => part.trim());
-      const [displayName = "", password = "", teamName = "", monthLimit = ""] = parts;
-      return { displayName, password, teamName, monthLimit };
-    });
-  const errors: string[] = [];
-  rows.forEach((row, index) => {
-    if (!row.displayName) errors.push(`第 ${index + 1} 行缺少员工姓名。`);
-    if (!row.password || row.password.length < 4) errors.push(`第 ${index + 1} 行密码至少 4 位。`);
-    if (row.monthLimit && !Number.isFinite(Number(row.monthLimit))) errors.push(`第 ${index + 1} 行月限额不是有效数字。`);
-  });
-  const names = rows.map((row) => row.displayName.toLowerCase()).filter(Boolean);
-  if (new Set(names).size !== names.length) errors.push("批量创建中存在重复员工姓名。");
-  return { rows, errors };
-}
-
 export default function AdminEmployeesPage() {
   const [range, setRange] = usePersistentUiState<RangeKey>(
     ADMIN_EMPLOYEE_RANGE_STORAGE_KEY,
@@ -107,9 +83,7 @@ export default function AdminEmployeesPage() {
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<Set<string>>(() => new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AdminOperatorRow | null>(null);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
-  const [batchCreateText, setBatchCreateText] = useState("");
   const [detail, setDetail] = useState<{
     profile: AdminOperatorRow | null;
     customers: AdminCustomerRow[];
@@ -217,44 +191,6 @@ export default function AdminEmployeesPage() {
     }
   }
 
-  async function submitBatchCreate() {
-    const parsed = parseBatchCreateRows(batchCreateText);
-    if (parsed.rows.length === 0) {
-      setError("请至少填写一行员工信息。");
-      return;
-    }
-    if (parsed.rows.length > remainingOperatorSlots) {
-      setError(`当前还可创建 ${remainingOperatorSlots} 个员工，本次填写 ${parsed.rows.length} 个，已超过 20 人上限。`);
-      return;
-    }
-    if (parsed.errors.length > 0) {
-      setError(parsed.errors[0]);
-      return;
-    }
-    setBusy("batch-create");
-    setError(null);
-    setCreateNotice(null);
-    try {
-      await createAdminOperators({
-        operators: parsed.rows.map((row) => ({
-          display_name: row.displayName,
-          password: row.password,
-          team_name: row.teamName || undefined,
-          initial_limits: row.monthLimit
-            ? [{ period: "month", limit_usd: money(row.monthLimit), enabled: true }]
-            : [],
-        })),
-      });
-      setBatchCreateText("");
-      setCreateNotice(`已批量创建 ${parsed.rows.length} 个员工账户。`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "员工批量创建失败。");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function toggleStatus(operator: AdminOperatorRow) {
     const nextStatus = operator.status === "active" ? "suspended" : "active";
     setBusy(operator.user_id);
@@ -292,34 +228,6 @@ export default function AdminEmployeesPage() {
       setCreateNotice(`员工 ${operator.display_name} 的登录密码已更新。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "员工密码更新失败。");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function confirmDeleteOperator() {
-    if (!deleteTarget) return;
-    const operatorId = deleteTarget.user_id;
-    setBusy(`delete:${operatorId}`);
-    setError(null);
-    setCreateNotice(null);
-    try {
-      await deleteAdminOperator(operatorId);
-      setOperators((current) => current.filter((operator) => operator.user_id !== operatorId));
-      setPasswordDrafts((value) => {
-        const next = { ...value };
-        delete next[operatorId];
-        return next;
-      });
-      if (selectedId === operatorId) {
-        setSelectedId(null);
-        setDetail(null);
-      }
-      setCreateNotice(`员工 ${deleteTarget.display_name} 已删除，未完成任务和待审批已取消。`);
-      setDeleteTarget(null);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "员工删除失败。");
     } finally {
       setBusy(null);
     }
@@ -422,45 +330,22 @@ export default function AdminEmployeesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>创建员工账户</CardTitle>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>创建员工账户</CardTitle>
+            <span className="text-sm text-muted-foreground">
+              当前 {operators.length}/{MAX_OPERATOR_ACCOUNTS}，还可创建 {remainingOperatorSlots} 个
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_1.2fr_1fr_130px_auto]">
           <Input placeholder="姓名" value={form.displayName} onChange={(event) => setForm((value) => ({ ...value, displayName: event.target.value }))} />
           <Input type="password" placeholder="登录密码" value={form.password} onChange={(event) => setForm((value) => ({ ...value, password: event.target.value }))} />
           <Input placeholder="团队" value={form.teamName} onChange={(event) => setForm((value) => ({ ...value, teamName: event.target.value }))} />
           <Input type="number" min="0" step="0.01" placeholder="月限额" value={form.monthLimit} onChange={(event) => setForm((value) => ({ ...value, monthLimit: event.target.value }))} />
-          <Button onClick={submitCreate} disabled={busy === "create"}>
+          <Button onClick={submitCreate} disabled={busy === "create" || remainingOperatorSlots <= 0}>
             {busy === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             创建
           </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>批量创建员工</CardTitle>
-            <span className="text-sm text-muted-foreground">
-              当前 {operators.length}/{MAX_OPERATOR_ACCOUNTS}，还可创建 {remainingOperatorSlots} 个
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <textarea
-            className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            value={batchCreateText}
-            onChange={(event) => setBatchCreateText(event.target.value)}
-            placeholder={"每行一个员工：姓名，密码，团队，月限额\n例：王敏，1234，华南销售，20"}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              支持逗号、中文逗号、Tab 或空格分隔；密码至少 4 位。服务端会强制最多 20 个员工。
-            </p>
-            <Button onClick={submitBatchCreate} disabled={busy === "batch-create" || remainingOperatorSlots <= 0}>
-              {busy === "batch-create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              批量创建
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -483,6 +368,90 @@ export default function AdminEmployeesPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="space-y-3 md:hidden">
+            {operators.map((operator) => {
+              const monthlyRemaining = n(operator.month_limit_usd) + n(operator.month_allowance_usd) - n(operator.month_cost_usd);
+              return (
+                <article key={operator.user_id} className="rounded-md border bg-white/70 p-3 shadow-sm shadow-sky-950/5">
+                  <div className="flex items-start justify-between gap-3">
+                    <label className="flex min-w-0 items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        aria-label={`选择员工 ${operator.display_name}`}
+                        checked={selectedOperatorIds.has(operator.user_id)}
+                        onChange={() => toggleSelectedOperator(operator.user_id)}
+                      />
+                      <span className="min-w-0">
+                        <button type="button" className="block truncate text-left font-medium text-primary hover:underline" onClick={() => openDetail(operator.user_id)}>
+                          {operator.display_name}
+                        </button>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{operator.team_name ?? operator.user_id}</span>
+                      </span>
+                    </label>
+                    <Badge
+                      variant={operator.status === "active" ? "outline" : "destructive"}
+                      className={operator.status === "active" ? "shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700" : "shrink-0"}
+                    >
+                      {operatorStatusLabel(operator.status)}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                      <div className="text-xs text-muted-foreground">获客</div>
+                      <div className="font-semibold">{n(operator[`${rangePrefix}_lead_count`])}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                      <div className="text-xs text-muted-foreground">背调</div>
+                      <div className="font-semibold">{n(operator[`${rangePrefix}_screening_count`])}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                      <div className="text-xs text-muted-foreground">已用费用</div>
+                      <div className="font-semibold">{usd(operator[`${rangePrefix}_cost_usd`])}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                      <div className="text-xs text-muted-foreground">剩余额度</div>
+                      <div className="font-semibold">{usd(monthlyRemaining)}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    <Input
+                      type="password"
+                      className="h-9"
+                      placeholder="新密码"
+                      value={passwordDrafts[operator.user_id] ?? ""}
+                      onChange={(event) => setPasswordDrafts((value) => ({ ...value, [operator.user_id]: event.target.value }))}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void resetPassword(operator);
+                        }
+                      }}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button variant="outline" size="sm" onClick={() => resetPassword(operator)} disabled={busy === `password:${operator.user_id}`}>
+                        {busy === `password:${operator.user_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                        重置密码
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => toggleStatus(operator)} disabled={busy === operator.user_id}>
+                        {operator.status === "active" ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                        {operator.status === "active" ? "暂停账号" : "恢复账号"}
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {!loading && operators.length === 0 ? (
+              <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">暂无员工账户。</div>
+            ) : null}
+            {loading ? (
+              <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">正在加载员工数据...</div>
+            ) : null}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -506,10 +475,10 @@ export default function AdminEmployeesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {operators.map((operator) => {
+              {operators.map((operator, index) => {
                 const monthlyRemaining = n(operator.month_limit_usd) + n(operator.month_allowance_usd) - n(operator.month_cost_usd);
                 return (
-                  <TableRow key={operator.user_id}>
+                  <AnimatedTableRow key={operator.user_id} index={index}>
                     <TableCell>
                       <input
                         type="checkbox"
@@ -538,7 +507,7 @@ export default function AdminEmployeesPage() {
                     <TableCell>{usd(operator[`${rangePrefix}_cost_usd`])}</TableCell>
                     <TableCell>{usd(monthlyRemaining)}</TableCell>
                     <TableCell>{n(operator.pending_approval_count)}</TableCell>
-                    <TableCell className="min-w-[380px] text-right">
+                    <TableCell className="min-w-[300px] text-right">
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <Input
                           type="password"
@@ -561,22 +530,9 @@ export default function AdminEmployeesPage() {
                           {operator.status === "active" ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
                           {operator.status === "active" ? "暂停账号" : "恢复账号"}
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setDeleteTarget(operator)}
-                          disabled={busy === `delete:${operator.user_id}`}
-                        >
-                          {busy === `delete:${operator.user_id}` ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                          删除
-                        </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </AnimatedTableRow>
                 );
               })}
               {!loading && operators.length === 0 ? (
@@ -591,6 +547,7 @@ export default function AdminEmployeesPage() {
               ) : null}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -629,39 +586,6 @@ export default function AdminEmployeesPage() {
       </Dialog>
 
       <Dialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>删除员工</DialogTitle>
-            <DialogDescription>
-              员工 {deleteTarget?.display_name ?? ""} 将从员工管理和费用列表移除，未完成任务与待审批会同步取消，历史客户和费用记录会保留。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={Boolean(busy?.startsWith("delete:"))}>
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDeleteOperator}
-              disabled={!deleteTarget || busy === `delete:${deleteTarget.user_id}`}
-            >
-              {deleteTarget && busy === `delete:${deleteTarget.user_id}` ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              删除员工
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={batchDeleteOpen}
         onOpenChange={(open) => {
           if (!open) setBatchDeleteOpen(false);
@@ -674,14 +598,18 @@ export default function AdminEmployeesPage() {
               将删除 {selectedOperators.length} 个员工账户，未完成任务与待审批会同步取消，历史客户和费用记录会保留。
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-2 text-sm">
+          <AnimatedList
+            className="rounded-md border bg-muted/20"
+            viewportClassName="max-h-48 space-y-1 p-2 text-sm"
+            showGradients
+          >
             {selectedOperators.map((operator) => (
               <div key={operator.user_id} className="flex items-center justify-between gap-3 py-1">
                 <span>{operator.display_name}</span>
                 <span className="text-xs text-muted-foreground">{operator.team_name ?? operator.user_id}</span>
               </div>
             ))}
-          </div>
+          </AnimatedList>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchDeleteOpen(false)} disabled={busy === "batch-delete"}>
               取消

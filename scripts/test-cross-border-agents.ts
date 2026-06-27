@@ -79,9 +79,17 @@ const EMPLOYEE_MEMORY_PAGE = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/employee/memory/page.tsx",
 );
+const MEMORY_CHAT_CUSTOMER_LIST = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/memory-chat-customer-list.tsx",
+);
 const ADMIN_EMPLOYEES_PAGE = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/admin/employees/page.tsx",
+);
+const ADMIN_MEMORY_PAGE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/admin/memory/page.tsx",
 );
 const ADMIN_API = path.join(
   ROOT,
@@ -90,6 +98,10 @@ const ADMIN_API = path.join(
 const ADMIN_OPERATOR_API_ROUTE = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/[id]/route.ts",
+);
+const ADMIN_MEMORY_IMPORT_API_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/[id]/memory/imports/[importId]/route.ts",
 );
 const ADMIN_COSTS_PAGE = path.join(
   ROOT,
@@ -143,9 +155,25 @@ const EMPLOYEE_COST = path.join(
   ROOT,
   "sentura/dashboard/src/components/cross-border/employee-cost.tsx",
 );
+const COST_DETAIL_DIALOG = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/cost-detail-dialog.tsx",
+);
 const CUSTOMER_REPORT_DIALOG = path.join(
   ROOT,
   "sentura/dashboard/src/components/cross-border/customer-report-dialog.tsx",
+);
+const SCREENING_REPORT_COPY = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/screening-report-copy.ts",
+);
+const DOCUMENT_EXPORT = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/document-export.ts",
+);
+const REPORT_SOURCE_LINKS = path.join(
+  ROOT,
+  "sentura/dashboard/src/lib/cross-border-source-links.ts",
 );
 const CUSTOMER_LABELS = path.join(
   ROOT,
@@ -263,9 +291,12 @@ const employeeData = read(EMPLOYEE_DATA);
 const employeeHomePage = read(EMPLOYEE_HOME_PAGE);
 const employeeCustomersPage = read(EMPLOYEE_CUSTOMERS_PAGE);
 const employeeMemoryPage = read(EMPLOYEE_MEMORY_PAGE);
+const memoryChatCustomerList = read(MEMORY_CHAT_CUSTOMER_LIST);
 const adminEmployeesPage = read(ADMIN_EMPLOYEES_PAGE);
+const adminMemoryPage = read(ADMIN_MEMORY_PAGE);
 const adminApi = read(ADMIN_API);
 const adminOperatorApiRoute = read(ADMIN_OPERATOR_API_ROUTE);
+const adminMemoryImportApiRoute = read(ADMIN_MEMORY_IMPORT_API_ROUTE);
 const adminCostsPage = read(ADMIN_COSTS_PAGE);
 const adminCustomerListTable = read(ADMIN_CUSTOMER_LIST_TABLE);
 const persistentUiStateHook = read(PERSISTENT_UI_STATE_HOOK);
@@ -278,9 +309,13 @@ const screeningStore = read(CBE_SCREENING_STORE);
 const cbeAdminStore = read(CBE_ADMIN_STORE);
 const employeeTaskStatus = read(EMPLOYEE_TASK_STATUS);
 const customerReportDialog = read(CUSTOMER_REPORT_DIALOG);
+const screeningReportCopy = read(SCREENING_REPORT_COPY);
+const documentExport = read(DOCUMENT_EXPORT);
+const reportSourceLinks = read(REPORT_SOURCE_LINKS);
 const customerLabels = read(CUSTOMER_LABELS);
 const employeeTaskCancelApi = read(EMPLOYEE_TASK_CANCEL_API);
 const employeeCost = read(EMPLOYEE_COST);
+const costDetailDialog = read(COST_DETAIL_DIALOG);
 const employeeCostBudgetApi = read(EMPLOYEE_COST_BUDGET_API);
 const nextConfig = read(NEXT_CONFIG);
 const cbeRoutes = read(CBE_ROUTES);
@@ -653,7 +688,7 @@ check("accio UI renders memory/report panel without Screening action", ["记忆�
 check("accio UI triggers real cbe-accio-memory AgentChat", accioPage.includes('const ACCIO_AGENT_ID = "cbe-accio-memory"') && accioPage.includes("<AgentChat") && accioPage.includes("agentId={ACCIO_AGENT_ID}") && accioPage.includes("useAgent(ACCIO_AGENT_ID)") && accioPage.includes("onMessage={handleEmployeeMessage}"));
 check("accio employee prompt requires tool analysis and JSON markers", accioPage.includes("buildEmployeePrompt") && accioPage.includes("先调用 Accio parser 工具") && accioPage.includes("不要使用示例模板") && accioPage.includes("ACCIO_SUMMARIES_JSON_START") && accioPage.includes("ACCIO_SUMMARIES_JSON_END"));
 check("accio UI parses employee summaries from markers", accioPage.includes("extractSummariesFromEmployeeText") && accioPage.includes("normalizeSummary") && accioPage.includes("setSummaries(parsed)"));
-check("accio UI preserves local T2/T3 and preview-only memory behavior", accioPage.includes("分析报告预览已复制，仍未写入长期记忆") && accioPage.includes("preview_only") && !accioPage.includes("自动联系客户"));
+check("accio UI preserves local T2/T3 and automatic memory behavior", accioPage.includes("员工端保存分析结果后会自动写入结构化长期记忆") && accioPage.includes("memory_write_preview") && !accioPage.includes("自动联系客户"));
 check("accio UI persists last upload/report/session state", accioPage.includes("ACCIO_STORAGE_KEY") && accioPage.includes("sentura:cbe:accio-memory:v2") && accioPage.includes("localStorage.setItem") && accioPage.includes("localStorage.getItem") && accioPage.includes("accioSessionKey"));
 check("main sidebar keeps standalone CBE Accio demo out of ordinary enterprise nav", !sidebar.includes('href: "/client-demos/cross-border/accio-memory"') && !sidebar.includes("CBE Accio") && appShell.includes('label: "记忆整理"'));
 
@@ -688,7 +723,7 @@ check("employee memory import normalizer supports JSON, pasted text, and screens
 check("employee memory UI exposes three manual import modes", ["ImportMode = \"json\" | \"text\" | \"image\"", "JSON 文件", "粘贴文字", "聊天截图", "onPastedTextChange", "onImageFiles"].every((needle) => employeeMemoryPage.includes(needle)));
 check("employee memory screenshot import supports multiple screenshots", ["fallbackRecordName(`聊天截图 ${attachments.length} 张`)", "attachments.map((attachment, index)", "multiple", "上传聊天截图图片（可多选）", "已选择 ${imageAttachments.length} 张聊天截图", "imageAttachmentBatches(input.attachments)", "第 ${batchIndex}/${imageBatches.length} 批聊天截图"].every((needle) => memoryImportNormalizer.includes(needle) || employeeMemoryPage.includes(needle) || employeeTaskRunner.includes(needle)));
 check("employee memory UI prevents screenshot import-only and DB replay without raw image", ["截图导入需要立即分析", "系统不会保存原始图片", "这条记录来自截图导入，系统未保存原图，无法直接重新分析"].every((needle) => employeeMemoryPage.includes(needle)));
-check("employee memory report dialog renders structured extracted deal facts", ["客户画像", "采购需求", "价格与条款", "下一步", "purchaseIntent", "negotiatedPrices", "priceLine(item)", "intentLine(item)"].every((needle) => employeeMemoryPage.includes(needle)));
+check("employee memory report dialog renders structured extracted deal facts", employeeMemoryPage.includes("MemoryAnalysisContent") && ["客户画像", "采购需求", "价格与条款", "下一步", "purchaseIntent", "negotiatedPrices", "priceLine(item)", "intentLine(item)"].every((needle) => memoryChatCustomerList.includes(needle)));
 check("gateway chat client forwards image attachments to OpenClaw chat.send", ["GatewayChatAttachment", "attachments?: GatewayChatAttachment[]", "attachments: options.attachments"].every((needle) => gatewayClient.includes(needle) || gatewayTypes.includes(needle)) && gatewayTypes.includes("media_type") && gatewayTypes.includes("type: \"base64\""));
 check("employee Accio runner batches screenshot preflight before final summary", ["IMAGE_TRANSCRIPT_BATCH_PREFIX", "CHAT_SEND_IMAGE_BATCH_MAX_BASE64_CHARS", "HiddenTaskPreflightTurn", "buildImageTranscriptBatchPrompt", "waitForHiddenTaskMarker", "preflightTurns"].every((needle) => employeeTaskRunner.includes(needle)));
 check("employee Accio prompt requires Chinese operator-ready deal summaries", ["report_zh", "product_zh", "price_context_zh", "必须区分“单价”和“总价”", "next_actions 必须是中文字符串数组"].every((needle) => employeeTaskRunner.includes(needle)));
@@ -758,7 +793,7 @@ check("employee task status bar and API expose active task cancel action", [
 ].every((needle) => employeeApi.includes(needle)) && cbeStoreSchemas.includes("CancelEmployeeTaskRequestSchema"));
 check("AppShell renders global employee task status", appShell.includes("EmployeeTaskStatusBar") && appShell.includes("<EmployeeTaskStatusBar />"));
 check("AppShell keeps DB task refresh and task notification links", appShell.includes("fetchEmployeeTasks") && appShell.includes("markEmployeeNotificationsRead") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargets.includes("employee-messages") && !appShell.includes("notificationRootRef"));
-check("AppShell notification menus show scrollable targeted employee and manager message lists", appShell.includes("notificationListMaxHeight") && appShell.includes("overflow-y-auto") && appShell.includes("previewMessages.map((item)") && appShell.includes("employeeTaskNotificationHref(item)") && appShell.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShell.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargets.includes("highlightTask=") && employeeNotificationTargets.includes("employeeCostHighlightHref") && !appShell.includes("messages.slice(0, 4)") && appShell.includes("snapshot.approvals.map") && appShell.includes("snapshot.highValueItems.map") && appShell.includes("limit=100&range=all"));
+check("AppShell notification menus show scrollable targeted employee and manager message lists", appShell.includes("notificationListMaxHeight") && appShell.includes("overflow-y-auto") && appShell.includes("previewMessages.map((item)") && appShell.includes("employeeTaskNotificationHref(item)") && appShell.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShell.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargets.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargets.includes("highlightTask") && employeeNotificationTargets.includes("CBE_EMPLOYEE_MEMORY_PATH") && employeeNotificationTargets.includes("employeeCostHighlightHref") && !appShell.includes("messages.slice(0, 4)") && appShell.includes("snapshot.approvals.map") && appShell.includes("snapshot.highValueItems.map") && appShell.includes("limit=100&range=all"));
 check("CBE production routes expose employee/admin entrances without demo URLs", [
   'CBE_EMPLOYEE_HOME_PATH = "/employee"',
   'CBE_EMPLOYEE_LOGIN_PATH = "/employee/login"',
@@ -831,8 +866,8 @@ check("admin cost amounts are capped at two decimals across UI and store", [
 check("admin employee cost details live under cost monitoring", [
   "fetchAdminOperator",
   "selectedCostUserId",
-  "员工费用明细",
-  "costDetail.costEvents.map",
+  "CostDetailDialog",
+  "管理端与员工端使用同一批 sentura-cost 工具成本事件",
 ].every((needle) => adminCostsPage.includes(needle)) && !adminEmployeesPage.includes("成本明细") && !adminEmployeesPage.includes("costEvents.map"));
 check("employee cost card syncs manager-updated quota from server budget", [
   "fetchEmployeeCostBudget",
@@ -885,15 +920,27 @@ check("employee screening missing evidence is saved as insufficient evidence", [
 check("employee Accio normalization accepts preview aliases and derives report facts without handoff output", ["memory_write_preview", "derivedIntent", "derivedPrice", "behavior_signals"].every((needle) => employeeApi.includes(needle)) && !employeeApi.includes("screening_handoff_target"));
 check("employee memory task notifications keep highlighted rows until click", ["highlightTaskId", "item.latestAgentRunId === highlightTaskId", "outline-sky-300", "setHighlightedRecordIds", "clearMemoryHighlight", "onMouseDown"].every((needle) => employeeMemoryPage.includes(needle)) && !employeeMemoryPage.includes("3000"));
 check("employee memory report opens as centered dialog", ["MemoryReportDialog", "DialogContent", "max-w-5xl", 'open={mode === "add" || mode === "filters"}'].every((needle) => employeeMemoryPage.includes(needle)));
-check("employee memory import time displays Beijing seconds format", ["formatBeijingDateTime", 'timeZone: "Asia/Shanghai"', 'second: "2-digit"', "formatBeijingDateTime(item.importedAt)", "formatBeijingDateTime(activeRecord.importedAt)"].every((needle) => employeeMemoryPage.includes(needle)));
-check("employee memory filters hide running and failed categories", employeeMemoryPage.includes('const memoryStatusFilterChoices = ["all", "not_started", "analyzed"] as const') && !employeeMemoryPage.includes('["all", "not_started", "running", "analyzed", "failed"]'));
+check("employee memory import time displays Beijing seconds format", ["formatBeijingDateTime", 'timeZone: "Asia/Shanghai"', 'second: "2-digit"', "formatBeijingDateTime(item.importedAt)"].every((needle) => employeeMemoryPage.includes(needle)) && memoryChatCustomerList.includes("formatBeijingDateTime(activeRecord.importedAt)"));
+check("employee memory filters expose failed category for notification deep links while hiding running", employeeMemoryPage.includes('const memoryStatusFilterChoices = ["all", "not_started", "analyzed", "failed"] as const') && employeeMemoryPage.includes("highlightStatus") && !employeeMemoryPage.includes('["all", "not_started", "running", "analyzed", "failed"]'));
 check("employee memory supports selected DB-backed deletion", ["DeleteMemoryRecordsRequestSchema", "deleteEmployeeMemoryRecords", "deletedConversationIds"].every((needle) => cbeStoreSchemas.includes(needle) || cbeAccioStore.includes(needle) || employeeApi.includes(needle)) && ["selectedRecordIds", "MemoryDeleteDialog", "toggleAllVisibleRecords", "删除所选"].every((needle) => employeeMemoryPage.includes(needle)));
 check("employee memory page has no supplement-to-customer flow", !["supplementCustomer", "supplementCompany", "supplementContext", 'mode === "supplement"', "补充聊天记录", "提交补充记录", "已提交补充聊天记录"].some((needle) => employeeMemoryPage.includes(needle)));
 check("employee memory import rejects customer binding interop", cbeAccioStore.includes("accio_interop_disabled") && cbeAccioStore.includes("不能绑定客户或移交背调") && !employeeApi.includes("supplement_target"));
-check("employee memory completion does not create memory facts or Screening handoffs", cbeAccioStore.includes("memory_fact_ids: []") && cbeAccioStore.includes("handoff_ids: []") && cbeAccioStore.includes("interop_disabled: true") && !cbeAccioStore.includes("insertHandoffEvent"));
+check("employee memory completion auto-writes long-term memory facts without Screening handoffs", cbeAccioStore.includes("memory_fact_ids: memoryFactIds") && cbeAccioStore.includes("handoff_ids: []") && cbeAccioStore.includes("screening_handoff_disabled: true") && cbeAccioStore.includes("'approved'") && cbeAccioStore.includes("系统自动写入长期记忆") && !cbeAccioStore.includes("insertHandoffEvent") && !cbeAccioStore.includes("reviewEmployeeMemoryFacts"));
 check("employee existing memory analysis reloads stored redacted chat", ["fetchEmployeeAccioImportPayload", "storedPayload", "chatExport: storedPayload"].every((needle) => employeeMemoryPage.includes(needle)) && ["getAccioImportAnalysisPayload", "stored_accio_import", "text_redacted"].every((needle) => cbeAccioStore.includes(needle)));
+check("admin memory detail reloads the same stored transcript payload as employee", [
+  "fetchAdminOperatorMemoryImportPayload",
+  "loadSourcePayload={loadMemorySourcePayload}",
+].every((needle) => adminMemoryPage.includes(needle) || adminApi.includes(needle)) && [
+  "requireCbeAdmin(context)",
+  "ownerUserId: id",
+  "getAccioImportAnalysisPayload",
+].every((needle) => adminMemoryImportApiRoute.includes(needle)) && [
+  "loadSourcePayload",
+  "MemorySourceTranscript",
+  "payloadConversations",
+].every((needle) => memoryChatCustomerList.includes(needle)));
 check("employee memory page has no handoff action to customer board", !["sendToScreening", "highlightCustomer=", "onCreateHandoff(activeRecord)", "发送到背调"].some((needle) => employeeMemoryPage.includes(needle)));
-check("employee memory projection suppresses duplicate import rows after analysis", ["duplicate_summary", "coalesce(ar.status, 'queued') not in ('running', 'polling')", "recordId: record.summaryId ?? record.importId", "agentRunStatus: row.agent_run_status"].every((needle) => cbeAccioStore.includes(needle) || employeeApi.includes(needle)));
+check("employee memory projection suppresses duplicate import rows after analysis", ["existing_summary", "duplicate_summary", "summary_conversation.accio_import_id = ai.id", "coalesce(ar.status, 'queued') in ('running', 'polling')", "recordId: record.summaryId ?? record.importId", "agentRunStatus: row.agent_run_status"].every((needle) => cbeAccioStore.includes(needle) || employeeApi.includes(needle)));
 check("employee customer projection excludes Accio memory rows", !["'accio_summary'::text as record_type", "'accio_handoff'::text as lead_status", "record.recordType === \"accio_summary\""].some((needle) => cbeCustomersStore.includes(needle) || employeeApi.includes(needle)));
 check("employee customer projection does not merge Accio screening handoffs", !["report_json->'target'->>'lead_id' = asum.id", "coalesce(accio_sr.risk_tier, 'not_started')"].some((needle) => cbeCustomersStore.includes(needle)));
 check("employee customer projection keeps legacy accio-memory screening targets hidden", ["and coalesce((", "st.source = 'accio_memory'", "), false)"].every((needle) => cbeCustomersStore.includes(needle)));
@@ -905,8 +952,10 @@ check("employee lead UI removed single-group search limit", !employeeCustomersPa
 check("employee lead submit reads target count from current input ref", ["leadTargetInputRef", "buildLeadSubmitInput", "leadTargetInputRef.current?.value", "leadInputFromSelection(submittedSelection)", "targetCount: submittedTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("onClick={() => onLeadSubmit(leadTaskInput)}"));
 check("employee lead sheet echoes submitted target count", ["目标 {effectiveLeadTargetCount} 个客户", "提交获客任务（{effectiveLeadTargetCount} 个）"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list highlights task-linked rows without new-found badges", ["newlyAddedCustomerIds", "flashNewCustomers", "highlightTaskId", "taskAffectedCustomerIds", "animate-pulse", "outline-sky-300", "workflowBadge", "icon: \"check\"", "clearCustomerHighlight", "onMouseDown"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("新找到") && !employeeCustomersPage.includes("label: \"✅\""));
+check("employee screening completion does not hide unselected customers", ["taskAffectedCustomerIds", "targetNames", "customerHighlightStatus === \"screened\"", "? \"all\"", "setStatusFilter(nextStatusFilter)"].every((needle) => employeeCustomersPage.includes(needle)) && employeeNotificationTargets.includes('task.kind === "screening" && task.status === "failed"') && !employeeNotificationTargets.includes('task.status === "failed" ? "failed" : "screened"'));
 check("employee customer product overflow expands in place", ["CustomerProductBadges", "expandedProductRows", "toggleProductsExpanded", "aria-expanded={expanded}", "`+${hiddenCount}`", "收起"].every((needle) => employeeCustomersPage.includes(needle)));
-check("employee customer found time uses Beijing display format", ["formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts", "YYYY"].every((needle) => employeeCustomersPage.includes(needle)) || (employeeCustomersPage.includes("formatBeijingDateTime") && employeeCustomersPage.includes("Asia/Shanghai") && employeeCustomersPage.includes("formatToParts") && employeeCustomersPage.includes("font-mono text-xs")));
+check("employee customer list uses time header with acquisition and screening lines", ["CustomerTimeStack", ">获客</span>", ">背调</span>", "customerScreeningTimeLabel", "formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes(["找到", "时间"].join("")) && !employeeCustomersPage.includes(["获客", "时间"].join("")) && !employeeCustomersPage.includes(["背调", "时间"].join("")));
+check("admin customer list uses the same time display logic", ["CustomerTimeStack", ">获客</span>", ">背调</span>", "customerScreeningTimeLabel", "formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts", "时间新到旧", "时间旧到新"].every((needle) => adminCustomerListTable.includes(needle)) && !adminCustomerListTable.includes(["找到", "时间"].join("")) && !adminCustomerListTable.includes(["获客", "时间"].join("")) && !adminCustomerListTable.includes(["背调", "时间"].join("")));
 check("employee task dismissal is preserved across task refreshes", ["dismissedTaskIds", "mergeTasksWithLocalDismissals", "rememberDismissedTask"].every((needle) => cbeEmployeeStore.includes(needle)) && employeeTaskStatus.includes("dismissEmployeeTaskInDb") && employeeApi.includes("/tasks/${encodeURIComponent(id)}/dismiss"));
 check("CBE employee store supports page-cache and DB-backed customer deletion", cbeEmployeeStore.includes("deleteRows") && cbeEmployeeStore.includes("state.rows.filter((row) => !deleteIds.has(row.customerId))") && cbeEmployeeStore.includes("affectedCustomerIds?: string[]") && ["DeleteCustomerRecordsRequestSchema", "deleteEmployeeCustomers", "method: \"DELETE\""].every((needle) => cbeStoreSchemas.includes(needle) || cbeCustomersStore.includes(needle) || employeeApi.includes(needle)));
 check("employee customers page gates lead and screening tasks independently", ["leadRunning", "screeningRunning", "task.kind === \"lead\"", "task.kind === \"screening\"", "leadRunning ? <Loader2", "screeningRunning ? <Loader2"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("taskRunning !== null"));
@@ -922,7 +971,27 @@ check("employee score tiers are based only on final score", ["function scoreTier
 check("employee Screening score normalization is enforced from score blocks and evidence coverage", ["function normalizedScoreFromScoreBlocks", "earnedPoints / maxPoints", "qualityScore * 0.8", "evidence_coverage * 100 占 20%"].every((needle) => employeeTaskRunner.includes(needle)) && ["function normalizedScoreFromScoreBlocks", "qualityScore * 0.8", "report?.normalizedScore ?? record.normalizedScore"].every((needle) => employeeApi.includes(needle)));
 check("manager high-value customers use final score threshold only", cbeAdminStore.includes("items: page.items.filter((item) => (item.normalizedScore ?? 0) >= 80)") && !cbeAdminStore.includes("recommendedAction ??") && !cbeAdminStore.includes("screeningStatus === \"trusted_candidate\""));
 check("employee task completion metadata carries affected customer ids", ["saved_customer_ids", "lead_candidate_ids"].every((needle) => leadRunsStore.includes(needle)) && ["affectedCustomerIds", "taskAffectedCustomerIds", "target_customer_ids"].every((needle) => employeeApi.includes(needle)) && ["saved_customer_ids", "affected_customer_ids", "screening_target_ids"].every((needle) => screeningStore.includes(needle)));
+check("employee screening batch parent task carries real completion count", ["screeningBatchCompletionMetadata", "saved_reports: savedReports", "affected_customer_ids: completionMetadata.affectedCustomerIds"].every((needle) => screeningStore.includes(needle)) && ["taskResultCount", "screening_batch_completed", "screeningBatchAggregate.completed"].every((needle) => employeeApi.includes(needle)) && employeeTaskStatus.includes('message !== "任务已完成。"'));
 check("employee report evidence hides scoring calculation layer", !employeeCustomersPage.includes("评分计算") && !employeeCustomersPage.includes('scoring: "评分计算"') && !employeeData.includes('| "scoring"') && !employeeTaskRunner.includes('raw === "scoring"'));
+check("employee and manager report source links suppress private API and raw resolver URLs", [
+  "data.importyeti.com",
+  "api.importyeti.com",
+  "company_tickers.json",
+  "data.sec.gov",
+  "edgar/browse",
+  "publicReportSourceUrl",
+].every((needle) => reportSourceLinks.includes(needle)) &&
+  screeningReportCopy.includes("return publicReportSourceUrl(value)") &&
+  customerReportDialog.includes("const sourceUrl = publicSourceUrl(item.sourceUrl)") &&
+  customerReportDialog.includes("href={sourceUrl}") &&
+  customerReportDialog.includes("<PublicSourceLinks urls={customer.sourceUrls} />") &&
+  !customerReportDialog.includes("href={item.sourceUrl}") &&
+  documentExport.includes(".map(publicReportSourceUrl)") &&
+  employeeApi.includes("toPublicReportSourceUrl") &&
+  employeeTaskRunner.includes("publicReportSourceUrl(rawSourceUrl)") &&
+  employeeTaskRunner.includes("不能作为可点击来源") &&
+  adminCustomerListTable.includes("<CustomerReportDialog") &&
+  employeeCustomersPage.includes("<CustomerReportDialog"));
 check("employee report detail sheet resets scroll to top", ["contentRef", "scrollTo({ top: 0, left: 0 })", "activeCustomer?.customerId"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer deletion requires confirmation", ["requestDeleteCustomers", "确认删除客户", "确认删除", "deleteTargets", "onDeleteConfirm"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee evidence gaps use concrete searched-source reasons", ["coverageGapReasonForBlock", "coverageGapsFromScoreBlocks", "Google Maps 线下门店/地址", "RDAP、DNS、官网联系邮箱", "贸易/海关记录、SEC 或财务公开文件"].every((needle) => employeeData.includes(needle)) && employeeTaskRunner.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && employeeApi.includes("coverageGapsFromScoreBlocks(scoreBlocks)") && !employeeTaskRunner.includes("\"缺少该维度证据。\"") && !employeeApi.includes("\"缺少该维度证据。\""));
@@ -930,7 +999,24 @@ check("employee lead budget estimate is calibrated to recent actual cost assumpt
 check("employee screening budget estimate does not treat trade-data cap as spend", ["estimateScreeningTaskCost", "observedTargetUsd", "paidTradeDataExpectedUsd: 0", "tradeDataBudgetCapUsd", "tradeDataExpectedUsd", "贸易数据硬上限", "不当作预计支出"].every((needle) => employeeData.includes(needle)) && !employeeData.includes("tradeDataReservedUsd"));
 check("sentura-cost schema supports external API cost rows", ["external_api", "local_tool", "CostPricingStatus", "externalUsage", "external_tool_log"].every((needle) => senturaCostTypes.includes(needle)));
 check("sentura-cost backfills external CBE tool costs from session logs", ["eventFromToolResultRow", "ImportYeti", "Abstract Email Reputation", "Hunter Email Verifier", "Tavily / web_search", "Companies House", "SEC EDGAR"].every((needle) => senturaCostBackfill.includes(needle)));
-check("employee cost mini opens scoped model and external tool cost details", ["aria-label=\"查看本月工具成本明细\"", "hover:scale-[1.03]", "本月工具成本明细", "智能处理和外部资料查询费用", "costPricingLabels", "外部回填", "fetchEmployeeTasks", "outsideScopeCount", "只统计已关联到当前跨境电商客户库任务的处理编号"].every((needle) => employeeCost.includes(needle)));
+check("employee cost mini opens scoped model and external tool cost details", [
+  "aria-label=\"查看成本明细\"",
+  "hover:scale-[1.03]",
+  "工具成本",
+  "CostDetailDialog",
+  "fetchEmployeeTasks",
+  "outsideScopeCount",
+  "只统计已关联到当前跨境电商客户库任务的处理编号",
+].every((needle) => employeeCost.includes(needle)) && [
+  "成本明细",
+  "今日",
+  "本周",
+  "本月",
+  "全部",
+  "智能处理和外部资料查询费用",
+  "costPricingLabels",
+  "外部回填",
+].every((needle) => costDetailDialog.includes(needle)));
 check("cross-border SEC lookup returns compact submission summaries", ["secRecentFilingsSummary", "recent_filings: recentFilings", "submissions_summary", "forms.slice(0, 8)"].every((needle) => crossBorderIntelTools.includes(needle)) && !crossBorderIntelTools.includes("submissions: body"));
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);

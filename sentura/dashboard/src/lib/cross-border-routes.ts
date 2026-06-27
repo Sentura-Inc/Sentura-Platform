@@ -6,6 +6,7 @@ export const CBE_EMPLOYEE_MEMORY_PATH = "/employee/memory";
 export const CBE_ADMIN_HOME_PATH = "/admin";
 export const CBE_ADMIN_LOGIN_PATH = "/admin/login";
 export const CBE_ADMIN_EMPLOYEES_PATH = "/admin/employees";
+export const CBE_ADMIN_MEMORY_PATH = "/admin/memory";
 export const CBE_ADMIN_HIGH_VALUE_CUSTOMERS_PATH = "/admin/high-value-customers";
 export const CBE_ADMIN_COSTS_PATH = "/admin/costs";
 

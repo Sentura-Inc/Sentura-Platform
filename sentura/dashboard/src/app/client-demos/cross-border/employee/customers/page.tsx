@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -40,6 +40,7 @@ import {
 import { useAgent, useGateway } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import { ListPagination, usePagedItems } from "@/components/cross-border/brand-ui";
+import { AnimatedList, AnimatedTableRow } from "@/components/cross-border/animated-list";
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
@@ -56,8 +57,10 @@ import {
   sourceTypeText,
 } from "@/components/cross-border/screening-report-copy";
 import {
+  CBE_EMPLOYEE_TASK_RETRY_EVENT,
   isCbeEmployeeTaskActive,
   useCbeEmployeeStore,
+  type CbeEmployeeTaskRecord,
 } from "@/stores/use-cbe-employee-store";
 import {
   MAX_LEAD_TARGET_COUNT,
@@ -352,6 +355,29 @@ function formatBeijingDateTime(value: string) {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+function customerScreeningTimeLabel(item: CustomerListItem) {
+  if (item.screeningReport?.createdAt) return formatBeijingDateTime(item.screeningReport.createdAt);
+  if (item.screeningStatus === "running") return "背调中";
+  if (item.screeningStatus === "failed") return "背调失败";
+  if (item.screeningStatus === "screened" || item.screeningStatus === "insufficient_evidence") return "时间待确认";
+  return "未背调";
+}
+
+function CustomerTimeStack({ item }: { item: CustomerListItem }) {
+  return (
+    <div className="space-y-1 font-mono text-xs leading-5">
+      <div>
+        <span className="mr-1 text-muted-foreground">获客</span>
+        {formatBeijingDateTime(item.foundAt)}
+      </div>
+      <div>
+        <span className="mr-1 text-muted-foreground">背调</span>
+        {customerScreeningTimeLabel(item)}
+      </div>
+    </div>
+  );
+}
+
 function highlightFrameClass(active: boolean) {
   return active
     ? "animate-pulse outline outline-2 -outline-offset-2 outline-sky-300 shadow-[0_0_0_3px_rgba(125,211,252,0.22)]"
@@ -448,7 +474,11 @@ function CustomerProductBadges({
   );
 }
 
-function taskAffectedCustomerIds(taskId: string, rows: CustomerListItem[], tasks: Array<{ id: string; affectedCustomerIds?: string[] }>) {
+function taskAffectedCustomerIds(
+  taskId: string,
+  rows: CustomerListItem[],
+  tasks: Array<{ id: string; affectedCustomerIds?: string[]; kind?: string; targetLabel?: string }>,
+) {
   const task = tasks.find((item) => item.id === taskId);
   const metadataIds = new Set(task?.affectedCustomerIds ?? []);
   const rowIds = rows
@@ -459,7 +489,15 @@ function taskAffectedCustomerIds(taskId: string, rows: CustomerListItem[], tasks
       item.screeningAgentRunId === taskId,
     )
     .map((item) => item.customerId);
-  return Array.from(new Set(rowIds));
+  if (rowIds.length > 0 || task?.kind !== "screening") return Array.from(new Set(rowIds));
+  const targetNames = (task.targetLabel ?? "")
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter((item) => item && !/^\d+\s*个客户$/.test(item));
+  if (targetNames.length === 0) return [];
+  return rows
+    .filter((item) => targetNames.includes(item.companyName))
+    .map((item) => item.customerId);
 }
 
 function customerRowSelector(customerId: string) {
@@ -469,12 +507,42 @@ function customerRowSelector(customerId: string) {
   return `[data-customer-id="${escaped}"]`;
 }
 
+function highlightedPageForCustomerIds(rows: CustomerListItem[], customerIds: string[], pageSize: number) {
+  const idSet = new Set(customerIds);
+  const index = rows.findIndex((item) => idSet.has(item.customerId));
+  return index >= 0 ? Math.floor(index / pageSize) + 1 : 1;
+}
+
+function firstHighlightedCustomerIdOnPage(
+  rows: CustomerListItem[],
+  customerIds: string[],
+  page: number,
+  pageSize: number,
+) {
+  const idSet = new Set(customerIds);
+  const start = (page - 1) * pageSize;
+  return rows.slice(start, start + pageSize).find((item) => idSet.has(item.customerId))?.customerId ?? customerIds[0];
+}
+
 function normalizeCustomerHighlightScope(value: string | null): CustomerHighlightScope | null {
   if (
     value === "lead-results" ||
     value === "screening-results" ||
     value === "trusted" ||
     value === "pending"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeCustomerHighlightStatus(value: string | null): CustomerListItem["screeningStatus"] | null {
+  if (
+    value === "not_started" ||
+    value === "running" ||
+    value === "screened" ||
+    value === "insufficient_evidence" ||
+    value === "failed"
   ) {
     return value;
   }
@@ -643,6 +711,82 @@ function screeningOptionsFromState(options: ScreeningOptionState): EmployeeScree
   };
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function csvFromUnknown(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean).join(", ");
+  if (typeof value === "string") return value.trim();
+  return "";
+}
+
+function numberFromUnknown(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function leadRetryInputFromTask(task: CbeEmployeeTaskRecord): EmployeeLeadTaskInput | null {
+  const metadata = isPlainRecord(task.metadata) ? task.metadata : {};
+  const retryInput = isPlainRecord(metadata.retry_input) ? metadata.retry_input : null;
+  if (retryInput) {
+    const productKeywords = csvFromUnknown(retryInput.productKeywords);
+    const countries = csvFromUnknown(retryInput.countries);
+    const buyerTypes = csvFromUnknown(retryInput.buyerTypes);
+    const targetCount = numberFromUnknown(retryInput.targetCount) ?? 3;
+    if (productKeywords && countries && buyerTypes) {
+      return {
+        productKeywords,
+        countries,
+        buyerTypes,
+        targetCount,
+        excludeDomains: csvFromUnknown(retryInput.excludeDomains),
+        runMode: retryInput.runMode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
+        existingIdentityKeys: Array.isArray(retryInput.existingIdentityKeys)
+          ? retryInput.existingIdentityKeys.map((item) => String(item))
+          : undefined,
+        alreadyCoveredQueries: Array.isArray(retryInput.alreadyCoveredQueries)
+          ? retryInput.alreadyCoveredQueries.map((item) => String(item))
+          : undefined,
+      };
+    }
+  }
+
+  const queryConfig = isPlainRecord(metadata.query_config) ? metadata.query_config : {};
+  const productKeywords = csvFromUnknown(queryConfig.product_keywords ?? queryConfig.products);
+  const countries = csvFromUnknown(queryConfig.countries);
+  const buyerTypes = csvFromUnknown(queryConfig.buyer_types ?? queryConfig.buyer_personas);
+  if (!productKeywords || !countries || !buyerTypes) return null;
+  return {
+    productKeywords,
+    countries,
+    buyerTypes,
+    targetCount: numberFromUnknown(metadata.target_count ?? metadata.requested_target_count) ?? 3,
+    excludeDomains: csvFromUnknown(queryConfig.exclude_domains),
+    runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
+    existingIdentityKeys: Array.isArray(metadata.existing_identity_keys)
+      ? metadata.existing_identity_keys.map((item) => String(item))
+      : undefined,
+    alreadyCoveredQueries: Array.isArray(metadata.already_covered_queries)
+      ? metadata.already_covered_queries.map((item) => String(item))
+      : undefined,
+  };
+}
+
+function screeningRetryOptionsFromTask(task: CbeEmployeeTaskRecord): EmployeeScreeningTaskOptions | undefined {
+  const metadata = isPlainRecord(task.metadata) ? task.metadata : {};
+  const rawOptions = isPlainRecord(metadata.retry_options)
+    ? metadata.retry_options
+    : isPlainRecord(metadata.options)
+      ? metadata.options
+      : null;
+  if (!rawOptions) return undefined;
+  return {
+    paidEmailValidation: Boolean(rawOptions.paidEmailValidation),
+    paidTradeData: Boolean(rawOptions.paidTradeData),
+    maxPaidSpendUsd: numberFromUnknown(rawOptions.maxPaidSpendUsd),
+  };
+}
+
 function InfoTooltip({
   children,
 }: {
@@ -771,7 +915,6 @@ export default function CrossBorderCustomersPage() {
 function CrossBorderCustomersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [mounted, setMounted] = useState(false);
   const { client, state } = useGateway();
   const { data: leadAgent, loading: leadLoading } = useAgent("cbe-lead-discovery");
   const { data: screeningAgent, loading: screeningLoading } = useAgent("cbe-buyer-screening");
@@ -808,17 +951,18 @@ function CrossBorderCustomersPageContent() {
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [newlyAddedCustomerIds, setNewlyAddedCustomerIds] = useState<Set<string>>(() => new Set());
   const [expandedProductRows, setExpandedProductRows] = useState<Set<string>>(() => new Set());
+  const [hydrated, setHydrated] = useState(false);
   const handledHighlightRequestRef = useRef<string | null>(null);
+  const [pendingCustomerHighlight, setPendingCustomerHighlight] = useState<{ ids: string[] } | null>(null);
   const highlightTaskId = searchParams.get("highlightTask");
   const highlightCustomerId = searchParams.get("highlightCustomer");
   const customerHighlightScope = normalizeCustomerHighlightScope(searchParams.get("highlight"));
   const customerHighlightRange = normalizeCustomerHighlightRange(searchParams.get("highlightRange"));
+  const customerHighlightStatus = normalizeCustomerHighlightStatus(searchParams.get("highlightStatus"));
   const leadRunning = tasks.some((task) => task.kind === "lead" && isCbeEmployeeTaskActive(task));
   const screeningRunning = tasks.some((task) => task.kind === "screening" && isCbeEmployeeTaskActive(task));
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const leadRunningUi = hydrated && leadRunning;
+  const screeningRunningUi = hydrated && screeningRunning;
 
   const toggleProductsExpanded = (customerId: string) => {
     setExpandedProductRows((current) => {
@@ -829,11 +973,11 @@ function CrossBorderCustomersPageContent() {
     });
   };
 
-  const flashNewCustomers = (customerIds: string[]) => {
+  const flashNewCustomers = useCallback((customerIds: string[]) => {
     const ids = Array.from(new Set(customerIds.filter(Boolean)));
     if (ids.length === 0) return;
     setNewlyAddedCustomerIds(new Set(ids));
-  };
+  }, []);
 
   const clearCustomerHighlight = (customerId: string) => {
     setNewlyAddedCustomerIds((current) => {
@@ -843,6 +987,11 @@ function CrossBorderCustomersPageContent() {
       return next;
     });
   };
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setHydrated(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -870,40 +1019,6 @@ function CrossBorderCustomersPageContent() {
       cancelled = true;
     };
   }, [setRows, setTasks]);
-
-  useEffect(() => {
-    const highlightRequestKey = [
-      highlightTaskId ?? "",
-      highlightCustomerId ?? "",
-      customerHighlightScope ?? "",
-      customerHighlightRange,
-    ].join("|");
-    const hasHighlightRequest = Boolean(highlightTaskId || highlightCustomerId || customerHighlightScope);
-    if (!hasHighlightRequest || handledHighlightRequestRef.current === highlightRequestKey || rows.length === 0) return;
-    let ids: string[] = [];
-    if (highlightCustomerId) {
-      ids = rows.some((item) => item.customerId === highlightCustomerId) ? [highlightCustomerId] : [];
-    } else if (highlightTaskId) {
-      ids = taskAffectedCustomerIds(highlightTaskId, rows, tasks);
-    } else if (customerHighlightScope) {
-      ids = highlightedCustomerIdsForScope(rows, customerHighlightScope, customerHighlightRange);
-    }
-    if (ids.length === 0) return;
-    handledHighlightRequestRef.current = highlightRequestKey;
-    setQuery("");
-    setFilters(customerHighlightScope === "trusted" ? { ...emptyFilters, scoreTiers: ["high"] } : emptyFilters);
-    setStatusFilter(customerHighlightScope === "screening-results" ? "screened" : "all");
-    flashNewCustomers(ids);
-    window.requestAnimationFrame(() => {
-      const rowCandidates = Array.from(document.querySelectorAll<HTMLElement>(customerRowSelector(ids[0])));
-      const visibleRow = rowCandidates.find((element) => element.getClientRects().length > 0) ?? rowCandidates[0];
-      visibleRow?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    });
-    showNotice(`已定位 ${ids.length} 个相关客户。`, "info");
-  }, [customerHighlightRange, customerHighlightScope, highlightCustomerId, highlightTaskId, rows, tasks]);
 
   const filterOptions = useMemo(() => {
     const countryMap = new Map<string, string>();
@@ -1000,7 +1115,7 @@ function CrossBorderCustomersPageContent() {
     if (filters.foundRange !== "all") {
       chips.push({
         key: "foundRange",
-        label: `找到时间：${foundRangeLabels[filters.foundRange]}`,
+        label: `时间：${foundRangeLabels[filters.foundRange]}`,
         clear: () => setFilters((current) => ({ ...current, foundRange: "all" })),
       });
     }
@@ -1035,9 +1150,14 @@ function CrossBorderCustomersPageContent() {
     : [];
   const canRunLead = state === "connected" && !!leadAgent;
   const canRunScreening = state === "connected" && !!screeningAgent;
-  const checkingLeadAgent = state === "connected" && leadLoading;
+  const checkingLeadAgent = hydrated && state === "connected" && leadLoading;
   const activeFilterCount = activeFilterChips.length;
   const customerPage = usePagedItems(filtered, 10);
+  const {
+    page: currentCustomerPage,
+    pageSize: customerPageSize,
+    setPage: setCustomerPage,
+  } = customerPage;
   const pagedCustomers = customerPage.items;
   const latestLeadFailure = useMemo(
     () =>
@@ -1048,14 +1168,89 @@ function CrossBorderCustomersPageContent() {
   );
   const isCurrentDatabaseEmpty = rows.length === 0;
 
-  const showNotice = (text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
+  const showNotice = useCallback((text: string, tone: "success" | "error" | "info" = "success", timeoutMs = 4000) => {
     setNotice({ tone, text });
     if (timeoutMs > 0) {
       window.setTimeout(() => {
         setNotice((current) => (current?.text === text ? null : current));
       }, timeoutMs);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const highlightRequestKey = [
+      highlightTaskId ?? "",
+      highlightCustomerId ?? "",
+      customerHighlightScope ?? "",
+      customerHighlightRange,
+      customerHighlightStatus ?? "",
+    ].join("|");
+    const hasHighlightRequest = Boolean(highlightTaskId || highlightCustomerId || customerHighlightScope);
+    if (!hasHighlightRequest || handledHighlightRequestRef.current === highlightRequestKey || rows.length === 0) return;
+    let ids: string[] = [];
+    if (highlightTaskId) {
+      ids = taskAffectedCustomerIds(highlightTaskId, rows, tasks);
+    } else if (highlightCustomerId) {
+      ids = rows.some((item) => item.customerId === highlightCustomerId) ? [highlightCustomerId] : [];
+    } else if (customerHighlightScope) {
+      ids = highlightedCustomerIdsForScope(rows, customerHighlightScope, customerHighlightRange);
+    }
+    ids = Array.from(new Set(ids));
+    if (ids.length === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      handledHighlightRequestRef.current = highlightRequestKey;
+      setQuery("");
+      setFilters(customerHighlightScope === "trusted" ? { ...emptyFilters, scoreTiers: ["high"] } : emptyFilters);
+      const nextStatusFilter =
+        customerHighlightScope === "screening-results" && customerHighlightStatus === "screened"
+          ? "all"
+          : customerHighlightStatus ?? "all";
+      setStatusFilter(nextStatusFilter);
+      setPendingCustomerHighlight({ ids });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [customerHighlightRange, customerHighlightScope, customerHighlightStatus, highlightCustomerId, highlightTaskId, rows, tasks, setFilters, setStatusFilter]);
+
+  useEffect(() => {
+    if (!pendingCustomerHighlight) return;
+    const visibleHighlightedIds = pendingCustomerHighlight.ids.filter((customerId) =>
+      filtered.some((item) => item.customerId === customerId),
+    );
+    if (visibleHighlightedIds.length === 0) return;
+    const targetPage = highlightedPageForCustomerIds(filtered, visibleHighlightedIds, customerPageSize);
+    if (currentCustomerPage !== targetPage) {
+      const frame = window.requestAnimationFrame(() => setCustomerPage(targetPage));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const targetCustomerId = firstHighlightedCustomerIdOnPage(
+      filtered,
+      visibleHighlightedIds,
+      currentCustomerPage,
+      customerPageSize,
+    );
+    const frame = window.requestAnimationFrame(() => {
+      flashNewCustomers(visibleHighlightedIds);
+      window.requestAnimationFrame(() => {
+        const rowCandidates = Array.from(document.querySelectorAll<HTMLElement>(customerRowSelector(targetCustomerId)));
+        const visibleRow = rowCandidates.find((element) => element.getClientRects().length > 0) ?? rowCandidates[0];
+        visibleRow?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
+      showNotice(`已定位 ${visibleHighlightedIds.length} 个相关客户。`, "info");
+      setPendingCustomerHighlight(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    currentCustomerPage,
+    customerPageSize,
+    filtered,
+    flashNewCustomers,
+    pendingCustomerHighlight,
+    setCustomerPage,
+    showNotice,
+  ]);
 
   const refreshDbBackedLists = async () => {
     const [customers, latestTasks] = await Promise.all([
@@ -1251,6 +1446,9 @@ function CrossBorderCustomersPageContent() {
           timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
           sessionKey: activeSessionKey,
           targetLabel: `${countCsv(input.productKeywords)} 类产品 / ${countCsv(input.countries)} 个国家`,
+          metadata: {
+            retry_input: runInput,
+          },
         });
         taskId = localTaskId;
         abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1398,6 +1596,11 @@ function CrossBorderCustomersPageContent() {
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: createdRun.agentRun.sessionKey ?? initialChildRuns.find((child) => child.agentRun.sessionKey)?.agentRun.sessionKey ?? plannedSessionKey,
         targetLabel: `${runnableTargets.length} 个客户`,
+        metadata: {
+          retry_customer_ids: Array.from(ids),
+          retry_options: options ?? {},
+          retry_targets: screeningTargets,
+        },
       });
       taskId = localTaskId;
       abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1436,7 +1639,7 @@ function CrossBorderCustomersPageContent() {
           });
           lastSessionKey = result.sessionKey;
           const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
-          return { status: "completed" as const, count: Math.max(savedReportCount, result.records.length) };
+          return { status: "completed" as const, count: Math.max(savedReportCount, result.records.length, 1) };
         } catch (error) {
           const message = employeeTaskErrorMessage(error);
           const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : activeSessionKey;
@@ -1570,6 +1773,11 @@ function CrossBorderCustomersPageContent() {
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
         targetLabel: input.companyName.trim(),
+        metadata: {
+          retry_manual_input: input,
+          retry_options: options ?? {},
+          retry_targets: [target],
+        },
       });
       taskId = localTaskId;
       abortSignal = createCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1586,7 +1794,7 @@ function CrossBorderCustomersPageContent() {
         payload: result.payload,
       });
       const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
-      const completedCount = Math.max(savedReportCount, result.records.length);
+      const completedCount = Math.max(savedReportCount, result.records.length, 1);
       const message = `手动背调已完成，已新增/更新 ${completedCount} 个客户。`;
       completeTask(localTaskId, completedCount, message, result.sessionKey);
       await refreshDbBackedLists();
@@ -1616,9 +1824,45 @@ function CrossBorderCustomersPageContent() {
     }
   };
 
-  if (!mounted) {
-    return null;
-  }
+  useEffect(() => {
+    const handleRetryTask = (event: Event) => {
+      const task = (event as CustomEvent<{ task?: CbeEmployeeTaskRecord }>).detail?.task;
+      if (!task || task.status !== "failed" || (task.kind !== "lead" && task.kind !== "screening")) return;
+      event.preventDefault();
+
+      if (task.kind === "lead") {
+        const input = leadRetryInputFromTask(task);
+        if (!input) {
+          showNotice("无法读取这次获客失败的筛选条件，请重新打开寻找客户表单。", "error", 8000);
+          setSheetMode("lead");
+          return;
+        }
+        void submitLeadTask(input);
+        return;
+      }
+
+      const metadata = isPlainRecord(task.metadata) ? task.metadata : {};
+      const retryCustomerIds = new Set([
+        ...(task.affectedCustomerIds ?? []),
+        ...(Array.isArray(metadata.retry_customer_ids) ? metadata.retry_customer_ids.map((item) => String(item)) : []),
+      ]);
+      const retryCustomers = rows.filter(
+        (item) =>
+          retryCustomerIds.has(item.customerId) ||
+          item.screeningAgentRunId === task.id ||
+          item.latestAgentRunId === task.id,
+      );
+      if (retryCustomers.length === 0) {
+        setStatusFilter("failed");
+        showNotice("未能直接定位这次失败的客户，请在失败客户行点击“重试背调”。", "error", 8000);
+        return;
+      }
+      void submitScreeningTask(retryCustomers, screeningRetryOptionsFromTask(task));
+    };
+
+    window.addEventListener(CBE_EMPLOYEE_TASK_RETRY_EVENT, handleRetryTask);
+    return () => window.removeEventListener(CBE_EMPLOYEE_TASK_RETRY_EVENT, handleRetryTask);
+  }, [rows, setSheetMode, setStatusFilter, showNotice, submitLeadTask, submitScreeningTask]);
 
   return (
     <div className="space-y-4">
@@ -1631,15 +1875,15 @@ function CrossBorderCustomersPageContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setSheetMode("lead")} disabled={leadRunning}>
-            {checkingLeadAgent || leadRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          <Button onClick={() => setSheetMode("lead")} disabled={leadRunningUi}>
+            {checkingLeadAgent || leadRunningUi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             寻找客户
           </Button>
-          <Button variant="outline" onClick={openBulkScreening} disabled={selectedCustomers.length === 0 || screeningRunning}>
-            {screeningRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          <Button variant="outline" onClick={openBulkScreening} disabled={selectedCustomers.length === 0 || screeningRunningUi}>
+            {screeningRunningUi ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             批量背调
           </Button>
-          <Button variant="outline" onClick={() => setSheetMode("manual")} disabled={screeningRunning}>
+          <Button variant="outline" onClick={() => setSheetMode("manual")} disabled={screeningRunningUi}>
             <Plus className="h-4 w-4" />
             手动背调
           </Button>
@@ -1770,7 +2014,7 @@ function CrossBorderCustomersPageContent() {
             </div>
           ) : (
             <>
-              <div className="grid gap-3 lg:hidden">
+              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false}>
                 {pagedCustomers.map((item) => {
                   const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
                   const requiresMemoryRefresh = needsChatRecordSupplement(item);
@@ -1793,7 +2037,7 @@ function CrossBorderCustomersPageContent() {
                     />
                   );
                 })}
-              </div>
+              </AnimatedList>
 
               <div className="hidden overflow-x-auto rounded-md border lg:block">
                 <table className="w-full min-w-[1080px] text-sm">
@@ -1805,18 +2049,20 @@ function CrossBorderCustomersPageContent() {
                       <th className="px-3 py-2 text-left">类型</th>
                       <th className="px-3 py-2 text-left">产品</th>
                       <th className="px-3 py-2 text-left">网站</th>
-                      <th className="px-3 py-2 text-left">找到时间</th>
+                      <th className="px-3 py-2 text-left">时间</th>
                       <th className="px-3 py-2 text-left">评分</th>
                       <th className="px-3 py-2 text-left">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedCustomers.map((item) => {
+                    {pagedCustomers.map((item, index) => {
                       const itemWorkflowBadge = workflowBadge(item);
                       const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
                       const requiresMemoryRefresh = needsChatRecordSupplement(item);
                       return (
-                      <tr
+                      <AnimatedTableRow
+                        index={index}
+                        preserveTableRowBase={false}
                         key={item.customerId}
                         data-customer-id={item.customerId}
                         onMouseDown={() => clearCustomerHighlight(item.customerId)}
@@ -1867,7 +2113,9 @@ function CrossBorderCustomersPageContent() {
                             <span className="text-muted-foreground">未提供</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 font-mono text-xs">{formatBeijingDateTime(item.foundAt)}</td>
+                        <td className="px-3 py-3">
+                          <CustomerTimeStack item={item} />
+                        </td>
                         <td className="px-3 py-3">
                           <Badge variant="outline" className={cn("whitespace-nowrap", statusBadgeClass(item))}>
                             {scoreLabel(item)}
@@ -1891,10 +2139,18 @@ function CrossBorderCustomersPageContent() {
 	                              }}>
 	                                开始调研
 	                              </Button>
+	                            ) : item.screeningStatus === "failed" ? (
+	                              <Button variant="outline" size="sm" disabled={screeningRunningUi} onClick={() => {
+	                                setSelectedIds([item.customerId]);
+	                                setSheetMode("bulk");
+	                              }}>
+	                                <RotateCcw className="h-3.5 w-3.5" />
+	                                重试背调
+	                              </Button>
 	                            ) : null}
-		                          </div>
+			                          </div>
                         </td>
-                      </tr>
+                      </AnimatedTableRow>
                       );
                     })}
                   </tbody>
@@ -1934,8 +2190,8 @@ function CrossBorderCustomersPageContent() {
         setScoreSort={setScoreSort}
         filterOptions={filterOptions}
         activeFilterCount={activeFilterCount}
-        leadRunning={leadRunning}
-	        screeningRunning={screeningRunning}
+        leadRunning={leadRunningUi}
+	        screeningRunning={screeningRunningUi}
 	        onLeadSubmit={submitLeadTask}
 	        onScreeningSubmit={submitScreeningTask}
 	        onManualSubmit={submitManualScreeningTask}
@@ -2008,8 +2264,8 @@ function CustomerMobileCard({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div>
-          <div className="text-muted-foreground">找到时间</div>
-          <div className="font-mono">{formatBeijingDateTime(item.foundAt)}</div>
+          <div className="text-muted-foreground">时间</div>
+          <CustomerTimeStack item={item} />
         </div>
         <div>
           <div className="text-muted-foreground">评分</div>
@@ -2032,6 +2288,11 @@ function CustomerMobileCard({
           <Button size="sm" onClick={startScreening}>
             <ShieldCheck className="h-3.5 w-3.5" />
             开始调研
+          </Button>
+        ) : item.screeningStatus === "failed" ? (
+          <Button variant="outline" size="sm" onClick={startScreening}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            重试背调
           </Button>
         ) : null}
       </div>
@@ -2132,42 +2393,45 @@ function EvidenceList({ evidence }: { evidence: CustomerEvidenceItem[] }) {
   }
   return (
     <div className="space-y-2">
-      {evidence.map((item, index) => (
-        <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
-              {scoreImpactLabel(item.scoreImpact)}
-            </Badge>
-            {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
+      {evidence.map((item, index) => {
+        const sourceUrl = publicSourceUrl(item.sourceUrl);
+        return (
+          <div key={`${item.sourceUrl}-${index}`} className="rounded-md border px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={item.scoreImpact === "negative" ? "destructive" : "outline"}>
+                {scoreImpactLabel(item.scoreImpact)}
+              </Badge>
+              {sourceTypeLabel(item.sourceType) ? <Badge variant="secondary">{sourceTypeLabel(item.sourceType)}</Badge> : null}
+            </div>
+            <div className="mt-2 leading-6">
+              {screeningEvidenceFindingText({
+                layer: item.layer,
+                sourceType: item.sourceType,
+                scoreBlock: item.scoreBlock,
+                scoreImpact: item.scoreImpact,
+                confidence: item.confidence,
+                finding: item.finding,
+                sourceUrl: item.sourceUrl,
+              })}
+            </div>
+            {sourceUrl ? (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                来源网址
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {item.scoreBlock ? <span>对应信息：{scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
+              {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
+            </div>
           </div>
-          <div className="mt-2 leading-6">
-            {screeningEvidenceFindingText({
-              layer: item.layer,
-              sourceType: item.sourceType,
-              scoreBlock: item.scoreBlock,
-              scoreImpact: item.scoreImpact,
-              confidence: item.confidence,
-              finding: item.finding,
-              sourceUrl: item.sourceUrl,
-            })}
-          </div>
-          {publicSourceUrl(item.sourceUrl) ? (
-            <a
-              href={item.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              来源网址
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          ) : null}
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {item.scoreBlock ? <span>对应信息：{scoreBlockLabels[item.scoreBlock] ?? item.scoreBlock}</span> : null}
-            {typeof item.confidence === "number" ? <span>可信度 {Math.round(item.confidence * 100)}%</span> : null}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -2282,7 +2546,15 @@ function ReportDetailDialog({
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <ReportMetric label="产品兴趣" value={productsLabel} />
-            <ReportMetric label="找到时间" value={formatBeijingDateTime(customer.foundAt)} />
+            <ReportMetric
+              label="时间"
+              value={
+                <div className="space-y-1">
+                  <div>获客 {formatBeijingDateTime(customer.foundAt)}</div>
+                  <div>背调 {customerScreeningTimeLabel(customer)}</div>
+                </div>
+              }
+            />
             <ReportMetric label="综合评分" value={scoreLabel(customer)} />
             <ReportMetric label="证据覆盖" value={report ? percentLabel(report.evidenceCoverage) : "未计算"} />
           </div>
@@ -2324,7 +2596,7 @@ function ReportDetailDialog({
                 >
                   <p className="text-sm leading-6 text-muted-foreground">{simplifyDisplayText(customer.evidenceSummary) ?? "暂无核验说明。"}</p>
                   <div className="mt-3 space-y-2">
-                    {customer.sourceUrls.map((url, index) => (
+                    {Array.from(new Set(customer.sourceUrls.map(publicSourceUrl).filter((url): url is string => Boolean(url)))).map((url, index) => (
                       <a
                         key={url}
                         className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
@@ -2512,8 +2784,11 @@ function TaskSheet({
 
   useEffect(() => {
     if (!open) return;
+    let syncTargetFrame: number | null = null;
     if (mode === "lead") {
-      setLeadTargetCountText(String(leadSelection.targetCount));
+      syncTargetFrame = window.requestAnimationFrame(() => {
+        setLeadTargetCountText(String(leadSelection.targetCount));
+      });
     }
     const resetSheetScroll = () => contentRef.current?.scrollTo({ top: 0, left: 0 });
     resetSheetScroll();
@@ -2521,11 +2796,12 @@ function TaskSheet({
     const shortDelay = window.setTimeout(resetSheetScroll, 50);
     const focusDelay = window.setTimeout(resetSheetScroll, 150);
     return () => {
+      if (syncTargetFrame !== null) window.cancelAnimationFrame(syncTargetFrame);
       window.cancelAnimationFrame(frame);
       window.clearTimeout(shortDelay);
       window.clearTimeout(focusDelay);
     };
-  }, [open, mode, activeCustomer?.customerId]);
+  }, [open, mode, activeCustomer?.customerId, leadSelection.targetCount]);
 
   if (mode === "detail") {
     if (!activeCustomer) return null;
@@ -2598,7 +2874,7 @@ function TaskSheet({
                 ))}
               </FilterGroup>
 
-              <FilterGroup title="找到时间">
+              <FilterGroup title="时间">
                 {(["all", "today", "7d", "30d"] as const).map((range) => (
                   <Button
                     key={range}

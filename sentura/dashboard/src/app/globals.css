@@ -56,7 +56,7 @@
   --card-foreground: #101729;
   --popover: #fbfcfe;
   --popover-foreground: #101729;
-  --primary: #2b4dd0;
+  --primary: #140f4a;
   --primary-foreground: #ffffff;
   --secondary: #edf3fb;
   --secondary-foreground: #101729;
@@ -67,21 +67,21 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: #dfe8f6;
   --input: #d4e1f7;
-  --ring: #3762e3;
-  --chart-1: #2b4dd0;
-  --chart-2: #3762e3;
-  --chart-3: #67a8ff;
-  --chart-4: #93c5fd;
-  --chart-5: #d4e2f8;
+  --ring: #140f4a;
+  --chart-1: #140f4a;
+  --chart-2: #143f7a;
+  --chart-3: #3f6fa9;
+  --chart-4: #8aaad2;
+  --chart-5: #dbe7f7;
   --radius: 0.625rem;
   --sidebar: #f5f8fe;
   --sidebar-foreground: #101729;
-  --sidebar-primary: #2b4dd0;
+  --sidebar-primary: #140f4a;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #e3ecfc;
   --sidebar-accent-foreground: #101729;
   --sidebar-border: #dfe8f6;
-  --sidebar-ring: #3762e3;
+  --sidebar-ring: #140f4a;
 
   --sentura-ink: #101729;
   --sentura-text: #565b6a;
@@ -94,9 +94,9 @@
   --sentura-ice-2: #e6f0fd;
   --sentura-border: #dfe8f6;
   --sentura-border-strong: #d4e1f7;
-  --sentura-blue: #2b4dd0;
-  --sentura-blue-hover: #3762e3;
-  --sentura-blue-glow: #d4e2f8;
+  --sentura-blue: #140f4a;
+  --sentura-blue-hover: #143f7a;
+  --sentura-blue-glow: #dbe7f7;
 }
 
 .dark {
@@ -158,19 +158,297 @@
       radial-gradient(circle at 12% 0%, rgba(227, 236, 252, 0.74) 0%, rgba(227, 236, 252, 0) 34%),
       linear-gradient(180deg, rgba(251, 252, 254, 0.94) 0%, rgba(237, 243, 251, 0.88) 100%);
     border-color: rgba(212, 225, 247, 0.82);
-    box-shadow: 0 18px 42px -30px rgba(43, 77, 208, 0.34);
+    box-shadow: 0 18px 42px -30px rgba(20, 15, 74, 0.34);
   }
 
   .sentura-cta {
-    background: linear-gradient(180deg, #3b5ad4 0%, #2b4dd0 58%, #2546c7 100%);
-    box-shadow: 0 10px 24px rgba(43, 77, 208, 0.22);
+    background: linear-gradient(180deg, #252073 0%, #140f4a 58%, #090523 100%);
+    box-shadow: 0 10px 24px rgba(20, 15, 74, 0.24);
+  }
+
+  .sentura-pill-nav-container {
+    --sentura-pill-base: #020b1d;
+    --sentura-pill-base-strong: #140f4a;
+    --sentura-pill-bg: #020b1d;
+    --sentura-pill-bg-active: #ffffff;
+    --sentura-pill-text: #f8fbff;
+    --sentura-pill-hover-text: #0b2a57;
+    --sentura-pill-muted: #f8fbff;
+    position: relative;
+    width: max-content;
+    height: 2.625rem;
+  }
+
+  .sentura-pill-nav {
+    display: flex;
+    width: max-content;
+    height: 100%;
+    align-items: center;
+  }
+
+  .sentura-pill-nav-items {
+    position: relative;
+    display: flex;
+    height: 100%;
+    align-items: center;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.82), 0 14px 28px -22px rgba(20, 15, 74, 0.42);
+  }
+
+  .sentura-pill-list {
+    display: flex;
+    height: 100%;
+    align-items: stretch;
+    gap: 3px;
+    margin: 0;
+    padding: 3px;
+    list-style: none;
+  }
+
+  .sentura-pill-list > li {
+    display: flex;
+    height: 100%;
+  }
+
+  .sentura-pill {
+    position: relative;
+    display: inline-flex;
+    min-width: 6.75rem;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--sentura-pill-bg);
+    color: var(--sentura-pill-text);
+    padding: 0 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 650;
+    line-height: 1;
+    letter-spacing: 0;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 220ms var(--motion-ease-out),
+      color 220ms var(--motion-ease-out),
+      transform 120ms var(--motion-ease-out),
+      box-shadow 220ms var(--motion-ease-out);
+    box-shadow: inset 0 0 0 1px rgba(248, 251, 255, 0.12), 0 6px 14px -12px rgba(2, 11, 29, 0.8);
+  }
+
+  .sentura-pill-hover-circle {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    z-index: 1;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 56%, #eef2f7 100%);
+    pointer-events: none;
+    will-change: transform;
+  }
+
+  .sentura-pill-label-stack {
+    position: relative;
+    z-index: 2;
+    display: inline-block;
+    line-height: 1;
+  }
+
+  .sentura-pill-label,
+  .sentura-pill-label-hover {
+    display: inline-block;
+    line-height: 1;
+    will-change: transform, opacity;
+  }
+
+  .sentura-pill-label {
+    position: relative;
+    z-index: 2;
+  }
+
+  .sentura-pill-label-hover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    color: var(--sentura-pill-hover-text);
+    opacity: 0;
+  }
+
+  .sentura-pill-label-content {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    line-height: 1;
+  }
+
+  .sentura-pill.is-active {
+    background: linear-gradient(180deg, #ffffff 0%, var(--sentura-pill-bg-active) 100%);
+    color: var(--sentura-pill-base);
+    box-shadow: inset 0 0 0 1px rgba(20, 15, 74, 0.14), 0 8px 16px -14px rgba(20, 15, 74, 0.5);
+  }
+
+  .sentura-pill.is-active .sentura-pill-hover-circle {
+    background: transparent;
+  }
+
+  .sentura-pill.is-active .sentura-pill-label-hover {
+    color: var(--sentura-pill-base);
+  }
+
+  .sentura-pill.is-active::after {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    z-index: 4;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--sentura-pill-base-strong);
+    box-shadow: 0 0 0 2px rgba(248, 250, 252, 0.9);
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .sentura-pill:focus-visible {
+    outline: 2px solid rgba(20, 15, 74, 0.48);
+    outline-offset: 2px;
+  }
+
+  .sentura-pill:active {
+    transform: translateY(1px);
+  }
+
+  .sentura-mobile-pill-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.375rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.34);
+    background: rgba(238, 242, 247, 0.94);
+    padding: 0.375rem 0.5rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  .sentura-mobile-pill-link {
+    display: flex;
+    min-width: 0;
+    height: 2.625rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #020b1d;
+    color: var(--sentura-pill-muted, #9bb3d9);
+    font-size: 0.75rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-duration-base) var(--motion-ease-out),
+      color var(--motion-duration-base) var(--motion-ease-out),
+      transform var(--motion-duration-fast) var(--motion-ease-out);
+  }
+
+  .sentura-mobile-pill-link > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sentura-mobile-pill-link.is-active {
+    background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+    color: var(--sentura-pill-base);
+    box-shadow: inset 0 0 0 1px rgba(20, 15, 74, 0.14), 0 7px 16px -12px rgba(20, 15, 74, 0.44);
+  }
+
+  .sentura-mobile-pill-link:active {
+    transform: translateY(1px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sentura-pill,
+    .sentura-mobile-pill-link {
+      transition: none;
+    }
+
+    .sentura-pill-hover-circle,
+    .sentura-pill-label,
+    .sentura-pill-label-hover {
+      animation: none;
+      will-change: auto;
+    }
   }
 
   .sentura-login-card {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.82) 100%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.75) 100%);
     border-color: rgba(203, 213, 225, 0.72);
     box-shadow: 0 28px 80px -58px rgba(15, 23, 42, 0.5);
+  }
+
+  .sentura-login-greeting-title,
+  .sentura-login-system-title {
+    font-family: system-ui, sans-serif;
+  }
+
+  .sentura-login-submit {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: #24335a;
+    box-shadow: 0 16px 34px -18px rgba(36, 51, 90, 0.72), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    transform-origin: center;
+    transition:
+      transform 180ms var(--motion-ease-out),
+      box-shadow 180ms var(--motion-ease-out),
+      background-color 180ms var(--motion-ease-out);
+  }
+
+  .sentura-login-submit:hover {
+    background: #24335a;
+    box-shadow: 0 20px 38px -18px rgba(36, 51, 90, 0.82), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+    transform: scale(1.035);
+  }
+
+  .sentura-login-submit:disabled {
+    transform: none;
+  }
+
+  .sentura-login-liquid-page {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 9% 5%, rgba(224, 242, 254, 0.72) 0%, rgba(224, 242, 254, 0) 34%),
+      radial-gradient(circle at 88% 16%, rgba(125, 211, 252, 0.12) 0%, rgba(125, 211, 252, 0) 32%),
+      radial-gradient(circle at 52% 68%, rgba(120, 255, 239, 0.055) 0%, rgba(120, 255, 239, 0) 35%),
+      linear-gradient(180deg, #fdfeff 0%, #fafdff 26%, #f3faff 64%, #fbfeff 100%);
+  }
+
+  .sentura-login-liquid-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .sentura-login-liquid-background::after {
+    content: none;
+  }
+
+  .liquid-ether-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    touch-action: none;
   }
 
   .sentura-typewriter {
@@ -252,5 +530,11 @@
   }
   100% {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 0 12px rgba(239, 68, 68, 0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentura-login-submit {
+    transition: none;
   }
 }

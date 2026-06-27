@@ -4,14 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
 import { LoginWelcomeHeader } from "@/components/cross-border/brand-ui";
+import { LoginLiquidEtherBackground } from "@/components/cross-border/liquid-ether-background";
+import { PixelCard } from "@/components/cross-border/pixel-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   CBE_ADMIN_EMPLOYEES_PATH,
   CBE_ADMIN_LOGIN_PATH,
   isCbeAdminPath,
 } from "@/lib/cross-border-routes";
+import {
+  clearCbeSessionDisplayName,
+  setCbeSessionDisplayName,
+} from "@/lib/cbe-session-display-name";
 
 export default function ManagerLoginPage() {
   const router = useRouter();
@@ -27,6 +33,7 @@ export default function ManagerLoginPage() {
     }
     setLoading(true);
     setError(null);
+    clearCbeSessionDisplayName("admin");
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
@@ -37,6 +44,10 @@ export default function ManagerLoginPage() {
       if (!response.ok) {
         throw new Error(body?.error?.message ?? "登录失败。");
       }
+      const sessionName = typeof body?.user?.displayName === "string"
+        ? body.user.displayName.trim()
+        : "";
+      if (sessionName) setCbeSessionDisplayName("admin", sessionName);
       const next = new URLSearchParams(window.location.search).get("next");
       const canUseNext = next && isCbeAdminPath(next) && !next.startsWith(CBE_ADMIN_LOGIN_PATH);
       router.replace(canUseNext ? next : body.redirectTo ?? CBE_ADMIN_EMPLOYEES_PATH);
@@ -48,8 +59,13 @@ export default function ManagerLoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-4xl items-center justify-center px-4">
-      <Card className="sentura-login-card w-full max-w-md backdrop-blur-xl">
+    <main className="sentura-login-liquid-page flex min-h-[calc(100vh-4rem)] w-full items-center justify-center px-4">
+      <LoginLiquidEtherBackground />
+      <PixelCard
+        variant="default"
+        className="sentura-login-card relative z-10 group/card w-full max-w-md backdrop-blur-xl"
+        contentClassName="flex flex-col gap-4 py-4 text-sm text-card-foreground"
+      >
         <CardHeader className="gap-0 px-7 pb-5 pt-8">
           <LoginWelcomeHeader systemTitle="跨境电商管理者系统" />
         </CardHeader>
@@ -74,12 +90,12 @@ export default function ManagerLoginPage() {
             }}
           />
           {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-          <Button className="h-9 w-full" onClick={submit} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-            登录
+          <Button className="sentura-login-submit h-9 w-full hover:brightness-100" onClick={submit} disabled={loading}>
+            {loading ? <Loader2 className="relative z-10 h-4 w-4 animate-spin" /> : <LogIn className="relative z-10 h-4 w-4" />}
+            <span className="relative z-10">登录</span>
           </Button>
         </CardContent>
-      </Card>
+      </PixelCard>
     </main>
   );
 }

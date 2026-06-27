@@ -625,7 +625,7 @@ async function runLiveDashboardStoreChecks() {
       },
     });
     check("dashboard store saves Accio summaries", accioResult.summaries.length === 1);
-    check("dashboard store does not create pending memory facts from Accio", accioResult.memoryFactIds.length === 0);
+    check("dashboard store creates pending memory facts from Accio", accioResult.memoryFactIds.length === 1);
     check("dashboard store does not create Screening handoffs from Accio", accioResult.handoffIds.length === 0);
 
     const tasks = await store.listEmployeeTasks(context, { limit: 20, offset: 0 });
@@ -1025,10 +1025,10 @@ check("CE22 store enforces paid Screening retry re-approval state", [
   "screening_paid_retry_reapproved",
   "paid_source_policy",
 ].every((needle) => p22AllStoreText.includes(needle)));
-check("CE22 Accio completion keeps memory facts and Screening handoffs disabled", [
-  "memory_fact_ids: []",
+check("CE22 Accio completion keeps Screening handoffs disabled while writing automatic approved memory facts", [
+  "memory_fact_ids: memoryFactIds",
   "handoff_ids: []",
-  "interop_disabled: true",
+  "screening_handoff_disabled: true",
   "accio_interop_disabled",
 ].every((needle) => p22AllStoreText.includes(needle)) && !dashboardAccioStoreTs.includes("insertHandoffEvent"));
 check("CE22 Accio-to-Screening handoff path is removed", [
@@ -1040,7 +1040,7 @@ check("P2.2 read endpoints apply server-side tenant/user filters", p22AllStoreTe
 check("P2.2 admin routes require CBE admin role", adminRouteText.includes("requireCbeAdmin(context)"));
 check("P2.2 route handlers use Next App Router node runtime", [...p22EmployeeRoutes, ...p22AdminRoutes].every((route) => read(path.join(DASHBOARD_API_DIR, route)).includes('runtime = "nodejs"')));
 check("P2.2 route handlers do not expose raw SQL to employees", !/\b(select|insert into|update|delete from)\b/i.test(completionRouteText));
-check("CE22 retry route uses typed store and memory review route is disabled", [
+check("CE22 retry route uses typed store and memory review route is disabled for automatic writes", [
   read(path.join(DASHBOARD_API_DIR, "employee/screening-runs/[id]/retry/route.ts")),
   read(path.join(DASHBOARD_API_DIR, "employee/memory/facts/route.ts")),
 ].join("\n").includes("retryFailedScreeningChildRun") && [
@@ -1100,8 +1100,8 @@ check("manager cost UI separates actual, estimated, and unpriced cost signals", 
 check("manager employee cost details moved from employee management to cost monitoring", [
   "selectedCostUserId",
   "fetchAdminOperator",
-  "员工费用明细",
-  "costDetail.costEvents.map",
+  "CostDetailDialog",
+  "管理端与员工端使用同一批 sentura-cost 工具成本事件",
 ].every((needle) => read(path.join(DASHBOARD_ADMIN_DIR, "costs/page.tsx")).includes(needle)) && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("费用明细") && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("costEvents.map"));
 check("manager cost amounts are capped at two decimals in UI, schema, and overrun math", [
   "function money(value: unknown)",
@@ -1143,10 +1143,10 @@ check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchE
 check("P2.3 customers page starts/completes/fails DB tasks", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "failEmployeeTaskInDb", "refreshDbBackedLists"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 customers page applies child paid-source policy before Screening execution", ["screeningOptionsForChild", "paidSourcePolicy", "policy.paidEmailValidation?.allowed", "policy.paidTradeData?.allowed"].every((needle) => employeeCustomersPageTs.includes(needle)));
 check("P2.3 memory page starts/completes/fails DB tasks", ["createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb", "refreshDbBackedMemory"].every((needle) => employeeMemoryPageTs.includes(needle)));
-check("P2.3 memory page does not expose approval-to-memory action", !["reviewEmployeeMemoryFacts", "批准写入", "memoryPreviewStatusLabel"].some((needle) => employeeMemoryPageTs.includes(needle)) && employeeMemoryPageTs.includes("不写入长期记忆"));
+check("P2.3 memory page relies on automatic long-term memory write without Screening handoff", ["自动写入结构化长期记忆", "MemorySourceTranscript"].every((needle) => employeeMemoryPageTs.includes(needle)) && !["发送到背调", "sendToScreening", "reviewEmployeeMemoryFacts", "写入长期记忆", "拒绝写入"].some((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 memory page supports JSON/text/image manual imports through normalizer", ["normalizeJsonMemoryImport", "normalizeTextMemoryImport", "normalizeImageMemoryImport", "toGatewayChatAttachments", "截图导入需要立即分析"].every((needle) => employeeMemoryPageTs.includes(needle)));
 check("P2.3 employee header keeps DB task refresh and task notification links", appShellTs.includes("fetchEmployeeTasks") && appShellTs.includes("markEmployeeNotificationsRead") && appShellTs.includes("EMPLOYEE_MESSAGE_CENTER_HREF") && employeeNotificationTargetsTs.includes("employee-messages"));
-check("P2.3 employee and manager notifications use scrollable targeted message lists", appShellTs.includes("notificationListMaxHeight") && appShellTs.includes("overflow-y-auto") && appShellTs.includes("previewMessages.map((item)") && appShellTs.includes("employeeTaskNotificationHref(item)") && appShellTs.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShellTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargetsTs.includes("highlightTask=") && employeeNotificationTargetsTs.includes("employeeCostHighlightHref") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
+check("P2.3 employee and manager notifications use scrollable targeted message lists", appShellTs.includes("notificationListMaxHeight") && appShellTs.includes("overflow-y-auto") && appShellTs.includes("previewMessages.map((item)") && appShellTs.includes("employeeTaskNotificationHref(item)") && appShellTs.includes("messages.slice(0, EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT)") && appShellTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10") && employeeNotificationTargetsTs.includes("EMPLOYEE_NOTIFICATION_VISIBLE_COUNT = 3") && employeeNotificationTargetsTs.includes("highlightTask") && employeeNotificationTargetsTs.includes("CBE_EMPLOYEE_MEMORY_PATH") && employeeNotificationTargetsTs.includes("employeeCostHighlightHref") && appShellTs.includes("snapshot.approvals.map") && appShellTs.includes("snapshot.highValueItems.map") && employeeHomePageTs.includes("max-h-[360px]") && employeeHomePageTs.includes("overflow-y-auto"));
 check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includes("fetchEmployeeCostBudget") && employeeApiTs.includes('employeeApi("/cost-budget")') && read(path.join(DASHBOARD_API_DIR, "employee/cost-budget/route.ts")).includes("getEmployeeCostBudget") && p22AllStoreText.includes("export async function getEmployeeCostBudget") && p22AllStoreText.includes("limitUsd = limitEnabled ? moneyUsd(baseLimitUsd + activeAllowanceUsd) : 0") && p22AllStoreText.includes("if (scopedEvents.length === 0) return null") && p22AllStoreText.includes('const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]') && p22AllStoreText.includes("period = any($3::text[])"));
 check("P2.3 employee login uses manager-set name/password session", authLoginPageTs.includes("displayName") && authLoginPageTs.includes("password") && authRouteText.includes("verifyCbePassword") && appShellTs.includes("/api/auth/logout"));
 check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));

@@ -972,6 +972,56 @@ function screeningBatchNotificationMessage(aggregate: ScreeningBatchAggregate) {
   return `已拆分为 ${aggregate.total} 个单客户背调子任务。`;
 }
 
+function stringListFromMetadata(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+}
+
+function numberFromMetadata(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+async function screeningBatchCompletionMetadata(
+  client: PoolClient,
+  context: TenantContext,
+  batchId: string,
+) {
+  const childRows = await client.query<{ metadata_json: Record<string, unknown> | null }>(
+    `
+      select ar.metadata_json
+      from screening_batch_targets sbt
+      join agent_runs ar
+        on ar.tenant_id = sbt.tenant_id
+       and ar.id = sbt.child_agent_run_id
+      where sbt.tenant_id = $1
+        and sbt.screening_batch_id = $2
+    `,
+    [context.tenantId, batchId],
+  );
+  const affectedCustomerIds = new Set<string>();
+  const screeningTargetIds = new Set<string>();
+  let savedReports = 0;
+  for (const row of childRows.rows) {
+    const metadata = row.metadata_json ?? {};
+    savedReports += numberFromMetadata(metadata.saved_reports);
+    for (const key of ["affected_customer_ids", "saved_customer_ids", "target_customer_ids", "lead_candidate_ids"]) {
+      for (const id of stringListFromMetadata(metadata[key])) affectedCustomerIds.add(id);
+    }
+    for (const id of stringListFromMetadata(metadata.screening_target_ids)) screeningTargetIds.add(id);
+  }
+  return {
+    savedReports,
+    affectedCustomerIds: Array.from(affectedCustomerIds),
+    screeningTargetIds: Array.from(screeningTargetIds),
+  };
+}
+
 async function refreshScreeningBatchAggregate(
   client: PoolClient,
   context: TenantContext,
@@ -1022,6 +1072,8 @@ async function refreshScreeningBatchAggregate(
 
   const aggregate = aggregateFromRow(row);
   const status = batchStatusFromAggregate(aggregate);
+  const completionMetadata = await screeningBatchCompletionMetadata(client, context, row.batch_id);
+  const savedReports = completionMetadata.savedReports || aggregate.completed;
   const metadata = {
     screening_batch: {
       id: row.batch_id,
@@ -1035,6 +1087,10 @@ async function refreshScreeningBatchAggregate(
     screening_batch_completed: aggregate.completed,
     screening_batch_failed: aggregate.failed,
     screening_batch_retryable: aggregate.retryable,
+    saved_reports: savedReports,
+    saved_customer_ids: completionMetadata.affectedCustomerIds,
+    affected_customer_ids: completionMetadata.affectedCustomerIds,
+    screening_target_ids: completionMetadata.screeningTargetIds,
     notification_message: screeningBatchNotificationMessage(aggregate),
   };
 
@@ -2080,12 +2136,13 @@ export async function saveScreeningReports(
       }
     }
 
+    const completedReportCount = Math.max(reports.length, targets.length);
     const agentRun = await completeAgentRun(client, context, {
       agentRunId: input.agent_run_id,
       sessionKey: input.session_key,
       currentStage: "screening_reports_saved",
       metadataJson: {
-        saved_reports: reports.length,
+        saved_reports: completedReportCount,
         saved_customer_ids: affectedCustomerIds,
         affected_customer_ids: affectedCustomerIds,
         screening_target_ids: targets.map((target) => target.id),
@@ -2114,12 +2171,12 @@ export async function saveScreeningReports(
       agentRunId: input.agent_run_id,
       agentId: "cbe-buyer-screening",
       taskKind: "screening",
-      targetSummary: `Saved ${reports.length} screening reports`,
+      targetSummary: `Saved ${completedReportCount} screening reports`,
       stage: "completed",
       eventType: "screening_run_completed",
       status: "completed",
       metadataJson: {
-        saved_reports: reports.length,
+        saved_reports: completedReportCount,
         saved_customer_ids: affectedCustomerIds,
         saved_evidence: evidenceCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
@@ -2133,7 +2190,7 @@ export async function saveScreeningReports(
       metadataJson: {
         agent_run_id: input.agent_run_id,
         saved_targets: targets.length,
-        saved_reports: reports.length,
+        saved_reports: completedReportCount,
         saved_evidence: evidenceCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
       },

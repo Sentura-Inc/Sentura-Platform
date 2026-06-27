@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { AnimatedLoginGreeting } from "./login-greeting-effects";
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -18,15 +19,15 @@ export function LoginWelcomeHeader({ systemTitle }: { systemTitle: string }) {
           width={129}
           height={156}
           priority
-          className="h-16 w-auto sm:h-[4.5rem]"
+          className="h-[4.5rem] w-auto sm:h-20"
           style={{ width: "auto" }}
         />
       </div>
       <div className="mt-5 text-center">
-        <h1 className="sentura-typewriter text-[2rem] font-semibold leading-tight sm:text-[2.35rem]">
-          <span>Hi！欢迎使用</span>
+        <h1 className="sentura-login-greeting-title text-[1.82rem] font-semibold leading-tight sm:text-[2.18rem]">
+          <AnimatedLoginGreeting />
         </h1>
-        <div className="mt-3 text-center text-base font-semibold text-slate-700 sm:text-lg">
+        <div className="sentura-login-system-title mt-3 text-center text-[0.95rem] font-semibold text-slate-700 sm:text-base">
           {systemTitle}
         </div>
       </div>

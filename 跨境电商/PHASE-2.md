@@ -1362,7 +1362,7 @@ Agent optimization after persistence:
 - Add more country registry adapters only after DB evidence model is stable.
 - Add Alibaba internal-data evidence only after signed-seller API access is proven.
 
-### 8.3 Accio Persistence And Memory Approval
+### 8.3 Accio Persistence And Automatic Memory Write
 
 When a user uploads or imports Accio JSON:
 
@@ -1373,25 +1373,24 @@ When a user uploads or imports Accio JSON:
 5. Insert redacted/hash-only `accio_messages`.
 6. Run `cbe-accio-memory` through hidden OpenClaw session.
 7. Insert `accio_summaries`.
-8. Create `memory_facts` as `status = pending_review`.
-9. Create `handoff_events` for Screening-ready buyer context.
+8. Create approved structured `memory_facts` automatically.
+9. Do not create Accio-to-Screening handoff events.
 
-Memory approval:
+Memory write:
 
 - User sees `memory_write_preview`.
-- Approval action changes `memory_facts.status` from `pending_review` to `approved`.
-- Only approved concise facts may be written into vector memory.
+- Analysis completion writes approved concise facts into long-term memory automatically.
 - Raw chat text remains T2/T3 business data and must not be written to vector memory or external channels.
 
-Implementation status, 2026-06-24:
+Implementation status, 2026-06-28:
 
 - Added migration `007_screening_retry_memory_approval.sql`.
 - `screening_batch_targets` now stores per-target paid email/trade status, call counts, spend, retry count, last retry time, and re-approval actor/timestamp.
 - Failed Screening child runs move previously available paid email/trade sources to `reapproval_required`; normal retry can rerun the child with paid sources disabled, and explicit re-approval reopens the paid source for that child only.
 - The Employee customer task runner reads child `paid_source_policy` from the server and disables paid email/trade options before starting a hidden Screening child when re-approval is missing.
 - Screening completion records observed paid email/trade evidence into per-target state and `api_call_ledger`.
-- Accio memory facts can be reviewed through the typed store/API; approval changes `memory_facts.status` from `pending_review` to `approved`, stores reviewer metadata, and does not write raw chat text to vector memory.
-- Accio-to-Screening handoffs are marked `accepted` when a Screening task starts from an Accio summary and `completed` when the Screening report is saved.
+- Accio memory facts are written automatically as approved structured facts when analysis is saved; the review route is disabled as a compatibility guard.
+- Accio-to-Screening handoffs remain disabled.
 
 ## 9. P2.6 — Multi-User, Backpressure, And Load Smoke
 
@@ -1444,7 +1443,7 @@ Implementation status, 2026-06-24:
 - Added `scripts/cross-border-phase2-backup-restore-drill.sh`, which requires `CBE_DATABASE_URL` plus a separate disposable `CBE_RESTORE_DATABASE_URL`, runs `pg_dump --format=custom`, restores with `pg_restore --clean --if-exists`, then verifies migrations and Phase 2 store checks against the restored database.
 - Added `P2.6-LOAD-SMOKE-RUNBOOK.md` with commands, expected results, backup/restore safety guards, result labels, and the production-readiness checklist.
 - The backup/restore drill supports `CBE_POSTGRES_CLIENT_IMAGE` for environments without matching local PostgreSQL client tools. The local drill was run with `postgres:18` against disposable `sentura_cbe_restore_drill`; `pg_dump` / `pg_restore` completed and restored Phase 2 store checks passed 238/238.
-- Dashboard production build passed locally with the new CE22/P2.5 + CE23/P2.6 routes. Browser smoke verified the Employee `记忆整理` approval flow: a synthetic Accio memory record loaded from the DB, the report showed `仅预览`, `批准写入` PATCH succeeded, status changed to `已批准`, and the temporary record was removed.
+- Dashboard production build passed locally with the new CE22/P2.5 + CE23/P2.6 routes. The then-current Employee `记忆整理` manual review smoke was later superseded by CE37 automatic structured memory write after analysis.
 - Local DB-only readiness is now labeled `db_only_preflight_passed` after the store/concurrency/type/build/load-smoke and local backup/restore checks pass. Do not use `production_go_live_ready` until the same load-smoke profile passes on the target deployment, the target restore drill passes against a disposable restore database, and provider quota/source-rate headroom is explicitly confirmed.
 
 ## 10. Implementation File Plan

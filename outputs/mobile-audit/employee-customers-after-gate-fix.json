@@ -1,0 +1,76 @@
+{
+  "data": {
+    "url": "http://127.0.0.1:3000/employee/customers",
+    "text": "跨境电商员工操作系统 系统：未连接 退出 个人中心 获客与背调 记忆整理",
+    "h1s": [],
+    "buttons": [
+      "工具成本0%US$0.00上限 US$120",
+      "退出"
+    ],
+    "clientWidth": 390,
+    "scrollWidth": 390,
+    "scrollHeight": 900,
+    "offenders": []
+  },
+  "sheetResults": [
+    {
+      "name": "lead-sheet",
+      "skipped": true
+    },
+    {
+      "name": "filter-sheet",
+      "skipped": true
+    },
+    {
+      "name": "manual-sheet",
+      "skipped": true
+    }
+  ],
+  "logs": [
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=EcpVLKPXmpecGskxdtMFN' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=EcpVLKPXmpecGskxdtMFN' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=EcpVLKPXmpecGskxdtMFN' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=EcpVLKPXmpecGskxdtMFN' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=EcpVLKPXmpecGskxdtMFN' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=42eW8BFRj15S2ByeCYw_Y' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=42eW8BFRj15S2ByeCYw_Y' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=4v9HEEWeWsEpmbmYLAlZB' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=4v9HEEWeWsEpmbmYLAlZB' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FrfaRkvtSZlQe27CyralB' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FrfaRkvtSZlQe27CyralB' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    }
+  ],
+  "bad": []
+}

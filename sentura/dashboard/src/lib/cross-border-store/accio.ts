@@ -2,7 +2,13 @@ import type { PoolClient } from "pg";
 import { queryCbe, withCbeTransaction } from "./db";
 import { CbeStoreError } from "./errors";
 import { createCbeId } from "./ids";
-import { completeAgentRun, createAgentRunActivityEvent, failAgentRun, insertAgentRun } from "./agent-runs";
+import {
+  completeAgentRun,
+  createAgentRunActivityEvent,
+  failAgentRun,
+  insertAgentRun,
+  type AgentRunRecord,
+} from "./agent-runs";
 import { createAuditEvent } from "./audit";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
 import { scopedOwnerClause } from "./tenant-context";
@@ -12,9 +18,10 @@ import type {
   AccioSummaryMarker,
   CompleteAccioImportRequest,
   CreateAccioImportRequest,
+  StartAccioImportAnalysisRequest,
   TenantContext,
 } from "./schemas";
-import { CreateAccioImportRequestSchema } from "./schemas";
+import { CreateAccioImportRequestSchema, StartAccioImportAnalysisRequestSchema } from "./schemas";
 
 export interface AccioImportRecord {
   id: string;
@@ -149,6 +156,30 @@ interface AccioImportPayloadRow {
   supplement_target_json: Record<string, unknown> | null;
 }
 
+interface AgentRunMutationRow {
+  id: string;
+  tenant_id: string;
+  user_id: string | null;
+  owner_user_id: string | null;
+  parent_agent_run_id: string | null;
+  agent_id: AgentRunRecord["agentId"];
+  session_key: string | null;
+  status: AgentRunRecord["status"];
+  task_kind: AgentRunRecord["taskKind"];
+  target_summary: string | null;
+  current_stage: string | null;
+  queue_priority: number;
+  queued_at: Date | null;
+  lease_owner: string | null;
+  lease_until: Date | null;
+  cost_usd_estimate: string | null;
+  started_at: Date;
+  finished_at: Date | null;
+  error_code: string | null;
+  error_message: string | null;
+  metadata_json: Record<string, unknown>;
+}
+
 function firstObject(value: unknown) {
   if (Array.isArray(value)) {
     const found = value.find((item) => item && typeof item === "object" && !Array.isArray(item));
@@ -240,11 +271,57 @@ function toAccioImportRecord(row: AccioImportRow): AccioImportRecord {
   };
 }
 
+function toAgentRunRecord(row: AgentRunMutationRow): AgentRunRecord {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    ownerUserId: row.owner_user_id,
+    parentAgentRunId: row.parent_agent_run_id,
+    agentId: row.agent_id,
+    sessionKey: row.session_key,
+    status: row.status,
+    taskKind: row.task_kind,
+    targetSummary: row.target_summary,
+    currentStage: row.current_stage,
+    queuePriority: row.queue_priority,
+    queuedAt: row.queued_at?.toISOString() ?? null,
+    leaseOwner: row.lease_owner,
+    leaseUntil: row.lease_until?.toISOString() ?? null,
+    costUsdEstimate: row.cost_usd_estimate === null ? null : Number(row.cost_usd_estimate),
+    startedAt: row.started_at.toISOString(),
+    finishedAt: row.finished_at?.toISOString() ?? null,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    metadataJson: row.metadata_json ?? {},
+  };
+}
+
 function toSummaryRecord(row: AccioSummaryRow): AccioSummaryRecord {
   return {
     id: row.id,
     accioConversationId: row.accio_conversation_id,
     sourceRecordType: "accio_summary",
+  };
+}
+
+function memoryFactJsonFromSummary(summary: AccioSummaryMarker) {
+  return {
+    kind: "accio_customer_memory",
+    source: "accio_summary",
+    raw_chat_stored: false,
+    review_required: false,
+    customer_profile: summary.customer_profile,
+    purchase_intent: summary.purchase_intent,
+    negotiated_prices: summary.negotiated_prices,
+    negotiation_summary: summary.negotiation_summary,
+    behavior_signals: summary.behavior_signals,
+    next_actions: summary.next_actions,
+    memory_preview: {
+      ...summary.memory_preview,
+      status: "approved",
+    },
+    source_references: summary.source_references,
   };
 }
 
@@ -340,41 +417,6 @@ async function insertConversation(
     );
   }
   return conversationId;
-}
-
-async function insertConversationMessages(
-  client: PoolClient,
-  context: TenantContext,
-  conversationId: string,
-  conversation: AccioConversationImport,
-) {
-  for (const message of conversation.messages) {
-    await client.query(
-      `
-        insert into accio_messages (
-          id,
-          tenant_id,
-          accio_conversation_id,
-          message_ts,
-          sender_role,
-          text_hash,
-          text_redacted,
-          attachment_json
-        )
-        values ($1, $2, $3, $4::timestamptz, $5, $6, $7, $8::jsonb)
-      `,
-      [
-        createCbeId("accio_message"),
-        context.tenantId,
-        conversationId,
-        message.message_ts ?? null,
-        message.sender_role ?? null,
-        message.text_hash,
-        message.text_redacted ?? null,
-        JSON.stringify(message.attachment_json),
-      ],
-    );
-  }
 }
 
 async function findOrCreateConversationForSummary(
@@ -574,6 +616,205 @@ export async function saveAccioImport(
   });
 }
 
+export async function startAccioImportAnalysis(
+  context: TenantContext,
+  importId: string,
+  rawInput: StartAccioImportAnalysisRequest,
+) {
+  const input = StartAccioImportAnalysisRequestSchema.parse(rawInput);
+  return withCbeTransaction(async (client) => {
+    const importRows = await client.query<AccioImportRow>(
+      `
+        select
+          ai.id,
+          ai.agent_run_id,
+          ar.status as agent_run_status,
+          ai.source_file_name,
+          ai.source_kind,
+          ai.input_format,
+          ai.attachment_metadata_json,
+          ai.validation_status,
+          ai.classification,
+          ai.uploaded_at,
+          ar.metadata_json->'supplement_target' as supplement_target_json,
+          ar.metadata_json->>'reused_summary_id' as reused_summary_id
+        from accio_imports ai
+        left join agent_runs ar
+          on ar.tenant_id = ai.tenant_id
+         and ar.id = ai.agent_run_id
+        where ai.tenant_id = $1
+          and ai.id = $2
+          and (
+            $3::boolean
+            or ai.owner_user_id = $4
+            or ai.visibility_scope = 'tenant_shared'
+            or (ai.visibility_scope = 'team' and ai.team_name = $5)
+          )
+        limit 1
+      `,
+      [
+        context.tenantId,
+        importId,
+        context.cbeRole === "admin",
+        context.userId,
+        context.teamName ?? null,
+      ],
+    );
+    const importRow = importRows.rows[0];
+    if (!importRow) {
+      throw new CbeStoreError(404, "accio_import_missing", "Accio import was not found.");
+    }
+    if (!importRow.agent_run_id) {
+      throw new CbeStoreError(409, "accio_import_run_missing", "This Accio import has no task record to run.");
+    }
+    if (importRow.validation_status === "failed") {
+      throw new CbeStoreError(409, "accio_import_invalid", "This Accio import failed validation and cannot be analyzed.");
+    }
+
+    const summaryExists = await client.query<{ id: string }>(
+      `
+        select asum.id
+        from accio_summaries asum
+        join accio_conversations ac
+          on ac.tenant_id = asum.tenant_id
+         and ac.id = asum.accio_conversation_id
+        where asum.tenant_id = $1
+          and ac.accio_import_id = $2
+        limit 1
+      `,
+      [context.tenantId, importId],
+    );
+    if (summaryExists.rows[0]) {
+      throw new CbeStoreError(409, "accio_import_already_analyzed", "This Accio import already has analysis summaries.");
+    }
+
+    await checkCbeCostBudgetBeforeRun(context, {
+      agentId: "cbe-accio-memory",
+      taskKind: "accio_memory",
+      targetSummary: importRow.source_file_name ?? "Accio 聊天记录",
+      estimatedCostUsd: input.estimated_cost_usd,
+      metadataJson: {
+        source_file_name: importRow.source_file_name,
+        source_kind: importRow.source_kind,
+        input_format: importRow.input_format,
+        accio_import_id: importId,
+      },
+    });
+
+    const admission = await admitCbeWorkload(client, context, {
+      agentId: "cbe-accio-memory",
+      taskKind: "accio_memory",
+      requestedSessionKey: input.session_key,
+      currentStageWhenRunning: "submitted_to_employee",
+      currentStageWhenQueued: "uploaded",
+    });
+    const updated = await client.query<AgentRunMutationRow>(
+      `
+        update agent_runs
+        set
+          status = $5,
+          session_key = $6,
+          current_stage = $7,
+          queue_priority = $8,
+          queued_at = case when $5 = 'queued' then coalesce($9::timestamptz, now()) else null end,
+          lease_owner = null,
+          lease_until = null,
+          finished_at = null,
+          error_code = null,
+          error_message = null,
+          cost_usd_estimate = $10,
+          last_activity_at = now(),
+          metadata_json = metadata_json || $11::jsonb
+        where tenant_id = $1
+          and id = $2
+          and task_kind = 'accio_memory'
+          and (owner_user_id = $3 or user_id = $3 or $4::boolean)
+        returning
+          id,
+          tenant_id,
+          user_id,
+          owner_user_id,
+          parent_agent_run_id,
+          agent_id,
+          session_key,
+          status,
+          task_kind,
+          target_summary,
+          current_stage,
+          queue_priority,
+          queued_at,
+          lease_owner,
+          lease_until,
+          cost_usd_estimate,
+          started_at,
+          finished_at,
+          error_code,
+          error_message,
+          metadata_json
+      `,
+      [
+        context.tenantId,
+        importRow.agent_run_id,
+        context.userId,
+        context.cbeRole === "admin",
+        admission.status,
+        admission.sessionKey ?? null,
+        admission.currentStage,
+        admission.queuePriority,
+        admission.queuedAt ?? null,
+        input.estimated_cost_usd,
+        JSON.stringify({
+          accio_import_id: importId,
+          source_file_name: importRow.source_file_name,
+          source_kind: importRow.source_kind,
+          input_format: importRow.input_format,
+          estimated_cost_usd: input.estimated_cost_usd,
+          ...workloadMetadata(admission),
+        }),
+      ],
+    );
+    const agentRunRow = updated.rows[0];
+    if (!agentRunRow) {
+      throw new CbeStoreError(404, "agent_run_missing", "Agent run was not found for Accio import analysis.");
+    }
+    const agentRun = toAgentRunRecord(agentRunRow);
+    await createAgentRunActivityEvent(client, context, {
+      agentRunId: agentRun.id,
+      agentId: "cbe-accio-memory",
+      taskKind: "accio_memory",
+      targetRecordType: "accio_import",
+      targetRecordId: importId,
+      targetSummary: importRow.source_file_name ?? undefined,
+      stage: agentRun.status,
+      eventType: "accio_import_analysis_started",
+      status: agentRun.status,
+      metadataJson: {
+        source_kind: importRow.source_kind,
+        input_format: importRow.input_format,
+        ...workloadMetadata(admission),
+      },
+    });
+    await createAuditEvent(client, context, {
+      agentId: "cbe-accio-memory",
+      eventType: "accio_import_analysis_started",
+      dataTier: "T2",
+      metadataJson: {
+        agent_run_id: agentRun.id,
+        accio_import_id: importId,
+        source_kind: importRow.source_kind,
+        input_format: importRow.input_format,
+      },
+    });
+    return {
+      agentRun,
+      accioImport: toAccioImportRecord({
+        ...importRow,
+        agent_run_status: agentRun.status,
+      }),
+    };
+  });
+}
+
 export async function saveAccioSummaries(
   context: TenantContext,
   importId: string,
@@ -609,6 +850,7 @@ export async function saveAccioSummaries(
       throw new CbeStoreError(404, "accio_import_missing", "Accio import was not found.");
     }
     const summaries = [];
+    const memoryFactIds: string[] = [];
     for (const summary of input.payload.summaries) {
       const conversationId = await findOrCreateConversationForSummary(client, context, importId, summary);
       const summaryId = createCbeId("accio_summary");
@@ -664,6 +906,56 @@ export async function saveAccioSummaries(
       );
       const savedSummary = toSummaryRecord(summaryResult.rows[0]);
       summaries.push(savedSummary);
+
+      const memoryFactId = createCbeId("memory_fact");
+      await client.query(
+        `
+          insert into memory_facts (
+            id,
+            tenant_id,
+            agent_id,
+            created_by_user_id,
+            owner_user_id,
+            department_id,
+            team_name,
+            visibility_scope,
+            source_record_type,
+            source_record_id,
+            fact_json,
+            status,
+            reviewed_by_user_id,
+            reviewed_at,
+            review_note
+          )
+          values (
+            $1,
+            $2,
+            'cbe-accio-memory',
+            $3,
+            $3,
+            $4,
+            $5,
+            'private',
+            'accio_summary',
+            $6,
+            $7::jsonb,
+            'approved',
+            $3,
+            now(),
+            '系统自动写入长期记忆'
+          )
+        `,
+        [
+          memoryFactId,
+          context.tenantId,
+          context.userId,
+          context.departmentId ?? null,
+          context.teamName ?? null,
+          savedSummary.id,
+          JSON.stringify(memoryFactJsonFromSummary(summary)),
+        ],
+      );
+      memoryFactIds.push(memoryFactId);
     }
 
     const agentRun = await completeAgentRun(client, context, {
@@ -675,9 +967,9 @@ export async function saveAccioSummaries(
         source_kind: importRows.rows[0].source_kind,
         input_format: importRows.rows[0].input_format,
         saved_summaries: summaries.length,
-        memory_fact_ids: [],
+        memory_fact_ids: memoryFactIds,
         handoff_ids: [],
-        interop_disabled: true,
+        screening_handoff_disabled: true,
       },
     });
     if (!agentRun) {
@@ -693,7 +985,11 @@ export async function saveAccioSummaries(
       stage: "completed",
       eventType: "accio_import_completed",
       status: "completed",
-      metadataJson: { saved_summaries: summaries.length, interop_disabled: true },
+      metadataJson: {
+        saved_summaries: summaries.length,
+        memory_fact_ids: memoryFactIds,
+        screening_handoff_disabled: true,
+      },
     });
     await createAuditEvent(client, context, {
       agentId: "cbe-accio-memory",
@@ -703,16 +999,20 @@ export async function saveAccioSummaries(
         agent_run_id: input.agent_run_id,
         accio_import_id: importId,
         saved_summaries: summaries.length,
-        memory_facts_pending_review: 0,
+        memory_facts_auto_written: memoryFactIds.length,
         handoffs_created: 0,
-        interop_disabled: true,
+        screening_handoff_disabled: true,
       },
     });
-    return { agentRun, summaries, memoryFactIds: [], handoffIds: [] };
+    return { agentRun, summaries, memoryFactIds, handoffIds: [] };
   });
 }
 
-export async function listEmployeeMemoryRecords(context: TenantContext) {
+export async function listEmployeeMemoryRecords(
+  context: TenantContext,
+  options: { ownerUserId?: string; limit?: number } = {},
+) {
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 500);
   const result = await queryCbe<MemoryRow>(
     `
       select
@@ -758,10 +1058,15 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
       left join accio_summaries asum
         on asum.tenant_id = ai.tenant_id
        and asum.accio_conversation_id = ac.id
-      left join memory_facts mf
-        on mf.tenant_id = ai.tenant_id
-       and mf.source_record_type = 'accio_summary'
-       and mf.source_record_id = asum.id
+      left join lateral (
+        select status
+        from memory_facts latest_mf
+        where latest_mf.tenant_id = ai.tenant_id
+          and latest_mf.source_record_type = 'accio_summary'
+          and latest_mf.source_record_id = asum.id
+        order by latest_mf.created_at desc
+        limit 1
+      ) mf on true
       where ai.tenant_id = $1
         and (
           $2::boolean
@@ -769,11 +1074,12 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
           or ai.visibility_scope = 'tenant_shared'
           or (ai.visibility_scope = 'team' and ai.team_name = $4)
         )
+        and ($5::text is null or ai.owner_user_id = $5)
         and (
           asum.id is not null
+          or coalesce(ar.status, 'queued') in ('running', 'polling')
           or (
-            coalesce(ar.status, 'queued') not in ('running', 'polling')
-            and not exists (
+            not exists (
               select 1
               from accio_summaries existing_summary
               join accio_conversations summary_conversation
@@ -793,13 +1099,22 @@ export async function listEmployeeMemoryRecords(context: TenantContext) {
                 and lower(coalesce(duplicate_conversation.company_name, duplicate_summary.customer_profile_json->>'company_name', '')) =
                     lower(coalesce(ac.company_name, ''))
                 and coalesce(ac.company_name, '') <> ''
+                and ac.company_name not ilike '待确认客户%'
+                and ac.company_name not ilike 'unknown company%'
             )
           )
         )
       order by ai.uploaded_at desc, ai.id desc
-      limit 100
+      limit $6
     `,
-    [context.tenantId, context.cbeRole === "admin", context.userId, context.teamName ?? null],
+    [
+      context.tenantId,
+      context.cbeRole === "admin",
+      context.userId,
+      context.teamName ?? null,
+      options.ownerUserId ?? null,
+      limit,
+    ],
   );
   return { items: result.rows.map(toMemoryRecord) };
 }
@@ -973,7 +1288,11 @@ export async function deleteEmployeeMemoryRecords(context: TenantContext, ids: s
   });
 }
 
-export async function getAccioImportAnalysisPayload(context: TenantContext, importId: string) {
+export async function getAccioImportAnalysisPayload(
+  context: TenantContext,
+  importId: string,
+  options: { ownerUserId?: string } = {},
+) {
   const result = await queryCbe<AccioImportPayloadRow>(
     `
       select
@@ -1014,9 +1333,17 @@ export async function getAccioImportAnalysisPayload(context: TenantContext, impo
           or ai.visibility_scope = 'tenant_shared'
           or (ai.visibility_scope = 'team' and ai.team_name = $5)
         )
+        and ($6::text is null or ai.owner_user_id = $6)
       order by ac.id, am.message_ts nulls last
     `,
-    [context.tenantId, importId, context.cbeRole === "admin", context.userId, context.teamName ?? null],
+    [
+      context.tenantId,
+      importId,
+      context.cbeRole === "admin",
+      context.userId,
+      context.teamName ?? null,
+      options.ownerUserId ?? null,
+    ],
   );
   if (result.rows.length === 0) {
     throw new CbeStoreError(404, "accio_import_missing", "Accio import was not found.");

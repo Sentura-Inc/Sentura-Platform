@@ -1,17 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, DollarSign, Download, RefreshCw, WalletCards } from "lucide-react";
+import { AlertTriangle, DollarSign, RefreshCw, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useGateway } from "@/lib/gateway";
 import type { CostEvent } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
@@ -25,6 +18,17 @@ import {
   exportEmployeeCostDocument,
   type ExportFormat,
 } from "@/components/cross-border/document-export";
+import {
+  buildCostBreakdown,
+  CostDetailDialog,
+  filterCostEventsByRange,
+  formatCompact,
+  formatUsd,
+  summarizeCostEvents,
+  type CostDetailExportSnapshot,
+  type CostDetailRangeKey,
+  type CostSourceBreakdownItem,
+} from "@/components/cross-border/cost-detail-dialog";
 
 interface EmployeeCostSnapshot {
   spendUsd: number;
@@ -32,7 +36,7 @@ interface EmployeeCostSnapshot {
   totalCalls: number;
   unpricedCalls: number;
   source: "recorded" | "empty" | "unavailable";
-  sourceBreakdown: Array<{ label: string; amountUsd: number; note: string }>;
+  sourceBreakdown: CostSourceBreakdownItem[];
   events: CostEvent[];
   scopedSessionCount: number;
   outsideScopeCount: number;
@@ -51,46 +55,6 @@ type EmployeeCostBudgetView = EmployeeCostBudgetSnapshot | {
   updatedAt: string | null;
   source: "fallback";
 };
-
-function monthStartIso() {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function costEventKind(event: CostEvent) {
-  return event.kind ?? "model";
-}
-
-function buildCostBreakdown(events: CostEvent[]): EmployeeCostSnapshot["sourceBreakdown"] {
-  const modelSpend = events
-    .filter((event) => costEventKind(event) === "model")
-    .reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
-  const externalSpend = events
-    .filter((event) => costEventKind(event) === "external_api")
-    .reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
-  const freeExternalCalls = events.filter((event) =>
-    costEventKind(event) !== "model" &&
-    (event.pricingStatus === "free" || event.pricingStatus === "included") &&
-    event.costUsd === 0,
-  ).length;
-  const unpricedExternalCalls = events.filter((event) =>
-    costEventKind(event) !== "model" && event.costUsd === null,
-  ).length;
-
-  return [
-    { label: "智能处理", amountUsd: modelSpend, note: "来自当前任务的实际处理用量" },
-    {
-      label: "外部资料查询",
-      amountUsd: externalSpend,
-      note:
-        unpricedExternalCalls > 0
-          ? `${freeExternalCalls} 次免费或套餐内查询，${unpricedExternalCalls} 次暂未折算美元`
-          : `${freeExternalCalls} 次外部资料查询已记录为免费或套餐内`,
-    },
-  ];
-}
 
 function emptyCostSnapshot(source: EmployeeCostSnapshot["source"]): EmployeeCostSnapshot {
   return {
@@ -119,32 +83,7 @@ function fallbackCostBudget(): EmployeeCostBudgetView {
   };
 }
 
-function summarizeEvents(
-  events: CostEvent[],
-): Omit<EmployeeCostSnapshot, "source" | "sourceBreakdown" | "scopedSessionCount" | "outsideScopeCount"> {
-  const sortedEvents = [...events].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-  );
-  const totals = sortedEvents.reduce(
-    (acc, event) => {
-      acc.totalCalls += 1;
-      acc.totalTokens += event.usage.totalTokens;
-      if (event.costUsd === null) acc.unpricedCalls += 1;
-      else acc.spendUsd += event.costUsd;
-      return acc;
-    },
-    { spendUsd: 0, totalTokens: 0, totalCalls: 0, unpricedCalls: 0 },
-  );
-  return { ...totals, events: sortedEvents };
-}
-
-export function formatUsd(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: value >= 10 ? 0 : 2,
-  }).format(value);
-}
+export { formatUsd } from "@/components/cross-border/cost-detail-dialog";
 
 function costBudgetRatio(spendUsd: number, budget: EmployeeCostBudgetView) {
   if (!budget.limitEnabled || budget.limitUsd <= 0) return 0;
@@ -158,73 +97,6 @@ function formatBudgetLimit(budget: EmployeeCostBudgetView) {
 function formatBudgetRemaining(spendUsd: number, budget: EmployeeCostBudgetView) {
   if (!budget.limitEnabled) return "不限额";
   return formatUsd(Math.max(0, budget.limitUsd - spendUsd));
-}
-
-function formatCompact(value: number) {
-  return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value);
-}
-
-function formatCostTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatDurationMs(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "--";
-  if (value < 1000) return `${Math.round(value)} ms`;
-  return `${(value / 1000).toFixed(1)} s`;
-}
-
-const costAgentLabels: Record<string, string> = {
-  "cbe-lead-discovery": "找客户",
-  "cbe-buyer-screening": "背调",
-  "cbe-accio-memory": "聊天整理",
-};
-
-const costPricingLabels: Record<NonNullable<CostEvent["pricingStatus"]>, string> = {
-  priced: "真实美元",
-  estimated: "按官方单价估算",
-  free: "0 美元",
-  included: "套餐内/返回 0",
-  unpriced: "未折算美元",
-};
-
-function costSourceLabel(event: CostEvent) {
-  if (event.source === "external_tool_log") return "外部回填";
-  if (event.source === "session_log") return "智能处理记录";
-  return "实时记录";
-}
-
-function costServiceLabel(event: CostEvent) {
-  if (costEventKind(event) === "model") return event.model;
-  return event.service ?? event.provider;
-}
-
-function costOperationLabel(event: CostEvent) {
-  if (costEventKind(event) === "model") return event.provider;
-  return event.operation ?? event.model;
-}
-
-function costUsageLabel(event: CostEvent) {
-  if (costEventKind(event) === "model") {
-    return `${event.usage.totalTokens.toLocaleString("zh-CN")} 用量单位`;
-  }
-  if (event.externalUsage?.label) return event.externalUsage.label;
-  if (event.externalUsage) {
-    return `${event.externalUsage.quantity.toLocaleString("zh-CN")} ${event.externalUsage.unit}`;
-  }
-  return "--";
-}
-
-function costAmountLabel(event: CostEvent) {
-  if (event.costUsd !== null) return formatUsd(event.costUsd);
-  return "未折算";
 }
 
 export function useEmployeeCostSnapshot() {
@@ -253,26 +125,26 @@ export function useEmployeeCostSnapshot() {
         });
         return;
       }
-      const result = await client.getCostEvents({
-        startTime: monthStartIso(),
-        limit: 500,
-      });
+      const result = await client.getCostEvents({ limit: 1000 });
       const scopedEvents = scopedSessionKeys.size > 0
         ? result.events.filter((event) => scopedSessionKeys.has(event.sessionKey))
         : [];
       const outsideScopeCount = Math.max(0, result.events.length - scopedEvents.length);
-      if (scopedEvents.length > 0) {
-        const next = summarizeEvents(scopedEvents);
+      const monthEvents = filterCostEventsByRange(scopedEvents, "month");
+      if (monthEvents.length > 0) {
+        const next = summarizeCostEvents(monthEvents);
         setSnapshot({
           ...next,
+          events: summarizeCostEvents(scopedEvents).events,
           source: "recorded",
-          sourceBreakdown: buildCostBreakdown(next.events),
+          sourceBreakdown: buildCostBreakdown(monthEvents),
           scopedSessionCount: scopedSessionKeys.size,
           outsideScopeCount,
         });
       } else {
         setSnapshot({
           ...emptyCostSnapshot("empty"),
+          events: summarizeCostEvents(scopedEvents).events,
           scopedSessionCount: scopedSessionKeys.size,
           outsideScopeCount,
         });
@@ -315,9 +187,10 @@ export function useEmployeeCostSnapshot() {
   return { snapshot, costBudget, ratio, status, loading, error, refresh };
 }
 
-export function EmployeeCostMini() {
+export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?: string }) {
   const { snapshot, costBudget, ratio, status, loading, refresh } = useEmployeeCostSnapshot();
   const [open, setOpen] = useState(false);
+  const [detailRange, setDetailRange] = useState<CostDetailRangeKey>("month");
   const [detailsFlash, setDetailsFlash] = useState(false);
   const detailsFlashTimerRef = useRef<number | null>(null);
   const percent = Math.min(100, Math.round(ratio * 100));
@@ -338,14 +211,16 @@ export function EmployeeCostMini() {
     await refresh();
   }, [flashDetails, refresh]);
 
-  const exportDetails = useCallback((format: ExportFormat) => {
+  const exportDetails = useCallback((format: ExportFormat, detail: CostDetailExportSnapshot) => {
     exportEmployeeCostDocument({
-      spendUsd: snapshot.spendUsd,
-      totalTokens: snapshot.totalTokens,
-      totalCalls: snapshot.totalCalls,
-      unpricedCalls: snapshot.unpricedCalls,
-      events: snapshot.events,
-      sourceBreakdown: snapshot.sourceBreakdown,
+      rangeLabel: detail.rangeLabel,
+      subjectLabel,
+      spendUsd: detail.summary.spendUsd,
+      totalTokens: detail.summary.totalTokens,
+      totalCalls: detail.summary.totalCalls,
+      unpricedCalls: detail.summary.unpricedCalls,
+      events: detail.summary.events,
+      sourceBreakdown: detail.sourceBreakdown,
       scopedSessionCount: snapshot.scopedSessionCount,
       outsideScopeCount: snapshot.outsideScopeCount,
       costBudget: {
@@ -359,7 +234,7 @@ export function EmployeeCostMini() {
         updatedAt: costBudget.updatedAt,
       },
     }, format);
-  }, [costBudget, snapshot]);
+  }, [costBudget, snapshot, subjectLabel]);
 
   useEffect(() => {
     return () => {
@@ -374,7 +249,7 @@ export function EmployeeCostMini() {
       <button
         type="button"
         className="hidden min-w-[220px] items-center gap-3 rounded-md border bg-background px-3 py-2 text-left transition-all duration-150 hover:scale-[1.03] hover:border-primary/40 hover:shadow-md focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none active:scale-[0.99] md:flex"
-        aria-label="查看本月工具成本明细"
+        aria-label="查看成本明细"
         onClick={() => setOpen(true)}
       >
         <div
@@ -391,7 +266,7 @@ export function EmployeeCostMini() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium">本月工具成本</span>
+            <span className="font-medium">工具成本</span>
             <span className="font-mono text-muted-foreground">{costBudget.limitEnabled ? `${percent}%` : "不限额"}</span>
           </div>
           <div className="mt-1 h-1.5 rounded-full bg-muted">
@@ -410,122 +285,20 @@ export function EmployeeCostMini() {
         </div>
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex max-h-[86vh] flex-col overflow-hidden sm:max-w-4xl">
-          <DialogHeader className="pr-8">
-            <DialogTitle>本月工具成本明细</DialogTitle>
-            <DialogDescription>
-              逐条展示本月已记录的智能处理和外部资料查询费用；已折算美元的计入已用，免费或暂未折算的项目会单独标明。
-            </DialogDescription>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => exportDetails("docx")}>
-                <Download className="h-3.5 w-3.5" />
-                导出 DOCX
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => exportDetails("pdf")}>
-                <Download className="h-3.5 w-3.5" />
-                导出 PDF
-              </Button>
-            </div>
-            <details className="mt-2 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">查看技术详情</summary>
-              <p className="mt-1">
-                明细来自系统费用记录，并只统计已关联到当前跨境电商客户库任务的处理编号。
-              </p>
-            </details>
-          </DialogHeader>
-
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="text-xs text-muted-foreground">本月已用</div>
-              <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(snapshot.spendUsd)}</div>
-            </div>
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="text-xs text-muted-foreground">调用次数</div>
-              <div className="mt-1 font-mono text-lg font-semibold">{snapshot.totalCalls}</div>
-            </div>
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="text-xs text-muted-foreground">智能处理用量</div>
-              <div className="mt-1 font-mono text-lg font-semibold">{formatCompact(snapshot.totalTokens)}</div>
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "min-h-[220px] flex-1 overflow-auto rounded-md border bg-background transition-[background-color,box-shadow] duration-200",
-              detailsFlash && "bg-sky-50 shadow-[inset_0_0_0_2px_rgba(14,165,233,0.35)]",
-            )}
-            aria-live="polite"
-          >
-            {snapshot.events.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                当前任务还没有实际成本记录。
-                {snapshot.outsideScopeCount > 0
-                  ? ` 已隐藏 ${snapshot.outsideScopeCount} 条不属于当前任务范围的历史记录。`
-                  : null}
-              </div>
-            ) : (
-              <table className="w-full min-w-[680px] text-sm">
-                <thead className="sticky top-0 bg-muted/80 text-xs text-muted-foreground backdrop-blur">
-                  <tr>
-                    <th className="px-3 py-2 text-left">时间</th>
-                    <th className="px-3 py-2 text-left">员工</th>
-                    <th className="px-3 py-2 text-left">服务项目</th>
-                    <th className="px-3 py-2 text-right">用量</th>
-                    <th className="px-3 py-2 text-right">耗时</th>
-                    <th className="px-3 py-2 text-right">成本</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.events.map((event) => (
-                    <tr key={event.id} className="border-t">
-                      <td className="px-3 py-2 font-mono text-xs">{formatCostTime(event.timestamp)}</td>
-                      <td className="px-3 py-2">{costAgentLabels[event.agentId] ?? event.agentId}</td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium">{costServiceLabel(event)}</div>
-                        <details className="mt-1 text-[11px] text-muted-foreground">
-                          <summary className="cursor-pointer">技术详情</summary>
-                          <div className="mt-1 font-mono">{costOperationLabel(event)}</div>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-                              {costSourceLabel(event)}
-                            </Badge>
-                            {event.pricingStatus ? (
-                              <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">
-                                {costPricingLabels[event.pricingStatus]}
-                              </Badge>
-                            ) : null}
-                            {event.httpStatus ? (
-                              <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-                                状态 {event.httpStatus}
-                              </Badge>
-                            ) : null}
-                          </div>
-                          {event.pricingNote ? (
-                            <div className="mt-1 max-w-[320px] leading-4">
-                              {event.pricingNote}
-                            </div>
-                          ) : null}
-                        </details>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{costUsageLabel(event)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{formatDurationMs(event.durationMs)}</td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {costAmountLabel(event)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <Button variant="outline" size="sm" onClick={refreshDetails} disabled={loading} className="self-end">
-            <RefreshCw className={cn("h-3.5 w-3.5", (loading || detailsFlash) && "animate-spin")} />
-            {loading ? "正在刷新" : "刷新明细"}
-          </Button>
-        </DialogContent>
-      </Dialog>
+      <CostDetailDialog
+        open={open}
+        onOpenChange={setOpen}
+        events={snapshot.events}
+        range={detailRange}
+        onRangeChange={setDetailRange}
+        loading={loading}
+        highlight={detailsFlash}
+        outsideScopeCount={snapshot.outsideScopeCount}
+        technicalDescription="明细来自系统费用记录，并只统计已关联到当前跨境电商客户库任务的处理编号。"
+        emptyMessage="当前范围还没有实际成本记录。"
+        onRefresh={refreshDetails}
+        onExport={exportDetails}
+      />
     </>
   );
 }
@@ -676,7 +449,7 @@ export function TaskCostNotice({
           : `按预算预留后约 ${formatUsd(projected)}，当前未启用账号成本上限。`}
       </p>
       <p className="mt-1 text-xs opacity-80">
-        预计值不会写入本月工具成本；实际费用只在任务完成并产生记录后累加。
+        预计值不会写入工具成本；实际费用只在任务完成并产生记录后累加。
       </p>
     </div>
   );

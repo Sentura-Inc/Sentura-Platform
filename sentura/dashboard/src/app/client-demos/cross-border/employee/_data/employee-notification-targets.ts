@@ -2,6 +2,7 @@ import type { CbeEmployeeTaskRecord } from "@/stores/use-cbe-employee-store";
 import {
   CBE_EMPLOYEE_CUSTOMERS_PATH,
   CBE_EMPLOYEE_HOME_PATH,
+  CBE_EMPLOYEE_MEMORY_PATH,
 } from "@/lib/cross-border-routes";
 
 export const EMPLOYEE_NOTIFICATION_PREVIEW_LIMIT = 10;
@@ -18,6 +19,29 @@ function stringValue(value: unknown) {
 
 function metadataValue(task: CbeEmployeeTaskRecord, key: string) {
   return stringValue(task.metadata?.[key]);
+}
+
+function metadataStringList(task: CbeEmployeeTaskRecord, key: string) {
+  const value = task.metadata?.[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => stringValue(item))
+    .filter(Boolean);
+}
+
+function firstAffectedCustomerId(task: CbeEmployeeTaskRecord) {
+  return [
+    ...(task.affectedCustomerIds ?? []),
+    ...metadataStringList(task, "affected_customer_ids"),
+    ...metadataStringList(task, "saved_customer_ids"),
+    ...metadataStringList(task, "target_customer_ids"),
+    ...metadataStringList(task, "lead_candidate_ids"),
+    ...metadataStringList(task, "screening_target_ids"),
+  ].find(Boolean);
+}
+
+function memoryRecordId(task: CbeEmployeeTaskRecord) {
+  return metadataValue(task, "accio_import_id") || metadataValue(task, "import_id");
 }
 
 export function isEmployeeCostNotification(task: CbeEmployeeTaskRecord) {
@@ -53,5 +77,26 @@ export function employeeTaskNotificationHref(task: CbeEmployeeTaskRecord) {
   if (isEmployeeCostNotification(task)) {
     return employeeCostHighlightHref(task.id);
   }
-  return `${CBE_EMPLOYEE_CUSTOMERS_PATH}?highlightTask=${encodeURIComponent(task.id)}`;
+  if (task.kind === "accio_memory") {
+    const params = new URLSearchParams({
+      highlight: "memory-results",
+      highlightTask: task.id,
+    });
+    const recordId = memoryRecordId(task);
+    if (recordId) params.set("highlightRecord", recordId);
+    if (task.status === "failed") params.set("highlightStatus", "failed");
+    return `${CBE_EMPLOYEE_MEMORY_PATH}?${params.toString()}`;
+  }
+
+  const params = new URLSearchParams({
+    highlight: task.kind === "screening" ? "screening-results" : "lead-results",
+    highlightTask: task.id,
+    highlightRange: "all",
+  });
+  const customerId = firstAffectedCustomerId(task);
+  if (customerId) params.set("highlightCustomer", customerId);
+  if (task.kind === "screening" && task.status === "failed") {
+    params.set("highlightStatus", "failed");
+  }
+  return `${CBE_EMPLOYEE_CUSTOMERS_PATH}?${params.toString()}`;
 }

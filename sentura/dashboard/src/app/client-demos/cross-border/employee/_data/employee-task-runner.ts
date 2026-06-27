@@ -1,4 +1,5 @@
 import type { GatewayChatAttachment, GatewayClient, TranscriptMessage } from "@/lib/gateway";
+import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
 import {
   employeeProfile,
   MAX_LEAD_TARGET_COUNT,
@@ -186,7 +187,21 @@ function asNumber(value: unknown): number | undefined {
 function asStringArray(value: unknown): string[] {
   if (typeof value === "string") return csv(value);
   if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item).trim()).filter(Boolean);
+  return value.flatMap((item) => {
+    if (typeof item === "string" && item.trim()) return [item.trim()];
+    if (typeof item === "number" && Number.isFinite(item)) return [String(item)];
+    const record = asRecord(item);
+    const recordText = asString(
+      record.action_zh ??
+      record.action ??
+      record.summary_zh ??
+      record.summary ??
+      record.label ??
+      record.name ??
+      record.value,
+    );
+    return recordText ? [recordText] : [];
+  });
 }
 
 function csv(value: string): string[] {
@@ -194,6 +209,14 @@ function csv(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.map(asRecord).filter((item) => Object.keys(item).length > 0);
+  }
+  const record = asRecord(value);
+  return Object.keys(record).length > 0 ? [record] : [];
 }
 
 function nowLabel() {
@@ -226,13 +249,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function formatTaskDuration(ms: number) {
-  const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
 function progressFields(startedAt: number, waitWindowMs: number) {
   const elapsedMs = Math.max(0, Date.now() - startedAt);
   const remainingMs = Math.max(0, waitWindowMs - elapsedMs);
@@ -243,10 +259,9 @@ function progressFields(startedAt: number, waitWindowMs: number) {
   return { elapsedMs, remainingMs, progressPercent };
 }
 
-function progressMessage(base: string, startedAt: number, waitWindowMs: number, pollCount?: number) {
-  const { elapsedMs } = progressFields(startedAt, waitWindowMs);
-  const pollText = typeof pollCount === "number" && pollCount > 0 ? `，已轮询 ${pollCount} 次` : "";
-  return `${base} 已用 ${formatTaskDuration(elapsedMs)}${pollText}。`;
+function progressMessage(base: string, ..._progressDetails: unknown[]) {
+  void _progressDetails;
+  return base;
 }
 
 function unknownErrorMessage(error: unknown, fallback: string) {
@@ -1125,17 +1140,17 @@ function evidenceLayer(entry: Record<string, unknown>, scoreBlock: string, sourc
 function normalizeEvidenceItem(item: unknown): CustomerEvidenceItem {
   const raw = asRecord(item);
   const scoreBlock = asString(raw.score_block) ?? asString(raw.block) ?? "public_footprint";
-  const sourceUrl =
+  const rawSourceUrl =
     asString(raw.source_url) ??
     asString(raw.sourceUrl) ??
-    asString(raw.url) ??
-    "https://sentura.local/cross-border-intel/evidence";
+    asString(raw.url);
+  const sourceUrl = publicReportSourceUrl(rawSourceUrl) ?? "https://sentura.local/cross-border-intel/evidence";
   const finding =
     evidenceSummaryText(raw) ??
     "背调员工返回了证据项，但未提供可读摘要。";
   const scoreImpact = normalizeScoreImpact(raw.score_impact);
   return {
-    layer: evidenceLayer(raw, scoreBlock, sourceUrl),
+    layer: evidenceLayer(raw, scoreBlock, rawSourceUrl ?? sourceUrl),
     sourceUrl,
     sourceType: asString(raw.source_type) ?? asString(raw.sourceType),
     fetchedAt: asString(raw.fetched_at) ?? asString(raw.fetchedAt),
@@ -1154,7 +1169,6 @@ const DEFAULT_SCORE_BLOCKS: Array<{ block: string; maxPoints: number }> = [
   { block: "public_footprint", maxPoints: 20 },
   { block: "business_fit", maxPoints: 20 },
   { block: "trade_financial", maxPoints: 10 },
-  { block: "conversation_behavior", maxPoints: 15 },
 ];
 
 function normalizeScoreBlock(item: unknown): CustomerScoreBlock {
@@ -1225,11 +1239,11 @@ function synthesizeScoreBlocks(
     if (!activeBlocks.some((active) => active.block === block.block)) {
       return {
         block: block.block,
-        status: block.block === "conversation_behavior" ? "not_applicable" : "pending_human_input",
+        status: "pending_human_input",
         maxPoints: block.maxPoints,
         earnedPoints: null,
         sourceCount: evidence.filter((item) => item.scoreBlock === block.block).length,
-        reason: block.block === "conversation_behavior" ? "没有聊天或销售对话记录。" : "报告未返回这一项单项分。",
+        reason: "报告未返回这一项单项分。",
       };
     }
     return {
@@ -1474,12 +1488,17 @@ function leadRowsFromPayload(payload: unknown, sessionKey: string, targetCount?:
       const website = asString(raw.website) ?? asString(raw.url);
       const country = asString(raw.country)?.toUpperCase();
       if (!companyName || !country) return null;
-      const sourceUrls = asStringArray(raw.source_urls);
+      const sourceUrls = asStringArray(raw.source_urls)
+        .map(publicReportSourceUrl)
+        .filter((url): url is string => Boolean(url));
       const evidenceText = asString(raw.discovery_evidence);
       const evidence = Array.isArray(raw.discovery_evidence)
         ? raw.discovery_evidence.map(asRecord)
         : [];
-      const evidenceUrls = evidence.map(evidenceUrl);
+      const evidenceUrls = evidence
+        .map(evidenceUrl)
+        .map(publicReportSourceUrl)
+        .filter((url): url is string => Boolean(url));
       const evidenceSummary =
         evidence
           .map(evidenceSummaryText)
@@ -1487,7 +1506,7 @@ function leadRowsFromPayload(payload: unknown, sessionKey: string, targetCount?:
         evidenceText ??
         asString(raw.dedupe_explanation) ??
         "获客员工返回了候选买家，需要进入背调确认主体和联系信息。";
-      const mergedSourceUrls = uniqueStrings([...sourceUrls, ...evidenceUrls]);
+      const mergedSourceUrls = uniqueStrings([...sourceUrls, ...evidenceUrls, publicReportSourceUrl(website) ?? undefined]);
 
       const row: CustomerListItem = {
         customerId:
@@ -1547,7 +1566,8 @@ function screeningRowsFromPayload(
         addressFootprint?.locations
           .map((item) => item.googleMapsUri)
           .filter((url): url is string => Boolean(url)) ?? [];
-      const sourceUrls = [...evidence.map((item) => item.sourceUrl), ...addressUrls].filter((url): url is string => Boolean(url));
+      const sourceUrls = [...evidence.map((item) => publicReportSourceUrl(item.sourceUrl)), ...addressUrls.map(publicReportSourceUrl)]
+        .filter((url): url is string => Boolean(url));
       const screeningReport = screeningReportFromRaw(raw, sessionKey, evidence, rawScore);
       const score = screeningReport.normalizedScore ?? undefined;
       const status = typeof score !== "number" ? "insufficient_evidence" : "screened";
@@ -1595,6 +1615,10 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
     const raw = asRecord(item);
     const profile = asRecord(raw.customer_profile);
     const preview = asRecord(raw.memory_preview ?? raw.memory_write_preview);
+    const reportZh = asRecord(raw.report_zh ?? raw.reportZh);
+    const behaviorSignals = asRecord(raw.behavior_signals ?? raw.behaviorSignals);
+    const purchaseIntent = asRecordArray(raw.purchase_intent ?? raw.purchaseIntent);
+    const negotiatedPrices = asRecordArray(raw.negotiated_prices ?? raw.negotiatedPrices);
     const conversationId =
       asString(raw.conversation_id) ??
       asString(raw.conversationId) ??
@@ -1602,11 +1626,32 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
     const company =
       asString(raw.company_name) ??
       asString(profile.company_name) ??
+      asString(preview.company_name) ??
       "Unknown company";
+    const country =
+      asString(raw.country) ??
+      asString(profile.country) ??
+      asString(preview.country);
+    const buyerType =
+      asString(profile.self_described_identity) ??
+      asString(raw.self_described_identity) ??
+      asString(preview.self_described_identity) ??
+      asString(profile.buyer_type) ??
+      asString(raw.buyer_type) ??
+      asString(preview.buyer_type) ??
+      asString(profile.decision_role) ??
+      asString(raw.decision_role) ??
+      asString(behaviorSignals.decision_role);
     const nextActions = asStringArray(raw.next_actions);
     const recordId = conversationId.startsWith("mem-")
       ? conversationId
       : `mem-${conversationId}`;
+    const customerProfile = {
+      ...profile,
+      company_name: company,
+      ...(country ? { country } : {}),
+      ...(buyerType ? { buyer_type: buyerType, self_described_identity: buyerType } : {}),
+    };
     return {
       recordId,
       name: `${company} - 聊天记录`,
@@ -1620,9 +1665,18 @@ function memoryRowsFromPayload(payload: unknown, sessionKey: string): MemoryReco
       summary:
         asString(raw.negotiation_summary) ??
         asString(raw.summary) ??
+        asString(reportZh.executive_summary) ??
+        asString(reportZh.inquiry_summary) ??
         asString(preview.summary) ??
+        asString(preview.summary_zh) ??
         nextActions[0] ??
         "已完成聊天记录整理。",
+      country,
+      customerProfile,
+      purchaseIntent,
+      negotiatedPrices,
+      behaviorSignals: Object.keys(behaviorSignals).length > 0 ? behaviorSignals : undefined,
+      nextActions,
       companyName: company,
     };
   });
@@ -1759,7 +1813,7 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开网页足迹、贸易/海关记录、SEC/财务公开文件、Accio/销售行为记录。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开资料足迹、贸易/海关记录、SEC/财务公开文件。
 - 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
 - 评分前必须先输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
 - Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
@@ -1778,10 +1832,11 @@ JSON 字段要求：
 - 顶层：reports。
 - reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
-- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、conversation_behavior；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
+- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
 - normalized_score 必须等于最终分：score_blocks 质量分 sum(earned_points) / sum(max_points) * 100 占 80%，evidence_coverage * 100 占 20%，保留两位小数；risk_tier 也必须按该最终分判断。
 - evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
-- layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing、accio_behavior 之一。
+- source_url 只能填写用户浏览器可直接打开的公开网页。不要把 ImportYeti/Volza 付费 API 地址、data.importyeti.com/v1.0、SEC company_tickers.json、data.sec.gov/submissions/*.json 等内部接口或机器 JSON 索引作为来源链接；这些工具结果可写入 finding/source_type，但不能作为可点击来源。
+- layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing 之一。
 - address_footprint 必须包含：
   - section_title="Google Maps 地址版图"
   - coverage_status="found|partial|not_found|unavailable_api|not_checked"
@@ -1827,6 +1882,7 @@ function buildAccioPrompt(input: AccioMemoryTaskInput) {
 粘贴文字输入说明：
 - 粘贴内容可能不完整、顺序可能混乱、发送人可能缺失。
 - 请优先依据文字原文抽取客户咨询内容、商品、价格、库存、交期和下一步。
+- 如果客户说“我是抖音老板”“我是店主/采购/负责人/商家”等自我描述，请写入 customer_profile.buyer_type 或 customer_profile.self_described_identity，并同步到 behavior_signals.decision_role；除非明确出现公司/店铺/品牌/法人主体名，不要把这类身份描述当作 company_name。
 - 无法确认的公司名、国家、联系人、网站、邮箱必须写入 missing_fields，不要编造。`
       : `
 JSON 输入说明：
@@ -1841,7 +1897,7 @@ JSON 输入说明：
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 能使用 cross-border-intel Accio/对话解析或摘要工具时优先使用；如果工具报告输入有缺口，仍然返回结构化 coverage gap。
 - 先整理 conversation，再为每条 conversation 生成结构化客户画像、采购需求、价格条款、沟通行为和后续事项报告。
-- 不写入长期记忆，不生成背调移交，不和获客/背调板块互通；只返回 preview_only 报告。
+- 只返回结构化报告；平台在保存分析结果后自动写入结构化长期记忆，不生成背调移交，不和获客/背调板块互通。
 - 对缺失、不清楚、被遮挡或无法确认的信息，写入 missing_fields 或 behavior_signals.inference_notes，不要编造。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
@@ -1849,6 +1905,7 @@ JSON 字段要求：
 - 顶层：summaries。
 - summaries 每项必须包含：conversation_id、customer_profile、purchase_intent、negotiated_prices、negotiation_summary、next_actions、behavior_signals、memory_preview、source_references。
 - 报告必须面向中文业务操作员可读：保留公司名、网址、邮箱、订单编号等原文，同时为英文聊天内容补充中文总结/翻译。
+- customer_profile 尽量包含 company_name、contact_person、country、city、website、email、buyer_type、self_described_identity、shop_or_store_name、missing_fields。没有明确公司名时 company_name 可用“待确认客户”，但必须把“抖音老板/店主/采购”等身份写入 buyer_type 或 self_described_identity。
 - 每个 summary 必须额外包含 report_zh，对象字段尽量包括 executive_summary、customer_profile_summary、inquiry_summary、purchase_intent_summary、pricing_terms_summary、shipping_timeline_summary、payment_terms_summary、sample_status_summary、follow_up_summary、risk_or_missing_info。
 - purchase_intent 每项尽量包含 product、product_zh、quantity、unit、target_price_usd、seller_best_price_usd、incoterm、incoterm_zh、payment_terms、payment_terms_zh、packaging、customization、lead_time、sample_status、summary_zh；聊天中没有出现的字段不要编造。
 - negotiated_prices 每项尽量包含 product、quantity_context、currency、target_price_usd、quoted_price_usd、agreed_or_best_price_usd、quoted_total_usd、agreed_total_usd、agreed_or_best_total_usd、final_total_usd、all_in_unit_price_usd、price_context、price_context_zh；聊天中没有出现的字段不要编造。必须区分“单价”和“总价”：如果金额是 500pcs/800pcs 的总价，不要只放进 *_price_usd，应同时写 *_total_usd 或在 price_context_zh 说明。

@@ -1,18 +1,17 @@
 import {
-  cbeRouteError,
   CbeStoreError,
+  cbeRouteError,
 } from "@/lib/cross-border-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function PATCH(request: Request) {
+export async function PATCH() {
   try {
-    await request.text().catch(() => "");
     throw new CbeStoreError(
       410,
       "memory_fact_review_disabled",
-      "记忆整理已与长期记忆写入分离，不能写入长期记忆。",
+      "长期记忆在分析完成后自动写入，此接口已停用。",
     );
   } catch (error) {
     return cbeRouteError(error);

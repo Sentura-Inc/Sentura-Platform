@@ -1,6 +1,8 @@
 import { buyerTypeLabel, productLabel } from "@/components/cross-border/customer-labels";
 import {
   businessStatusText,
+  isCoverageGapDisplay,
+  screeningCoverageGapDisplay,
   screeningEvidenceFindingText,
   screeningScoreBlockText,
   simplifyScreeningReportText,
@@ -12,6 +14,7 @@ import type {
   CustomerScreeningReport,
 } from "@/app/client-demos/cross-border/employee/_data/employee-data";
 import type { CostEvent } from "@/lib/gateway";
+import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
 
 export type ExportFormat = "docx" | "pdf";
 
@@ -35,6 +38,8 @@ type ExportDocument = {
 };
 
 type EmployeeCostExportInput = {
+  rangeLabel?: string;
+  subjectLabel?: string;
   spendUsd: number;
   totalTokens: number;
   totalCalls: number;
@@ -93,12 +98,49 @@ const scoreBlockLabels: Record<string, string> = {
   conversation_behavior: "聊天行为",
 };
 
+const hiddenScoreBlocks = new Set(["conversation_behavior"]);
+const hiddenEvidenceLayers = new Set([
+  "google_maps_local_presence",
+  "address_validation",
+  "accio_behavior",
+]);
+
 const scoreBlockStatusLabels: Record<string, string> = {
   scored: "已评分",
   not_applicable: "不适用",
   unavailable_api: "未找到资料",
   disabled_by_budget: "未开启",
   pending_human_input: "待补充",
+};
+
+const scaleClassLabels: Record<string, string> = {
+  listed_or_public: "上市/公开披露企业",
+  medium_large_registered: "中大型注册企业",
+  small_local_offline: "中小型线下企业",
+  small_online_only: "中小型线上企业",
+  unknown_scale: "规模待确认",
+};
+
+const firstBlockStrategyLabels: Record<string, string> = {
+  registry_disclosure_primary_maps_support: "注册/披露为主，Google Maps（谷歌地图）地址辅助",
+  maps_physical_address_primary: "Google Maps（谷歌地图）物理地址和营业状态为主",
+  domain_public_source_primary: "官网/公开来源为主",
+  try_registry_and_maps: "注册与 Google Maps（谷歌地图）双路径待确认",
+};
+
+const addressTypeLabels: Record<string, string> = {
+  headquarters_or_office: "总部 / 办公",
+  storefront: "门店",
+  warehouse_or_distribution: "仓库 / 分销",
+  service_or_repair_location: "服务 / 维修",
+  unknown_business_location: "业务地址",
+};
+
+const relationshipLabels: Record<string, string> = {
+  confirmed_company_location: "已确认",
+  probable_company_location: "高可能",
+  possible_related_location: "待复核",
+  rejected_unrelated_location: "已排除",
 };
 
 const screeningStatusLabels: Record<CustomerListItem["screeningStatus"], string> = {
@@ -110,17 +152,9 @@ const screeningStatusLabels: Record<CustomerListItem["screeningStatus"], string>
 };
 
 const costAgentLabels: Record<string, string> = {
-  "cbe-lead-discovery": "找客户",
+  "cbe-lead-discovery": "获客",
   "cbe-buyer-screening": "背调",
   "cbe-accio-memory": "聊天整理",
-};
-
-const costPricingLabels: Record<string, string> = {
-  priced: "真实美元",
-  estimated: "按官方单价估算",
-  free: "0 美元",
-  included: "套餐内/返回 0",
-  unpriced: "未折算美元",
 };
 
 function normalizeText(value: unknown, fallback = "-") {
@@ -163,6 +197,14 @@ function formatDateTime(value: string | null | undefined) {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+function screeningTimeLabel(customer: CustomerListItem) {
+  if (customer.screeningReport?.createdAt) return formatDateTime(customer.screeningReport.createdAt);
+  if (customer.screeningStatus === "running") return "背调中";
+  if (customer.screeningStatus === "failed") return "背调失败";
+  if (customer.screeningStatus === "screened" || customer.screeningStatus === "insufficient_evidence") return "时间待确认";
+  return "未背调";
+}
+
 function formatPercent(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "未计算";
   return `${Math.round(value * 100)}%`;
@@ -201,14 +243,17 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
     evidenceCoverage: undefined,
     recommendedAction: normalizeText(item.recommendedAction, "复核背调结果后再决定是否跟进。"),
     scoreBlocks: [],
-    evidence: item.sourceUrls.map((url) => ({
-      layer: "public_footprint",
-      sourceUrl: url,
-      finding: normalizeText(item.evidenceSummary, "暂无核验说明。"),
-      scoreBlock: "public_footprint",
-      scoreImpact: "neutral",
-      affectsScore: true,
-    })),
+    evidence: item.sourceUrls
+      .map(publicReportSourceUrl)
+      .filter((url): url is string => Boolean(url))
+      .map((url) => ({
+        layer: "public_footprint",
+        sourceUrl: url,
+        finding: normalizeText(item.evidenceSummary, "暂无核验说明。"),
+        scoreBlock: "public_footprint",
+        scoreImpact: "neutral",
+        affectsScore: true,
+      })),
     coverageGaps: [],
   };
 }
@@ -233,9 +278,14 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
     ? `${customer.normalizedScore}/100`
     : "未评分";
   const footprint = report?.addressFootprint;
+  const visibleScoreBlocks = report?.scoreBlocks.filter((block) => !hiddenScoreBlocks.has(block.block)) ?? [];
+  const visibleEvidence = report?.evidence.filter((item) => !hiddenEvidenceLayers.has(item.layer)) ?? [];
+  const coverageGaps = report
+    ? report.coverageGaps.map(screeningCoverageGapDisplay).filter(isCoverageGapDisplay)
+    : [];
   const sections: DocumentSection[] = [
     {
-      heading: "一、背调结论",
+      heading: "背调结论",
       paragraphs: [
         normalizeText(report?.recommendedAction ?? customer.recommendedAction, "暂无报告，等待背调结果。"),
       ],
@@ -244,12 +294,19 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
 
   if (report?.companyScaleAssessment) {
     sections.push({
-      heading: "二、公司规模与核验策略",
+      heading: "公司规模评估",
       table: {
         columns: ["项目", "内容"],
         rows: [
-          ["规模判断", normalizeText(report.companyScaleAssessment.scaleClass)],
-          ["核验策略", normalizeText(report.companyScaleAssessment.firstBlockStrategy)],
+          [
+            "规模判断",
+            scaleClassLabels[report.companyScaleAssessment.scaleClass] ?? normalizeText(report.companyScaleAssessment.scaleClass),
+          ],
+          [
+            "核验策略",
+            firstBlockStrategyLabels[report.companyScaleAssessment.firstBlockStrategy] ??
+              normalizeText(report.companyScaleAssessment.firstBlockStrategy),
+          ],
           ["置信度", formatPercent(report.companyScaleAssessment.confidence)],
           ["判断说明", normalizeText(report.companyScaleAssessment.rationale)],
         ],
@@ -258,12 +315,12 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
   }
 
   sections.push({
-    heading: "三、评分来源",
-    paragraphs: report?.scoreBlocks.length ? undefined : ["本次报告暂未提供分项评分。"],
-    table: report?.scoreBlocks.length
+    heading: "评分来源",
+    paragraphs: visibleScoreBlocks.length ? undefined : ["本次报告暂未提供评分来源。"],
+    table: visibleScoreBlocks.length
       ? {
           columns: ["维度", "状态", "得分/权重", "说明"],
-          rows: report.scoreBlocks.map((block) => [
+          rows: visibleScoreBlocks.map((block) => [
             scoreBlockLabels[block.block] ?? block.block,
             scoreBlockStatusLabels[block.status] ?? block.status,
             block.status === "scored" ? `${block.earnedPoints ?? 0}/${block.maxPoints}` : "-",
@@ -280,13 +337,13 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
       .map((location) => [
         normalizeText(location.displayName),
         normalizeText(location.formattedAddress),
-        normalizeText(location.addressType),
-        normalizeText(location.relationshipStatus),
+        addressTypeLabels[location.addressType] ?? normalizeText(location.addressType),
+        relationshipLabels[location.relationshipStatus] ?? normalizeText(location.relationshipStatus),
         location.businessStatus ? normalizeText(businessStatusText(location.businessStatus)) : "-",
         typeof location.matchConfidence === "number" ? formatPercent(location.matchConfidence) : "待确认",
       ]);
     sections.push({
-      heading: "四、Google Maps 地址线索",
+      heading: normalizeText(footprint.sectionTitle, "Google Maps（谷歌地图）地址线索"),
       paragraphs: [
         `共发现 ${footprint.summary.totalLocations} 个地址线索，其中确认 ${footprint.summary.confirmedLocations} 个，高可能 ${footprint.summary.probableLocations} 个，待复核 ${footprint.summary.possibleRelatedLocations} 个。`,
         footprint.summary.cities.length ? `覆盖城市：${footprint.summary.cities.join("、")}` : "覆盖城市：未确认",
@@ -302,12 +359,12 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
   }
 
   sections.push({
-    heading: "五、核验依据",
-    paragraphs: report?.evidence.length ? undefined : ["暂无核验依据。"],
-    table: report?.evidence.length
+    heading: "核验依据",
+    paragraphs: visibleEvidence.length ? undefined : ["暂无核验依据。"],
+    table: visibleEvidence.length
       ? {
           columns: ["类别", "来源", "判断", "可信度"],
-          rows: report.evidence.slice(0, 30).map((item) => [
+          rows: visibleEvidence.slice(0, 30).map((item) => [
             scoreBlockLabels[item.scoreBlock ?? ""] ?? item.scoreBlock ?? "-",
             sourceTypeText(item.sourceType) ?? "公开资料",
             evidenceFindingText(item),
@@ -317,30 +374,19 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
       : undefined,
   });
 
-  sections.push({
-    heading: "六、待补充事项",
-    paragraphs: report?.coverageGaps.length
-      ? report.coverageGaps.map((gap) => {
-          const block = scoreBlockLabels[gap.block] ?? gap.block;
-          const reason = normalizeText(gap.reason);
-          const action = gap.action ? `建议：${normalizeText(gap.action)}` : "";
-          return `${block}：${reason}${action ? `。${action}` : ""}`;
-        })
-      : ["暂无需要补充的关键事项。"],
-  });
-
-  sections.push({
-    heading: "附录：审计信息",
-    table: {
-      columns: ["项目", "内容"],
-      rows: [
-        ["客户编号", customer.customerId],
-        ["报告编号", report?.reportId ?? customer.reportId ?? customer.customerId],
-        ["来源网址", customer.sourceUrls.length ? customer.sourceUrls.join("\n") : "-"],
-        ["核验证据网址", report?.evidence.map((item) => item.sourceUrl).filter(Boolean).join("\n") || "-"],
-      ],
-    },
-  });
+  if (coverageGaps.length) {
+    sections.push({
+      heading: "还缺什么",
+      table: {
+        columns: ["缺少信息", "说明", "下一步"],
+        rows: coverageGaps.map((gap) => [
+          gap.title,
+          gap.reason,
+          gap.action ?? "-",
+        ]),
+      },
+    });
+  }
 
   return {
     title: "Sentura 跨境电商背调报告",
@@ -349,7 +395,7 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
       ["客户名称", customer.companyName],
       ["国家 / 类型", `${customer.countryName} / ${buyerTypeLabel(customer.buyerType)}`],
       ["产品兴趣", productsLabel],
-      ["找到时间", formatDateTime(customer.foundAt)],
+      ["时间", `获客 ${formatDateTime(customer.foundAt)} / 背调 ${screeningTimeLabel(customer)}`],
       ["生成时间", formatGeneratedAt()],
     ],
     summary: [
@@ -367,11 +413,6 @@ function employeeCostServiceLabel(event: CostEvent) {
   return event.service ?? event.provider;
 }
 
-function employeeCostOperationLabel(event: CostEvent) {
-  if ((event.kind ?? "model") === "model") return event.provider;
-  return event.operation ?? event.model;
-}
-
 function employeeCostUsageLabel(event: CostEvent) {
   if ((event.kind ?? "model") === "model") return `${event.usage.totalTokens.toLocaleString("zh-CN")} 用量单位`;
   if (event.externalUsage?.label) return event.externalUsage.label;
@@ -386,6 +427,8 @@ function employeeCostSourceLabel(event: CostEvent) {
 }
 
 function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocument {
+  const rangeLabel = input.rangeLabel ?? "本月";
+  const subjectLabel = input.subjectLabel ?? "员工端";
   const remaining = input.costBudget.limitEnabled
     ? formatUsd(input.costBudget.remainingUsd ?? Math.max(0, input.costBudget.limitUsd - input.spendUsd))
     : "不限额";
@@ -397,20 +440,20 @@ function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocume
     employeeCostUsageLabel(event),
     formatDurationMs(event.durationMs),
     event.costUsd === null ? "未折算" : formatUsd(event.costUsd),
-    event.pricingStatus ? costPricingLabels[event.pricingStatus] ?? event.pricingStatus : "-",
   ]);
 
   return {
     title: "Sentura 跨境电商成本明细",
-    subtitle: "员工端本月工具成本",
+    subtitle: `${subjectLabel} · 工具成本（${rangeLabel}）`,
     meta: [
-      ["范围", "本月"],
+      ["员工", subjectLabel],
+      ["范围", rangeLabel],
       ["生成时间", formatGeneratedAt()],
       ["账本口径", "仅统计已关联到当前跨境电商客户库任务的处理编号"],
       ["数据来源", input.costBudget.source === "fallback" ? "预算兜底" : "系统费用记录"],
     ],
     summary: [
-      ["本月已用", formatUsd(input.spendUsd)],
+      [`${rangeLabel}已用`, formatUsd(input.spendUsd)],
       ["本月额度", input.costBudget.limitEnabled ? formatUsd(input.costBudget.limitUsd) : "不限额"],
       ["剩余额度", remaining],
       ["调用次数", String(input.totalCalls)],
@@ -422,7 +465,7 @@ function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocume
         heading: "一、费用摘要",
         paragraphs: [
           input.events.length
-            ? "本表展示本月已记录的智能处理与外部资料查询费用，已折算美元的项目计入已用费用。"
+            ? `本表展示${rangeLabel}已记录的智能处理与外部资料查询费用，已折算美元的项目计入已用费用。`
             : "当前任务还没有实际成本记录，已用费用按 0 显示。",
           input.outsideScopeCount > 0
             ? `另有 ${input.outsideScopeCount} 条历史记录不属于当前任务范围，未纳入本报告。`
@@ -445,25 +488,10 @@ function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocume
         paragraphs: eventRows.length ? undefined : ["暂无费用明细。"],
         table: eventRows.length
           ? {
-              columns: ["时间", "员工", "服务项目", "来源", "用量", "耗时", "成本", "计价状态"],
+              columns: ["时间", "任务", "服务项目", "来源", "用量", "耗时", "成本"],
               rows: eventRows,
             }
           : undefined,
-      },
-      {
-        heading: "附录：技术口径",
-        table: {
-          columns: ["项目", "内容"],
-          rows: [
-            ["关联任务数", String(input.scopedSessionCount)],
-            ["范围外记录", String(input.outsideScopeCount)],
-            ["基础额度", formatUsd(input.costBudget.baseLimitUsd)],
-            ["临时额度", formatUsd(input.costBudget.activeAllowanceUsd)],
-            ["更新时间", input.costBudget.updatedAt ? formatDateTime(input.costBudget.updatedAt) : "-"],
-            ["处理编号", input.events.map((event) => event.sessionKey).filter(Boolean).join("\n") || "-"],
-            ["服务明细", input.events.map((event) => employeeCostOperationLabel(event)).filter(Boolean).join("\n") || "-"],
-          ],
-        },
       },
     ],
   };
@@ -478,16 +506,16 @@ function adminCostTaskLabel(value: unknown) {
   const raw = String(value ?? "").toLowerCase();
   if (raw.includes("screening")) return "背调";
   if (raw.includes("accio") || raw.includes("memory")) return "聊天整理";
-  if (raw.includes("lead")) return "找客户";
+  if (raw.includes("lead")) return "获客";
   return "任务";
 }
 
 function adminCostSourceLabel(value: unknown) {
   const raw = String(value ?? "").toLowerCase();
   if (raw.includes("google") || raw.includes("maps") || raw.includes("places")) return "公开地址查询";
-  if (raw.includes("search") || raw.includes("fetch") || raw.includes("web")) return "公开网页查询";
+  if (raw.includes("search") || raw.includes("fetch") || raw.includes("web")) return "公开资料查询";
   if (raw.includes("external") || raw.includes("api") || raw.includes("provider")) return "工具调用";
-  if (raw.includes("cbe-lead")) return "找客户";
+  if (raw.includes("cbe-lead")) return "获客";
   if (raw.includes("cbe-buyer") || raw.includes("screening")) return "背调";
   if (raw.includes("cbe-accio") || raw.includes("memory")) return "聊天整理";
   return "工具调用";
@@ -504,7 +532,7 @@ function adminCostEstimate(value: unknown) {
 }
 
 function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
-  const profileName = input.profile?.display_name ?? "员工费用明细";
+  const profileName = input.profile?.display_name ?? "成本明细";
   const summary = input.summary;
   const eventRows = input.events.slice(0, 200).map((event) => [
     formatDateTime(String(event.created_at ?? event.timestamp ?? "")),
@@ -516,8 +544,8 @@ function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
   ]);
 
   return {
-    title: "Sentura 跨境电商员工费用明细",
-    subtitle: profileName,
+    title: "Sentura 跨境电商成本明细",
+    subtitle: `${profileName} · ${input.rangeLabel}`,
     meta: [
       ["员工", profileName],
       ["团队", input.profile?.team_name ?? "-"],
@@ -552,18 +580,6 @@ function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
             }
           : undefined,
       },
-      {
-        heading: "附录：技术口径",
-        table: {
-          columns: ["项目", "内容"],
-          rows: [
-            ["用户编号", input.profile?.user_id ?? "-"],
-            ["记录数量", String(input.events.length)],
-            ["处理编号", input.events.map((event) => String(event.session_key ?? "")).filter(Boolean).join("\n") || "-"],
-            ["来源", input.events.map((event) => String(event.provider ?? event.agent_id ?? "")).filter(Boolean).join("\n") || "-"],
-          ],
-        },
-      },
     ],
   };
 }
@@ -575,12 +591,12 @@ export function exportCustomerReportDocument(customer: CustomerListItem, format:
 
 export function exportEmployeeCostDocument(input: EmployeeCostExportInput, format: ExportFormat) {
   const document = buildEmployeeCostDocument(input);
-  downloadExportDocument(document, format, "员工成本明细-本月工具成本");
+  downloadExportDocument(document, format, `成本明细-${input.subjectLabel ?? "员工"}-${input.rangeLabel ?? "本月"}`);
 }
 
 export function exportAdminCostDocument(input: AdminCostExportInput, format: ExportFormat) {
   const document = buildAdminCostDocument(input);
-  downloadExportDocument(document, format, `员工费用明细-${input.profile?.display_name ?? "员工"}`);
+  downloadExportDocument(document, format, `成本明细-${input.profile?.display_name ?? "员工"}-${input.rangeLabel}`);
 }
 
 function downloadExportDocument(document: ExportDocument, format: ExportFormat, filenameBase: string) {
@@ -631,24 +647,33 @@ function docxTextRuns(value: string) {
 }
 
 function docxParagraph(value: string, style?: string) {
-  const styleXml = style ? `<w:pPr><w:pStyle w:val="${style}"/></w:pPr>` : "";
-  return `<w:p>${styleXml}<w:r>${docxTextRuns(value)}</w:r></w:p>`;
+  const styleXml = style ? `<w:pStyle w:val="${style}"/>` : "";
+  return `<w:p><w:pPr>${styleXml}<w:spacing w:before="20" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr><w:r>${docxTextRuns(value)}</w:r></w:p>`;
+}
+
+function docxTableParagraph(value: string, header: boolean) {
+  const runStyle = header ? "<w:b/>" : "";
+  return `<w:p><w:pPr><w:spacing w:after="40" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr>${runStyle}</w:rPr>${docxTextRuns(value)}</w:r></w:p>`;
 }
 
 function docxTable(table: DocumentTable) {
   const rows = [table.columns, ...table.rows];
+  const totalWidth = 9360;
+  const widths = tableColumnWidths(table, totalWidth);
+  const gridXml = widths.map((width) => `<w:gridCol w:w="${Math.round(width)}"/>`).join("");
   const rowXml = rows
     .map((row, index) => {
       const cells = row
-        .map((cell) => {
+        .map((cell, cellIndex) => {
           const shading = index === 0 ? '<w:shd w:fill="EAF2FF"/>' : "";
-          return `<w:tc><w:tcPr>${shading}<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr>${docxParagraph(cell || "-")}</w:tc>`;
+          const width = Math.round(widths[cellIndex] ?? totalWidth / Math.max(1, table.columns.length));
+          return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${shading}<w:vAlign w:val="top"/><w:tcMar><w:top w:w="130" w:type="dxa"/><w:left w:w="130" w:type="dxa"/><w:bottom w:w="130" w:type="dxa"/><w:right w:w="130" w:type="dxa"/></w:tcMar></w:tcPr>${docxTableParagraph(cell || "-", index === 0)}</w:tc>`;
         })
         .join("");
       return `<w:tr>${cells}</w:tr>`;
     })
     .join("");
-  return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:left w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:right w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/></w:tblBorders></w:tblPr>${rowXml}</w:tbl>`;
+  return `<w:tbl><w:tblPr><w:tblW w:w="${totalWidth}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="single" w:sz="6" w:space="0" w:color="D6DEE9"/><w:left w:val="single" w:sz="6" w:space="0" w:color="D6DEE9"/><w:bottom w:val="single" w:sz="6" w:space="0" w:color="D6DEE9"/><w:right w:val="single" w:sz="6" w:space="0" w:color="D6DEE9"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="D6DEE9"/></w:tblBorders><w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${gridXml}</w:tblGrid>${rowXml}</w:tbl>`;
 }
 
 function buildDocxBody(document: ExportDocument) {
@@ -674,7 +699,7 @@ function buildDocxBody(document: ExportDocument) {
 function buildDocx(document: ExportDocument) {
   const created = new Date().toISOString();
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${buildDocxBody(document)}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
-  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:sz w:val="21"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:b/><w:color w:val="17324D"/><w:sz w:val="34"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:color w:val="56657A"/><w:sz w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:b/><w:color w:val="17324D"/><w:sz w:val="26"/></w:rPr><w:pPr><w:spacing w:before="260" w:after="120"/></w:pPr></w:style></w:styles>`;
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:sz w:val="21"/></w:rPr><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:b/><w:color w:val="17324D"/><w:sz w:val="36"/></w:rPr><w:pPr><w:spacing w:after="160"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:color w:val="56657A"/><w:sz w:val="24"/></w:rPr><w:pPr><w:spacing w:after="180"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:b/><w:color w:val="17324D"/><w:sz w:val="26"/></w:rPr><w:pPr><w:spacing w:before="320" w:after="140"/></w:pPr></w:style></w:styles>`;
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;
   const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`;
   const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
@@ -898,29 +923,30 @@ function pdfTextCommand(text: string, x: number, y: number, size: number) {
   return commands.join("\n");
 }
 
-function flattenPdfLines(document: ExportDocument) {
-  const lines: Array<{ text: string; size: number; gap: number; indent: number }> = [];
-  const add = (text: string, size = 10, gap = 4, indent = 0) => {
-    lines.push({ text, size, gap, indent });
-  };
-  add(document.title, 18, 8);
-  if (document.subtitle) add(document.subtitle, 12, 10);
-  add("基础信息", 12, 5);
-  for (const [label, value] of document.meta) add(`${label}：${value}`, 9.5, 2);
-  add("关键摘要", 12, 5);
-  for (const [label, value] of document.summary) add(`${label}：${value}`, 9.5, 2);
-  for (const section of document.sections) {
-    add(section.heading, 12, 6);
-    for (const paragraph of section.paragraphs ?? []) add(paragraph, 9.5, 3);
-    if (section.table) {
-      add(section.table.columns.join(" / "), 9.5, 3);
-      section.table.rows.forEach((row, index) => {
-        const text = row.map((cell, cellIndex) => `${section.table?.columns[cellIndex] ?? ""}：${cell || "-"}`).join("；");
-        add(`${index + 1}. ${text}`, 8.8, 2, 8);
-      });
-    }
-  }
-  return lines;
+function pdfFillRectCommand(x: number, y: number, width: number, height: number, color: [number, number, number]) {
+  return `q ${color[0].toFixed(3)} ${color[1].toFixed(3)} ${color[2].toFixed(3)} rg ${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re f Q`;
+}
+
+function pdfStrokeRectCommand(x: number, y: number, width: number, height: number, color: [number, number, number]) {
+  return `q ${color[0].toFixed(3)} ${color[1].toFixed(3)} ${color[2].toFixed(3)} RG 0.45 w ${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re S Q`;
+}
+
+function pdfLineCommand(x1: number, y1: number, x2: number, y2: number, color: [number, number, number]) {
+  return `q ${color[0].toFixed(3)} ${color[1].toFixed(3)} ${color[2].toFixed(3)} RG 0.7 w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S Q`;
+}
+
+function tableColumnWidths(table: DocumentTable, totalWidth: number) {
+  if (table.columns.length === 0) return [];
+  const sampleRows = [table.columns, ...table.rows.slice(0, 24)];
+  const weights = table.columns.map((_, index) => {
+    const maxWidth = sampleRows.reduce((max, row) => Math.max(max, textVisualWidth(row[index] ?? "")), 1);
+    return Math.min(5.5, Math.max(1, Math.sqrt(maxWidth)));
+  });
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  const minFraction = table.columns.length >= 6 ? 0.075 : table.columns.length >= 4 ? 0.105 : 0.16;
+  const rawWidths = weights.map((weight) => Math.max(totalWidth * minFraction, (weight / totalWeight) * totalWidth));
+  const rawTotal = rawWidths.reduce((sum, width) => sum + width, 0) || totalWidth;
+  return rawWidths.map((width) => (width / rawTotal) * totalWidth);
 }
 
 function buildPdf(document: ExportDocument) {
@@ -938,14 +964,99 @@ function buildPdf(document: ExportDocument) {
     y = pageHeight - margin;
   };
 
-  for (const line of flattenPdfLines(document)) {
-    y -= line.gap;
-    const wrapped = wrapText(line.text, line.size, contentWidth - line.indent);
-    for (const wrappedLine of wrapped) {
-      if (y < margin + line.size + 8) newPage();
-      commands.push(pdfTextCommand(wrappedLine, margin + line.indent, y, line.size));
-      y -= line.size + 4;
+  const ensureSpace = (height: number) => {
+    if (y - height < margin) newPage();
+  };
+
+  const drawTextBlock = (text: string, size = 9.5, gap = 4, indent = 0) => {
+    y -= gap;
+    const wrapped = wrapText(text, size, contentWidth - indent);
+    for (const line of wrapped) {
+      ensureSpace(size + 6);
+      commands.push(pdfTextCommand(line, margin + indent, y, size));
+      y -= size + 4;
     }
+  };
+
+  const drawHeading = (text: string) => {
+    y -= 8;
+    ensureSpace(20);
+    commands.push(pdfTextCommand(text, margin, y, 12));
+    y -= 10;
+    commands.push(pdfLineCommand(margin, y, margin + contentWidth, y, [0.82, 0.87, 0.94]));
+    y -= 6;
+  };
+
+  const drawTable = (table: DocumentTable) => {
+    const widths = tableColumnWidths(table, contentWidth);
+    if (!widths.length) return;
+    const padding = 4.5;
+    const borderColor: [number, number, number] = [0.82, 0.86, 0.91];
+    const headerFill: [number, number, number] = [0.92, 0.95, 1];
+
+    const rowSpec = (row: string[], header: boolean) => {
+      const fontSize = header ? 8.4 : 7.8;
+      const lineHeight = fontSize + 3.2;
+      const cells = widths.map((width, index) => {
+        const text = row[index]?.trim() || "-";
+        return wrapText(text, fontSize, Math.max(16, width - padding * 2));
+      });
+      const lineCount = Math.max(1, ...cells.map((cell) => cell.length));
+      return {
+        cells,
+        fontSize,
+        lineHeight,
+        height: Math.max(22, lineCount * lineHeight + padding * 2),
+      };
+    };
+
+    const drawRow = (row: string[], header: boolean) => {
+      const spec = rowSpec(row, header);
+      const bottom = y - spec.height;
+      let x = margin;
+      widths.forEach((width, index) => {
+        if (header) commands.push(pdfFillRectCommand(x, bottom, width, spec.height, headerFill));
+        commands.push(pdfStrokeRectCommand(x, bottom, width, spec.height, borderColor));
+        let textY = y - padding - spec.fontSize;
+        for (const line of spec.cells[index]) {
+          if (textY > bottom + padding / 2) {
+            commands.push(pdfTextCommand(line, x + padding, textY, spec.fontSize));
+          }
+          textY -= spec.lineHeight;
+        }
+        x += width;
+      });
+      y = bottom;
+    };
+
+    y -= 4;
+    const headerSpec = rowSpec(table.columns, true);
+    ensureSpace(headerSpec.height + 8);
+    drawRow(table.columns, true);
+    for (const row of table.rows) {
+      const spec = rowSpec(row, false);
+      if (y - spec.height < margin) {
+        newPage();
+        drawRow(table.columns, true);
+      }
+      drawRow(row, false);
+    }
+    y -= 8;
+  };
+
+  drawTextBlock(document.title, 18, 0);
+  if (document.subtitle) drawTextBlock(document.subtitle, 11.5, 2);
+  drawHeading("基础信息");
+  drawTable({ columns: ["项目", "内容"], rows: document.meta });
+  drawHeading("关键摘要");
+  drawTable({ columns: ["指标", "结果"], rows: document.summary });
+
+  for (const section of document.sections) {
+    drawHeading(section.heading);
+    for (const paragraph of section.paragraphs ?? []) {
+      drawTextBlock(paragraph, 9.2, 2);
+    }
+    if (section.table) drawTable(section.table);
   }
   if (commands.length || pageContents.length === 0) newPage();
 

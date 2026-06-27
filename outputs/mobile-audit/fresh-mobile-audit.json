@@ -1,0 +1,302 @@
+{
+  "generatedAt": "2026-06-27T19:18:59.702Z",
+  "base": "http://localhost:3000",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "results": [
+    {
+      "name": "employee-login-mobile",
+      "route": "/employee/login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-employee-login-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/login",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 41,
+        "bodyTextSample": "已连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商员工操作系统 登录",
+        "mainTextLength": 37,
+        "headerHeight": 65,
+        "mobileCardCount": 0,
+        "tableCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-login-mobile",
+      "route": "/admin/login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-admin-login-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/login",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 40,
+        "bodyTextSample": "已连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商管理者系统 登录",
+        "mainTextLength": 36,
+        "headerHeight": 65,
+        "mobileCardCount": 0,
+        "tableCount": 0,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "employee-home-mobile",
+      "route": "/employee",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-employee-home-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 4345,
+        "bodyTextSample": "跨境电商员工操作系统 已连接 4 个人中心 获客与背调 记忆整理 记忆整理 · 已完成 · 手动聊天记录 用时 00:31 · accio_summaries_saved 员工 跨境电商 你好，Lin Yue 当前查看 本月 数据。建议优先处理待背调、失败或需补充线索的客户。 今日 本周 本月 全部 找到客户 22 本月找到的潜在客户 已完成背调 15 已完成核验的客户 记忆整理 2 已整理的聊天记录 优先跟进客户 5 建议优先跟进 待处理事项 7 项 tSmart 进入背调或复核客户资料。 Micro Center 进入背调或复核客户资料。 Global Cellular Repair 进入背调或复核客户资料。 MA WIRELESS USA INC 进入背调或复核客户资料。 Mobile Fun 进入背调或复核客户资料。 PhoneBitz LTD 进入背调或复核客户资料。 SnapCases LTD 进入背调或复核客户资料。 优先跟进客户 Baz Mobiles 可作为可信候选继续跟进，但首单建议控制账期/额度，优先要求对方补充正式注册主体名称、注册号、VAT 信息或近期采购/店",
+        "mainTextLength": 4259,
+        "headerHeight": 120,
+        "mobileCardCount": 0,
+        "tableCount": 0,
+        "visibleTableCount": 0,
+        "offenders": [
+          {
+            "tag": "div",
+            "className": "h-2 rounded-full bg-[var(--sentura-blue-glow)]",
+            "left": 35,
+            "right": 482,
+            "width": 447,
+            "text": ""
+          },
+          {
+            "tag": "div",
+            "className": "h-2 rounded-full bg-amber-500",
+            "left": 35,
+            "right": 610,
+            "width": 574,
+            "text": ""
+          }
+        ]
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "employee-customers-mobile",
+      "route": "/employee/customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-employee-customers-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/customers",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 1132,
+        "bodyTextSample": "跨境电商员工操作系统 已连接 4 个人中心 获客与背调 记忆整理 记忆整理 · 已完成 · 手动聊天记录 用时 00:31 · accio_summaries_saved 获客与背调 共 22 个客户，筛选条件：全部状态 · 默认排序 寻找客户 批量背调 手动背调 删除所选 国家 / 类型 / 产品 全部 未背调 已评分 证据不足 默认排序 评分高到低 评分低到高 tSmart 英国 · 维修连锁 手机壳 钢化膜 +1 时间 获客2026-06-28 02:13:59 背调未背调 评分 未评分 详情 开始调研 Micro Center 美国 · 电子零售商 手机壳 钢化膜 +1 时间 获客2026-06-28 01:16:43 背调未背调 评分 未评分 详情 开始调研 Global Cellular Repair 美国 · 维修连锁 手机壳 钢化膜 时间 获客2026-06-28 00:57:56 背调未背调 评分 未评分 详情 开始调研 MA WIRELESS USA INC 美国 · 配件零售商 手机壳 钢化膜 +1 时间 获客2026-06-28 00:57:56 背调未背调 评",
+        "mainTextLength": 1046,
+        "headerHeight": 120,
+        "mobileCardCount": 0,
+        "tableCount": 1,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": [
+        "Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch\n\n  ...\n    <SegmentViewNode type=\"page\" pagePath=\"client-dem...\">\n      <SegmentTrieNode>\n      <ClientPageRoot Component={function CrossBorderCustomersPage} serverProvidedParams={{...}}>\n        <CrossBorderCustomersPage pa"
+      ]
+    },
+    {
+      "name": "employee-memory-mobile",
+      "route": "/employee/memory",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-employee-memory-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/employee/memory",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 1048,
+        "bodyTextSample": "跨境电商员工操作系统 已连接 4 个人中心 获客与背调 记忆整理 记忆整理 · 已完成 · 手动聊天记录 用时 00:31 · accio_summaries_saved 记忆整理 共 2 条记录，当前可定位聊天客户 2 个 添加新记录 来源 / 导入时间 全部 未分析 已分析 失败 删除所选 聊天客户列表 2 个客户 基于已分析聊天记录整理客户定位信息；这里只展示预览整理结果，不写入背调结论。 全部客户 可定位 信息不足 有报价 有下一步 待确认客户（公司待确认） 信息不足 有报价 有下一步 手动导入 · 2026-06-28 03:09:31 · 1 条对话 查看分析 联系人 待提取 定位信息 ZZ 采购需求 小米手机充电器；客户表示需要小米手机充电器，并要求在七月份之前拿到货；数量、规格、认证、包装和是否原装/兼容均未确认。 报价 / 下一步 数量未提供；客户说“我报价二十万”，但未说明币种，也未说明这是总预算、总订单价还是单价；不能按美元单价记录。；确认客户公司名称、联系人姓名、国家/地区、收货地址和联系方式。 客户询盘简短直接，包含自称身份、目标产品、报价金额和紧急交期，但缺",
+        "mainTextLength": 962,
+        "headerHeight": 120,
+        "mobileCardCount": 2,
+        "tableCount": 1,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-employees-mobile",
+      "route": "/admin/employees",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-admin-employees-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/employees",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 362,
+        "bodyTextSample": "跨境电商管理者系统 已连接 员工管理 客户列表 费用监控 员工管理 汇总每位员工的获客、背调、费用和待审批事项。 今日 本周 本月 全部 刷新 获客数 22 背调数 21 已用费用 US$14.71 待审批 0 创建员工账户 当前 3/20，还可创建 17 个 创建 员工账户 已选 0 个 批量删除 Chen Wei Shenzhen Sales B 正常 获客 0 背调 0 已用费用 US$0.00 剩余额度 US$0.00 重置密码 暂停账号 Lin Yue Shenzhen Sales A 正常 获客 22 背调 21 已用费用 US$14.71 剩余额度 US$7.29 重置密码 暂停账号 lalal w 正常 获客 0 背调 0 已用费用 US$0.00 剩余额度 US$20.00 重置密码 暂停账号",
+        "mainTextLength": 333,
+        "headerHeight": 120,
+        "mobileCardCount": 3,
+        "tableCount": 1,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-high-value-customers-mobile",
+      "route": "/admin/high-value-customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-admin-high-value-customers-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/high-value-customers",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 2653,
+        "bodyTextSample": "跨境电商管理者系统 已连接 员工管理 客户列表 费用监控 客户列表 查看所有员工已完成背调的客户，并按优先跟进与其他客户分组管理。 刷新 已背调客户 15 平均评分 75.4 优先跟进 6 个客户，评分 80 分及以上 优先跟进客户 评分 80 分及以上，建议优先跟进。 筛选客户 默认排序 评分高到低 评分低到高 时间新到旧 时间旧到新 公司名称 国家 类型 产品 负责人 网站 时间 评分 操作 Baz Mobiles GB 英国 配件零售商 手机壳 钢化膜 +1 Lin Yue Shenzhen Sales A bazmobiles.co.uk/ 获客2026-06-27 22:21:39 背调2026-06-27 22:21:39 80.8/100 · 高分 · 优先跟进 查看报告 Verizon US 美国 转售采购商 MagSafe 配件 Lin Yue Shenzhen Sales A verizon.com/ 获客2026-06-24 17:05:32 背调2026-06-24 17:05:32 93.78/100 · 高分 · 优先跟进 查看报告 iFixit US 美国",
+        "mainTextLength": 2624,
+        "headerHeight": 120,
+        "mobileCardCount": 0,
+        "tableCount": 2,
+        "visibleTableCount": 2,
+        "offenders": [
+          {
+            "tag": "table",
+            "className": "w-full min-w-[1160px] text-sm",
+            "left": 34,
+            "right": 1194,
+            "width": 1160,
+            "text": "公司名称国家类型产品负责人网站时间评分操作Baz MobilesGB英国配件零售商手机壳钢化膜+1Lin YueShenzhen Sales Abazmobil"
+          },
+          {
+            "tag": "thead",
+            "className": "bg-muted/50 text-xs text-muted-foreground",
+            "left": 34,
+            "right": 1194,
+            "width": 1160,
+            "text": "公司名称国家类型产品负责人网站时间评分操作"
+          },
+          {
+            "tag": "tr",
+            "className": "",
+            "left": 34,
+            "right": 1194,
+            "width": 1160,
+            "text": "公司名称国家类型产品负责人网站时间评分操作"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 296,
+            "right": 457,
+            "width": 161,
+            "text": "产品"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 457,
+            "right": 572,
+            "width": 115,
+            "text": "负责人"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 572,
+            "right": 719,
+            "width": 146,
+            "text": "网站"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 719,
+            "right": 889,
+            "width": 170,
+            "text": "时间"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 889,
+            "right": 1079,
+            "width": 190,
+            "text": "评分"
+          },
+          {
+            "tag": "th",
+            "className": "px-3 py-2 text-left",
+            "left": 1079,
+            "right": 1194,
+            "width": 115,
+            "text": "操作"
+          },
+          {
+            "tag": "tbody",
+            "className": "",
+            "left": 34,
+            "right": 1194,
+            "width": 1160,
+            "text": "Baz MobilesGB英国配件零售商手机壳钢化膜+1Lin YueShenzhen Sales Abazmobiles.co.uk/获客2026-06-27"
+          },
+          {
+            "tag": "tr",
+            "className": "border-t align-top transition-colors bg-emerald-50/35",
+            "left": 34,
+            "right": 1194,
+            "width": 1160,
+            "text": "Baz MobilesGB英国配件零售商手机壳钢化膜+1Lin YueShenzhen Sales Abazmobiles.co.uk/获客2026-06-27"
+          },
+          {
+            "tag": "td",
+            "className": "px-3 py-3",
+            "left": 296,
+            "right": 457,
+            "width": 161,
+            "text": "手机壳钢化膜+1"
+          }
+        ]
+      },
+      "console": [],
+      "pageErrors": []
+    },
+    {
+      "name": "admin-costs-mobile",
+      "route": "/admin/costs",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/fresh-admin-costs-mobile.png",
+      "gotoError": null,
+      "metrics": {
+        "url": "http://localhost:3000/admin/costs",
+        "viewportWidth": 390,
+        "docScrollWidth": 390,
+        "docOverflowPx": 0,
+        "bodyTextLength": 500,
+        "bodyTextSample": "跨境电商管理者系统 已连接 员工管理 客户列表 费用监控 费用监控 查看各员工本月已用费用和额度审批。 今日 本周 本月 全部 刷新 总已用费用 US$14.71 总基础额度 US$22.00 总临时额度 US$20.00 剩余额度 US$27.29 批量修改预算 本月基础限额 $ 本月临时额度 $ 应用到 0 人 先在下方员工费用表勾选员工；留空的字段不会被修改。临时额度为替换当前本月临时额度。 员工费用情况 已选 0 人 Chen Wei Shenzhen Sales B 明细 已发生费用 US$0.00 剩余 US$0.00 暂未折算 0 进行中任务 0 本月临时额度 $ 保存 本月基础限额 $ 保存 Lin Yue Shenzhen Sales A 明细 已发生费用 US$14.71 剩余 US$7.29 暂未折算 172 进行中任务 14 本月临时额度 $ 保存 本月基础限额 $ 保存 lalal w 明细 已发生费用 US$0.00 剩余 US$20.00 暂未折算 0 进行中任务 0 本月临时额度 $ 保存 本月基础限额 $ 保存 待审批额度申请 暂无待审批申请。",
+        "mainTextLength": 471,
+        "headerHeight": 120,
+        "mobileCardCount": 3,
+        "tableCount": 2,
+        "visibleTableCount": 0,
+        "offenders": []
+      },
+      "console": [],
+      "pageErrors": []
+    }
+  ]
+}

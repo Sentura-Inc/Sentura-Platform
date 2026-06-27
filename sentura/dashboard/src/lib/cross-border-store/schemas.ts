@@ -468,6 +468,12 @@ export const CreateAccioImportRequestSchema = z.object({
 });
 export type CreateAccioImportRequest = z.infer<typeof CreateAccioImportRequestSchema>;
 
+export const StartAccioImportAnalysisRequestSchema = z.object({
+  session_key: z.string().min(1),
+  estimated_cost_usd: CbeMoneyUsdSchema.default(0),
+});
+export type StartAccioImportAnalysisRequest = z.infer<typeof StartAccioImportAnalysisRequestSchema>;
+
 export const AdminCreateOperatorRequestSchema = z.object({
   display_name: z.string().min(1),
   password: z.string().min(4),
@@ -481,11 +487,6 @@ export const AdminCreateOperatorRequestSchema = z.object({
   })).default([]),
 });
 export type AdminCreateOperatorRequest = z.infer<typeof AdminCreateOperatorRequestSchema>;
-
-export const AdminBatchCreateOperatorsRequestSchema = z.object({
-  operators: z.array(AdminCreateOperatorRequestSchema).min(1).max(20),
-});
-export type AdminBatchCreateOperatorsRequest = z.infer<typeof AdminBatchCreateOperatorsRequestSchema>;
 
 export const AdminUpdateOperatorRequestSchema = z.object({
   status: z.enum(["active", "suspended"]).optional(),

@@ -4,6 +4,8 @@ import {
   CBE_ADMIN_API_BASE,
   CBE_ADMIN_LOGIN_PATH,
 } from "@/lib/cross-border-routes";
+import type { CostEvent } from "@/lib/gateway";
+import type { MemoryRecordItem } from "../../employee/_data/employee-data";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,6 +17,8 @@ export interface AdminOperatorRow extends JsonRecord {
   email?: string | null;
   team_name?: string | null;
   status: string;
+  all_chat_record_count?: string | number | null;
+  all_chat_customer_count?: string | number | null;
 }
 
 export interface AdminCustomerRow {
@@ -51,6 +55,7 @@ export interface AdminCostRow extends JsonRecord {
   remaining_usd: number;
   pending_approval_count: number;
   active_task_count: number;
+  unpriced_call_count: number;
 }
 
 export interface AdminApprovalRow extends JsonRecord {
@@ -63,6 +68,27 @@ export interface AdminApprovalRow extends JsonRecord {
   estimated_cost_usd: string;
   period: string;
   created_at: string;
+}
+
+interface ApiMemoryRecord {
+  importId: string;
+  summaryId?: string | null;
+  agentRunId?: string | null;
+  agentRunStatus?: string | null;
+  sourceFileName?: string | null;
+  sourceKind?: string | null;
+  companyName?: string | null;
+  country?: string | null;
+  conversationCount: number;
+  customerProfile?: Record<string, unknown> | null;
+  purchaseIntent?: Record<string, unknown>[];
+  negotiatedPrices?: Record<string, unknown>[];
+  nextActions: string[];
+  behaviorSignals?: Record<string, unknown> | null;
+  memoryFactStatus?: string | null;
+  validationStatus?: string | null;
+  uploadedAt: string;
+  summaryText?: string | null;
 }
 
 async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -109,20 +135,6 @@ export function createAdminOperator(input: {
   );
 }
 
-export function createAdminOperators(input: {
-  operators: Array<{
-    display_name: string;
-    password: string;
-    team_name?: string;
-    initial_limits: Array<{ period: string; limit_usd: number; enabled: boolean }>;
-  }>;
-}) {
-  return adminFetch<{ items: AdminOperatorRow[]; tokenDisplayPolicy?: string }>(
-    "/api/client-demos/cross-border/admin/operators",
-    { method: "POST", body: JSON.stringify(input) },
-  );
-}
-
 export function updateAdminOperator(
   id: string,
   input: {
@@ -157,8 +169,68 @@ export function fetchAdminOperator(id: string) {
     profile: AdminOperatorRow | null;
     workload: JsonRecord[];
     customers: AdminCustomerRow[];
-    costEvents: JsonRecord[];
+    costEvents: CostEvent[];
+    costEventsSource?: "sentura_cost" | "db_fallback";
   }>(`${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}`);
+}
+
+function memorySourceFromKind(sourceKind?: string | null, sourceFileName?: string | null): MemoryRecordItem["source"] {
+  if (sourceKind === "manual_json" || sourceKind === "manual_text" || sourceKind === "manual_image") {
+    return "manual_import";
+  }
+  if (sourceKind === "alibaba_international") return "alibaba_international";
+  if (sourceKind === "demo_data") return "demo_data";
+  if (sourceFileName?.toLowerCase().includes("alibaba")) return "alibaba_international";
+  return "accio";
+}
+
+function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
+  const analyzed = Boolean(record.summaryId);
+  return {
+    recordId: record.summaryId ?? record.importId,
+    importId: record.importId,
+    name: record.companyName ?? record.sourceFileName ?? "未命名聊天记录",
+    source: memorySourceFromKind(record.sourceKind, record.sourceFileName),
+    importedAt: record.uploadedAt,
+    analysisStatus: analyzed
+      ? "analyzed"
+      : record.agentRunStatus === "failed" || record.validationStatus === "failed"
+        ? "failed"
+        : record.agentRunStatus === "running" || record.agentRunStatus === "polling"
+          ? "running"
+          : "not_started",
+    conversationCount: record.conversationCount,
+    reportId: analyzed ? record.summaryId ?? undefined : undefined,
+    latestAgentRunId: record.agentRunId ?? undefined,
+    memoryPreviewStatus:
+      record.memoryFactStatus === "approved" || record.memoryFactStatus === "rejected"
+        ? record.memoryFactStatus
+        : "preview_only",
+    summary:
+      record.summaryText ??
+      record.nextActions[0] ??
+      (analyzed ? "记忆员工已生成结构化摘要。" : "已导入，等待记忆员工分析后生成分析报告。"),
+    country: record.country ?? undefined,
+    customerProfile: record.customerProfile ?? undefined,
+    purchaseIntent: record.purchaseIntent ?? [],
+    negotiatedPrices: record.negotiatedPrices ?? [],
+    behaviorSignals: record.behaviorSignals ?? undefined,
+    nextActions: record.nextActions,
+    companyName: record.companyName ?? undefined,
+  };
+}
+
+export async function fetchAdminOperatorMemoryRecords(id: string) {
+  const page = await adminFetch<{ items: ApiMemoryRecord[] }>(
+    `${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}/memory`,
+  );
+  return page.items.map(memoryFromApi);
+}
+
+export function fetchAdminOperatorMemoryImportPayload(operatorId: string, importId: string) {
+  return adminFetch<unknown>(
+    `${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(operatorId)}/memory/imports/${encodeURIComponent(importId)}`,
+  );
 }
 
 export function fetchHighValueCustomers() {

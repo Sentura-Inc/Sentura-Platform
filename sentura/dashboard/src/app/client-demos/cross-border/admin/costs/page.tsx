@@ -2,19 +2,11 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, Download, Loader2, RefreshCw, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Check, HelpCircle, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -23,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AnimatedTableRow } from "@/components/cross-border/animated-list";
 import {
   decideCostApproval,
   fetchAdminOperator,
@@ -35,9 +28,20 @@ import {
 } from "../_data/admin-api";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
 import {
-  exportAdminCostDocument,
+  exportEmployeeCostDocument,
   type ExportFormat,
 } from "@/components/cross-border/document-export";
+import {
+  CostDetailDialog,
+  type CostDetailExportSnapshot,
+  type CostDetailRangeKey,
+} from "@/components/cross-border/cost-detail-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { CostEvent } from "@/lib/gateway";
 
 type RangeKey = "today" | "week" | "month" | "all";
 
@@ -71,31 +75,6 @@ function moneyInput(value: unknown) {
   return money(value).toFixed(2);
 }
 
-function costAmount(value: unknown, status: unknown) {
-  const statusText = String(status ?? "").toLowerCase();
-  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "暂未折算";
-  return usd(value);
-}
-
-function costTaskLabel(value: unknown) {
-  const raw = String(value ?? "").toLowerCase();
-  if (raw.includes("screening")) return "背调";
-  if (raw.includes("accio") || raw.includes("memory")) return "聊天整理";
-  if (raw.includes("lead")) return "找客户";
-  return "任务";
-}
-
-function costSourceLabel(value: unknown) {
-  const raw = String(value ?? "").toLowerCase();
-  if (raw.includes("google") || raw.includes("maps") || raw.includes("places")) return "公开地址查询";
-  if (raw.includes("search") || raw.includes("fetch") || raw.includes("web")) return "公开网页查询";
-  if (raw.includes("external") || raw.includes("api") || raw.includes("provider")) return "工具调用";
-  if (raw.includes("cbe-lead")) return "找客户";
-  if (raw.includes("cbe-buyer") || raw.includes("screening")) return "背调";
-  if (raw.includes("cbe-accio") || raw.includes("memory")) return "聊天整理";
-  return "工具调用";
-}
-
 function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -104,6 +83,20 @@ function highlightFrameClass(active: boolean) {
   return active
     ? "animate-pulse bg-sky-50/60 outline outline-2 -outline-offset-2 outline-sky-300 shadow-[0_0_0_3px_rgba(125,211,252,0.22)]"
     : "";
+}
+
+function FieldHelp({ label, children }: { label: string; children: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-label={label}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </TooltipTrigger>
+      <TooltipContent side="top">{children}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function AdminCostsContent() {
@@ -127,10 +120,12 @@ function AdminCostsContent() {
   const [error, setError] = useState<string | null>(null);
   const [dismissedHighlights, setDismissedHighlights] = useState<Set<string>>(() => new Set());
   const [selectedCostUserId, setSelectedCostUserId] = useState<string | null>(null);
+  const [costDetailRange, setCostDetailRange] = useState<CostDetailRangeKey>("month");
   const [costDetail, setCostDetail] = useState<{
     profile: AdminOperatorRow | null;
     summary: AdminCostRow | null;
-    costEvents: Record<string, unknown>[];
+    costEvents: CostEvent[];
+    costEventsSource?: "sentura_cost" | "db_fallback";
   } | null>(null);
 
   const highlightedApprovalId = searchParams.get("highlightApproval");
@@ -347,6 +342,7 @@ function AdminCostsContent() {
 
   async function openCostDetail(item: AdminCostRow) {
     setSelectedCostUserId(item.user_id);
+    setCostDetailRange(range);
     setCostDetail(null);
     setError(null);
     try {
@@ -355,11 +351,12 @@ function AdminCostsContent() {
         profile: detail.profile,
         summary: item,
         costEvents: detail.costEvents,
+        costEventsSource: detail.costEventsSource,
       });
     } catch (err) {
       setSelectedCostUserId(null);
       setCostDetail(null);
-      setError(err instanceof Error ? err.message : "员工费用明细加载失败。");
+      setError(err instanceof Error ? err.message : "成本明细加载失败。");
     }
   }
 
@@ -367,13 +364,29 @@ function AdminCostsContent() {
     setDismissedHighlights((current) => new Set(current).add(key));
   }
 
-  function exportCostDetail(format: ExportFormat) {
+  function exportCostDetail(format: ExportFormat, detail: CostDetailExportSnapshot) {
     if (!costDetail) return;
-    exportAdminCostDocument({
-      profile: costDetail.profile,
-      summary: costDetail.summary,
-      rangeLabel: ranges.find((item) => item.key === range)?.label ?? range,
-      events: costDetail.costEvents,
+    exportEmployeeCostDocument({
+      rangeLabel: detail.rangeLabel,
+      subjectLabel: costDetail.profile?.display_name ?? "员工",
+      spendUsd: detail.summary.spendUsd,
+      totalTokens: detail.summary.totalTokens,
+      totalCalls: detail.summary.totalCalls,
+      unpricedCalls: detail.summary.unpricedCalls,
+      events: detail.summary.events,
+      sourceBreakdown: detail.sourceBreakdown,
+      scopedSessionCount: detail.summary.events.length,
+      outsideScopeCount: 0,
+      costBudget: {
+        period: "month",
+        baseLimitUsd: money(costDetail.summary?.base_limit_usd),
+        activeAllowanceUsd: money(costDetail.summary?.active_allowance_usd),
+        limitUsd: money(costDetail.summary?.base_limit_usd) + money(costDetail.summary?.active_allowance_usd),
+        limitEnabled: true,
+        remainingUsd: money(costDetail.summary?.remaining_usd),
+        source: costDetail.costEventsSource ?? "sentura_cost",
+        updatedAt: null,
+      },
     }, format);
   }
 
@@ -383,7 +396,7 @@ function AdminCostsContent() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">费用监控</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            查看各员工本月已用费用、预计费用和额度审批。
+            查看各员工本月已用费用和额度审批。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -407,11 +420,21 @@ function AdminCostsContent() {
           <CardContent className="text-2xl font-semibold">{usd(pool.spendUsd)}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>总基础额度</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              总基础额度
+              <FieldHelp label="基础额度说明">员工本月默认可用预算，由管理者设置。</FieldHelp>
+            </CardTitle>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(pool.baseLimitUsd)}</CardContent>
         </Card>
         <Card size="sm">
-          <CardHeader><CardTitle>总临时额度</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              总临时额度
+              <FieldHelp label="临时额度说明">本月额外增加的预算，用于临时放宽费用上限。</FieldHelp>
+            </CardTitle>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(pool.activeAllowanceUsd)}</CardContent>
         </Card>
         <Card size="sm">
@@ -477,6 +500,103 @@ function AdminCostsContent() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="space-y-3 md:hidden">
+            {items.map((item) => (
+              <article key={item.user_id} className="rounded-md border bg-white/70 p-3 shadow-sm shadow-sky-950/5">
+                <div className="flex items-start justify-between gap-3">
+                  <label className="flex min-w-0 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      aria-label={`选择 ${item.display_name} 的预算`}
+                      checked={selectedBudgetUserIds.has(item.user_id)}
+                      onChange={() => toggleBudgetRow(item.user_id)}
+                    />
+                    <span className="min-w-0">
+                      <button
+                        type="button"
+                        className="block truncate text-left font-medium text-primary hover:underline"
+                        onClick={() => openCostDetail(item)}
+                      >
+                        {item.display_name}
+                      </button>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{String(item.team_name ?? item.user_id)}</span>
+                    </span>
+                  </label>
+                  <Button variant="outline" size="sm" onClick={() => openCostDetail(item)}>
+                    明细
+                  </Button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                    <div className="text-xs text-muted-foreground">已发生费用</div>
+                    <div className="font-semibold">{usd(item.actual_cost_usd)}</div>
+                  </div>
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                    <div className="text-xs text-muted-foreground">剩余</div>
+                    <div className={cn("font-semibold", item.remaining_usd < 0 ? "text-destructive" : "")}>{usd(item.remaining_usd)}</div>
+                  </div>
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                    <div className="text-xs text-muted-foreground">暂未折算</div>
+                    <div className="font-semibold">{num(item.unpriced_call_count)}</div>
+                  </div>
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                    <div className="text-xs text-muted-foreground">进行中任务</div>
+                    <div className="font-semibold">{num(item.active_task_count)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">本月临时额度</div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <div className="relative min-w-0">
+                        <Input
+                          className="pr-7 text-right"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={allowanceInputs[item.user_id] ?? moneyInput(item.active_allowance_usd)}
+                          onChange={(event) => setAllowanceInputs((value) => ({ ...value, [item.user_id]: event.target.value }))}
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => saveAllowance(item)} disabled={busy === `allowance:${item.user_id}`}>
+                        保存
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">本月基础限额</div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <div className="relative min-w-0">
+                        <Input
+                          className="pr-7 text-right"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={limitInputs[item.user_id] ?? moneyInput(item.base_limit_usd)}
+                          onChange={(event) => setLimitInputs((value) => ({ ...value, [item.user_id]: event.target.value }))}
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                      </div>
+                      <Button size="sm" onClick={() => saveLimit(item)} disabled={busy === `limit:${item.user_id}`}>
+                        保存
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+            {!loading && items.length === 0 ? (
+              <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">暂无费用数据。</div>
+            ) : null}
+            {loading ? (
+              <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">正在加载费用数据...</div>
+            ) : null}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -490,18 +610,27 @@ function AdminCostsContent() {
                 </TableHead>
                 <TableHead>员工</TableHead>
                 <TableHead>已发生费用</TableHead>
-                <TableHead>预计费用</TableHead>
                 <TableHead>暂未折算</TableHead>
                 <TableHead>进行中任务</TableHead>
-                <TableHead>基础额度</TableHead>
-                <TableHead className="w-[220px]">临时额度</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1.5">
+                    基础额度
+                    <FieldHelp label="基础额度说明">员工本月默认可用预算，由管理者设置。</FieldHelp>
+                  </span>
+                </TableHead>
+                <TableHead className="w-[220px]">
+                  <span className="inline-flex items-center gap-1.5">
+                    临时额度
+                    <FieldHelp label="临时额度说明">本月额外增加的预算，用于临时放宽费用上限。</FieldHelp>
+                  </span>
+                </TableHead>
                 <TableHead>剩余</TableHead>
                 <TableHead className="w-[220px]">本月限额</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.user_id}>
+              {items.map((item, index) => (
+                <AnimatedTableRow key={item.user_id} index={index}>
                   <TableCell>
                     <input
                       type="checkbox"
@@ -521,10 +650,6 @@ function AdminCostsContent() {
                     <div className="text-xs text-muted-foreground">{String(item.team_name ?? item.user_id)}</div>
                   </TableCell>
                   <TableCell>{usd(item.actual_cost_usd)}</TableCell>
-                  <TableCell>
-                    <div>{usd(item.estimated_cost_usd)}</div>
-                    {item.estimated_cost_usd > 0 ? <Badge variant="outline">预计</Badge> : null}
-                  </TableCell>
                   <TableCell>{num(item.unpriced_call_count)}</TableCell>
                   <TableCell>{num(item.active_task_count)}</TableCell>
                   <TableCell>{usd(item.base_limit_usd)}</TableCell>
@@ -565,24 +690,25 @@ function AdminCostsContent() {
                       </Button>
                     </div>
                   </TableCell>
-                </TableRow>
+                </AnimatedTableRow>
               ))}
               {!loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
-      <Dialog
+      <CostDetailDialog
         open={Boolean(selectedCostUserId)}
         onOpenChange={(open) => {
           if (!open) {
@@ -590,61 +716,21 @@ function AdminCostsContent() {
             setCostDetail(null);
           }
         }}
-      >
-        <DialogContent className="max-h-[84vh] w-[94vw] max-w-[960px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[960px]">
-          <DialogHeader className="border-b px-5 py-4">
-            <DialogTitle>{costDetail?.profile?.display_name ?? "员工费用明细"}</DialogTitle>
-            <DialogDescription>展示最近 100 条费用记录。</DialogDescription>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => exportCostDetail("docx")} disabled={!costDetail}>
-                <Download className="h-3.5 w-3.5" />
-                导出 DOCX
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => exportCostDetail("pdf")} disabled={!costDetail}>
-                <Download className="h-3.5 w-3.5" />
-                导出 PDF
-              </Button>
-            </div>
-          </DialogHeader>
-          <ScrollArea className="min-h-0 px-5 pb-5">
-            {!costDetail ? (
-              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在加载费用明细
-              </div>
-            ) : (
-              <div className="space-y-2 py-4">
-                {costDetail.costEvents.map((event, index) => (
-                  <div key={`${String(event.agent_run_id ?? event.id)}-${index}`} className="rounded-md border p-3 text-sm">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{costTaskLabel(event.task_kind ?? event.agent_id)}</Badge>
-                      <span className="font-medium">{costSourceLabel(event.provider ?? event.agent_id)}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      已发生 {costAmount(event.actual_cost_usd, event.ledger_status)} · 预计 {usd(event.cost_usd_estimate)}
-                    </div>
-                    <details className="mt-2 text-xs text-muted-foreground">
-                      <summary className="cursor-pointer">技术详情</summary>
-                      <div className="mt-1">
-                        来源 {String(event.provider ?? event.agent_id ?? "-")}
-                      </div>
-                      <div className="mt-1 break-all font-mono">
-                        {String(event.session_key ?? "")}
-                      </div>
-                      <div className="mt-1">
-                        状态 {String(event.ledger_status ?? event.status ?? "-")}
-                      </div>
-                    </details>
-                  </div>
-                ))}
-                {costDetail.costEvents.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-muted-foreground">暂无费用明细。</p>
-                ) : null}
-              </div>
-            )}
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        title={costDetail?.profile?.display_name ? `${costDetail.profile.display_name} · 成本明细` : "成本明细"}
+        events={costDetail?.costEvents ?? []}
+        range={costDetailRange}
+        onRangeChange={setCostDetailRange}
+        loading={Boolean(selectedCostUserId && !costDetail)}
+        exportDisabled={!costDetail}
+        dataSourceNote={
+          costDetail?.costEventsSource === "db_fallback"
+            ? "实时 sentura-cost 事件暂不可用；当前显示数据库费用账本回退记录，员工端恢复实时连接后会以 sentura-cost 为准。"
+            : "管理端与员工端使用同一批 sentura-cost 工具成本事件。"
+        }
+        technicalDescription="管理端按员工处理编号关联 sentura-cost 事件；时间筛选和费用来源与员工端成本明细共用同一套展示逻辑。"
+        emptyMessage={costDetail ? "当前范围暂无费用明细。" : "正在加载费用明细。"}
+        onExport={exportCostDetail}
+      />
 
       <Card
         id="pending-approvals"
@@ -655,23 +741,76 @@ function AdminCostsContent() {
           <CardTitle>待审批额度申请</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="space-y-3 md:hidden">
+            {approvals.map((approval) => {
+              const activeHighlight = highlightedApprovalId === approval.id && !dismissedHighlights.has(`approval:${approval.id}`);
+              return (
+                <article
+                  id={`approval-${approval.id}-mobile`}
+                  key={approval.id}
+                  className={cn("rounded-md border bg-white/70 p-3 shadow-sm shadow-sky-950/5", highlightFrameClass(activeHighlight))}
+                  onClick={() => {
+                    if (activeHighlight) dismissHighlight(`approval:${approval.id}`);
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{approval.display_name}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{approval.task_kind} · {approval.period}</div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold">{usd(approval.requested_allowance_usd)}</div>
+                  </div>
+                  <div className="mt-2 line-clamp-3 rounded-md bg-muted/35 px-2 py-1.5 text-xs leading-5 text-muted-foreground">
+                    {approval.target_summary ?? "暂无任务内容"}
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    <div className="relative">
+                      <Input
+                        className="pr-7 text-right"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={approvalInputs[approval.id] ?? moneyInput(approval.requested_allowance_usd)}
+                        onChange={(event) => setApprovalInputs((value) => ({ ...value, [approval.id]: event.target.value }))}
+                      />
+                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button size="sm" onClick={() => decide(approval, "approved")} disabled={busy?.startsWith(`approval:${approval.id}`)}>
+                        <Check className="h-4 w-4" />
+                        批准
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => decide(approval, "rejected")} disabled={busy?.startsWith(`approval:${approval.id}`)}>
+                        <X className="h-4 w-4" />
+                        拒绝
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {approvals.length === 0 ? (
+              <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">暂无待审批申请。</div>
+            ) : null}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>员工</TableHead>
                 <TableHead>任务</TableHead>
                 <TableHead>周期</TableHead>
-                <TableHead>预计费用</TableHead>
                 <TableHead>请求额度</TableHead>
                 <TableHead>任务内容</TableHead>
                 <TableHead className="text-right">处理</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {approvals.map((approval) => {
+              {approvals.map((approval, index) => {
                 const activeHighlight = highlightedApprovalId === approval.id && !dismissedHighlights.has(`approval:${approval.id}`);
                 return (
-                <TableRow
+                <AnimatedTableRow
+                  index={index}
                   id={`approval-${approval.id}`}
                   key={approval.id}
                   className={highlightFrameClass(activeHighlight)}
@@ -682,7 +821,6 @@ function AdminCostsContent() {
                   <TableCell>{approval.display_name}</TableCell>
                   <TableCell>{approval.task_kind}</TableCell>
                   <TableCell>{approval.period}</TableCell>
-                  <TableCell>{usd(approval.estimated_cost_usd)}</TableCell>
                   <TableCell>
                     <div className="relative w-28">
                       <Input
@@ -709,7 +847,7 @@ function AdminCostsContent() {
                       </Button>
                     </div>
                   </TableCell>
-                </TableRow>
+                </AnimatedTableRow>
               );
               })}
               {approvals.length === 0 ? (
@@ -719,6 +857,7 @@ function AdminCostsContent() {
               ) : null}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

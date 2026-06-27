@@ -1,0 +1,547 @@
+{
+  "results": [
+    {
+      "label": "employee-login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/01-employee-login-mobile.png",
+      "url": "http://127.0.0.1:3000/employee/login",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 845,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "系统：未连接",
+          "position": "sticky",
+          "bottom": 779,
+          "top": 0,
+          "height": 65,
+          "width": 390
+        }
+      ],
+      "bodyText": "系统：未连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商员工操作系统 登录"
+    },
+    {
+      "label": "employee-home",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/02-employee-home-mobile.png",
+      "url": "http://127.0.0.1:3000/employee/login",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 845,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "系统：未连接",
+          "position": "sticky",
+          "bottom": 779,
+          "top": 0,
+          "height": 65,
+          "width": 390
+        }
+      ],
+      "bodyText": "系统：未连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商员工操作系统 登录"
+    },
+    {
+      "label": "employee-customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/03-employee-customers-mobile.png",
+      "url": "http://127.0.0.1:3000/employee/customers",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 900,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "跨境电商员工操作系统个人中心个人中心获客与背调获客与背调记忆整理记忆整理工具成本0%US$0.00上限 US$120系统：未连接员员工退出个人中心获客与背调记忆",
+          "position": "sticky",
+          "bottom": 724,
+          "top": 0,
+          "height": 120,
+          "width": 390
+        }
+      ],
+      "bodyText": "跨境电商员工操作系统 系统：未连接 退出 个人中心 获客与背调 记忆整理"
+    },
+    {
+      "label": "employee-memory",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/04-employee-memory-mobile.png",
+      "url": "http://127.0.0.1:3000/employee/memory",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 1081,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "跨境电商员工操作系统个人中心个人中心获客与背调获客与背调记忆整理记忆整理工具成本0%US$0.00上限 US$120系统：未连接员员工退出个人中心获客与背调记忆",
+          "position": "sticky",
+          "bottom": 724,
+          "top": 0,
+          "height": 120,
+          "width": 390
+        }
+      ],
+      "bodyText": "跨境电商员工操作系统 系统：未连接 退出 个人中心 获客与背调 记忆整理 记忆整理 共 0 条记录，当前可定位聊天客户 0 个 添加新记录 来源 / 导入时间 全部 未分析 已分析 失败 删除所选 聊天客户列表 0 个客户 基于已分析聊天记录整理客户定位信息；这里只展示预览整理结果，不写入背调结论。 全部客户 可定位 信息不足 有报价 有下一步 暂无符合条件的聊天客户 导入并分析聊天记录后，系统会按公司、联系人、商品、报价和下一步整理到这里。 原始记忆记录 保留导入批次、分析状态和删除/重试操作。 0 条记录 没有符合条件的记录 调整筛选条件，或点击“添加新记录”导入聊天记录。 添加新记录"
+    },
+    {
+      "label": "employee-customers-filter",
+      "skipped": true,
+      "reason": "button not found",
+      "url": "http://127.0.0.1:3000/employee/customers"
+    },
+    {
+      "label": "employee-customers-manual",
+      "skipped": true,
+      "reason": "button not found",
+      "url": "http://127.0.0.1:3000/employee/customers"
+    },
+    {
+      "label": "employee-memory-import",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/07-employee-memory-import-mobile.png",
+      "url": "http://127.0.0.1:3000/employee/memory",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 1081,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "跨境电商员工操作系统个人中心个人中心获客与背调获客与背调记忆整理记忆整理工具成本0%US$0.00上限 US$120系统：未连接员员工退出个人中心获客与背调记忆",
+          "position": "sticky",
+          "bottom": 724,
+          "top": 0,
+          "height": 120,
+          "width": 390
+        }
+      ],
+      "bodyText": "跨境电商员工操作系统 系统：未连接 退出 个人中心 获客与背调 记忆整理 记忆整理 共 0 条记录，当前可定位聊天客户 0 个 添加新记录 来源 / 导入时间 全部 未分析 已分析 失败 删除所选 聊天客户列表 0 个客户 基于已分析聊天记录整理客户定位信息；这里只展示预览整理结果，不写入背调结论。 全部客户 可定位 信息不足 有报价 有下一步 暂无符合条件的聊天客户 导入并分析聊天记录后，系统会按公司、联系人、商品、报价和下一步整理到这里。 原始记忆记录 保留导入批次、分析状态和删除/重试操作。 0 条记录 没有符合条件的记录 调整筛选条件，或点击“添加新记录”导入聊天记录。 添加新记录"
+    },
+    {
+      "label": "admin-login",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/08-admin-login-mobile.png",
+      "url": "http://127.0.0.1:3000/admin/login",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 845,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "系统：未连接",
+          "position": "sticky",
+          "bottom": 779,
+          "top": 0,
+          "height": 65,
+          "width": 390
+        }
+      ],
+      "bodyText": "系统：未连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商管理者系统 登录"
+    },
+    {
+      "label": "admin-employees",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/09-admin-employees-mobile.png",
+      "url": "http://127.0.0.1:3000/admin/login",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 845,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "系统：未连接",
+          "position": "sticky",
+          "bottom": 779,
+          "top": 0,
+          "height": 65,
+          "width": 390
+        }
+      ],
+      "bodyText": "系统：未连接 Hi！欢迎使用 Hi！欢迎使用 Hi！欢迎使用 跨境电商管理者系统 登录"
+    },
+    {
+      "label": "admin-high-value-customers",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/10-admin-high-value-customers-mobile.png",
+      "url": "http://127.0.0.1:3000/admin/high-value-customers",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 900,
+      "offenders": [],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "跨境电商管理者系统员工管理员工管理客户列表客户列表费用监控费用监控系统：未连接管管理者退出员工管理客户列表费用监控",
+          "position": "sticky",
+          "bottom": 724,
+          "top": 0,
+          "height": 120,
+          "width": 390
+        }
+      ],
+      "bodyText": "跨境电商管理者系统 系统：未连接 退出 员工管理 客户列表 费用监控 客户列表 查看所有员工已完成背调的客户，并按优先跟进与其他客户分组管理。 刷新 已背调客户 0 平均评分 0.0 优先跟进 0 个客户，评分 80 分及以上 正在加载客户列表"
+    },
+    {
+      "label": "admin-costs",
+      "screenshot": "/Users/purest./Documents/Sentura/Sentura-Platform/outputs/mobile-audit/11-admin-costs-mobile.png",
+      "url": "http://127.0.0.1:3000/admin/costs",
+      "title": "Sentura 跨境电商系统",
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "clientHeight": 844,
+      "scrollHeight": 1430,
+      "offenders": [
+        {
+          "tag": "TABLE",
+          "cls": "w-full caption-bottom text-sm",
+          "text": "员工已发生费用暂未折算进行中任务基础额度临时额度剩余本月限额正在加载费用数据...",
+          "display": "table",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "THEAD",
+          "cls": "[&_tr]:border-b [&_tr]:bg-[var(--sentura-surface-2)]/62",
+          "text": "员工已发生费用暂未折算进行中任务基础额度临时额度剩余本月限额",
+          "display": "table-header-group",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "TR",
+          "cls": "border-b border-[var(--sentura-border)]/80 transition-colors hover:bg-[var(--sentura-ice)]/42 has-aria-expanded:bg-[var(--sentura-ice)]/42 data-[state=selected]:bg-[var(--sentura-i",
+          "text": "员工已发生费用暂未折算进行中任务基础额度临时额度剩余本月限额",
+          "display": "table-row",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "TBODY",
+          "cls": "[&_tr:last-child]:border-0",
+          "text": "正在加载费用数据...",
+          "display": "table-row-group",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "TR",
+          "cls": "border-b border-[var(--sentura-border)]/80 transition-colors hover:bg-[var(--sentura-ice)]/42 has-aria-expanded:bg-[var(--sentura-ice)]/42 data-[state=selected]:bg-[var(--sentura-i",
+          "text": "正在加载费用数据...",
+          "display": "table-row",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "TD",
+          "cls": "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 py-8 text-center text-muted-foreground",
+          "text": "正在加载费用数据...",
+          "display": "table-cell",
+          "position": "static",
+          "left": 33,
+          "right": 654,
+          "width": 621
+        },
+        {
+          "tag": "TH",
+          "cls": "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-[var(--sentura-muted)] [&:has([role=checkbox])]:pr-0",
+          "text": "基础额度",
+          "display": "table-cell",
+          "position": "static",
+          "left": 350,
+          "right": 444,
+          "width": 94
+        },
+        {
+          "tag": "TH",
+          "cls": "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-[var(--sentura-muted)] [&:has([role=checkbox])]:pr-0 w-[220px]",
+          "text": "临时额度",
+          "display": "table-cell",
+          "position": "static",
+          "left": 444,
+          "right": 538,
+          "width": 94
+        },
+        {
+          "tag": "SPAN",
+          "cls": "inline-flex items-center gap-1.5",
+          "text": "基础额度",
+          "display": "inline-flex",
+          "position": "static",
+          "left": 358,
+          "right": 436,
+          "width": 78
+        },
+        {
+          "tag": "SPAN",
+          "cls": "inline-flex items-center gap-1.5",
+          "text": "临时额度",
+          "display": "inline-flex",
+          "position": "static",
+          "left": 452,
+          "right": 530,
+          "width": 78
+        },
+        {
+          "tag": "TH",
+          "cls": "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-[var(--sentura-muted)] [&:has([role=checkbox])]:pr-0 w-[220px]",
+          "text": "本月限额",
+          "display": "table-cell",
+          "position": "static",
+          "left": 582,
+          "right": 654,
+          "width": 72
+        },
+        {
+          "tag": "TH",
+          "cls": "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-[var(--sentura-muted)] [&:has([role=checkbox])]:pr-0",
+          "text": "剩余",
+          "display": "table-cell",
+          "position": "static",
+          "left": 538,
+          "right": 582,
+          "width": 44
+        },
+        {
+          "tag": "BUTTON",
+          "cls": "inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "text": "",
+          "display": "flex",
+          "position": "static",
+          "left": 420,
+          "right": 436,
+          "width": 16
+        },
+        {
+          "tag": "BUTTON",
+          "cls": "inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "text": "",
+          "display": "flex",
+          "position": "static",
+          "left": 514,
+          "right": 530,
+          "width": 16
+        },
+        {
+          "tag": "svg",
+          "cls": "lucide lucide-circle-question-mark h-3.5 w-3.5",
+          "text": "",
+          "display": "block",
+          "position": "static",
+          "left": 421,
+          "right": 435,
+          "width": 14
+        },
+        {
+          "tag": "svg",
+          "cls": "lucide lucide-circle-question-mark h-3.5 w-3.5",
+          "text": "",
+          "display": "block",
+          "position": "static",
+          "left": 515,
+          "right": 529,
+          "width": 14
+        }
+      ],
+      "fixedBottom": [
+        {
+          "tag": "HEADER",
+          "cls": "sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl",
+          "text": "跨境电商管理者系统员工管理员工管理客户列表客户列表费用监控费用监控系统：未连接管管理者退出员工管理客户列表费用监控",
+          "position": "sticky",
+          "bottom": 724,
+          "top": 0,
+          "height": 120,
+          "width": 390
+        }
+      ],
+      "bodyText": "跨境电商管理者系统 系统：未连接 退出 员工管理 客户列表 费用监控 费用监控 查看各员工本月已用费用和额度审批。 今日 本周 本月 全部 刷新 总已用费用 US$0.00 总基础额度 US$0.00 总临时额度 US$0.00 剩余额度 US$0.00 批量修改预算 本月基础限额 $ 本月临时额度 $ 应用到 0 人 先在下方员工费用表勾选员工；留空的字段不会被修改。临时额度为替换当前本月临时额度。 员工费用情况 已选 0 人 员工 已发生费用 暂未折算 进行中任务 基础额度 临时额度 剩余 本月限额 正在加载费用数据... 待审批额度申请 员工 任务 周期 请求额度 任务内容 处理 暂无待审批申请。"
+    },
+    {
+      "label": "admin-employees-batch-create",
+      "skipped": true,
+      "reason": "button not found",
+      "url": "http://127.0.0.1:3000/admin/employees"
+    },
+    {
+      "label": "admin-costs-batch-budget",
+      "skipped": true,
+      "reason": "button not found",
+      "url": "http://127.0.0.1:3000/admin/costs"
+    }
+  ],
+  "consoleEvents": [
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=KNnoCsE0RLMQJwmegq3du' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=crkfGozpo7Qv8lFouOumZ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=crkfGozpo7Qv8lFouOumZ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=wautMLvrFZn3vhLy5hKmJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=wautMLvrFZn3vhLy5hKmJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=b2ga-jPBdR-Pac9NG5HMQ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=CZOBEUThM2QKAZiCYLO-Y' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=FkTpL5xv3HV5HfkQmL14e' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=Hexfxjt3gNC025DhcIwjR' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=Hexfxjt3gNC025DhcIwjR' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=F_Zy1Ben-49aRpvANysk9' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=F_Zy1Ben-49aRpvANysk9' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=aZ-YRoOkXcF766MURY-ux' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=3aSsSjoziS-O5_NeniYDJ' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    },
+    {
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:3000/_next/webpack-hmr?id=AwwSaOb6_f4uN9I-rf84I' failed: Error during WebSocket handshake: net::ERR_INVALID_HTTP_RESPONSE"
+    }
+  ]
+}

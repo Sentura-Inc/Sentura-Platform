@@ -411,7 +411,7 @@ function buildEmployeePrompt(chatExport: AccioChatExport) {
 - 先调用 Accio parser 工具验证 JSON，并总结 conversation_count。
 - 再调用 Accio summarizer 工具，为每条 conversation 生成一个 AccioChatSummary；如工具遗漏了 messages 中明确出现的字段，请基于原文补齐。
 - 提取公司信息、产品、型号、数量、月潜量、目标/报价/最佳价格、包装加价、付款/物流/证书条款、next_actions、behavior_signals。
-- 只生成 memory_write_preview / memory_preview 兼容预览，不要声称已经写入长期记忆。
+  - 只生成 memory_write_preview / memory_preview 兼容结构化结果；员工端保存分析结果后由平台自动写入结构化长期记忆。
 - 不要生成 screening_handoff_target、handoff、lead_id 或任何背调移交字段。
 - 最后用以下标记包住 JSON 数组，供 Dashboard 解析：
 ${SUMMARY_JSON_START}
@@ -459,20 +459,23 @@ export default function CrossBorderAccioMemoryPage() {
   const [copyMessage, setCopyMessage] = useState("");
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ACCIO_STORAGE_KEY);
-      if (!raw) return;
-      const stored = JSON.parse(raw) as StoredState;
-      if (stored.chatExport) setChatExport(stored.chatExport);
-      if (Array.isArray(stored.summaries)) setSummaries(stored.summaries.map(normalizeSummary));
-      setSelectedConversationId(stored.selectedConversationId);
-      setSourceLabel(stored.sourceLabel ?? "已恢复");
-      setRunStatus(stored.runStatus === "loading" ? "idle" : stored.runStatus ?? "idle");
-      setRunMessage(stored.runStatus === "loading" ? "上次运行中断，请重新运行员工确认。" : stored.runMessage ?? "");
-      setAccioSessionKey(stored.accioSessionKey);
-    } catch {
-      localStorage.removeItem(ACCIO_STORAGE_KEY);
-    }
+    const restoreTimer = window.setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(ACCIO_STORAGE_KEY);
+        if (!raw) return;
+        const stored = JSON.parse(raw) as StoredState;
+        if (stored.chatExport) setChatExport(stored.chatExport);
+        if (Array.isArray(stored.summaries)) setSummaries(stored.summaries.map(normalizeSummary));
+        setSelectedConversationId(stored.selectedConversationId);
+        setSourceLabel(stored.sourceLabel ?? "已恢复");
+        setRunStatus(stored.runStatus === "loading" ? "idle" : stored.runStatus ?? "idle");
+        setRunMessage(stored.runStatus === "loading" ? "上次运行中断，请重新运行员工分析。" : stored.runMessage ?? "");
+        setAccioSessionKey(stored.accioSessionKey);
+      } catch {
+        localStorage.removeItem(ACCIO_STORAGE_KEY);
+      }
+    }, 0);
+    return () => window.clearTimeout(restoreTimer);
   }, []);
 
   useEffect(() => {
@@ -572,7 +575,7 @@ export default function CrossBorderAccioMemoryPage() {
   const previewMemory = useCallback(async () => {
     if (!selectedSummary) return;
     await copyText(JSON.stringify(selectedSummary.memory_write_preview, null, 2));
-    setCopyMessage("分析报告预览已复制，仍未写入长期记忆。");
+    setCopyMessage("分析报告预览已复制；员工端保存分析结果后会自动写入结构化长期记忆。");
   }, [selectedSummary]);
 
   return (

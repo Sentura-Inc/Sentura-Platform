@@ -1,3 +1,5 @@
+import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
+
 type EvidenceCopyInput = {
   layer?: string;
   sourceType?: string;
@@ -13,6 +15,18 @@ type ScoreBlockCopyInput = {
   status?: string;
   summary?: string;
   reason?: string;
+};
+
+export type CoverageGapDisplay = {
+  title: string;
+  reason: string;
+  action?: string;
+};
+
+type CoverageGapCopyInput = {
+  block: string;
+  reason?: string | null;
+  action?: string | null;
 };
 
 const blockLabels: Record<string, string> = {
@@ -33,7 +47,7 @@ const layerLabels: Record<string, string> = {
   official_contact: "官网公开联系信息",
   google_maps_local_presence: "线下地址",
   address_validation: "地址一致性",
-  public_footprint: "公开网页资料",
+  public_footprint: "公开资料",
   trade_customs: "贸易记录",
   financial_public_filing: "财务公开信息",
   accio_behavior: "聊天行为",
@@ -50,12 +64,30 @@ const sourceTypeLabels: Record<string, string> = {
   google_maps_places: "Google Maps（谷歌地图）公开地址",
   google_maps_local_presence: "Google Maps（谷歌地图）公开地址",
   address_validation: "公开地址资料",
-  public_web: "公开网页",
+  public_web: "公开资料",
   trade_customs: "贸易资料",
   financial_public_filing: "财务公开资料",
   accio_behavior: "聊天记录",
   unverified: "待补充来源",
 };
+
+const coverageGapCategoryFallbacks: Record<string, string[]> = {
+  legal_identity: ["公司注册信息"],
+  legal_registry: ["公司注册信息"],
+  domain_email: ["域名信息", "邮箱信息", "官网公开联系信息"],
+  domain_rdap: ["域名信息"],
+  email_dns: ["邮箱信息"],
+  official_contact: ["官网公开联系信息"],
+  google_maps_local_presence: ["公开资料"],
+  address_validation: ["公开资料"],
+  public_footprint: ["公开资料"],
+  business_fit: ["公开资料"],
+  trade_financial: ["贸易记录", "财务信息"],
+  trade_customs: ["贸易记录"],
+  financial_public_filing: ["财务信息"],
+};
+
+const hiddenCoverageGapBlocks = new Set(["conversation_behavior"]);
 
 const businessStatusLabels: Record<string, string> = {
   OPERATIONAL: "营业中",
@@ -75,6 +107,8 @@ const properNounReplacements: Array<[RegExp, string]> = [
 ];
 
 const technicalCopyReplacements: Array<[RegExp, string]> = [
+  [/公开网页资料/g, "公开资料"],
+  [/公开网页/g, "公开资料"],
   [/外部可追溯证据 URL/g, "来源网址"],
   [/可追溯证据 URL/g, "来源网址"],
   [/来源 URL/g, "来源网址"],
@@ -117,7 +151,7 @@ const englishPhraseReplacements: Array<[RegExp, string]> = [
   [/\bwebsite_match\b/gi, "官网匹配"],
   [/\bofficial website\b/gi, "官网"],
   [/\bofficial contact\b/gi, "官网公开联系信息"],
-  [/\bweb_search\b/gi, "公开网页资料"],
+  [/\bweb_search\b/gi, "公开资料"],
   [/\blegal registry\b/gi, "公司注册信息"],
   [/\bcompany registry\b/gi, "公司注册信息"],
   [/\bdomain registration data\b/gi, "域名登记资料"],
@@ -226,7 +260,7 @@ function fallbackForEnglishText(value: string, fallback?: string) {
   if (/\b(trusted|verified|positive|found|proceed|follow up)\b/.test(lower)) {
     return fallback ?? "已找到可参考的信息，可继续跟进，但仍建议结合来源网址复核。";
   }
-  return fallback ?? "已按中文范式整理该报告项；请结合来源网址查看原始页面。";
+  return fallback ?? "该项信息仍需要补充，建议人工复核后再判断。";
 }
 
 export function simplifyScreeningReportText(value: string | null | undefined, fallback?: string) {
@@ -240,9 +274,7 @@ export function simplifyScreeningReportText(value: string | null | undefined, fa
 }
 
 export function publicSourceUrl(value: string | null | undefined) {
-  if (!value || !/^https?:\/\//i.test(value)) return null;
-  if (/^https?:\/\/sentura\.local\//i.test(value)) return null;
-  return value;
+  return publicReportSourceUrl(value);
 }
 
 export function confidenceText(confidence: number | undefined) {
@@ -256,6 +288,64 @@ export function confidenceText(confidence: number | undefined) {
 export function sourceTypeText(value: string | undefined) {
   if (!value) return null;
   return sourceTypeLabels[value] ?? null;
+}
+
+function uniqueLabels(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function coverageGapCategoryLabels(block: string, reason?: string | null, action?: string | null) {
+  const text = [block, reason ?? "", action ?? ""].join(" ").toLowerCase();
+  const labels = [...(coverageGapCategoryFallbacks[block] ?? [])];
+  if (/legal|registry|registered|company house|companies house|公司注册|注册信息|注册号|注册地址/.test(text)) labels.push("公司注册信息");
+  if (/domain|rdap|域名/.test(text)) labels.push("域名信息");
+  if (/email|mailbox|hunter|abstract|dns|mx|spf|dmarc|邮箱/.test(text)) labels.push("邮箱信息");
+  if (/official contact|contact page|官网|联系页|公开联系/.test(text)) labels.push("官网公开联系信息");
+  if (/public|web|footprint|公开资料|公开页面|业务足迹/.test(text)) labels.push("公开资料");
+  if (/trade|customs|importyeti|importer|海关|贸易|进口/.test(text)) labels.push("贸易记录");
+  if (/financial|filing|sec|财务|申报|公开文件/.test(text)) labels.push("财务信息");
+  return uniqueLabels(labels.length ? labels : ["公开资料"]);
+}
+
+export function screeningCoverageGapCategoryText(block: string, reason?: string | null, action?: string | null) {
+  return coverageGapCategoryLabels(block, reason, action).join("、");
+}
+
+export function isGenericCoverageGapText(value: string | null | undefined) {
+  if (!value) return true;
+  return /coverage-gap-\d+|本次未找到可用结果|报告未提供更具体原因|报告未提供这一项|缺少这一项|这一项可核验依据|暂无核验说明|可核验.{0,2}资料|可核验的来源网址|中文范式整理该报告项|原始页面/.test(value);
+}
+
+export function screeningCoverageGapReasonText(block: string, reason?: string | null, action?: string | null) {
+  const cleaned = simplifyScreeningReportText(reason, "") ?? "";
+  if (!cleaned || isGenericCoverageGapText(cleaned)) {
+    return `${screeningCoverageGapCategoryText(block, reason, action)}存在疑点或缺口，需要补充对应资料后重新核验。`;
+  }
+  return cleaned;
+}
+
+export function screeningCoverageGapActionText(block: string, action?: string | null, reason?: string | null) {
+  const cleaned = simplifyScreeningReportText(action, "") ?? "";
+  if (!cleaned || isGenericCoverageGapText(cleaned)) {
+    return `补充${screeningCoverageGapCategoryText(block, reason, action)}后重新背调。`;
+  }
+  return cleaned;
+}
+
+export function screeningCoverageGapDisplay(gap: CoverageGapCopyInput): CoverageGapDisplay | null {
+  if (hiddenCoverageGapBlocks.has(gap.block)) return null;
+  const title = screeningCoverageGapCategoryText(gap.block, gap.reason, gap.action);
+  const reason = screeningCoverageGapReasonText(gap.block, gap.reason, gap.action);
+  const action = screeningCoverageGapActionText(gap.block, gap.action, gap.reason);
+  return {
+    title,
+    reason,
+    ...(action ? { action } : {}),
+  };
+}
+
+export function isCoverageGapDisplay(value: CoverageGapDisplay | null): value is CoverageGapDisplay {
+  return Boolean(value);
 }
 
 export function businessStatusText(value: string | undefined) {
@@ -283,7 +373,10 @@ export function screeningEvidenceFindingText(input: EvidenceCopyInput) {
   if (alreadyStandardFinding) return plainFinding;
 
   if (!hasSource) {
-    return `未找到可核验的${topic}来源网址。${confidence}。`;
+    if (findingIsUseful) {
+      return `已记录${topic}核验结果，但没有可直接打开的公开来源网址。${confidence}。摘要：${plainFinding}`;
+    }
+    return `未找到可直接打开的${topic}公开来源网址。${confidence}。`;
   }
   if (input.scoreImpact === "negative") {
     return `已找到与${topic}相关的风险信息。${confidence}。${findingIsUseful ? `摘要：${plainFinding}` : "建议结合来源网址人工复核。"}`;

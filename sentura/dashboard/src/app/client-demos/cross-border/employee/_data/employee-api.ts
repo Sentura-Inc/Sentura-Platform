@@ -41,6 +41,7 @@ import {
   type ScreeningTarget,
 } from "./employee-task-runner";
 import { CBE_EMPLOYEE_API_BASE } from "@/lib/cross-border-routes";
+import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
 
 type JsonRecord = Record<string, unknown>;
@@ -376,7 +377,23 @@ function asStringArray(value: unknown): string[] {
   if (typeof value === "string") {
     return value.split(",").map((item) => item.trim()).filter(Boolean);
   }
-  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (typeof item === "string" && item.trim()) return [item.trim()];
+        if (typeof item === "number" && Number.isFinite(item)) return [String(item)];
+        const record = asRecord(item);
+        const recordText = asString(
+          record.action_zh ??
+          record.action ??
+          record.summary_zh ??
+          record.summary ??
+          record.label ??
+          record.name ??
+          record.value,
+        );
+        return recordText ? [recordText] : [];
+      })
+    : [];
 }
 
 function payloadArray(payload: unknown, key: string): unknown[] {
@@ -452,6 +469,10 @@ function toUrl(value: unknown) {
   } catch {
     return undefined;
   }
+}
+
+function toPublicReportSourceUrl(value: unknown) {
+  return publicReportSourceUrl(toUrl(value));
 }
 
 function toEmail(value: unknown) {
@@ -614,7 +635,9 @@ function normalizedScoreFromScoreBlocks(blocks: CustomerScoreBlock[], evidenceCo
 
 function normalizeEvidence(value: unknown): CustomerEvidenceItem {
   const raw = asRecord(value);
-  const sourceUrl = toUrl(raw.source_url ?? raw.sourceUrl ?? raw.url) ?? "https://sentura.local/cross-border-intel/evidence";
+  const sourceUrl =
+    toPublicReportSourceUrl(raw.source_url ?? raw.sourceUrl ?? raw.url) ??
+    "https://sentura.local/cross-border-intel/evidence";
   return {
     layer: (asString(raw.layer) ?? "public_footprint") as CustomerEvidenceItem["layer"],
     sourceUrl,
@@ -927,7 +950,7 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
     ...(report?.evidence.map((item) => item.sourceUrl) ?? []),
     ...(report?.addressFootprint?.locations.map((item) => item.googleMapsUri).filter(Boolean) ?? []),
     website,
-  ].filter((url): url is string => Boolean(url))));
+  ].map((url) => publicReportSourceUrl(url)).filter((url): url is string => Boolean(url))));
   return {
     customerId: record.recordId,
     source: record.recordType === "screening_target" ? "manual_screening" : "lead_discovery",
@@ -1015,6 +1038,20 @@ function taskAffectedCustomerIds(metadata: JsonRecord) {
   ]));
 }
 
+function taskResultCount(taskKind: string, metadata: JsonRecord) {
+  if (taskKind === "screening") {
+    const screeningBatch = asRecord(metadata.screening_batch);
+    const screeningBatchAggregate = asRecord(screeningBatch.aggregate);
+    return asNumber(
+      metadata.saved_reports ??
+      metadata.screening_batch_completed ??
+      screeningBatchAggregate.completed,
+    );
+  }
+  if (taskKind === "accio_memory") return asNumber(metadata.saved_summaries);
+  return asNumber(metadata.saved_leads);
+}
+
 function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
   const taskKind = record.taskKind ?? record.task_kind ?? "lead";
   const sessionKey = record.sessionKey ?? record.session_key ?? undefined;
@@ -1073,7 +1110,7 @@ function taskFromApi(record: ApiAgentRun): CbeEmployeeTaskRecord | null {
     deadlineAt: (Number.isFinite(startedAt) ? startedAt : Date.now()) + timeoutMs,
     sessionKey,
     targetLabel: simplifyDisplayText(notificationTargetLabel ?? record.targetSummary ?? record.target_summary ?? undefined),
-    resultCount: asNumber(metadata.saved_leads ?? metadata.saved_reports ?? metadata.saved_summaries),
+    resultCount: taskResultCount(taskKind, metadata),
     affectedCustomerIds: taskAffectedCustomerIds(metadata),
     error: record.errorMessage ?? record.error_message ?? undefined,
     dismissed: typeof metadata.dismissed_at === "string",
@@ -1096,6 +1133,7 @@ function memoryFromApi(record: ApiMemoryRecord): MemoryRecordItem {
   const analyzed = Boolean(record.summaryId);
   return {
     recordId: record.summaryId ?? record.importId,
+    importId: record.importId,
     name: record.companyName ?? record.sourceFileName ?? "未命名聊天记录",
     source: memorySourceFromKind(record.sourceKind, record.sourceFileName),
     importedAt: record.uploadedAt,
@@ -1166,6 +1204,20 @@ export async function deleteEmployeeCustomers(ids: string[]) {
 export async function fetchEmployeeAccioImportPayload(importId: string) {
   return fetchEmployeeJson<unknown>(
     employeeApi(`/memory/imports/${encodeURIComponent(importId)}`),
+  );
+}
+
+export async function startEmployeeAccioImportAnalysis(input: {
+  importId: string;
+  sessionKey: string;
+  estimatedCostUsd: number;
+}) {
+  return jsonPost<{ agentRun: ApiAgentRun; accioImport: ApiAccioImport }>(
+    employeeApi(`/memory/imports/${encodeURIComponent(input.importId)}/start`),
+    {
+      session_key: input.sessionKey,
+      estimated_cost_usd: input.estimatedCostUsd,
+    },
   );
 }
 
@@ -1426,8 +1478,8 @@ function normalizeLeadPayload(payload: unknown) {
       const website = toUrl(lead.website ?? lead.url);
       const evidenceRows = Array.isArray(lead.discovery_evidence) ? lead.discovery_evidence : [];
       const sourceUrls = Array.from(new Set([
-        ...asStringArray(lead.source_urls).map(toUrl),
-        ...evidenceRows.map((evidence) => toUrl(asRecord(evidence).source_url ?? asRecord(evidence).url)),
+        ...asStringArray(lead.source_urls).map(toPublicReportSourceUrl),
+        ...evidenceRows.map((evidence) => toPublicReportSourceUrl(asRecord(evidence).source_url ?? asRecord(evidence).url)),
         website,
       ].filter((url): url is string => Boolean(url))));
       if (sourceUrls.length === 0) {
@@ -1438,7 +1490,10 @@ function normalizeLeadPayload(payload: unknown) {
           const evidenceRecord = asRecord(evidenceItem);
           return {
             signal: asString(evidenceRecord.signal),
-            source_url: toUrl(evidenceRecord.source_url ?? evidenceRecord.url) ?? sourceUrls[evidenceIndex] ?? sourceUrls[0],
+            source_url:
+              toPublicReportSourceUrl(evidenceRecord.source_url ?? evidenceRecord.url) ??
+              sourceUrls[evidenceIndex] ??
+              sourceUrls[0],
             excerpt: asString(evidenceRecord.excerpt),
             finding: asString(evidenceRecord.finding ?? evidenceRecord.summary) ?? "公开来源显示该公司与目标品类相关。",
             confidence: asNumber(evidenceRecord.confidence),
@@ -1496,8 +1551,9 @@ function normalizeScreeningPayload(payload: unknown) {
       const evidence = (evidenceRows.length ? evidenceRows : [{ source_url: targetWebsite }])
         .map((evidenceItem, evidenceIndex) => {
           const evidenceRecord = asRecord(evidenceItem);
-          const sourceUrl = toUrl(evidenceRecord.source_url ?? evidenceRecord.sourceUrl ?? evidenceRecord.url);
-          const usesGapMarker = !sourceUrl;
+          const rawSourceUrl = toUrl(evidenceRecord.source_url ?? evidenceRecord.sourceUrl ?? evidenceRecord.url);
+          const sourceUrl = publicReportSourceUrl(rawSourceUrl);
+          const usesGapMarker = !rawSourceUrl;
           if (usesGapMarker) traceabilityGap = true;
           return {
             layer: asString(evidenceRecord.layer) ?? "public_footprint",
@@ -1565,7 +1621,7 @@ function normalizeScreeningPayload(payload: unknown) {
         block: "public_footprint",
         status: "pending_human_input",
         reason: `背调员工未返回 ${companyName} 的可核验来源，无法核验公开信息。`,
-        action: "补充官网、注册页、公开网页或工具返回的来源链接后重新背调。",
+        action: "补充官网、注册页或其他公开资料后重新背调。",
       };
       const coverageGaps = traceabilityGap &&
         !reportCoverageGaps.some((gap) => asString(gap.reason)?.includes("可核验来源"))
@@ -1619,6 +1675,17 @@ function normalizeAccioPayload(payload: unknown, sourceFileName: string) {
       const companyName =
         firstTextValue(profile.company_name, memoryPreview.company_name, summary.company_name) ??
         `Unknown company ${index + 1}`;
+      const buyerType = firstTextValue(
+        profile.self_described_identity,
+        summary.self_described_identity,
+        memoryPreview.self_described_identity,
+        profile.buyer_type,
+        summary.buyer_type,
+        memoryPreview.buyer_type,
+        profile.decision_role,
+        summary.decision_role,
+        behaviorSignals.decision_role,
+      );
       const productInterest = firstTextValue(
         summary.product,
         summary.product_interest,
@@ -1678,6 +1745,7 @@ function normalizeAccioPayload(payload: unknown, sourceFileName: string) {
           contact_person: asString(profile.contact_person),
           email: toEmail(profile.email),
           website: toUrl(profile.website),
+          ...(buyerType ? { buyer_type: buyerType, self_described_identity: buyerType } : {}),
         },
         purchase_intent: purchaseIntent.length
           ? purchaseIntent

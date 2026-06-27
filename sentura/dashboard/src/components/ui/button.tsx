@@ -11,7 +11,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "sentura-cta text-primary-foreground shadow-[0_8px_18px_rgba(43,77,208,0.18)] [a]:hover:brightness-105 hover:brightness-105",
+          "sentura-cta text-primary-foreground shadow-[0_8px_18px_rgba(20,15,74,0.22)] [a]:hover:brightness-105 hover:brightness-105",
         outline:
           "border-[var(--sentura-border-strong)] bg-white/72 text-[var(--sentura-ink)] shadow-sm hover:border-primary/35 hover:bg-[var(--sentura-surface-2)] hover:text-primary aria-expanded:border-primary/35 aria-expanded:bg-[var(--sentura-surface-2)] aria-expanded:text-primary dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

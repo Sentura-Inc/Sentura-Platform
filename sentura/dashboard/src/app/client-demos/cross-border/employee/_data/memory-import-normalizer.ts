@@ -57,11 +57,12 @@ function fallbackRecordName(prefix: string) {
   return `${prefix} ${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
-function unknownBuyer(index = 1) {
+function unknownBuyer(index = 1, buyerType?: string) {
   return {
     display_name: "待确认联系人",
     company_name: index > 1 ? `待确认客户 ${index}` : "待确认客户",
     country: "ZZ",
+    ...(buyerType ? { buyer_type: buyerType, self_described_identity: buyerType } : {}),
   };
 }
 
@@ -111,6 +112,9 @@ function timestampFromLine(line: string): string | undefined {
 }
 
 function senderFromText(text: string): "buyer" | "seller" | "system" {
+  if (/我是.+?(老板|店主|采购|负责人|买手|商家|卖家|owner|buyer|purchaser)/i.test(text)) {
+    return "buyer";
+  }
   if (/[？?]|多久|现货|可以发货|价格|报价|采购|需要|有没有|能否|是否|MOQ|quote|need|can you|how soon/i.test(text)) {
     return "buyer";
   }
@@ -118,6 +122,15 @@ function senderFromText(text: string): "buyer" | "seller" | "system" {
     return "seller";
   }
   return "system";
+}
+
+function selfDescribedBuyerType(rawText: string) {
+  const normalized = rawText.replace(/\s+/g, " ");
+  const zhMatch = normalized.match(/我是([^。！？!?，,；;\n]{1,24}?(?:老板|店主|采购|负责人|买手|商家|卖家))/);
+  if (zhMatch?.[1]) return zhMatch[1].trim();
+  const enMatch = normalized.match(/\b(?:i am|i'm|im)\s+(?:a|an|the)?\s*([^.,!?;\n]{1,32}?(?:owner|buyer|purchaser|merchant|seller|shopkeeper))\b/i);
+  if (enMatch?.[1]) return enMatch[1].trim();
+  return undefined;
 }
 
 function parseTextMessages(rawText: string) {
@@ -157,6 +170,7 @@ export function normalizeTextMemoryImport(rawText: string): PreparedMemoryImport
   const text = rawText.trim();
   const messages = parseTextMessages(text);
   const recordName = fallbackRecordName("手动聊天记录");
+  const buyerType = selfDescribedBuyerType(text);
   return {
     recordName,
     rawText: text,
@@ -167,13 +181,14 @@ export function normalizeTextMemoryImport(rawText: string): PreparedMemoryImport
       conversations: [
         {
           conversation_id: `manual_text_${Date.now()}`,
-          buyer: unknownBuyer(),
+          buyer: unknownBuyer(1, buyerType),
           messages,
           attachments: [],
           import_notes: {
             parser: "line_based_manual_text",
             incomplete_possible: true,
             missing_fields: ["company_name", "country", "contact_person"],
+            ...(buyerType ? { self_described_identity: buyerType } : {}),
           },
         },
       ],

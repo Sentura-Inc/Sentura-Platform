@@ -18,6 +18,7 @@ import type {
   TenantContext,
 } from "./schemas";
 import { listEmployeeCustomers } from "./customers";
+import { listEmployeeMemoryRecords } from "./accio";
 
 const COST_EPSILON_USD = 0.005;
 // Manager and employee cost screens currently expose monthly controls only.
@@ -115,6 +116,8 @@ export async function listAdminOperators(context: TenantContext) {
         coalesce(sr.week_count, 0)::text as week_screening_count,
         coalesce(sr.month_count, 0)::text as month_screening_count,
         coalesce(sr.all_count, 0)::text as all_screening_count,
+        coalesce(mem.conversation_count, 0)::text as all_chat_record_count,
+        coalesce(mem.analyzed_customer_count, 0)::text as all_chat_customer_count,
         coalesce(costs.today_spend_usd, 0)::text as today_cost_usd,
         coalesce(costs.week_spend_usd, 0)::text as week_cost_usd,
         coalesce(costs.month_spend_usd, 0)::text as month_cost_usd,
@@ -143,6 +146,20 @@ export async function listAdminOperators(context: TenantContext) {
         where sr.tenant_id = p.tenant_id
           and sr.owner_user_id = p.user_id
       ) sr on true
+      left join lateral (
+        select
+          count(distinct ac.id) as conversation_count,
+          count(distinct asum.id) as analyzed_customer_count
+        from accio_imports ai
+        left join accio_conversations ac
+          on ac.tenant_id = ai.tenant_id
+         and ac.accio_import_id = ai.id
+        left join accio_summaries asum
+          on asum.tenant_id = ai.tenant_id
+         and asum.accio_conversation_id = ac.id
+        where ai.tenant_id = p.tenant_id
+          and ai.owner_user_id = p.user_id
+      ) mem on true
       left join lateral (
         select
           sum(spend_usd) filter (where started_at >= date_trunc('day', now())) as today_spend_usd,
@@ -266,7 +283,7 @@ export async function getAdminOperator(context: TenantContext, operatorId: strin
     `,
     [context.tenantId, operatorId],
   );
-  const senturaCostEvents = await listSenturaCostEventRowsForOperator(context, operatorId, costEvents.rows);
+  const senturaCostEvents = await listSenturaCostEventsForOperator(context, operatorId);
   const workloadRows = workload.rows.map((row) => ({
     ...row,
     cost_usd_estimate: moneyUsdText(row.cost_usd_estimate as string | number | null | undefined),
@@ -282,8 +299,16 @@ export async function getAdminOperator(context: TenantContext, operatorId: strin
     profile: profile.rows[0] ?? null,
     workload: workloadRows,
     customers: customers.items,
-    costEvents: senturaCostEvents ?? costEventRows,
+    costEvents: senturaCostEvents ?? costEventRows.map((row) => dbCostEventRowToCostEvent(context, row)),
+    costEventsSource: senturaCostEvents ? "sentura_cost" : "db_fallback",
   };
+}
+
+export async function listAdminOperatorMemoryRecords(context: TenantContext, operatorId: string) {
+  return listEmployeeMemoryRecords(context, {
+    ownerUserId: operatorId,
+    limit: 300,
+  });
 }
 
 export async function listAdminAgentUsage(context: TenantContext) {
@@ -325,6 +350,80 @@ function moneyUsd(value: string | number | null | undefined) {
 
 function moneyUsdText(value: string | number | null | undefined) {
   return moneyUsd(value).toFixed(2);
+}
+
+function optionalText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isoDateText(value: unknown, fallback = new Date(0).toISOString()) {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return fallback;
+}
+
+function durationBetweenMs(startedAt: unknown, finishedAt: unknown) {
+  const start = new Date(isoDateText(startedAt)).getTime();
+  const finish = new Date(isoDateText(finishedAt, isoDateText(startedAt))).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(finish) || finish <= start) return 0;
+  return finish - start;
+}
+
+function pricingStatusFromDbRow(row: Record<string, unknown>, actualCostUsd: number | null, estimatedCostUsd: number) {
+  const raw = optionalText(row.ledger_status)?.toLowerCase();
+  if (raw === "priced" || raw === "estimated" || raw === "free" || raw === "included" || raw === "unpriced") {
+    return raw as CostEvent["pricingStatus"];
+  }
+  if (actualCostUsd === null && estimatedCostUsd > 0) return "estimated";
+  if (actualCostUsd === null) return "unpriced";
+  return actualCostUsd === 0 ? "free" : "priced";
+}
+
+function dbCostEventRowToCostEvent(context: TenantContext, row: Record<string, unknown>): CostEvent {
+  const actualCostUsd = row.actual_cost_usd === null || row.actual_cost_usd === undefined
+    ? null
+    : moneyUsd(row.actual_cost_usd as string | number | null | undefined);
+  const estimatedCostUsd = moneyUsd(row.cost_usd_estimate as string | number | null | undefined);
+  const pricingStatus = pricingStatusFromDbRow(row, actualCostUsd, estimatedCostUsd);
+  const fallbackCostUsd = actualCostUsd ?? (pricingStatus === "estimated" ? estimatedCostUsd : null);
+  const requestUnits = numeric(row.request_units as string | number | null | undefined) || 1;
+  const timestamp = isoDateText(row.ledger_created_at ?? row.started_at, new Date().toISOString());
+  const agentId = optionalText(row.agent_id) ?? optionalText(row.task_kind) ?? "cbe-cost-ledger";
+  const provider = optionalText(row.provider) ?? optionalText(row.source_type) ?? "cbe-db-ledger";
+  const endpoint = optionalText(row.endpoint) ?? provider;
+
+  return {
+    id: optionalText(row.id) ?? optionalText(row.agent_run_id) ?? `${agentId}:${timestamp}`,
+    timestamp,
+    agentId,
+    sessionKey: optionalText(row.session_key) ?? optionalText(row.agent_run_id) ?? "",
+    userToken: context.userId,
+    tenantId: context.tenantId,
+    departmentId: null,
+    provider,
+    model: endpoint,
+    kind: "external_api",
+    service: provider,
+    operation: endpoint,
+    pricingStatus,
+    pricingNote: "数据库费用账本回退记录；实时 sentura-cost 事件暂不可用时用于只读核对。",
+    externalUsage: {
+      unit: "request",
+      quantity: requestUnits,
+      label: `${requestUnits.toLocaleString("zh-CN")} request`,
+    },
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    },
+    costUsd: fallbackCostUsd,
+    durationMs: durationBetweenMs(row.started_at, row.finished_at),
+    source: "external_tool_log",
+  };
 }
 
 function usd(value: string | number | null | undefined) {
@@ -592,65 +691,42 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
     const ownerEvents = eventsByOperator.get(String(row.user_id ?? ""));
     if (!ownerEvents) return row;
     const summary = summarizeSenturaCostEvents(ownerEvents);
+    const pendingEstimateUsd = Math.max(
+      summary.estimatedCostUsd,
+      numeric(row.estimated_cost_usd as string | number | null | undefined),
+    );
+    const spendUsd = summary.actualCostUsd + pendingEstimateUsd;
     const baseLimitUsd = numeric(row.base_limit_usd as string | number | null | undefined);
     const activeAllowanceUsd = numeric(row.active_allowance_usd as string | number | null | undefined);
     return {
       ...row,
-      spend_usd: moneyUsd(summary.spendUsd),
+      spend_usd: moneyUsd(spendUsd),
       actual_cost_usd: moneyUsd(summary.actualCostUsd),
-      estimated_cost_usd: moneyUsd(summary.estimatedCostUsd),
+      estimated_cost_usd: moneyUsd(pendingEstimateUsd),
       unpriced_call_count: summary.unpricedCallCount,
-      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - summary.spendUsd),
+      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - spendUsd),
     };
   });
 }
 
-function senturaCostEventToAdminRow(event: CostEvent, run?: OperatorRunScopeRow) {
-  const actualCost = event.costUsd === null ? null : moneyUsdText(eventCostUsd(event));
-  const estimatedCost = event.pricingStatus === "estimated" ? moneyUsdText(eventCostUsd(event)) : "0.00";
-  return {
-    id: event.id,
-    agent_run_id: run?.id ?? null,
-    agent_id: run?.agent_id ?? event.agentId ?? null,
-    task_kind: run?.task_kind ?? null,
-    session_key: event.sessionKey,
-    target_summary: run?.target_summary ?? null,
-    status: run?.status ?? null,
-    started_at: run?.started_at ?? event.timestamp,
-    finished_at: run?.finished_at ?? null,
-    cost_usd_estimate: estimatedCost,
-    provider: event.service ?? event.provider ?? event.model ?? event.kind ?? "sentura-cost",
-    endpoint: event.operation ?? event.toolName ?? event.model ?? null,
-    source_type: event.source ?? event.kind ?? null,
-    request_units: String(event.externalUsage?.quantity ?? event.usage.totalTokens ?? 1),
-    actual_cost_usd: actualCost,
-    ledger_status: event.pricingStatus ?? (event.costUsd === null ? "unpriced" : "priced"),
-    ledger_created_at: event.timestamp,
-  };
-}
-
-async function listSenturaCostEventRowsForOperator(
+async function listSenturaCostEventsForOperator(
   context: TenantContext,
   operatorId: string,
-  dbRows: Array<Record<string, unknown>>,
 ) {
   const runScopes = await listOperatorRunScopes(context, [operatorId]);
-  if (runScopes.length === 0) return null;
+  if (runScopes.length === 0) return [];
 
-  const runBySession = new Map<string, OperatorRunScopeRow>();
+  const sessionKeys = new Set<string>();
   for (const run of runScopes) {
-    if (run.session_key) runBySession.set(run.session_key, run);
+    if (run.session_key) sessionKeys.add(run.session_key);
   }
 
-  const events = await fetchSenturaCostEvents({ startTime: rangeStartIso("month"), limit: 10000 });
+  const events = await fetchSenturaCostEvents({ limit: 10000 });
   if (!events) return null;
 
-  const scopedEvents = events
-    .filter((event) => runBySession.has(event.sessionKey))
+  return events
+    .filter((event) => sessionKeys.has(event.sessionKey))
     .sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
-
-  if (scopedEvents.length === 0) return dbRows.length > 0 ? null : [];
-  return scopedEvents.map((event) => senturaCostEventToAdminRow(event, runBySession.get(event.sessionKey)));
 }
 
 function periodToRange(period: CbeCostPeriod): "today" | "week" | "month" | "all" {
@@ -1118,14 +1194,16 @@ export async function listAdminCosts(
           coalesce(sum(
             case
               when coalesce(ledger.actual_cost_usd, 0) > 0 then ledger.actual_cost_usd
-              else coalesce(ar.cost_usd_estimate, 0)
+              when ar.status in ('queued', 'running', 'polling') then coalesce(ar.cost_usd_estimate, 0)
+              else 0
             end
           ), 0) as spend_usd,
           coalesce(sum(coalesce(ledger.actual_cost_usd, 0)), 0) as actual_cost_usd,
           coalesce(sum(
             case
               when coalesce(ledger.actual_cost_usd, 0) > 0 then 0
-              else coalesce(ar.cost_usd_estimate, 0)
+              when ar.status in ('queued', 'running', 'polling') then coalesce(ar.cost_usd_estimate, 0)
+              else 0
             end
           ), 0) as estimated_cost_usd,
           coalesce(sum(coalesce(ledger.unpriced_call_count, 0)), 0) as unpriced_call_count,

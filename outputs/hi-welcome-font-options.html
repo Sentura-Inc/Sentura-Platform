@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hi 欢迎使用 字体方案参考</title>
+    <style>
+      :root {
+        --brand: #0c2e64;
+        --brand-2: #143f7a;
+        --ink: #101729;
+        --muted: #64748b;
+        --line: #dbe7f7;
+        --surface: #f7faff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 12% 8%, rgba(219, 231, 247, 0.95), rgba(219, 231, 247, 0) 33%),
+          linear-gradient(180deg, #fbfcfe 0%, #f1f6fd 100%);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+
+      .page {
+        width: 1440px;
+        min-height: 1024px;
+        padding: 54px 68px;
+      }
+
+      .header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 32px;
+        margin-bottom: 30px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--brand);
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--ink);
+        font-size: 36px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      .note {
+        width: 420px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 22px;
+      }
+
+      .option {
+        min-height: 248px;
+        border: 1px solid rgba(12, 46, 100, 0.12);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.76);
+        padding: 24px;
+        box-shadow: 0 20px 50px -42px rgba(12, 46, 100, 0.45);
+      }
+
+      .option.top {
+        border-color: rgba(12, 46, 100, 0.32);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 255, 0.82)),
+          radial-gradient(circle at 84% 10%, rgba(219, 231, 247, 0.7), rgba(219, 231, 247, 0) 38%);
+      }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      .name {
+        color: var(--brand);
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .rank {
+        border-radius: 999px;
+        background: #eef4ff;
+        color: var(--brand-2);
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .sample {
+        margin-bottom: 18px;
+        color: var(--brand);
+        font-size: 43px;
+        line-height: 1.05;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+
+      .sample .hi {
+        margin-right: 0.06em;
+      }
+
+      .desc {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .formula {
+        display: inline-block;
+        margin-top: 13px;
+        border-radius: 10px;
+        background: rgba(12, 46, 100, 0.06);
+        color: #23405f;
+        padding: 8px 10px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .a .sample {
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.005em;
+      }
+
+      .b .sample {
+        font-family: "Hiragino Sans GB", "PingFang SC", "STHeiti", sans-serif;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .c .sample {
+        font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.012em;
+      }
+
+      .d .sample {
+        font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+        font-weight: 700;
+        letter-spacing: 0.018em;
+      }
+
+      .e .sample {
+        font-family: "Arial Rounded MT Bold", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .f .sample {
+        font-family: "Kaiti SC", "STKaiti", "KaiTi", cursive;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .login-preview {
+        margin-top: 28px;
+        border: 1px solid rgba(12, 46, 100, 0.14);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.68);
+        padding: 26px 32px;
+      }
+
+      .preview-title {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .preview-row {
+        display: grid;
+        grid-template-columns: 310px 1fr;
+        align-items: center;
+        gap: 30px;
+      }
+
+      .mock-card {
+        width: 310px;
+        border: 1px solid rgba(12, 46, 100, 0.13);
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 28px 26px;
+        text-align: center;
+        box-shadow: 0 24px 55px -45px rgba(12, 46, 100, 0.65);
+      }
+
+      .logo-dot {
+        width: 58px;
+        height: 58px;
+        margin: 0 auto 16px;
+        border-radius: 18px;
+        background: linear-gradient(145deg, #1b4f91, #0c2e64);
+      }
+
+      .mock-greeting {
+        margin: 0;
+        color: var(--brand);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif;
+        font-size: 34px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: 0.005em;
+      }
+
+      .mock-system {
+        margin: 12px 0 22px;
+        color: #475569;
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .mock-input {
+        height: 38px;
+        margin-top: 10px;
+        border: 1px solid #dbe7f7;
+        border-radius: 8px;
+        background: #f8fbff;
+      }
+
+      .preview-copy {
+        color: #334155;
+        font-size: 15px;
+        line-height: 1.75;
+      }
+
+      .preview-copy strong {
+        color: var(--brand);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="header">
+        <div>
+          <p class="eyebrow">Sentura 登录欢迎语字体方案</p>
+          <h1>“Hi！欢迎使用” 视觉参考</h1>
+        </div>
+        <p class="note">
+          基于当前登录卡片、深蓝主色 #0c2e64 和偏 SaaS/运营工具的气质。下面优先比较字形气质，不涉及页面布局改动。
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="option top a">
+          <div class="meta">
+            <span class="name">A. 稳重产品感</span>
+            <span class="rank">推荐 1</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">最贴近现在的产品气质，字面干净、可信，中文和英文衔接自然。适合直接落地。</p>
+          <span class="formula">PingFang SC / 700 / 0.005em</span>
+        </article>
+
+        <article class="option top b">
+          <div class="meta">
+            <span class="name">B. 清爽企业感</span>
+            <span class="rank">推荐 2</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">比 A 更轻一点，适合降低“登录页标题太硬”的感觉，但仍保持商务感。</p>
+          <span class="formula">Hiragino Sans GB / 600 / 0.01em</span>
+        </article>
+
+        <article class="option c">
+          <div class="meta">
+            <span class="name">C. 科技品牌感</span>
+            <span class="rank">推荐 3</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">英文 “Hi” 更利落，中文仍由系统中文字体承接；适合更偏 AI/平台品牌的调性。</p>
+          <span class="formula">Avenir Next + PingFang SC / 700</span>
+        </article>
+
+        <article class="option d">
+          <div class="meta">
+            <span class="name">D. 高级编辑感</span>
+            <span class="rank">谨慎</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">宋体有质感，但会让系统显得更“内容/品牌站”，不如前三个适合操作平台。</p>
+          <span class="formula">Songti SC / 700 / 0.018em</span>
+        </article>
+
+        <article class="option e">
+          <div class="meta">
+            <span class="name">E. 亲和圆润感</span>
+            <span class="rank">可选</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">英文更圆润、欢迎感强，但中文仍偏系统字体，适合想让登录页更轻松。</p>
+          <span class="formula">Arial Rounded + PingFang SC / 700</span>
+        </article>
+
+        <article class="option f">
+          <div class="meta">
+            <span class="name">F. 手写温度感</span>
+            <span class="rank">不建议</span>
+          </div>
+          <div class="sample"><span class="hi">Hi！</span>欢迎使用</div>
+          <p class="desc">有记忆点，但和跨境电商后台的效率、专业感不太一致，容易显得不够稳。</p>
+          <span class="formula">Kaiti SC / 700 / 0.02em</span>
+        </article>
+      </section>
+
+      <section class="login-preview">
+        <p class="preview-title">推荐落地预览：A 稳重产品感</p>
+        <div class="preview-row">
+          <div class="mock-card">
+            <div class="logo-dot"></div>
+            <h2 class="mock-greeting">Hi！欢迎使用</h2>
+            <p class="mock-system">跨境电商员工操作系统</p>
+            <div class="mock-input"></div>
+            <div class="mock-input"></div>
+          </div>
+          <div class="preview-copy">
+            <p>
+              我建议先选 <strong>A</strong>：只需要在当前 H1/动画文字上调整中文字体栈、字重和轻微字距，
+              不需要引入新字体文件，跨 Mac/Windows 的稳定性最好。
+            </p>
+            <p>
+              如果想更有品牌感，可以选 <strong>C</strong>：英文用更几何的西文字体，中文继续用 PingFang，
+              但实现时要把 “Hi！” 和 “欢迎使用” 拆成两个 span。
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -21,12 +21,13 @@ export function ConnectionStatus() {
   const { state } = useGateway();
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:gap-2">
       <span
         className={cn("h-2 w-2 rounded-full", stateColors[state])}
       />
       <span title="系统连接状态：已连接时才能提交任务。">
-        系统：{stateLabels[state]}
+        <span className="hidden sm:inline">系统：</span>
+        {stateLabels[state]}
       </span>
     </div>
   );
