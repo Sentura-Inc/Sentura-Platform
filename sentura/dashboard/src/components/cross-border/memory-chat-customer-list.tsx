@@ -1184,7 +1184,7 @@ function ChatCustomerFact({
   return (
     <button
       type="button"
-      className="min-w-0 rounded-md border bg-background/80 px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-white hover:shadow-md hover:shadow-sky-950/10 active:translate-y-0 active:scale-[0.99]"
+      className="min-w-0 rounded-md border bg-background/80 px-3 py-2 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-white hover:shadow-md hover:shadow-sky-950/10 active:translate-y-0 active:scale-[0.99]"
       onClick={onOpen}
     >
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

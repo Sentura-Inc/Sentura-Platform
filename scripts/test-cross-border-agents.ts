@@ -867,7 +867,6 @@ check("admin employee cost details live under cost monitoring", [
   "fetchAdminOperator",
   "selectedCostUserId",
   "CostDetailDialog",
-  "管理端与员工端使用同一批 sentura-cost 工具成本事件",
 ].every((needle) => adminCostsPage.includes(needle)) && !adminEmployeesPage.includes("成本明细") && !adminEmployeesPage.includes("costEvents.map"));
 check("employee cost card syncs manager-updated quota from server budget", [
   "fetchEmployeeCostBudget",

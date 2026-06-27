@@ -93,22 +93,43 @@ export function AnimatedList({
   const [selectedIndex, setSelectedIndex] = useState(initialSelectedIndex);
   const [topGradientOpacity, setTopGradientOpacity] = useState(0);
   const [bottomGradientOpacity, setBottomGradientOpacity] = useState(0);
+  const gradientFrameRef = useRef<number | null>(null);
   const items = useMemo(() => Children.toArray(children).filter(Boolean), [children]);
 
   const updateGradientOpacity = useCallback(() => {
+    if (!showGradients) return;
+
     const container = listRef.current;
     if (!container) return;
 
     const { scrollTop, scrollHeight, clientHeight } = container;
     const bottomDistance = scrollHeight - (scrollTop + clientHeight);
     const hasOverflow = scrollHeight > clientHeight + 1;
-    setTopGradientOpacity(hasOverflow ? Math.min(scrollTop / 44, 1) : 0);
-    setBottomGradientOpacity(hasOverflow ? Math.min(bottomDistance / 44, 1) : 0);
-  }, []);
+    const nextTopOpacity = hasOverflow ? Math.min(scrollTop / 44, 1) : 0;
+    const nextBottomOpacity = hasOverflow ? Math.min(bottomDistance / 44, 1) : 0;
+
+    setTopGradientOpacity((current) => (Math.abs(current - nextTopOpacity) < 0.01 ? current : nextTopOpacity));
+    setBottomGradientOpacity((current) => (Math.abs(current - nextBottomOpacity) < 0.01 ? current : nextBottomOpacity));
+  }, [showGradients]);
+
+  const scheduleGradientOpacityUpdate = useCallback(() => {
+    if (!showGradients || gradientFrameRef.current !== null) return;
+
+    gradientFrameRef.current = window.requestAnimationFrame(() => {
+      gradientFrameRef.current = null;
+      updateGradientOpacity();
+    });
+  }, [showGradients, updateGradientOpacity]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateGradientOpacity);
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (gradientFrameRef.current !== null) {
+        window.cancelAnimationFrame(gradientFrameRef.current);
+        gradientFrameRef.current = null;
+      }
+    };
   }, [items.length, updateGradientOpacity]);
 
   useEffect(() => {
@@ -160,7 +181,7 @@ export function AnimatedList({
         ref={listRef}
         aria-label={ariaLabel}
         tabIndex={enableArrowNavigation ? 0 : undefined}
-        onScroll={updateGradientOpacity}
+        onScroll={scheduleGradientOpacityUpdate}
         onKeyDown={handleKeyDown}
         className={cn(
           "overflow-y-auto",

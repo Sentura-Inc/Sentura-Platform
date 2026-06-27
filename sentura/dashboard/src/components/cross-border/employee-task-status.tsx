@@ -278,7 +278,7 @@ export function EmployeeTaskStatusBar() {
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/70">
                   <div
                     className={cn(
-                      "h-full rounded-full transition-all",
+                      "h-full rounded-full transition-[background-color,width]",
                       visibleTask.status === "failed"
                         ? "bg-rose-500"
                         : visibleTask.status === "cancelled"

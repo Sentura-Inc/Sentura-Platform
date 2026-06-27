@@ -255,8 +255,8 @@ export function CostDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[86vh] flex-col overflow-hidden sm:max-w-4xl">
-        <DialogHeader className="pr-8">
+      <DialogContent className="isolate flex max-h-[86vh] flex-col overflow-hidden sm:max-w-4xl">
+        <DialogHeader className="relative z-20 shrink-0 bg-popover/95 pr-8">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -309,7 +309,7 @@ export function CostDetailDialog({
           ) : null}
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="relative z-10 grid shrink-0 grid-cols-3 gap-2 bg-popover/95">
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-xs text-muted-foreground">{rangeLabel}已用</div>
             <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(summary.spendUsd)}</div>
@@ -326,7 +326,7 @@ export function CostDetailDialog({
 
         <div
           className={cn(
-            "min-h-[220px] flex-1 overflow-auto rounded-md border bg-background transition-[background-color,box-shadow] duration-200",
+            "relative isolate min-h-[220px] flex-1 overflow-auto overscroll-contain rounded-md border bg-background transition-[background-color,box-shadow] duration-200 [scrollbar-gutter:stable]",
             highlight && "bg-sky-50 shadow-[inset_0_0_0_2px_rgba(14,165,233,0.35)]",
           )}
           aria-live="polite"
@@ -340,7 +340,7 @@ export function CostDetailDialog({
             </div>
           ) : (
             <table className="w-full min-w-[680px] text-sm">
-              <thead className="sticky top-0 bg-muted/80 text-xs text-muted-foreground backdrop-blur">
+              <thead className="sticky top-0 z-10 bg-background/95 text-xs text-muted-foreground shadow-[0_1px_0_var(--sentura-border)] backdrop-blur">
                 <tr>
                   <th className="px-3 py-2 text-left">时间</th>
                   <th className="px-3 py-2 text-left">任务</th>

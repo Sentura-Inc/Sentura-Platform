@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import {
   AlertTriangle,
@@ -12,6 +12,8 @@ import {
   Database,
   BadgeDollarSign,
   LogOut,
+  Maximize2,
+  Minimize2,
   ShieldCheck,
   Star,
   UserRound,
@@ -28,6 +30,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EmployeeCostMini } from "@/components/cross-border/employee-cost";
 import { EmployeeTaskStatusBar } from "@/components/cross-border/employee-task-status";
 import {
@@ -108,6 +115,15 @@ const adminNav = [
 const CBE_ADMIN_USER_ID = process.env.NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim();
 const ADMIN_HIGH_VALUE_SEEN_KEY = "sentura:cbe:admin:seen-high-value-at:v1";
 
+type BrowserFullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type BrowserFullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
 interface HeaderNavItem {
   label: string;
   href: string;
@@ -159,6 +175,136 @@ function isHeaderNavItemActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function browserFullscreenElement() {
+  const fullscreenDocument = document as BrowserFullscreenDocument;
+  return fullscreenDocument.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement ?? null;
+}
+
+function canRequestBrowserFullscreen() {
+  if (typeof document === "undefined") return false;
+  const element = document.documentElement as BrowserFullscreenElement;
+  return Boolean(element.requestFullscreen ?? element.webkitRequestFullscreen);
+}
+
+async function requestBrowserFullscreen() {
+  const element = document.documentElement as BrowserFullscreenElement;
+  if (element.requestFullscreen) {
+    await element.requestFullscreen();
+    return;
+  }
+  if (element.webkitRequestFullscreen) {
+    await element.webkitRequestFullscreen();
+    return;
+  }
+  throw new Error("browser_fullscreen_unsupported");
+}
+
+async function exitBrowserFullscreen() {
+  const fullscreenDocument = document as BrowserFullscreenDocument;
+  if (fullscreenDocument.exitFullscreen) {
+    await fullscreenDocument.exitFullscreen();
+    return;
+  }
+  if (fullscreenDocument.webkitExitFullscreen) {
+    await fullscreenDocument.webkitExitFullscreen();
+  }
+}
+
+function PlatformFullscreenToggle({
+  onActiveChange,
+}: {
+  onActiveChange: (active: boolean) => void;
+}) {
+  const [browserFullscreen, setBrowserFullscreen] = useState(false);
+  const [appFullscreen, setAppFullscreen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const active = browserFullscreen || appFullscreen;
+  const label = active ? "退出全屏模式" : "进入全屏模式";
+  const Icon = active ? Minimize2 : Maximize2;
+
+  useEffect(() => {
+    const syncBrowserFullscreen = () => {
+      const nextBrowserFullscreen = Boolean(browserFullscreenElement());
+      setBrowserFullscreen(nextBrowserFullscreen);
+      if (nextBrowserFullscreen) setAppFullscreen(false);
+    };
+
+    const syncTimer = window.setTimeout(syncBrowserFullscreen, 0);
+    document.addEventListener("fullscreenchange", syncBrowserFullscreen);
+    document.addEventListener("webkitfullscreenchange", syncBrowserFullscreen);
+    return () => {
+      window.clearTimeout(syncTimer);
+      document.removeEventListener("fullscreenchange", syncBrowserFullscreen);
+      document.removeEventListener("webkitfullscreenchange", syncBrowserFullscreen);
+    };
+  }, []);
+
+  useEffect(() => {
+    onActiveChange(active);
+  }, [active, onActiveChange]);
+
+  useEffect(() => {
+    if (!appFullscreen) return;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAppFullscreen(false);
+    };
+    window.addEventListener("keydown", exitOnEscape);
+    return () => window.removeEventListener("keydown", exitOnEscape);
+  }, [appFullscreen]);
+
+  async function toggleFullscreen() {
+    if (pending) return;
+    setPending(true);
+    try {
+      if (active) {
+        if (browserFullscreen) await exitBrowserFullscreen();
+        setAppFullscreen(false);
+        return;
+      }
+
+      if (canRequestBrowserFullscreen()) {
+        try {
+          await requestBrowserFullscreen();
+          return;
+        } catch {
+          setAppFullscreen(true);
+          return;
+        }
+      }
+      setAppFullscreen(true);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={active}
+          disabled={pending}
+          className={cn(
+            "fixed z-[45] inline-flex h-12 w-12 items-center justify-center rounded-full border border-[var(--sentura-border-strong)] bg-white/88 text-[var(--sentura-ink)] shadow-lg shadow-slate-950/15 backdrop-blur-xl transition hover:border-primary/40 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-60 sm:h-11 sm:w-11",
+            active ? "border-primary/50 bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground" : null,
+          )}
+          style={{
+            right: "calc(env(safe-area-inset-right) + 1rem)",
+            bottom: "calc(env(safe-area-inset-bottom) + 1rem)",
+          }}
+          onClick={() => void toggleFullscreen()}
+        >
+          <Icon className="h-5 w-5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left" sideOffset={8}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function HeaderPillNav({
   items,
   pathname,
@@ -173,7 +319,7 @@ function HeaderPillNav({
   const tweenRefs = useRef<(ReturnType<typeof gsap.to> | null)[]>([]);
   const navItemsRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const ease = "power3.easeOut";
     const timelines = timelineRefs.current;
     const tweens = tweenRefs.current;
@@ -222,10 +368,13 @@ function HeaderPillNav({
     const navItems = navItemsRef.current;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (navItems && !prefersReducedMotion) {
-      const targetWidth = navItems.getBoundingClientRect().width;
+      gsap.set(navItems, { clearProps: "width,overflow" });
+      const targetWidth = navItems.scrollWidth || navItems.getBoundingClientRect().width;
       if (targetWidth > 0) {
-        gsap.set(navItems, { width: 0, overflow: "hidden" });
-        initialLoadTween = gsap.to(navItems, {
+        initialLoadTween = gsap.fromTo(navItems, {
+          width: 0,
+          overflow: "hidden",
+        }, {
           width: targetWidth,
           duration: 0.6,
           ease,
@@ -246,6 +395,7 @@ function HeaderPillNav({
     return () => {
       window.removeEventListener("resize", onResize);
       initialLoadTween?.kill();
+      if (navItems) gsap.set(navItems, { clearProps: "width,overflow" });
       timelines.forEach((timeline) => timeline?.kill());
       tweens.forEach((tween) => tween?.kill());
     };
@@ -655,6 +805,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const accountLabel = isAdminPath ? "管理者" : "员工";
   const setTasks = useCbeEmployeeStore((state) => state.setTasks);
   const [sessionUser, setSessionUser] = useState<{ displayName: string } | null>(null);
+  const [fullscreenMode, setFullscreenMode] = useState(false);
 
   useEffect(() => {
     if (!isEmployeePath || isAuthPath) return;
@@ -754,7 +905,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="sentura-brand-bg flex min-h-full flex-col text-foreground">
+    <div
+      className={cn(
+        "sentura-brand-bg flex min-h-full flex-col text-foreground",
+        fullscreenMode ? "min-h-dvh" : null,
+      )}
+      data-sentura-fullscreen={fullscreenMode ? "true" : undefined}
+    >
       <header className="sticky top-0 z-40 border-b border-[var(--sentura-border)] bg-white/76 backdrop-blur-xl">
         <div className="mx-auto flex min-h-16 max-w-[1440px] flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4 lg:h-16 lg:flex-nowrap lg:px-6 lg:py-0">
           <div
@@ -833,14 +990,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-h-0 flex-1">
         <div
           className={cn(
-            "mx-auto min-h-[calc(100vh-4rem)]",
-            isAuthPath ? "w-full max-w-none px-0 py-0" : "max-w-[1440px] px-4 py-5 lg:px-6",
+            "mx-auto",
+            fullscreenMode
+              ? isAuthPath
+                ? "min-h-[calc(100dvh-4rem)] w-full max-w-none px-0 py-0"
+                : "min-h-[calc(100dvh-4rem)] max-w-[1440px] px-4 py-5 lg:px-6"
+              : isAuthPath
+                ? "min-h-[calc(100vh-4rem)] w-full max-w-none px-0 py-0"
+                : "min-h-[calc(100vh-4rem)] max-w-[1440px] px-4 py-5 lg:px-6",
           )}
         >
           {children}
         </div>
       </main>
 
+      <PlatformFullscreenToggle onActiveChange={setFullscreenMode} />
     </div>
   );
 }

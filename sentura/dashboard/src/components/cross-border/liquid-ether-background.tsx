@@ -192,21 +192,23 @@ export function LiquidEther({
         this.docTarget = null;
         this.container = null;
       }
-      isPointInside(clientX, clientY) {
+      getContainerRect() {
         if (!this.container) return false;
         const rect = this.container.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return false;
+        return rect;
+      }
+      isPointInside(clientX, clientY, rect = this.getContainerRect()) {
+        if (!rect) return false;
         return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
       }
-      updateHoverState(clientX, clientY) {
-        this.isHoverInside = this.isPointInside(clientX, clientY);
+      updateHoverState(clientX, clientY, rect = this.getContainerRect()) {
+        this.isHoverInside = this.isPointInside(clientX, clientY, rect);
         return this.isHoverInside;
       }
-      setCoords(x, y) {
-        if (!this.container) return;
+      setCoords(x, y, rect = this.getContainerRect()) {
+        if (!rect) return;
         if (this.timer) window.clearTimeout(this.timer);
-        const rect = this.container.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
         const nx = (x - rect.left) / rect.width;
         const ny = (y - rect.top) / rect.height;
         this.coords.set(nx * 2 - 1, -(ny * 2 - 1));
@@ -220,12 +222,10 @@ export function LiquidEther({
         this.mouseMoved = true;
       }
       onDocumentMouseMove(event) {
-        if (!this.updateHoverState(event.clientX, event.clientY)) return;
+        const rect = this.getContainerRect();
+        if (!this.updateHoverState(event.clientX, event.clientY, rect)) return;
         if (this.onInteract) this.onInteract();
         if (this.isAutoActive && !this.hasUserControl && !this.takeoverActive) {
-          if (!this.container) return;
-          const rect = this.container.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) return;
           const nx = (event.clientX - rect.left) / rect.width;
           const ny = (event.clientY - rect.top) / rect.height;
           this.takeoverFrom.copy(this.coords);
@@ -236,23 +236,25 @@ export function LiquidEther({
           this.isAutoActive = false;
           return;
         }
-        this.setCoords(event.clientX, event.clientY);
+        this.setCoords(event.clientX, event.clientY, rect);
         this.hasUserControl = true;
       }
       onDocumentTouchStart(event) {
         if (event.touches.length !== 1) return;
         const t = event.touches[0];
-        if (!this.updateHoverState(t.clientX, t.clientY)) return;
+        const rect = this.getContainerRect();
+        if (!this.updateHoverState(t.clientX, t.clientY, rect)) return;
         if (this.onInteract) this.onInteract();
-        this.setCoords(t.clientX, t.clientY);
+        this.setCoords(t.clientX, t.clientY, rect);
         this.hasUserControl = true;
       }
       onDocumentTouchMove(event) {
         if (event.touches.length !== 1) return;
         const t = event.touches[0];
-        if (!this.updateHoverState(t.clientX, t.clientY)) return;
+        const rect = this.getContainerRect();
+        if (!this.updateHoverState(t.clientX, t.clientY, rect)) return;
         if (this.onInteract) this.onInteract();
-        this.setCoords(t.clientX, t.clientY);
+        this.setCoords(t.clientX, t.clientY, rect);
       }
       onTouchEnd() {
         this.isHoverInside = false;

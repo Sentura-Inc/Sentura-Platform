@@ -1,3 +1,122 @@
+# Sentura Platform Fluidity And Fullscreen Polish 2026-06-28
+
+## Task Introduction
+User asked in Chinese to do a final optimization/check of the whole web platform's perceived smoothness, with no obvious stutter, including fullscreen mode and mobile. User then corrected two issues:
+1. Header page-switching pill nav must keep the original initial-load animation; no effect may be simplified or removed.
+2. Employee and Admin cost-detail dialogs have a scroll/drag bug where top text visually clips or layers through content.
+
+Intended outcome: keep the platform behavior, visual proportions, and all existing effects unchanged while reducing unnecessary UI animation/reflow cost, especially in shared controls, long lists, mobile views, login effects, and fullscreen toggling.
+
+Hard constraints: do not change CBE business logic, memory/write behavior, auth/session, database schemas, route semantics, or unrelated worktree files. Keep fullscreen header visible, keep the existing page proportions, and do not remove or simplify any visual effects.
+
+## Workspace And Environment
+Repo: `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+Dashboard app: `sentura/dashboard`, Next.js App Router, React, Tailwind, pnpm. Current local worktree already has fullscreen changes in `sentura/dashboard/src/components/app-shell.tsx` and this handoff file.
+
+Primary files to inspect/edit:
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/src/components/cross-border/animated-list.tsx`
+- `sentura/dashboard/src/components/cross-border/cost-detail-dialog.tsx`
+- shared UI primitives such as `sentura/dashboard/src/components/ui/button.tsx`, `badge.tsx`, `tabs.tsx`
+- hotspot CBE pages with large lists only if needed.
+
+## Task Flow
+Plan:
+1. Audit shared layout/animation hotspots with `rg`, focusing on broad `transition-all`, list animation, blur/shadow, fixed/sticky surfaces, and fullscreen classes.
+2. Make low-risk shared UI changes that reduce layout/paint work while preserving visual behavior.
+3. Keep fullscreen mode proportion-preserving: normal max-width/padding remains unchanged, only viewport height uses `dvh`.
+4. Verify typecheck, focused ESLint, whitespace/diff checks, and local HTTP smoke on login/employee/admin routes.
+5. If browser tooling is available, do a light desktop/mobile interaction smoke for fullscreen and navigation.
+
+## Progress So Far
+- Memory quick pass found prior Sentura guidance: respect exact UI scope, reuse shared components for broad UI consistency, and keep manager/admin UI parity grounded in current repo files.
+- Initial scan found likely fluidity hotspots:
+  - shared `Button`, `Badge`, and `TabsTrigger` use broad `transition-all`;
+  - `AnimatedList` uses per-item motion and `will-change-transform` on every item;
+  - fullscreen toggle uses a fixed blurred button and AppShell state;
+  - CBE memory/customer pages contain many list rows, animated cards, and table transitions.
+- Fullscreen was already corrected before this section so header remains visible and page proportions are preserved.
+
+## Current State
+Completed local code edits and verification for this latest fluidity pass:
+- Replaced broad `transition-all` usage in shared UI primitives and CBE hotspots with exact transition-property lists, preserving the same hover/active/focus effects while reducing browser style work.
+- Kept `AnimatedList` item motion intact, including repeated in/out viewport animation. Added requestAnimationFrame throttling for scroll-gradient opacity updates and avoided state writes for opacity deltas below 0.01.
+- Kept header pill nav GSAP hover and initial-load effects intact. Added requestAnimationFrame throttling for resize/font-ready layout recalculation.
+- Kept login liquid background effect intact. Reduced repeated layout reads during mouse/touch interaction by reusing one container rect per pointer event.
+- Kept fullscreen behavior proportion-preserving: non-auth pages retain `max-w-[1440px] px-4 py-5 lg:px-6`, auth pages retain `w-full max-w-none px-0 py-0`, and only height uses `100dvh - 4rem` in fullscreen.
+- Follow-up completed: restored and hardened the HeaderPillNav initial-load animation path and fixed shared cost-detail dialog scroll layering. No effects were simplified or removed.
+- HeaderPillNav still uses the original 0.6s width expansion animation with `onUpdate: layout`, but it now runs from `useLayoutEffect` so the `width: 0` starting frame is established before paint. It also clears temporary `width/overflow` before measuring and during cleanup, and measures `scrollWidth` first, which prevents React Strict Mode's first cleanup from leaving `width: 0` and causing the second effect to measure `targetWidth = 0`.
+- `CostDetailDialog` now isolates the dialog stacking context, gives the top header and summary area stable z-index/background, makes the scroll table container isolated with `overscroll-contain`, and gives the sticky table header a defined z-index/background/shadow so top text no longer visually passes through while dragging.
+
+Verification completed:
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint over all touched TSX files: PASS.
+- `git diff --check`: PASS.
+- Source scan found no remaining `transition-all` in `sentura/dashboard/src/components` or `sentura/dashboard/src/app/client-demos/cross-border`.
+- Local HTTP smoke: `/employee/login`, `/employee`, `/admin/login`, `/admin/memory`, `/employee/memory`, and `/employee/customers` all returned HTTP 200.
+- `pnpm --dir sentura/dashboard build`: PASS. Only warning was the existing Next.js multiple-lockfile workspace-root warning.
+- Follow-up verification for the pill-nav/cost-dialog fix: focused ESLint and TypeScript still PASS; `/employee/login`, `/employee`, `/employee/memory`, `/employee/customers`, `/admin/login`, `/admin/memory`, and `/admin/costs` all returned HTTP 200; production build still PASS with the same existing multiple-lockfile warning.
+- Second pill-nav verification after user still could not see the animation: `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false` PASS, focused ESLint on `app-shell.tsx` and `cost-detail-dialog.tsx` PASS, `git diff --check` PASS, `/employee`, `/admin/memory`, and `/admin/costs` returned HTTP 200, and `pnpm --dir sentura/dashboard build` PASS with the same existing multiple-lockfile warning. Playwright was not installed locally, so no automated frame capture was available.
+
+## Next Steps
+1. No required local implementation work remains for these two follow-up issues.
+2. Optional manual browser check: open Employee cost details and Admin cost monitoring details, drag the inner table up/down, and confirm the top text no longer clips through.
+
+# Sentura Platform Fullscreen Header Fix 2026-06-28
+
+## Task Introduction
+User first asked in Chinese to add a platform-wide fullscreen mode with a bottom-right button that also works on mobile. After testing, user reported a serious issue: fullscreen mode removed the header entirely, including on login pages, and asked to fix it so the frame/canvas is sized appropriately.
+
+Intended outcome: Employee/Admin/CBE pages share one global fixed fullscreen toggle. It should use the browser Fullscreen API when available, keep the normal platform header/logo/login chrome visible, preserve the existing page proportions and max-width rhythm, avoid covering content awkwardly on phones, and degrade gracefully if unsupported.
+
+Hard constraints: keep this as a global shell/UI enhancement only; do not change CBE business logic, memory/write behavior, auth/session, task execution, database schemas, or unrelated dirty files.
+
+## Workspace And Environment
+Repo: `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+Dashboard app: `sentura/dashboard`, Next.js App Router, React, Tailwind, pnpm. Current working tree is clean after commit `8eed43e5 platform 2.0` was pushed to remote `ecommerce`.
+
+Primary file changed: `sentura/dashboard/src/components/app-shell.tsx`. Handoff file updated here: `outputs/task_handoff.md`.
+
+## Task Flow
+Plan:
+1. Inspect AppShell render structure and existing floating/fixed UI.
+2. Add a small client-side Fullscreen API toggle component in AppShell.
+3. Place button fixed at bottom-right with mobile-safe spacing and accessible labels/tooltips.
+4. Fix the reported regression by keeping the header, missing-token banner, and employee task bar mounted in fullscreen mode.
+5. Tune fullscreen content sizing so app-level fullscreen preserves the normal page proportions/max-width/padding while using dynamic viewport height and preserving the 4rem header height.
+6. Verify with typecheck, focused ESLint, `git diff --check`, and local HTTP smoke for Employee/Admin/login pages.
+
+## Progress So Far
+- Confirmed no prior fullscreen implementation exists in the dashboard source.
+- Confirmed AppShell is the right global insertion point because it wraps all pages through `sentura/dashboard/src/app/layout.tsx`.
+- Added `PlatformFullscreenToggle` in `sentura/dashboard/src/components/app-shell.tsx`.
+- Toggle uses the browser Fullscreen API (`requestFullscreen` / `exitFullscreen`) plus WebKit-prefixed fallbacks.
+- Initial app-level fallback hid platform chrome, which caused the user-reported regression where the header disappeared, including on login pages.
+- Fixed AppShell so the header always renders in fullscreen mode; `MissingTokenBanner` and `EmployeeTaskStatusBar` also remain mounted under their normal route conditions.
+- App-level fullscreen now keeps the existing visual proportions: login pages retain `w-full max-w-none px-0 py-0`; non-auth pages retain `max-w-[1440px] px-4 py-5 lg:px-6`. Only the height calculation changes to `100dvh - 4rem`.
+- Button is fixed at the bottom-right corner with `safe-area-inset-*` spacing, icon-only UI, `aria-pressed`, accessible labels, and tooltip text.
+
+## Current State
+Implementation complete locally.
+
+What works now:
+- Fullscreen button remains bottom-right on desktop and mobile.
+- Header/logo/navigation remain visible in fullscreen and on login pages.
+- Fullscreen expands the browser/app canvas without stretching the page layout away from its normal proportions.
+
+Verification completed:
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm exec eslint src/components/app-shell.tsx`: PASS.
+- `git diff --check`: PASS.
+- Local HTTP smoke: `/employee/login`, `/employee`, `/admin/memory`, and `/admin/login` all returned HTTP 200.
+- HTML smoke confirmed Admin login output includes the `<header>` and header/logo content.
+
+## Next Steps
+1. No required local implementation work remains.
+2. Optional browser/manual check: open Employee/Admin/login pages on desktop and mobile viewport, click the bottom-right fullscreen button, confirm the header remains visible, then click again or press Escape to exit.
+
 # Sentura CBE Automatic Long-Term Memory And Admin Full Transcript 2026-06-28
 
 ## Task Introduction

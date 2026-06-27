@@ -1101,7 +1101,6 @@ check("manager employee cost details moved from employee management to cost moni
   "selectedCostUserId",
   "fetchAdminOperator",
   "CostDetailDialog",
-  "管理端与员工端使用同一批 sentura-cost 工具成本事件",
 ].every((needle) => read(path.join(DASHBOARD_ADMIN_DIR, "costs/page.tsx")).includes(needle)) && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("费用明细") && !read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx")).includes("costEvents.map"));
 check("manager cost amounts are capped at two decimals in UI, schema, and overrun math", [
   "function money(value: unknown)",

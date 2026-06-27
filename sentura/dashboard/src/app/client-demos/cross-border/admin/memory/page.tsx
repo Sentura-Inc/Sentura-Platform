@@ -404,7 +404,7 @@ export default function AdminMemoryPage() {
                   records={records}
                   storageKeyPrefix={`sentura:cbe:admin:memory:${selectedOperator.user_id}`}
                   title="聊天客户列表"
-                  description="与员工端聊天客户列表保持一致；这里展示的是记忆员工的预览整理结果，不写入背调结论。"
+                  description=""
                   emptyDescription="该员工暂无已分析聊天客户，或当前筛选条件下没有匹配结果。"
                   loadSourcePayload={loadMemorySourcePayload}
                   onAnalysisOpenChange={setAnalysisDialogOpen}

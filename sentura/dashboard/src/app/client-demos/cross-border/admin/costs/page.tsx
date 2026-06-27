@@ -722,12 +722,6 @@ function AdminCostsContent() {
         onRangeChange={setCostDetailRange}
         loading={Boolean(selectedCostUserId && !costDetail)}
         exportDisabled={!costDetail}
-        dataSourceNote={
-          costDetail?.costEventsSource === "db_fallback"
-            ? "实时 sentura-cost 事件暂不可用；当前显示数据库费用账本回退记录，员工端恢复实时连接后会以 sentura-cost 为准。"
-            : "管理端与员工端使用同一批 sentura-cost 工具成本事件。"
-        }
-        technicalDescription="管理端按员工处理编号关联 sentura-cost 事件；时间筛选和费用来源与员工端成本明细共用同一套展示逻辑。"
         emptyMessage={costDetail ? "当前范围暂无费用明细。" : "正在加载费用明细。"}
         onExport={exportCostDetail}
       />
