@@ -297,24 +297,26 @@ function PlatformFullscreenToggle({
 
   return (
     <Tooltip>
-      <TooltipTrigger>
-        <button
-          type="button"
-          aria-label={label}
-          aria-pressed={active}
-          disabled={pending}
-          className={cn(
-            "fixed z-[45] inline-flex h-12 w-12 items-center justify-center rounded-full border border-[var(--sentura-border-strong)] bg-white/88 text-[var(--sentura-ink)] shadow-lg shadow-slate-950/15 backdrop-blur-xl transition hover:border-primary/40 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-60 sm:h-11 sm:w-11",
-            active ? "border-primary/50 bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground" : null,
-          )}
-          style={{
-            right: "calc(env(safe-area-inset-right) + 1rem)",
-            bottom: "calc(env(safe-area-inset-bottom) + 1rem)",
-          }}
-          onClick={() => void toggleFullscreen()}
-        >
-          <Icon className="h-5 w-5" />
-        </button>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            aria-pressed={active}
+            disabled={pending}
+            className={cn(
+              "fixed z-[45] inline-flex h-12 w-12 items-center justify-center rounded-full border border-[var(--sentura-border-strong)] bg-white/88 text-[var(--sentura-ink)] shadow-lg shadow-slate-950/15 backdrop-blur-xl transition hover:border-primary/40 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-60 sm:h-11 sm:w-11",
+              active ? "border-primary/50 bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground" : null,
+            )}
+            style={{
+              right: "calc(env(safe-area-inset-right) + 1rem)",
+              bottom: "calc(env(safe-area-inset-bottom) + 1rem)",
+            }}
+            onClick={() => void toggleFullscreen()}
+          />
+        }
+      >
+        <Icon className="h-5 w-5" />
       </TooltipTrigger>
       <TooltipContent side="left" sideOffset={8}>
         {label}

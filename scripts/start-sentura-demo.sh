@@ -75,25 +75,25 @@ process_tree() {
   done < <(pgrep -P "$pid" 2>/dev/null || true)
 }
 
-stop_dashboard_dev_processes() {
-  local roots=()
+unique_pids_from_roots() {
+  local pid
+  for pid in "$@"; do
+    [[ -n "$pid" ]] && process_tree "$pid"
+  done | awk '!seen[$0]++'
+}
+
+stop_process_tree_roots() {
+  local label="$1"
+  shift
   local pids=()
   local pid
-  while IFS= read -r pid; do
-    [[ -n "$pid" ]] && roots+=("$pid")
-  done < <(dashboard_dev_roots)
-  [[ "${#roots[@]}" -eq 0 ]] && return
 
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && pids+=("$pid")
-  done < <(
-    for pid in "${roots[@]}"; do
-      process_tree "$pid"
-    done | awk '!seen[$0]++'
-  )
+  done < <(unique_pids_from_roots "$@")
 
   [[ "${#pids[@]}" -eq 0 ]] && return
-  echo "Stopping stale Dashboard dev process(es): ${pids[*]}"
+  echo "Stopping $label process(es): ${pids[*]}"
   for pid in "${pids[@]}"; do
     [[ "$pid" == "$$" ]] && continue
     kill "$pid" 2>/dev/null || true
@@ -105,6 +105,53 @@ stop_dashboard_dev_processes() {
       kill -9 "$pid" 2>/dev/null || true
     fi
   done
+}
+
+stop_dashboard_dev_processes() {
+  local roots=()
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && roots+=("$pid")
+  done < <(dashboard_dev_roots)
+  [[ "${#roots[@]}" -eq 0 ]] && return
+
+  stop_process_tree_roots "Dashboard dev" "${roots[@]}"
+}
+
+gateway_dev_roots() {
+  ps -axo pid=,command= | awk -v port="$GATEWAY_PORT" -v dir="$OPENCLAW_DIR" '
+    {
+      pid = $1
+      command = $0
+      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command)
+      if ((index(command, dir) && command ~ /o[p]enclaw gateway run/) ||
+          (command ~ /p[n]pm .*o[p]enclaw gateway run/ && index(command, "--port " port))) {
+        print pid
+      }
+    }
+  '
+}
+
+stop_gateway_processes() {
+  local roots=()
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && roots+=("$pid")
+  done < <(gateway_dev_roots)
+  pid="$(port_pid "$GATEWAY_PORT")"
+  [[ -n "$pid" ]] && roots+=("$pid")
+  [[ "${#roots[@]}" -eq 0 ]] && return
+
+  stop_process_tree_roots "Gateway" "${roots[@]}"
+}
+
+stop_port_listener() {
+  local label="$1"
+  local port="$2"
+  local pid
+  pid="$(port_pid "$port")"
+  [[ -z "$pid" ]] && return
+  stop_process_tree_roots "$label listener on port $port" "$pid"
 }
 
 wait_for_port() {
@@ -169,15 +216,9 @@ stop_all() {
   stop_screen "$DASHBOARD_SESSION"
   stop_screen "$GATEWAY_SESSION"
   stop_dashboard_dev_processes
-  local gateway_pid dashboard_pid
-  gateway_pid="$(port_pid "$GATEWAY_PORT")"
-  dashboard_pid="$(port_pid "$DASHBOARD_PORT")"
-  if [[ -n "$dashboard_pid" ]]; then
-    kill "$dashboard_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$gateway_pid" ]]; then
-    kill "$gateway_pid" 2>/dev/null || true
-  fi
+  stop_gateway_processes
+  stop_port_listener "Dashboard" "$DASHBOARD_PORT"
+  stop_port_listener "Gateway" "$GATEWAY_PORT"
 }
 
 main() {

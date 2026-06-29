@@ -59,6 +59,9 @@ export interface AdminCostRow extends JsonRecord {
   pending_approval_count: number;
   active_task_count: number;
   unpriced_call_count: number;
+  total_call_count?: number;
+  cost_period_start?: string | null;
+  cost_period_end?: string | null;
 }
 
 export interface AdminApprovalRow extends JsonRecord {

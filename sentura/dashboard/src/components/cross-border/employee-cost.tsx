@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, DollarSign, Loader2, RefreshCw, Send, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,14 +30,24 @@ import {
 import {
   buildCostBreakdown,
   CostDetailDialog,
+  CostEstimateHelp,
+  costDetailRanges,
   filterCostEventsByRange,
   formatCompact,
+  formatCostEventPeriod,
+  formatEstimatedUsd,
   formatUsd,
+  getCostEventPeriod,
   summarizeCostEvents,
   type CostDetailExportSnapshot,
   type CostDetailRangeKey,
   type CostSourceBreakdownItem,
 } from "@/components/cross-border/cost-detail-dialog";
+
+const EMPLOYEE_COST_REFRESH_INTERVAL_MS = 15_000;
+const EMPLOYEE_COST_METRIC_MAX_FONT_PX = 26;
+const EMPLOYEE_COST_METRIC_MIN_FONT_PX = 12;
+const EMPLOYEE_COST_METRIC_CARD_CLASS = "flex min-h-[112px] min-w-0 flex-col rounded-md border bg-muted/20 p-3.5";
 
 interface EmployeeCostSnapshot {
   spendUsd: number;
@@ -106,6 +116,97 @@ function formatBudgetLimit(budget: EmployeeCostBudgetView) {
 function formatBudgetRemaining(spendUsd: number, budget: EmployeeCostBudgetView) {
   if (!budget.limitEnabled) return "不限额";
   return formatUsd(Math.max(0, budget.limitUsd - spendUsd));
+}
+
+function useSharedMetricFontSize(values: readonly string[]) {
+  const frameRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const valueRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [fontSize, setFontSize] = useState(EMPLOYEE_COST_METRIC_MAX_FONT_PX);
+  const signature = values.join("\u001f");
+
+  useEffect(() => {
+    let animationFrame = 0;
+    const applyFontSize = (nextSize: number) => {
+      valueRefs.current.forEach((element) => {
+        if (element) element.style.fontSize = `${nextSize}px`;
+      });
+    };
+    const fit = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        applyFontSize(EMPLOYEE_COST_METRIC_MAX_FONT_PX);
+        let nextSize = EMPLOYEE_COST_METRIC_MAX_FONT_PX;
+        for (let index = 0; index < values.length; index += 1) {
+          const frame = frameRefs.current[index];
+          const element = valueRefs.current[index];
+          const availableWidth = frame?.clientWidth ?? 0;
+          if (!element || availableWidth <= 0) continue;
+          const contentWidth = element.scrollWidth;
+          if (contentWidth > availableWidth) {
+            nextSize = Math.min(
+              nextSize,
+              Math.max(
+                EMPLOYEE_COST_METRIC_MIN_FONT_PX,
+                Math.floor((availableWidth / contentWidth) * EMPLOYEE_COST_METRIC_MAX_FONT_PX * 0.96),
+              ),
+            );
+          }
+        }
+        applyFontSize(nextSize);
+        setFontSize((current) => (current === nextSize ? current : nextSize));
+      });
+    };
+
+    frameRefs.current.length = values.length;
+    valueRefs.current.length = values.length;
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    frameRefs.current.forEach((frame) => {
+      if (frame) resizeObserver?.observe(frame);
+    });
+    fit();
+    return () => {
+      resizeObserver?.disconnect();
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [signature, values.length]);
+
+  const registerFrame = useCallback((index: number, node: HTMLDivElement | null) => {
+    frameRefs.current[index] = node;
+  }, []);
+
+  const registerValue = useCallback((index: number, node: HTMLDivElement | null) => {
+    valueRefs.current[index] = node;
+  }, []);
+
+  return { fontSize, registerFrame, registerValue };
+}
+
+function ResponsiveMetricValue({
+  index,
+  value,
+  fontSize,
+  registerFrame,
+  registerValue,
+}: {
+  index: number;
+  value: string;
+  fontSize: number;
+  registerFrame: (index: number, node: HTMLDivElement | null) => void;
+  registerValue: (index: number, node: HTMLDivElement | null) => void;
+}) {
+
+  return (
+    <div ref={(node) => registerFrame(index, node)} className="mt-2 max-w-full min-w-0 overflow-hidden">
+      <div
+        ref={(node) => registerValue(index, node)}
+        className="w-max max-w-none whitespace-nowrap font-mono font-semibold leading-tight tracking-normal tabular-nums"
+        style={{ fontSize }}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 function AllowanceRequestDialog({
@@ -279,7 +380,7 @@ export function useEmployeeCostSnapshot() {
       if (!cancelled) void refresh();
     };
     const initial = window.setTimeout(run, 0);
-    const timer = window.setInterval(run, 15_000);
+    const timer = window.setInterval(run, EMPLOYEE_COST_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
@@ -326,7 +427,10 @@ export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?
 
   const exportDetails = useCallback((format: ExportFormat, detail: CostDetailExportSnapshot) => {
     exportEmployeeCostDocument({
+      range: detail.range,
       rangeLabel: detail.rangeLabel,
+      rangePeriodLabel: detail.rangePeriodLabel,
+      costFilterLabel: detail.costFilterLabel,
       subjectLabel,
       spendUsd: detail.summary.spendUsd,
       totalTokens: detail.summary.totalTokens,
@@ -393,7 +497,7 @@ export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>{formatUsd(snapshot.spendUsd)}</span>
-            <span>上限 {formatBudgetLimit(costBudget)}</span>
+            <span>剩余 {formatBudgetRemaining(snapshot.spendUsd, costBudget)}</span>
           </div>
         </div>
       </button>
@@ -415,7 +519,7 @@ export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?
           limitEnabled: costBudget.limitEnabled,
           remainingUsd: costBudget.remainingUsd,
         }}
-        technicalDescription="明细来自后端统一归属到当前员工的费用记录，并和管理员费用监控使用同一口径。预计费用不会计入已用。"
+        technicalDescription="明细来自后端统一归属到当前员工的费用记录，并和管理员费用监控使用同一口径。需估算的费用不会计入已用。"
         emptyMessage="当前范围还没有实际成本记录。"
         actions={(
           <Button type="button" variant="outline" size="sm" onClick={() => setRequestOpen(true)}>
@@ -435,10 +539,47 @@ export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?
     </>
   );
 }
-export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
-  const { snapshot, costBudget, ratio, status, loading, error, refresh } = useEmployeeCostSnapshot();
+export function EmployeeCostCard({
+  compact = false,
+  range = "month",
+}: {
+  compact?: boolean;
+  range?: CostDetailRangeKey;
+}) {
+  const { snapshot, costBudget, loading, error, refresh } = useEmployeeCostSnapshot();
   const [requestOpen, setRequestOpen] = useState(false);
-  const percent = Math.min(100, Math.round(ratio * 100));
+  const rangeLabel = costDetailRanges.find((item) => item.key === range)?.label ?? "本月";
+  const rangeEvents = useMemo(() => filterCostEventsByRange(snapshot.events, range), [range, snapshot.events]);
+  const rangeSummary = useMemo(() => summarizeCostEvents(rangeEvents), [rangeEvents]);
+  const rangeBreakdown = useMemo(() => buildCostBreakdown(rangeSummary.events), [rangeSummary.events]);
+  const monthEvents = useMemo(() => filterCostEventsByRange(snapshot.events, "month"), [snapshot.events]);
+  const monthSummary = useMemo(() => summarizeCostEvents(monthEvents), [monthEvents]);
+  const allPeriod = useMemo(() => getCostEventPeriod(rangeSummary.events), [rangeSummary.events]);
+  const displaySpendUsd = range === "month" && rangeSummary.events.length === 0
+    ? snapshot.spendUsd
+    : rangeSummary.spendUsd;
+  const isAllRange = range === "all";
+  const monthlySpendUsd = monthSummary.events.length === 0 ? snapshot.spendUsd : monthSummary.spendUsd;
+  const displaySpendLabel = formatUsd(displaySpendUsd);
+  const estimatedCostLabel = formatEstimatedUsd(rangeSummary.estimatedCostUsd);
+  const budgetLimitLabel = formatBudgetLimit(costBudget);
+  const budgetRemainingLabel = formatBudgetRemaining(monthlySpendUsd, costBudget);
+  const metricValues = useMemo(
+    () => isAllRange
+      ? [displaySpendLabel, estimatedCostLabel]
+      : [displaySpendLabel, estimatedCostLabel, budgetLimitLabel, budgetRemainingLabel],
+    [budgetLimitLabel, budgetRemainingLabel, displaySpendLabel, estimatedCostLabel, isAllRange],
+  );
+  const metricFont = useSharedMetricFontSize(metricValues);
+  const monthlyRatio = costBudgetRatio(monthlySpendUsd, costBudget);
+  const monthlyStatus = !costBudget.limitEnabled
+      ? "ok"
+      : monthlyRatio >= costBudget.hardStopRatio
+        ? "blocked"
+        : monthlyRatio >= costBudget.warningRatio
+          ? "warning"
+          : "ok";
+  const percent = Math.min(100, Math.round(monthlyRatio * 100));
   const sourceLabel =
     snapshot.source === "recorded" ? "实时记录" : snapshot.source === "empty" ? "暂无记录" : "暂不可用";
   const costNotice =
@@ -449,14 +590,14 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
       : snapshot.source === "empty"
         ? snapshot.outsideScopeCount > 0
           ? `当前员工本月没有实际费用记录；已隐藏 ${snapshot.outsideScopeCount} 条未归属记录，避免混入口径。`
-          : "当前员工本月还没有实际费用；已用显示为 0，且不包含预计任务或演示预算。"
-        : status === "blocked"
+          : "当前员工本月还没有实际费用；已用显示为 0，且不包含需估算任务或演示预算。"
+        : monthlyStatus === "blocked"
           ? "额度已达上限，高成本任务将被禁用。"
           : "额度接近 80%，建议控制批量背调和付费数据。";
 
   return (
     <Card className="overflow-hidden">
-      <CardContent className={cn("space-y-4 p-4", compact && "space-y-3")}>
+      <CardContent className={cn("space-y-4 p-5 sm:p-6", compact && isAllRange && "min-h-[470px]")}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -464,7 +605,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
               我的工具成本
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              只统计系统已记录到当前员工的实际费用；预计费用不计入已用
+              只统计系统已记录到当前员工的实际费用；需估算的费用不计入已用
             </p>
           </div>
           <Badge variant={snapshot.source === "recorded" ? "secondary" : "outline"}>
@@ -472,21 +613,42 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="text-[11px] text-muted-foreground">已用</div>
-            <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(snapshot.spendUsd)}</div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className={EMPLOYEE_COST_METRIC_CARD_CLASS}>
+            <div className="text-[11px] text-muted-foreground">{isAllRange ? "总已用费用" : `${rangeLabel}已用`}</div>
+            <ResponsiveMetricValue index={0} value={displaySpendLabel} {...metricFont} />
           </div>
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="text-[11px] text-muted-foreground">剩余</div>
-            <div className="mt-1 font-mono text-lg font-semibold">{formatBudgetRemaining(snapshot.spendUsd, costBudget)}</div>
+          <div className={EMPLOYEE_COST_METRIC_CARD_CLASS}>
+            <div className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              需估算的费用
+              <CostEstimateHelp />
+            </div>
+            <ResponsiveMetricValue index={1} value={estimatedCostLabel} {...metricFont} />
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {rangeSummary.unpricedCalls > 0 ? `仍有 ${rangeSummary.unpricedCalls} 次未估算` : `${rangeSummary.estimatedCalls} 次已估算`}
+            </div>
           </div>
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="text-[11px] text-muted-foreground">调用</div>
-            <div className="mt-1 font-mono text-lg font-semibold">{snapshot.totalCalls}</div>
-          </div>
+          {!isAllRange ? (
+            <div className={EMPLOYEE_COST_METRIC_CARD_CLASS}>
+              <div className="text-[11px] text-muted-foreground">本月额度</div>
+              <ResponsiveMetricValue index={2} value={budgetLimitLabel} {...metricFont} />
+            </div>
+          ) : null}
+          {!isAllRange ? (
+            <div className={EMPLOYEE_COST_METRIC_CARD_CLASS}>
+              <div className="text-[11px] text-muted-foreground">本月剩余</div>
+              <ResponsiveMetricValue index={3} value={budgetRemainingLabel} {...metricFont} />
+            </div>
+          ) : null}
+          {isAllRange ? (
+            <div className="min-w-0 rounded-md border bg-muted/20 p-4 sm:col-span-2">
+              <div className="text-[11px] text-muted-foreground">全部周期</div>
+              <div className="mt-2 break-words font-mono text-sm font-semibold leading-relaxed">{formatCostEventPeriod(allPeriod)}</div>
+            </div>
+          ) : null}
         </div>
 
+        {!isAllRange ? (
         <div>
           <div className="mb-1 flex items-center justify-between text-xs">
             <span>本月额度使用</span>
@@ -496,18 +658,22 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
             <div
               className={cn(
                 "h-2 rounded-full",
-                status === "blocked" ? "bg-rose-500" : status === "warning" ? "bg-amber-500" : "bg-emerald-500",
+                monthlyStatus === "blocked" ? "bg-rose-500" : monthlyStatus === "warning" ? "bg-amber-500" : "bg-emerald-500",
               )}
               style={{ width: `${Math.min(100, percent)}%` }}
             />
           </div>
           <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-            <span title="系统处理任务时产生的用量。">{formatCompact(snapshot.totalTokens)} 用量单位</span>
-            <span>{snapshot.unpricedCalls} 次暂未折算</span>
+            <span title="系统处理任务时产生的本月用量。">{formatCompact(monthSummary.totalTokens)} 本月用量单位</span>
+            <span>
+              剩余 {budgetRemainingLabel}
+              {monthSummary.unpricedCalls > 0 ? ` · ${monthSummary.unpricedCalls} 次未估算` : ""}
+            </span>
           </div>
         </div>
+        ) : null}
 
-        {status !== "ok" || error || snapshot.source !== "recorded" ? (
+        {monthlyStatus !== "ok" || error || snapshot.source !== "recorded" ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
             <div className="flex gap-2">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -516,9 +682,9 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
           </div>
         ) : null}
 
-        {!compact && (
+        {!compact && !isAllRange && (
           <div className="space-y-2">
-            {snapshot.sourceBreakdown.map((item) => (
+            {rangeBreakdown.map((item) => (
               <div key={item.label} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
                 <div className="min-w-0">
                   <div className="font-medium">{item.label}</div>
@@ -575,7 +741,7 @@ export function TaskCostNotice({
     >
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="font-medium">{label}费用预估</div>
+          <div className="font-medium">{label}需估算费用</div>
           <Badge variant="outline" className="mt-1 bg-background/70 text-[11px]">
             {source}
           </Badge>
@@ -583,7 +749,7 @@ export function TaskCostNotice({
         <div className="font-mono">{formatUsd(estimatedUsd)}</div>
       </div>
       <p className="mt-1 text-xs opacity-80">
-        这是提交前预估，实际费用以任务完成后的记录为准。
+        这是提交前估算，实际费用以任务完成后的记录为准。
       </p>
       <details className="mt-1 text-xs opacity-80">
         <summary className="cursor-pointer">费用怎么算</summary>
@@ -595,7 +761,7 @@ export function TaskCostNotice({
           : `按预算预留后约 ${formatUsd(projected)}，当前未启用账号成本上限。`}
       </p>
       <p className="mt-1 text-xs opacity-80">
-        预计值不会写入工具成本；实际费用只在任务完成并产生记录后累加。
+        需估算值不会写入工具成本；实际费用只在任务完成并产生记录后累加。
       </p>
     </div>
   );

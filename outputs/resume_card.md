@@ -25,3 +25,21 @@ Started/completed 2026-06-29 in `/Users/henry/Desktop/Sentura-Platform`.
   - `scripts/test-cross-border-phase2-store.ts`: CE47 PASS; broad result 250 passed / 3 unrelated existing failures.
   - `git diff --check`: PASS.
 - Deployment status: local only; not deployed to ECS/public domains.
+
+# Local Pending Task: CBE Login Click No Response
+
+Started 2026-06-28 in `/Users/purest./Documents/Sentura/Sentura-Platform`.
+
+- User reported in Chinese that clicking `登录` in Sentura 跨境电商 does not log in and appears to have no response.
+- Main handoff: `outputs/task_handoff.md`, section `Sentura CBE Login Click No Response 2026-06-28`.
+- Hard constraints: fix from real local code/runtime evidence; keep CBE business logic, memory/write behavior, screening/scoring/task execution, schemas, and unrelated worktree files unchanged.
+- Relevant files found so far:
+  - Employee login: `sentura/dashboard/src/app/auth/login/page.tsx`
+  - Admin login: `sentura/dashboard/src/app/client-demos/cross-border/admin/login/page.tsx`
+  - Auth route: `sentura/dashboard/src/app/api/auth/login/route.ts`
+- Current observations:
+  - Both login pages are client components and call `POST /api/auth/login`.
+  - Both use button `onClick={submit}` and Enter-key handlers, but no native `<form onSubmit>` fallback.
+  - Login visual layers/effects still need inspection for pointer-event interception.
+  - API route supports name/password login and preset admin `孙总` / `1234`.
+- Next actions: inspect shared login visual layers/button, reproduce against local dev server, smoke `POST /api/auth/login`, then patch the narrow cause and verify.

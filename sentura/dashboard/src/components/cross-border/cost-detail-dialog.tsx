@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Check, Download, HelpCircle, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,12 +11,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { CostEvent } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import type { ExportFormat } from "@/components/cross-border/document-export";
 import { AnimatedTableRow } from "@/components/cross-border/animated-list";
 
 export type CostDetailRangeKey = "today" | "week" | "month" | "all";
+export type CostDetailCostFilterKey = "all" | "used" | "estimated";
 
 export const costDetailRanges: Array<{ key: CostDetailRangeKey; label: string }> = [
   { key: "today", label: "今日" },
@@ -24,6 +39,31 @@ export const costDetailRanges: Array<{ key: CostDetailRangeKey; label: string }>
   { key: "month", label: "本月" },
   { key: "all", label: "全部" },
 ];
+
+export const costDetailCostFilters: Array<{ key: CostDetailCostFilterKey; label: string }> = [
+  { key: "all", label: "全部" },
+  { key: "used", label: "已用" },
+  { key: "estimated", label: "需估算" },
+];
+
+export const costEstimateHelpText =
+  "按供应商公开价格、月付额度或 credit 规则折算；不计入已用费用，最终以供应商实际账单为准。";
+
+export function CostEstimateHelp({ label = "需估算的费用说明" }: { label?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-label={label}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64">
+        {costEstimateHelpText}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export interface CostSourceBreakdownItem {
   label: string;
@@ -33,15 +73,25 @@ export interface CostSourceBreakdownItem {
 
 export interface CostDetailSummary {
   spendUsd: number;
+  estimatedCostUsd: number;
+  estimatedCalls: number;
   totalTokens: number;
   totalCalls: number;
   unpricedCalls: number;
   events: CostEvent[];
 }
 
+export interface CostEventPeriod {
+  startIso: string | null;
+  endIso: string | null;
+}
+
 export interface CostDetailExportSnapshot {
   range: CostDetailRangeKey;
   rangeLabel: string;
+  rangePeriodLabel: string;
+  costFilter: CostDetailCostFilterKey;
+  costFilterLabel: string;
   summary: CostDetailSummary;
   sourceBreakdown: CostSourceBreakdownItem[];
 }
@@ -108,6 +158,21 @@ function eventTimeMs(event: CostEvent) {
   return Number.isFinite(time) ? time : 0;
 }
 
+export function getCostEventPeriod(events: CostEvent[]): CostEventPeriod {
+  let startMs: number | null = null;
+  let endMs: number | null = null;
+  for (const event of events) {
+    const time = eventTimeMs(event);
+    if (time <= 0) continue;
+    startMs = startMs === null ? time : Math.min(startMs, time);
+    endMs = endMs === null ? time : Math.max(endMs, time);
+  }
+  return {
+    startIso: startMs === null ? null : new Date(startMs).toISOString(),
+    endIso: endMs === null ? null : new Date(endMs).toISOString(),
+  };
+}
+
 export function filterCostEventsByRange(
   events: CostEvent[],
   range: CostDetailRangeKey,
@@ -120,6 +185,16 @@ export function filterCostEventsByRange(
   return [...filtered].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
 }
 
+function filterCostEventsByCostFilter(events: CostEvent[], filter: CostDetailCostFilterKey) {
+  if (filter === "used") {
+    return events.filter((event) => event.costUsd !== null && event.pricingStatus !== "estimated");
+  }
+  if (filter === "estimated") {
+    return events.filter((event) => event.pricingStatus === "estimated" || event.costUsd === null);
+  }
+  return events;
+}
+
 export function summarizeCostEvents(events: CostEvent[]): CostDetailSummary {
   const sortedEvents = [...events].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
   const totals = sortedEvents.reduce(
@@ -127,10 +202,15 @@ export function summarizeCostEvents(events: CostEvent[]): CostDetailSummary {
       acc.totalCalls += 1;
       acc.totalTokens += event.usage.totalTokens;
       if (event.costUsd === null) acc.unpricedCalls += 1;
-      else if (event.pricingStatus !== "estimated") acc.spendUsd += event.costUsd;
+      else if (event.pricingStatus === "estimated") {
+        acc.estimatedCostUsd += event.costUsd;
+        acc.estimatedCalls += 1;
+      } else {
+        acc.spendUsd += event.costUsd;
+      }
       return acc;
     },
-    { spendUsd: 0, totalTokens: 0, totalCalls: 0, unpricedCalls: 0 },
+    { spendUsd: 0, estimatedCostUsd: 0, estimatedCalls: 0, totalTokens: 0, totalCalls: 0, unpricedCalls: 0 },
   );
   return { ...totals, events: sortedEvents };
 }
@@ -156,29 +236,56 @@ export function buildCostBreakdown(events: CostEvent[]): CostSourceBreakdownItem
     (event.pricingStatus === "free" || event.pricingStatus === "included") &&
     event.costUsd === 0,
   ).length;
+  const estimatedExternalEvents = events.filter((event) =>
+    costEventKind(event) !== "model" &&
+    event.pricingStatus === "estimated" &&
+    event.costUsd !== null,
+  );
+  const estimatedExternalSpend = estimatedExternalEvents.reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
   const unpricedExternalCalls = events.filter((event) =>
     costEventKind(event) !== "model" && event.costUsd === null,
   ).length;
 
-  return [
+  const items: CostSourceBreakdownItem[] = [
     { label: "智能处理", amountUsd: modelSpend, note: "来自当前任务的实际处理用量" },
     {
       label: "外部资料查询",
       amountUsd: externalSpend,
       note:
         unpricedExternalCalls > 0
-          ? `${freeExternalCalls} 次免费或套餐内查询，${unpricedExternalCalls} 次暂未折算美元`
-          : `${freeExternalCalls} 次外部资料查询已记录为免费或套餐内`,
+          ? `${freeExternalCalls} 次免费或套餐内查询，${estimatedExternalEvents.length} 次已按供应商价格预估，${unpricedExternalCalls} 次仍缺少可审计价格`
+          : `${freeExternalCalls} 次免费或套餐内查询，${estimatedExternalEvents.length} 次已按供应商价格预估`,
     },
   ];
+  if (estimatedExternalEvents.length > 0 || estimatedExternalSpend > 0) {
+    items.push({
+      label: "需估算外部资料",
+      amountUsd: estimatedExternalSpend,
+      note: "按供应商月付、credit 或每千次事件价格折算；不计入已发生费用",
+    });
+  }
+  return items;
 }
 
 export function formatUsd(value: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: value >= 10 ? 0 : 2,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
+}
+
+export function formatEstimatedUsd(value: number) {
+  if (value > 0 && value < 0.01) {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    }).format(value);
+  }
+  return formatUsd(value);
 }
 
 export function formatCompact(value: number) {
@@ -194,6 +301,57 @@ function formatCostTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatCostPeriodBoundary(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export function formatCostEventPeriod(period: CostEventPeriod) {
+  if (!period.startIso || !period.endIso) return "暂无记录";
+  const start = formatCostPeriodBoundary(period.startIso);
+  const end = formatCostPeriodBoundary(period.endIso);
+  return start === end ? start : `${start} - ${end}`;
+}
+
+export function formatCostDetailRangePeriod(
+  range: CostDetailRangeKey,
+  events: CostEvent[],
+  now = new Date(),
+) {
+  const startMs = rangeStartMs(range, now);
+  if (startMs === null) {
+    return formatCostEventPeriod(getCostEventPeriod(events));
+  }
+  const start = formatCostPeriodBoundary(new Date(startMs).toISOString());
+  const end = formatCostPeriodBoundary(now.toISOString());
+  return start === end ? start : `${start} - ${end}`;
+}
+
+function CostEventPeriodBlock({ period }: { period: CostEventPeriod }) {
+  if (!period.startIso || !period.endIso) {
+    return <div className="mt-1 font-mono text-lg font-semibold">暂无记录</div>;
+  }
+  const start = formatCostPeriodBoundary(period.startIso);
+  const end = formatCostPeriodBoundary(period.endIso);
+  if (start === end) {
+    return <div className="mt-1 font-mono text-lg font-semibold">{start}</div>;
+  }
+  return (
+    <div className="mt-2 space-y-1 font-mono font-semibold leading-tight">
+      <div className="whitespace-nowrap text-base">{start}</div>
+      <div className="text-xs text-muted-foreground">至</div>
+      <div className="whitespace-nowrap text-base">{end}</div>
+    </div>
+  );
 }
 
 function formatDurationMs(value: number) {
@@ -231,16 +389,24 @@ function costUsageLabel(event: CostEvent) {
 }
 
 function costAmountLabel(event: CostEvent) {
-  if (event.pricingStatus === "estimated" && event.costUsd !== null) return `预计 ${formatUsd(event.costUsd)}`;
+  if (event.pricingStatus === "estimated" && event.costUsd !== null) return `需估算 ${formatEstimatedUsd(event.costUsd)}`;
   if (event.costUsd !== null) return formatUsd(event.costUsd);
-  return "未折算";
+  return "未估算";
+}
+
+function formatMonthlyRemaining(costBudget: CostDetailBudget) {
+  if (!costBudget.limitEnabled) return "不限额";
+  if (typeof costBudget.remainingUsd === "number" && Number.isFinite(costBudget.remainingUsd)) {
+    return formatUsd(Math.max(0, costBudget.remainingUsd));
+  }
+  return "待同步";
 }
 
 export function CostDetailDialog({
   open,
   onOpenChange,
   title = "成本明细",
-  description = "逐条展示已记录的智能处理和外部资料查询费用；已发生的实际费用计入已用，预计和暂未折算的项目单独展示。",
+  description = "逐条展示已记录的智能处理和外部资料查询费用；已发生的实际费用计入已用，供应商规则需估算的项目单独展示。",
   events,
   range,
   onRangeChange,
@@ -256,20 +422,45 @@ export function CostDetailDialog({
   onRefresh,
   onExport,
 }: CostDetailDialogProps) {
+  const [costFilter, setCostFilter] = useState<CostDetailCostFilterKey>("all");
   const rangeLabel = costDetailRanges.find((item) => item.key === range)?.label ?? "本月";
-  const summary = useMemo(
-    () => summarizeCostEvents(filterCostEventsByRange(events, range)),
+  const costFilterLabel = costDetailCostFilters.find((item) => item.key === costFilter)?.label ?? "全部";
+  const rangeEvents = useMemo(
+    () => filterCostEventsByRange(events, range),
     [events, range],
   );
+  const filteredEvents = useMemo(
+    () => filterCostEventsByCostFilter(rangeEvents, costFilter),
+    [costFilter, rangeEvents],
+  );
+  const summary = useMemo(
+    () => summarizeCostEvents(filteredEvents),
+    [filteredEvents],
+  );
   const sourceBreakdown = useMemo(() => buildCostBreakdown(summary.events), [summary.events]);
+  const allPeriod = useMemo(() => getCostEventPeriod(summary.events), [summary.events]);
+  const rangePeriodLabel = useMemo(
+    () => formatCostDetailRangePeriod(range, summary.events),
+    [range, summary.events],
+  );
+  const isAllRange = range === "all";
+  const showBudget = Boolean(costBudget && !isAllRange);
+  const summaryGridClass = showBudget
+    ? "grid-cols-2 sm:grid-cols-5"
+    : isAllRange
+      ? "grid-cols-1 sm:grid-cols-4"
+      : "grid-cols-1 sm:grid-cols-4";
   const exportSnapshot = useMemo<CostDetailExportSnapshot>(
     () => ({
       range,
       rangeLabel,
+      rangePeriodLabel,
+      costFilter,
+      costFilterLabel,
       summary,
       sourceBreakdown,
     }),
-    [range, rangeLabel, sourceBreakdown, summary],
+    [costFilter, costFilterLabel, range, rangeLabel, rangePeriodLabel, sourceBreakdown, summary],
   );
 
   return (
@@ -279,21 +470,37 @@ export function CostDetailDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <div className="flex rounded-md border bg-muted/20 p-0.5">
-              {costDetailRanges.map((item) => (
-                <Button
-                  key={item.key}
-                  type="button"
-                  variant={range === item.key ? "default" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5"
-                  aria-pressed={range === item.key}
-                  onClick={() => onRangeChange(item.key)}
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={(
+                  <Button type="button" variant="outline" size="sm" className="min-w-[168px] justify-start" />
+                )}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                筛选：{rangeLabel} · {costFilterLabel}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>时间范围</DropdownMenuLabel>
+                  {costDetailRanges.map((item) => (
+                    <DropdownMenuItem key={item.key} onClick={() => onRangeChange(item.key)}>
+                      <span className="flex-1">{item.label}</span>
+                      {range === item.key ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>成本类型</DropdownMenuLabel>
+                  {costDetailCostFilters.map((item) => (
+                    <DropdownMenuItem key={item.key} onClick={() => setCostFilter(item.key)}>
+                      <span className="flex-1">{item.label}</span>
+                      {costFilter === item.key ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {onExport ? (
               <>
                 <Button
@@ -329,15 +536,24 @@ export function CostDetailDialog({
           ) : null}
         </DialogHeader>
 
-        <div className={cn(
-          "relative z-10 grid shrink-0 gap-2 bg-popover/95",
-          costBudget ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3",
-        )}>
+        <div className={cn("relative z-10 grid shrink-0 gap-2 bg-popover/95", summaryGridClass)}>
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-xs text-muted-foreground">{rangeLabel}已用</div>
             <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(summary.spendUsd)}</div>
           </div>
-          {costBudget ? (
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              需估算的费用
+              <CostEstimateHelp />
+            </div>
+            <div className="mt-1 font-mono text-lg font-semibold">{formatEstimatedUsd(summary.estimatedCostUsd)}</div>
+            {summary.unpricedCalls > 0 ? (
+              <div className="mt-0.5 text-[11px] text-muted-foreground">仍有 {summary.unpricedCalls} 次未估算</div>
+            ) : (
+              <div className="mt-0.5 text-[11px] text-muted-foreground">{summary.estimatedCalls} 次已估算</div>
+            )}
+          </div>
+          {showBudget && costBudget ? (
             <div className="rounded-md border bg-muted/20 p-3">
               <div className="text-xs text-muted-foreground">本月额度</div>
               <div className="mt-1 font-mono text-lg font-semibold">
@@ -345,20 +561,30 @@ export function CostDetailDialog({
               </div>
             </div>
           ) : null}
+          {showBudget && costBudget ? (
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">本月剩余额度</div>
+              <div className="mt-1 font-mono text-lg font-semibold">
+                {formatMonthlyRemaining(costBudget)}
+              </div>
+            </div>
+          ) : null}
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-xs text-muted-foreground">调用次数</div>
             <div className="mt-1 font-mono text-lg font-semibold">{summary.totalCalls}</div>
           </div>
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="text-xs text-muted-foreground">{costBudget ? "剩余额度" : "智能处理用量"}</div>
-            <div className="mt-1 font-mono text-lg font-semibold">
-              {costBudget
-                ? costBudget.limitEnabled
-                  ? formatUsd(costBudget.remainingUsd ?? Math.max(0, costBudget.limitUsd - summary.spendUsd))
-                  : "不限额"
-                : formatCompact(summary.totalTokens)}
+          {isAllRange || !showBudget ? (
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">
+                {isAllRange ? "全部周期" : "智能处理用量"}
+              </div>
+              {isAllRange ? (
+                <CostEventPeriodBlock period={allPeriod} />
+              ) : (
+                <div className="mt-1 font-mono text-lg font-semibold">{formatCompact(summary.totalTokens)}</div>
+              )}
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div

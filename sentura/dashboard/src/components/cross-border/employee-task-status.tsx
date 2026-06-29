@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { useGateway } from "@/lib/gateway";
 import { isCbeEmployeePath } from "@/lib/cross-border-routes";
 import { cn } from "@/lib/utils";
-import { AnimatedList } from "@/components/cross-border/animated-list";
 import { Counter } from "@/components/cross-border/counter";
 import {
   cancelEmployeeTaskInDb,
@@ -194,7 +193,7 @@ export function EmployeeTaskStatusBar() {
             正在处理 {visibleTasks.length} 个任务
           </div>
         ) : null}
-        <AnimatedList viewportClassName="flex flex-col gap-2 overflow-visible" displayScrollbar={false}>
+        <div className="flex flex-col gap-2 overflow-visible">
           {visibleTasks.map((visibleTask) => {
             const timing = getCbeTaskTiming(visibleTask, now);
             const isActive = isCbeEmployeeTaskActive(visibleTask);
@@ -293,7 +292,7 @@ export function EmployeeTaskStatusBar() {
               </div>
             );
           })}
-        </AnimatedList>
+        </div>
       </div>
     </div>
   );

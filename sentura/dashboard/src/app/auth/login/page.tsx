@@ -27,6 +27,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
+    if (loading) return;
     if (!displayName.trim() || !password) {
       setError("请输入员工姓名和密码。");
       return;
@@ -70,31 +71,33 @@ export default function LoginPage() {
         <CardHeader className="gap-0 px-7 pb-5 pt-8">
           <LoginWelcomeHeader systemTitle="跨境电商员工操作系统" />
         </CardHeader>
-        <CardContent className="space-y-3 px-7 pb-8">
-          <Input
-            autoComplete="username"
-            placeholder="员工姓名"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit();
+        <CardContent className="px-7 pb-8">
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
             }}
-          />
-          <Input
-            autoComplete="current-password"
-            type="password"
-            placeholder="密码"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit();
-            }}
-          />
-          {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-          <Button className="sentura-login-submit h-9 w-full hover:brightness-100" onClick={submit} disabled={loading}>
-            {loading ? <Loader2 className="relative z-10 h-4 w-4 animate-spin" /> : <LogIn className="relative z-10 h-4 w-4" />}
-            <span className="relative z-10">登录</span>
-          </Button>
+          >
+            <Input
+              autoComplete="username"
+              placeholder="员工姓名"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+            <Input
+              autoComplete="current-password"
+              type="password"
+              placeholder="密码"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+            <Button type="submit" className="sentura-login-submit h-9 w-full hover:brightness-100" disabled={loading}>
+              {loading ? <Loader2 className="relative z-10 h-4 w-4 animate-spin" /> : <LogIn className="relative z-10 h-4 w-4" />}
+              <span className="relative z-10">登录</span>
+            </Button>
+          </form>
         </CardContent>
       </PixelCard>
     </main>

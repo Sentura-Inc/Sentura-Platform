@@ -463,7 +463,7 @@ function CrossBorderEmployeeHomeContent() {
             id={EMPLOYEE_API_COST_ELEMENT_ID}
             className={cn("scroll-mt-24 rounded-lg", costHighlightActive && EMPLOYEE_NOTIFICATION_HIGHLIGHT_CLASS)}
           >
-            <EmployeeCostCard compact />
+            <EmployeeCostCard compact range={selectedRange} />
           </div>
 
           <Card>

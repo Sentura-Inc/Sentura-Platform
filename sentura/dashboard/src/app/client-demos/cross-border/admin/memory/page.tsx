@@ -368,7 +368,7 @@ export default function AdminMemoryPage() {
           if (!open) setAnalysisDialogOpen(false);
         }}
       >
-        <DialogContent className="flex max-w-[calc(100vw-1rem)] flex-col rounded-lg p-0 sm:max-w-6xl">
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[96vw] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-lg p-0 sm:max-h-[calc(100dvh-4rem)] sm:max-w-6xl">
           <div
             aria-hidden
             className={cn(
@@ -378,11 +378,11 @@ export default function AdminMemoryPage() {
           />
           <div
             className={cn(
-              "relative z-0 flex flex-col transition duration-150",
+              "relative z-0 flex min-h-0 flex-1 flex-col transition duration-150",
               analysisDialogOpen ? "brightness-90 blur-[1px]" : "brightness-100 blur-0",
             )}
           >
-            <DialogHeader className="border-b px-4 py-4 pr-12 sm:px-5">
+            <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12 sm:px-5">
               {loadingRecords ? (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="secondary" className="w-fit gap-1">
@@ -398,7 +398,7 @@ export default function AdminMemoryPage() {
                 与员工端列表、筛选、分析模板和完整聊天记录查看保持一致。
               </DialogDescription>
             </DialogHeader>
-            <div className="p-4 sm:p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
               {selectedOperator ? (
                 <MemoryChatCustomerList
                   records={records}

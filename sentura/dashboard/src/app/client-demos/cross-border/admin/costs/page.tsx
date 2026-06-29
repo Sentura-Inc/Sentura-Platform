@@ -33,6 +33,10 @@ import {
 } from "@/components/cross-border/document-export";
 import {
   CostDetailDialog,
+  costEstimateHelpText,
+  formatCostEventPeriod,
+  formatEstimatedUsd,
+  formatUsd as formatCostUsd,
   type CostDetailExportSnapshot,
   type CostDetailRangeKey,
 } from "@/components/cross-border/cost-detail-dialog";
@@ -51,14 +55,15 @@ const ranges: Array<{ key: RangeKey; label: string }> = [
   { key: "month", label: "本月" },
   { key: "all", label: "全部" },
 ];
-const ADMIN_COST_RANGE_STORAGE_KEY = "sentura:cbe:admin:cost-range:v1";
+const ADMIN_COST_RANGE_STORAGE_KEY = "sentura:cbe:admin:cost-range:v2";
+const ADMIN_COST_REFRESH_INTERVAL_MS = 15_000;
 
 function isRangeKey(value: unknown): value is RangeKey {
   return ranges.some((item) => item.key === value);
 }
 
 function usd(value: unknown) {
-  return `US$${money(value).toFixed(2)}`;
+  return formatCostUsd(money(value));
 }
 
 function num(value: unknown) {
@@ -73,6 +78,17 @@ function money(value: unknown) {
 
 function moneyInput(value: unknown) {
   return money(value).toFixed(2);
+}
+
+function costPeriodFrom(value: { cost_period_start?: unknown; cost_period_end?: unknown }) {
+  return {
+    startIso: typeof value.cost_period_start === "string" ? value.cost_period_start : null,
+    endIso: typeof value.cost_period_end === "string" ? value.cost_period_end : null,
+  };
+}
+
+function monthlyTotalLimit(value: { base_limit_usd?: unknown; active_allowance_usd?: unknown }) {
+  return money(value.base_limit_usd) + money(value.active_allowance_usd);
 }
 
 function sameJson(left: unknown, right: unknown) {
@@ -143,6 +159,13 @@ function AdminCostsContent() {
     [items, selectedBudgetUserIds],
   );
   const allBudgetRowsSelected = items.length > 0 && items.every((item) => selectedBudgetUserIds.has(item.user_id));
+  const rangeLabel = ranges.find((item) => item.key === range)?.label ?? "本月";
+  const isAllRange = range === "all";
+  const poolPeriod = {
+    startIso: typeof pool.costPeriodStart === "string" ? pool.costPeriodStart : null,
+    endIso: typeof pool.costPeriodEnd === "string" ? pool.costPeriodEnd : null,
+  };
+  const poolTotalLimitUsd = money(pool.baseLimitUsd) + money(pool.activeAllowanceUsd);
 
   const refresh = useCallback(async function refresh(nextRange = range, options: { background?: boolean } = {}) {
     if (!options.background) {
@@ -188,7 +211,7 @@ function AdminCostsContent() {
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void refresh(range), 0);
-    const timer = window.setInterval(() => void refresh(range, { background: true }), 15_000);
+    const timer = window.setInterval(() => void refresh(range, { background: true }), ADMIN_COST_REFRESH_INTERVAL_MS);
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(timer);
@@ -224,6 +247,10 @@ function AdminCostsContent() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function refreshCostMonitor() {
+    await refresh(range);
   }
 
   function toggleBudgetRow(userId: string) {
@@ -375,7 +402,10 @@ function AdminCostsContent() {
   function exportCostDetail(format: ExportFormat, detail: CostDetailExportSnapshot) {
     if (!costDetail) return;
     exportEmployeeCostDocument({
+      range: detail.range,
       rangeLabel: detail.rangeLabel,
+      rangePeriodLabel: detail.rangePeriodLabel,
+      costFilterLabel: detail.costFilterLabel,
       subjectLabel: costDetail.profile?.display_name ?? "员工",
       spendUsd: detail.summary.spendUsd,
       totalTokens: detail.summary.totalTokens,
@@ -404,7 +434,7 @@ function AdminCostsContent() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">费用监控</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            查看各员工本月已用费用和额度审批。
+            查看各员工{rangeLabel}已用费用和额度审批。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -413,7 +443,7 @@ function AdminCostsContent() {
               {item.label}
             </Button>
           ))}
-          <Button variant="outline" onClick={() => refresh()} disabled={loading}>
+          <Button variant="outline" onClick={refreshCostMonitor} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             刷新
           </Button>
@@ -430,27 +460,48 @@ function AdminCostsContent() {
         <Card size="sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
-              总基础额度
-              <FieldHelp label="基础额度说明">员工本月默认可用预算，由管理者设置。</FieldHelp>
+              总需估算费用
+              <FieldHelp label="需估算的费用说明">{costEstimateHelpText}</FieldHelp>
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{usd(pool.baseLimitUsd)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatEstimatedUsd(num(pool.estimatedCostUsd))}</CardContent>
         </Card>
+        {isAllRange ? (
+          <>
+            <Card size="sm">
+              <CardHeader><CardTitle>调用次数</CardTitle></CardHeader>
+              <CardContent className="text-2xl font-semibold">{num(pool.totalCallCount)}</CardContent>
+            </Card>
+            <Card size="sm">
+              <CardHeader><CardTitle>全部周期</CardTitle></CardHeader>
+              <CardContent className="font-mono text-sm font-semibold">{formatCostEventPeriod(poolPeriod)}</CardContent>
+            </Card>
+          </>
+        ) : (
+        <>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                总额度
+                <FieldHelp label="总额度说明">总额度 = 总基础额度 + 总临时额度。</FieldHelp>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-semibold">{usd(poolTotalLimitUsd)}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                基础 {usd(pool.baseLimitUsd)} · 临时 {usd(pool.activeAllowanceUsd)}
+              </div>
+            </CardContent>
+          </Card>
         <Card size="sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              总临时额度
-              <FieldHelp label="临时额度说明">本月额外增加的预算，用于临时放宽费用上限。</FieldHelp>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{usd(pool.activeAllowanceUsd)}</CardContent>
-        </Card>
-        <Card size="sm">
-          <CardHeader><CardTitle>剩余额度</CardTitle></CardHeader>
+          <CardHeader><CardTitle>本月剩余额度</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{usd(pool.remainingUsd)}</CardContent>
         </Card>
+        </>
+        )}
       </div>
 
+      {!isAllRange ? (
       <Card>
         <CardHeader>
           <CardTitle>批量修改预算</CardTitle>
@@ -499,12 +550,12 @@ function AdminCostsContent() {
           </p>
         </CardContent>
       </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>员工费用情况</CardTitle>
-            <span className="text-sm text-muted-foreground">已选 {selectedBudgetRows.length} 人</span>
           </div>
         </CardHeader>
         <CardContent>
@@ -538,23 +589,58 @@ function AdminCostsContent() {
 
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                    <div className="text-xs text-muted-foreground">已发生费用</div>
+                    <div className="text-xs text-muted-foreground">{isAllRange ? "总已用费用" : "已发生费用"}</div>
                     <div className="font-semibold">{usd(item.actual_cost_usd)}</div>
                   </div>
+	                  {isAllRange ? (
+	                    <>
+	                      <div className="rounded-md bg-muted/35 px-2 py-1.5">
+	                        <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            需估算的费用
+                            <FieldHelp label="需估算的费用说明">{costEstimateHelpText}</FieldHelp>
+                          </div>
+	                        <div className="font-semibold">{formatEstimatedUsd(item.estimated_cost_usd)}</div>
+	                        <div className="text-[11px] text-muted-foreground">
+	                          {num(item.unpriced_call_count) > 0 ? `${num(item.unpriced_call_count)} 次未估算` : "已按价格规则估算"}
+	                        </div>
+	                      </div>
+	                      <div className="rounded-md bg-muted/35 px-2 py-1.5">
+	                        <div className="text-xs text-muted-foreground">调用次数</div>
+	                        <div className="font-semibold">{num(item.total_call_count)}</div>
+                      </div>
+                      <div className="col-span-2 rounded-md bg-muted/35 px-2 py-1.5">
+                        <div className="text-xs text-muted-foreground">全部周期</div>
+                        <div className="font-mono text-xs font-semibold">{formatCostEventPeriod(costPeriodFrom(item))}</div>
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                    <div className="text-xs text-muted-foreground">剩余</div>
+                    <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      本月总额度
+                      <FieldHelp label="本月总额度说明">本月总额度 = 基础额度 + 临时额度。</FieldHelp>
+                    </div>
+                    <div className="font-semibold">{usd(monthlyTotalLimit(item))}</div>
+                  </div>
+                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+                    <div className="text-xs text-muted-foreground">本月剩余</div>
                     <div className={cn("font-semibold", item.remaining_usd < 0 ? "text-destructive" : "")}>{usd(item.remaining_usd)}</div>
                   </div>
-                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                    <div className="text-xs text-muted-foreground">暂未折算</div>
-                    <div className="font-semibold">{num(item.unpriced_call_count)}</div>
-                  </div>
-                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
-                    <div className="text-xs text-muted-foreground">进行中任务</div>
-                    <div className="font-semibold">{num(item.active_task_count)}</div>
-                  </div>
+	                  <div className="rounded-md bg-muted/35 px-2 py-1.5">
+	                    <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        需估算的费用
+                        <FieldHelp label="需估算的费用说明">{costEstimateHelpText}</FieldHelp>
+                      </div>
+	                    <div className="font-semibold">{formatEstimatedUsd(item.estimated_cost_usd)}</div>
+	                    <div className="text-[11px] text-muted-foreground">
+	                      {num(item.unpriced_call_count) > 0 ? `${num(item.unpriced_call_count)} 次未估算` : "已按价格规则估算"}
+	                    </div>
+	                  </div>
+                  </>
+                  )}
                 </div>
 
+                {!isAllRange ? (
                 <div className="mt-3 grid gap-3">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">本月临时额度</div>
@@ -595,6 +681,7 @@ function AdminCostsContent() {
                     </div>
                   </div>
                 </div>
+                ) : null}
               </article>
             ))}
             {!loading && items.length === 0 ? (
@@ -608,19 +695,38 @@ function AdminCostsContent() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10">
+                {!isAllRange ? (
+                  <TableHead className="w-10">
                   <input
                     type="checkbox"
                     aria-label="选择全部费用员工"
                     checked={allBudgetRowsSelected}
                     onChange={toggleAllBudgetRows}
                   />
-                </TableHead>
+                  </TableHead>
+                ) : null}
                 <TableHead>员工</TableHead>
-                <TableHead>已发生费用</TableHead>
-                <TableHead>暂未折算</TableHead>
-                <TableHead>进行中任务</TableHead>
-                <TableHead>
+                <TableHead>{isAllRange ? "总已用费用" : "已发生费用"}</TableHead>
+	                {isAllRange ? (
+	                  <>
+	                    <TableHead>
+                        <span className="inline-flex items-center gap-1.5">
+                          需估算的费用
+                          <FieldHelp label="需估算的费用说明">{costEstimateHelpText}</FieldHelp>
+                        </span>
+                      </TableHead>
+	                    <TableHead>调用次数</TableHead>
+	                    <TableHead>全部周期</TableHead>
+                  </>
+                ) : (
+                <>
+	                <TableHead>
+                    <span className="inline-flex items-center gap-1.5">
+                      需估算的费用
+                      <FieldHelp label="需估算的费用说明">{costEstimateHelpText}</FieldHelp>
+                    </span>
+                  </TableHead>
+                <TableHead className="w-[220px]">
                   <span className="inline-flex items-center gap-1.5">
                     基础额度
                     <FieldHelp label="基础额度说明">员工本月默认可用预算，由管理者设置。</FieldHelp>
@@ -632,13 +738,21 @@ function AdminCostsContent() {
                     <FieldHelp label="临时额度说明">本月额外增加的预算，用于临时放宽费用上限。</FieldHelp>
                   </span>
                 </TableHead>
-                <TableHead>剩余</TableHead>
-                <TableHead className="w-[220px]">本月限额</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1.5">
+                    本月总额度
+                    <FieldHelp label="本月总额度说明">本月总额度 = 基础额度 + 临时额度。</FieldHelp>
+                  </span>
+                </TableHead>
+                <TableHead>本月剩余额度</TableHead>
+                </>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((item, index) => (
                 <AnimatedTableRow key={item.user_id} index={index}>
+                  {!isAllRange ? (
                   <TableCell>
                     <input
                       type="checkbox"
@@ -647,6 +761,7 @@ function AdminCostsContent() {
                       onChange={() => toggleBudgetRow(item.user_id)}
                     />
                   </TableCell>
+                  ) : null}
                   <TableCell>
                     <button
                       type="button"
@@ -658,28 +773,25 @@ function AdminCostsContent() {
                     <div className="text-xs text-muted-foreground">{String(item.team_name ?? item.user_id)}</div>
                   </TableCell>
                   <TableCell>{usd(item.actual_cost_usd)}</TableCell>
-                  <TableCell>{num(item.unpriced_call_count)}</TableCell>
-                  <TableCell>{num(item.active_task_count)}</TableCell>
-                  <TableCell>{usd(item.base_limit_usd)}</TableCell>
-                  <TableCell className="w-[220px]">
-                    <div className="flex items-center gap-2">
-                      <div className="relative w-28">
-                        <Input
-                          className="pr-7 text-right"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={allowanceInputs[item.user_id] ?? moneyInput(item.active_allowance_usd)}
-                          onChange={(event) => setAllowanceInputs((value) => ({ ...value, [item.user_id]: event.target.value }))}
-                        />
-                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => saveAllowance(item)} disabled={busy === `allowance:${item.user_id}`}>
-                        保存
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell className={item.remaining_usd < 0 ? "text-destructive" : ""}>{usd(item.remaining_usd)}</TableCell>
+	                  {isAllRange ? (
+	                    <>
+	                      <TableCell>
+	                        <div className="font-mono">{formatEstimatedUsd(item.estimated_cost_usd)}</div>
+	                        <div className="text-xs text-muted-foreground">
+	                          {num(item.unpriced_call_count) > 0 ? `${num(item.unpriced_call_count)} 次未估算` : "已估算"}
+	                        </div>
+	                      </TableCell>
+	                      <TableCell>{num(item.total_call_count)}</TableCell>
+                      <TableCell className="font-mono text-xs">{formatCostEventPeriod(costPeriodFrom(item))}</TableCell>
+                    </>
+                  ) : (
+                  <>
+	                  <TableCell>
+	                    <div className="font-mono">{formatEstimatedUsd(item.estimated_cost_usd)}</div>
+	                    <div className="text-xs text-muted-foreground">
+	                      {num(item.unpriced_call_count) > 0 ? `${num(item.unpriced_call_count)} 次未估算` : "已估算"}
+	                    </div>
+	                  </TableCell>
                   <TableCell className="w-[220px]">
                     <div className="flex items-center gap-2">
                       <div className="relative w-28">
@@ -698,16 +810,38 @@ function AdminCostsContent() {
                       </Button>
                     </div>
                   </TableCell>
+                  <TableCell className="w-[220px]">
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-28">
+                        <Input
+                          className="pr-7 text-right"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={allowanceInputs[item.user_id] ?? moneyInput(item.active_allowance_usd)}
+                          onChange={(event) => setAllowanceInputs((value) => ({ ...value, [item.user_id]: event.target.value }))}
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => saveAllowance(item)} disabled={busy === `allowance:${item.user_id}`}>
+                        保存
+                      </Button>
+                    </div>
+                  </TableCell>
+                  <TableCell>{usd(monthlyTotalLimit(item))}</TableCell>
+                  <TableCell className={item.remaining_usd < 0 ? "text-destructive" : ""}>{usd(item.remaining_usd)}</TableCell>
+                  </>
+                  )}
                 </AnimatedTableRow>
               ))}
               {!loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
+                  <TableCell colSpan={isAllRange ? 5 : 8} className="py-8 text-center text-muted-foreground">暂无费用数据。</TableCell>
                 </TableRow>
               ) : null}
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
+                  <TableCell colSpan={isAllRange ? 5 : 8} className="py-8 text-center text-muted-foreground">正在加载费用数据...</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>

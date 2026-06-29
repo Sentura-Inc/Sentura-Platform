@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -299,6 +299,273 @@ const scoreTierValues: ScoreTier[] = ["high", "medium", "low"];
 const CUSTOMER_STATUS_FILTER_STORAGE_KEY = "sentura:cbe:employee:customers:status-filter:v1";
 const CUSTOMER_SCORE_SORT_STORAGE_KEY = "sentura:cbe:employee:customers:score-sort:v1";
 const CUSTOMER_FILTERS_STORAGE_KEY = "sentura:cbe:employee:customers:filters:v1";
+const MANUAL_SCREENING_COUNTRY_CODES = [
+  "AD",
+  "AE",
+  "AF",
+  "AG",
+  "AI",
+  "AL",
+  "AM",
+  "AO",
+  "AQ",
+  "AR",
+  "AS",
+  "AT",
+  "AU",
+  "AW",
+  "AX",
+  "AZ",
+  "BA",
+  "BB",
+  "BD",
+  "BE",
+  "BF",
+  "BG",
+  "BH",
+  "BI",
+  "BJ",
+  "BL",
+  "BM",
+  "BN",
+  "BO",
+  "BQ",
+  "BR",
+  "BS",
+  "BT",
+  "BV",
+  "BW",
+  "BY",
+  "BZ",
+  "CA",
+  "CC",
+  "CD",
+  "CF",
+  "CG",
+  "CH",
+  "CI",
+  "CK",
+  "CL",
+  "CM",
+  "CN",
+  "CO",
+  "CR",
+  "CU",
+  "CV",
+  "CW",
+  "CX",
+  "CY",
+  "CZ",
+  "DE",
+  "DJ",
+  "DK",
+  "DM",
+  "DO",
+  "DZ",
+  "EC",
+  "EE",
+  "EG",
+  "EH",
+  "ER",
+  "ES",
+  "ET",
+  "FI",
+  "FJ",
+  "FK",
+  "FM",
+  "FO",
+  "FR",
+  "GA",
+  "GB",
+  "GD",
+  "GE",
+  "GF",
+  "GG",
+  "GH",
+  "GI",
+  "GL",
+  "GM",
+  "GN",
+  "GP",
+  "GQ",
+  "GR",
+  "GS",
+  "GT",
+  "GU",
+  "GW",
+  "GY",
+  "HK",
+  "HM",
+  "HN",
+  "HR",
+  "HT",
+  "HU",
+  "ID",
+  "IE",
+  "IL",
+  "IM",
+  "IN",
+  "IO",
+  "IQ",
+  "IR",
+  "IS",
+  "IT",
+  "JE",
+  "JM",
+  "JO",
+  "JP",
+  "KE",
+  "KG",
+  "KH",
+  "KI",
+  "KM",
+  "KN",
+  "KP",
+  "KR",
+  "KW",
+  "KY",
+  "KZ",
+  "LA",
+  "LB",
+  "LC",
+  "LI",
+  "LK",
+  "LR",
+  "LS",
+  "LT",
+  "LU",
+  "LV",
+  "LY",
+  "MA",
+  "MC",
+  "MD",
+  "ME",
+  "MF",
+  "MG",
+  "MH",
+  "MK",
+  "ML",
+  "MM",
+  "MN",
+  "MO",
+  "MP",
+  "MQ",
+  "MR",
+  "MS",
+  "MT",
+  "MU",
+  "MV",
+  "MW",
+  "MX",
+  "MY",
+  "MZ",
+  "NA",
+  "NC",
+  "NE",
+  "NF",
+  "NG",
+  "NI",
+  "NL",
+  "NO",
+  "NP",
+  "NR",
+  "NU",
+  "NZ",
+  "OM",
+  "PA",
+  "PE",
+  "PF",
+  "PG",
+  "PH",
+  "PK",
+  "PL",
+  "PM",
+  "PN",
+  "PR",
+  "PS",
+  "PT",
+  "PW",
+  "PY",
+  "QA",
+  "RE",
+  "RO",
+  "RS",
+  "RU",
+  "RW",
+  "SA",
+  "SB",
+  "SC",
+  "SD",
+  "SE",
+  "SG",
+  "SH",
+  "SI",
+  "SJ",
+  "SK",
+  "SL",
+  "SM",
+  "SN",
+  "SO",
+  "SR",
+  "SS",
+  "ST",
+  "SV",
+  "SX",
+  "SY",
+  "SZ",
+  "TC",
+  "TD",
+  "TF",
+  "TG",
+  "TH",
+  "TJ",
+  "TK",
+  "TL",
+  "TM",
+  "TN",
+  "TO",
+  "TR",
+  "TT",
+  "TV",
+  "TW",
+  "TZ",
+  "UA",
+  "UG",
+  "UM",
+  "US",
+  "UY",
+  "UZ",
+  "VA",
+  "VC",
+  "VE",
+  "VG",
+  "VI",
+  "VN",
+  "VU",
+  "WF",
+  "WS",
+  "XK",
+  "YE",
+  "YT",
+  "ZA",
+  "ZM",
+  "ZW",
+] as const;
+
+const manualScreeningCountryOptions = (() => {
+  let displayNames: Intl.DisplayNames | null = null;
+  try {
+    displayNames = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+  } catch {
+    displayNames = null;
+  }
+  return MANUAL_SCREENING_COUNTRY_CODES
+    .map((code) => ({
+      code,
+      label: displayNames?.of(code) ?? code,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+})();
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -700,6 +967,59 @@ function countCsv(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean).length;
+}
+
+type ManualScreeningFormErrors = Partial<Record<keyof ManualScreeningInput, string | true>>;
+
+function normalizeManualScreeningInput(input: ManualScreeningInput): ManualScreeningInput {
+  return {
+    companyName: input.companyName.trim(),
+    country: input.country.trim().toUpperCase(),
+    buyerType: input.buyerType.trim(),
+    productInterest: input.productInterest.trim(),
+    website: input.website.trim(),
+    email: input.email.trim(),
+    contactPerson: input.contactPerson.trim(),
+    operatorNotes: input.operatorNotes.trim(),
+  };
+}
+
+function isHttpUrl(value: string) {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isValidEmail(value: string) {
+  if (!value) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function validateManualScreeningForm(input: ManualScreeningInput): ManualScreeningFormErrors {
+  const normalized = normalizeManualScreeningInput(input);
+  const errors: ManualScreeningFormErrors = {};
+  if (!normalized.companyName) errors.companyName = true;
+  if (!normalized.country) errors.country = true;
+  if (normalized.website && !isHttpUrl(normalized.website)) {
+    errors.website = "网站格式错误，请填写完整 URL，例如 https://example.com。";
+  }
+  if (normalized.email && !isValidEmail(normalized.email)) {
+    errors.email = "邮箱格式错误，请填写正确格式的合法邮箱。";
+  }
+  return errors;
+}
+
+function manualScreeningFormIsValid(errors: ManualScreeningFormErrors) {
+  return Object.keys(errors).length === 0;
+}
+
+function manualScreeningValidationMessage(errors: ManualScreeningFormErrors) {
+  const message = Object.values(errors).find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return message ?? "请先补全必填项或修正格式。";
 }
 
 function sanitizeLeadSelectionForSettings(
@@ -1366,6 +1686,7 @@ function CrossBorderCustomersPageContent() {
       customers: filtered,
       filterLabels: exportFilterLabels,
       totalBeforeFilter: rows.length,
+      rangeLabel: foundRangeLabels[filters.foundRange],
     }, format);
     showNotice(`已导出 ${filtered.length} 个客户。`, "success");
   };
@@ -1802,12 +2123,14 @@ function CrossBorderCustomersPageContent() {
     input: ManualScreeningInput,
     options?: EmployeeScreeningTaskOptions,
   ) => {
+    const normalizedInput = normalizeManualScreeningInput(input);
+    const validationErrors = validateManualScreeningForm(normalizedInput);
     if (screeningRunning) {
       showNotice("已有背调任务正在运行，完成后可再次启动背调。", "info");
       return;
     }
-    if (!input.companyName.trim() || !input.country.trim()) {
-      showNotice("手动背调至少需要公司名称和国家。", "error");
+    if (!manualScreeningFormIsValid(validationErrors)) {
+      showNotice(manualScreeningValidationMessage(validationErrors), "error");
       return;
     }
     if (!canRunScreening) {
@@ -1819,7 +2142,7 @@ function CrossBorderCustomersPageContent() {
       );
       return;
     }
-    const target = manualInputToScreeningTarget(input);
+    const target = manualInputToScreeningTarget(normalizedInput);
     const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs([target], options);
     let taskId: string | undefined;
@@ -1842,9 +2165,9 @@ function CrossBorderCustomersPageContent() {
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: activeSessionKey,
-        targetLabel: input.companyName.trim(),
+        targetLabel: normalizedInput.companyName,
         metadata: {
-          retry_manual_input: input,
+          retry_manual_input: normalizedInput,
           retry_options: options ?? {},
           retry_targets: [target],
         },
@@ -2842,6 +3165,8 @@ function TaskSheet({
       }),
     [screeningOptions],
   );
+  const manualFormErrors = useMemo(() => validateManualScreeningForm(manualForm), [manualForm]);
+  const manualFormReady = manualScreeningFormIsValid(manualFormErrors);
   const leadReady = leadCounts.products > 0 && leadCounts.buyerTypes > 0 && leadCounts.countries > 0;
   const buildLeadSubmitInput = () => {
     const submittedTargetCount = normalizeLeadTargetCount(Number(leadTargetInputRef.current?.value ?? leadTargetCountText));
@@ -2855,6 +3180,10 @@ function TaskSheet({
       ...leadInputFromSelection(submittedSelection, leadFilterSettings),
       targetCount: submittedTargetCount,
     });
+  };
+  const submitManualForm = () => {
+    if (!manualFormReady) return;
+    onManualSubmit(normalizeManualScreeningInput(manualForm), screeningOptionsPayload);
   };
 
   useEffect(() => {
@@ -3225,55 +3554,85 @@ function TaskSheet({
               <SheetDescription>录入公司基础信息后，系统会自动开始背调。</SheetDescription>
             </SheetHeader>
             <div className="space-y-3 px-4">
-              <Input
-                value={manualForm.companyName}
-                onChange={(event) => setManualForm((current) => ({ ...current, companyName: event.target.value }))}
-                placeholder="公司名称"
-              />
-              <div className="grid grid-cols-2 gap-2">
+              <ManualFormField label="公司名" required error={manualFormErrors.companyName}>
                 <Input
-                  value={manualForm.country}
-                  onChange={(event) => setManualForm((current) => ({ ...current, country: event.target.value }))}
-                  placeholder="国家，如 GB"
+                  value={manualForm.companyName}
+                  aria-invalid={Boolean(manualFormErrors.companyName)}
+                  onChange={(event) => setManualForm((current) => ({ ...current, companyName: event.target.value }))}
+                  placeholder="例如：Mobile Lab UK"
                 />
-                <Input
-                  value={manualForm.buyerType}
-                  onChange={(event) => setManualForm((current) => ({ ...current, buyerType: event.target.value }))}
-                  placeholder="类型，如 importer"
-                />
+              </ManualFormField>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ManualFormField label="国家" required error={manualFormErrors.country}>
+                  <select
+                    value={manualForm.country}
+                    aria-invalid={Boolean(manualFormErrors.country)}
+                    onChange={(event) => setManualForm((current) => ({ ...current, country: event.target.value }))}
+                    className={cn(
+                      "h-8 w-full min-w-0 rounded-md border border-input bg-white/72 px-2.5 py-1 text-base text-[var(--sentura-ink)] shadow-sm outline-none transition-colors focus-visible:border-ring focus-visible:bg-white focus-visible:ring-3 focus-visible:ring-ring/25 md:text-sm",
+                      manualFormErrors.country && "border-destructive ring-3 ring-destructive/20",
+                    )}
+                  >
+                    <option value="">请选择国家</option>
+                    {manualScreeningCountryOptions.map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.label}（{country.code}）
+                      </option>
+                    ))}
+                  </select>
+                </ManualFormField>
+                <ManualFormField label="类型">
+                  <Input
+                    value={manualForm.buyerType}
+                    onChange={(event) => setManualForm((current) => ({ ...current, buyerType: event.target.value }))}
+                    placeholder="例如：进口采购商"
+                  />
+                </ManualFormField>
               </div>
-              <Input
-                value={manualForm.productInterest}
-                onChange={(event) => setManualForm((current) => ({ ...current, productInterest: event.target.value }))}
-                placeholder="产品兴趣"
-              />
-              <Input
-                value={manualForm.website}
-                onChange={(event) => setManualForm((current) => ({ ...current, website: event.target.value }))}
-                placeholder="网站"
-              />
-              <Input
-                value={manualForm.email}
-                onChange={(event) => setManualForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="邮箱"
-              />
-              <Input
-                value={manualForm.contactPerson}
-                onChange={(event) => setManualForm((current) => ({ ...current, contactPerson: event.target.value }))}
-                placeholder="联系人"
-              />
-              <textarea
-                value={manualForm.operatorNotes}
-                onChange={(event) => setManualForm((current) => ({ ...current, operatorNotes: event.target.value }))}
-                className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                placeholder="备注"
-              />
+              <ManualFormField label="产品兴趣">
+                <Input
+                  value={manualForm.productInterest}
+                  onChange={(event) => setManualForm((current) => ({ ...current, productInterest: event.target.value }))}
+                  placeholder="例如：手机壳、钢化膜"
+                />
+              </ManualFormField>
+              <ManualFormField label="网站" note="请填写完整 URL" error={manualFormErrors.website}>
+                <Input
+                  value={manualForm.website}
+                  aria-invalid={Boolean(manualFormErrors.website)}
+                  onChange={(event) => setManualForm((current) => ({ ...current, website: event.target.value }))}
+                  placeholder="例如：https://www.example.com"
+                />
+              </ManualFormField>
+              <ManualFormField label="邮箱" note="请填写正确格式的合法邮箱" error={manualFormErrors.email}>
+                <Input
+                  value={manualForm.email}
+                  aria-invalid={Boolean(manualFormErrors.email)}
+                  onChange={(event) => setManualForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="例如：buyer@example.com"
+                />
+              </ManualFormField>
+              <ManualFormField label="联系人">
+                <Input
+                  value={manualForm.contactPerson}
+                  onChange={(event) => setManualForm((current) => ({ ...current, contactPerson: event.target.value }))}
+                  placeholder="例如：Anna Lee"
+                />
+              </ManualFormField>
+              <ManualFormField label="备注">
+                <textarea
+                  value={manualForm.operatorNotes}
+                  onChange={(event) => setManualForm((current) => ({ ...current, operatorNotes: event.target.value }))}
+                  className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  placeholder="补充线索或需要重点核验的信息"
+                />
+              </ManualFormField>
               <ScreeningOptionControls options={screeningOptions} setOptions={setScreeningOptions} />
               <TaskCostNotice {...manualEstimate} />
               {screeningRunning ? <SystemNotice text="已有背调任务正在运行；获客可以同时继续执行。" /> : null}
             </div>
             <SheetFooter>
-              <Button disabled={!canRunScreening || screeningRunning} onClick={() => onManualSubmit(manualForm, screeningOptionsPayload)}>
+              <Button disabled={!canRunScreening || screeningRunning || !manualFormReady} onClick={submitManualForm}>
                 {screeningRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 创建并背调
               </Button>
@@ -3327,6 +3686,35 @@ function TaskSheet({
 
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ManualFormField({
+  label,
+  required = false,
+  note,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  note?: string;
+  error?: string | true;
+  children: ReactNode;
+}) {
+  const errorText = typeof error === "string" ? error : "";
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="flex items-center justify-between gap-3">
+        <span className="font-medium text-[var(--sentura-ink)]">{label}</span>
+        <span className={cn("text-xs", required ? "text-destructive" : "text-muted-foreground")}>
+          {required ? "必填" : "选填"}
+        </span>
+      </span>
+      {children}
+      {note ? <span className="text-xs leading-5 text-muted-foreground">{note}</span> : null}
+      {errorText ? <span className="text-xs leading-5 text-destructive">{errorText}</span> : null}
+    </label>
   );
 }
 

@@ -38,7 +38,10 @@ type ExportDocument = {
 };
 
 type EmployeeCostExportInput = {
+  range?: string;
   rangeLabel?: string;
+  rangePeriodLabel?: string;
+  costFilterLabel?: string;
   subjectLabel?: string;
   spendUsd: number;
   totalTokens: number;
@@ -76,7 +79,10 @@ type AdminCostExportInput = {
     active_task_count?: number;
     unpriced_call_count?: number;
   } | null;
+  range?: string;
   rangeLabel: string;
+  rangePeriodLabel?: string;
+  costFilterLabel?: string;
   events: Record<string, unknown>[];
 };
 
@@ -84,6 +90,7 @@ type CustomerListExportInput = {
   customers: CustomerListItem[];
   filterLabels: string[];
   totalBeforeFilter: number;
+  rangeLabel?: string;
   title?: string;
 };
 
@@ -223,6 +230,19 @@ function formatUsd(value: number | null | undefined) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatEstimatedUsd(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "US$0.00";
+  if (value > 0 && value < 0.01) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    }).format(value);
+  }
+  return formatUsd(value);
 }
 
 function formatDurationMs(value: number | null | undefined) {
@@ -441,6 +461,7 @@ function customerListScoreLabel(customer: CustomerListItem) {
 
 function buildCustomerListDocument(input: CustomerListExportInput): ExportDocument {
   const filterText = input.filterLabels.length ? input.filterLabels.join("；") : "全部客户";
+  const rangeLabel = input.rangeLabel ?? "全部时间";
   const rows = input.customers.map((customer) => [
     customer.companyName,
     `${customer.country}\n${customer.countryName}`,
@@ -458,6 +479,7 @@ function buildCustomerListDocument(input: CustomerListExportInput): ExportDocume
       ["列表范围", "员工端客户列表"],
       ["导出结果", `${input.customers.length} 个客户`],
       ["客户总数", `${input.totalBeforeFilter} 个客户`],
+      ["时间范围", rangeLabel],
       ["筛选条件", filterText],
       ["生成时间", formatGeneratedAt()],
     ],
@@ -472,6 +494,7 @@ function buildCustomerListDocument(input: CustomerListExportInput): ExportDocume
       {
         heading: "导出筛选条件",
         paragraphs: [
+          `时间范围：${rangeLabel}`,
           `筛选条件：${filterText}`,
           `筛选结果：${input.customers.length} 个客户；筛选前客户总数：${input.totalBeforeFilter} 个客户。`,
         ],
@@ -510,54 +533,92 @@ function employeeCostSourceLabel(event: CostEvent) {
   return "实时记录";
 }
 
+function employeeCostEstimatedUsd(event: CostEvent) {
+  return event.pricingStatus === "estimated" && typeof event.costUsd === "number" ? event.costUsd : 0;
+}
+
+function employeeCostAmountLabel(event: CostEvent) {
+  if (event.pricingStatus === "estimated" && event.costUsd !== null) return `需估算 ${formatEstimatedUsd(event.costUsd)}`;
+  if (event.costUsd !== null) return formatUsd(event.costUsd);
+  return "未估算";
+}
+
+function costExportFileBase(subjectLabel: string, rangeLabel: string, costFilterLabel: string) {
+  return `成本明细-${subjectLabel}-${rangeLabel}-${costFilterLabel}`;
+}
+
 function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocument {
   const rangeLabel = input.rangeLabel ?? "本月";
+  const rangePeriodLabel = input.rangePeriodLabel ?? rangeLabel;
+  const costFilterLabel = input.costFilterLabel ?? "全部";
   const subjectLabel = input.subjectLabel ?? "员工端";
-  const remaining = input.costBudget.limitEnabled
-    ? formatUsd(input.costBudget.remainingUsd ?? Math.max(0, input.costBudget.limitUsd - input.spendUsd))
-    : "不限额";
-  const eventRows = input.events.slice(0, 200).map((event) => [
+  const fileBase = costExportFileBase(subjectLabel, rangeLabel, costFilterLabel);
+  const showMonthlyBudget = input.range !== "all";
+  const remaining = !input.costBudget.limitEnabled
+    ? "不限额"
+    : typeof input.costBudget.remainingUsd === "number" && Number.isFinite(input.costBudget.remainingUsd)
+      ? formatUsd(input.costBudget.remainingUsd)
+      : "待同步";
+  const estimatedUsd = input.events.reduce((sum, event) => sum + employeeCostEstimatedUsd(event), 0);
+  const estimatedCalls = input.events.filter((event) => event.pricingStatus === "estimated").length;
+  const eventRows = input.events.map((event) => [
     formatDateTime(event.timestamp),
     costAgentLabels[event.agentId] ?? event.agentId,
     employeeCostServiceLabel(event),
     employeeCostSourceLabel(event),
     employeeCostUsageLabel(event),
     formatDurationMs(event.durationMs),
-    event.costUsd === null ? "未折算" : formatUsd(event.costUsd),
+    employeeCostAmountLabel(event),
   ]);
 
   return {
     title: "Sentura 跨境电商成本明细",
-    subtitle: `${subjectLabel} · 工具成本（${rangeLabel}）`,
+    subtitle: `${subjectLabel} · 工具成本（${rangeLabel} · ${costFilterLabel}）`,
     meta: [
       ["员工", subjectLabel],
       ["范围", rangeLabel],
+      ["成本明细清单时间范围", rangePeriodLabel],
+      ["费用类型", costFilterLabel],
       ["生成时间", formatGeneratedAt()],
+      ["导出内容", `成本明细弹窗当前筛选结果：时间范围 ${rangeLabel}（${rangePeriodLabel}），成本类型 ${costFilterLabel}`],
+      ["文件命名规则", `${fileBase}.docx / ${fileBase}.pdf`],
       ["账本口径", "仅统计已关联到当前跨境电商客户库任务的处理编号"],
       ["数据来源", input.costBudget.source === "fallback" ? "预算兜底" : "系统费用记录"],
     ],
     summary: [
       [`${rangeLabel}已用`, formatUsd(input.spendUsd)],
-      ["本月额度", input.costBudget.limitEnabled ? formatUsd(input.costBudget.limitUsd) : "不限额"],
-      ["剩余额度", remaining],
+      ["需估算的费用", `${formatEstimatedUsd(estimatedUsd)}（${estimatedCalls} 次已估算）`],
+      ...(showMonthlyBudget ? [
+        ["本月额度", input.costBudget.limitEnabled ? formatUsd(input.costBudget.limitUsd) : "不限额"] as [string, string],
+        ["本月剩余额度", remaining] as [string, string],
+      ] : []),
       ["调用次数", String(input.totalCalls)],
-      ["暂未折算", `${input.unpricedCalls} 次`],
+      ["未估算调用", `${input.unpricedCalls} 次`],
       ["智能处理用量", `${input.totalTokens.toLocaleString("zh-CN")} 用量单位`],
     ],
     sections: [
       {
-        heading: "一、费用摘要",
+        heading: "一、导出说明",
         paragraphs: [
-          input.events.length
-            ? `本表展示${rangeLabel}已记录的智能处理与外部资料查询费用，已折算美元的项目计入已用费用。`
-            : "当前任务还没有实际成本记录，已用费用按 0 显示。",
+          `本文件来自成本明细弹窗的当前筛选：时间范围为 ${rangeLabel}，成本明细清单时间范围为 ${rangePeriodLabel}，成本类型为 ${costFilterLabel}。`,
+          "已用费用只统计已折算美元并计入已用的真实记录；需估算的费用按供应商月付、credit 或每千次事件价格折算，不计入已用。",
+          `文件名按“成本明细-员工或账号名称-时间范围-成本类型”生成，本次导出基名为：${fileBase}。`,
+          input.events.length ? "费用明细会导出当前筛选后存在的全部记录，排序沿用弹窗中的时间倒序。" : "当前筛选没有费用明细记录。",
           input.outsideScopeCount > 0
             ? `另有 ${input.outsideScopeCount} 条历史记录不属于当前任务范围，未纳入本报告。`
             : "未发现需要排除的范围外历史记录。",
         ],
       },
       {
-        heading: "二、费用来源",
+        heading: "二、费用摘要",
+        paragraphs: [
+          input.events.length
+            ? `本表展示${rangeLabel}（${rangePeriodLabel}）、${costFilterLabel}范围内已记录的智能处理与外部资料查询费用。`
+            : "当前任务还没有实际成本记录，已用费用按 0 显示。",
+        ],
+      },
+      {
+        heading: "三、费用来源",
         table: {
           columns: ["来源", "金额", "说明"],
           rows: input.sourceBreakdown.map((item) => [
@@ -568,7 +629,7 @@ function buildEmployeeCostDocument(input: EmployeeCostExportInput): ExportDocume
         },
       },
       {
-        heading: "三、费用明细",
+        heading: "四、费用明细",
         paragraphs: eventRows.length ? undefined : ["暂无费用明细。"],
         table: eventRows.length
           ? {
@@ -607,18 +668,23 @@ function adminCostSourceLabel(value: unknown) {
 
 function adminCostAmount(value: unknown, status: unknown) {
   const statusText = String(status ?? "").toLowerCase();
-  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "暂未折算";
+  if ((value === null || value === undefined || value === "") && statusText === "unpriced") return "未估算";
+  if (statusText === "estimated") return `需估算 ${formatEstimatedUsd(numberFromUnknown(value))}`;
   return formatUsd(numberFromUnknown(value));
 }
 
 function adminCostEstimate(value: unknown) {
-  return formatUsd(numberFromUnknown(value));
+  return formatEstimatedUsd(numberFromUnknown(value));
 }
 
 function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
   const profileName = input.profile?.display_name ?? "成本明细";
   const summary = input.summary;
-  const eventRows = input.events.slice(0, 200).map((event) => [
+  const costFilterLabel = input.costFilterLabel ?? "全部";
+  const rangePeriodLabel = input.rangePeriodLabel ?? input.rangeLabel;
+  const fileBase = costExportFileBase(profileName, input.rangeLabel, costFilterLabel);
+  const showMonthlyBudget = input.range !== "all";
+  const eventRows = input.events.map((event) => [
     formatDateTime(String(event.created_at ?? event.timestamp ?? "")),
     adminCostTaskLabel(event.task_kind ?? event.agent_id),
     adminCostSourceLabel(event.provider ?? event.agent_id),
@@ -629,37 +695,49 @@ function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
 
   return {
     title: "Sentura 跨境电商成本明细",
-    subtitle: `${profileName} · ${input.rangeLabel}`,
+    subtitle: `${profileName} · ${input.rangeLabel} · ${costFilterLabel}`,
     meta: [
       ["员工", profileName],
       ["团队", input.profile?.team_name ?? "-"],
       ["邮箱", input.profile?.email ?? "-"],
       ["范围", input.rangeLabel],
+      ["成本明细清单时间范围", rangePeriodLabel],
+      ["费用类型", costFilterLabel],
       ["生成时间", formatGeneratedAt()],
+      ["导出内容", `成本明细弹窗当前筛选结果：时间范围 ${input.rangeLabel}（${rangePeriodLabel}），成本类型 ${costFilterLabel}`],
+      ["文件命名规则", `${fileBase}.docx / ${fileBase}.pdf`],
     ],
     summary: [
       ["已发生费用", formatUsd(summary?.actual_cost_usd ?? numberFromUnknown(input.events.reduce((sum, event) => sum + numberFromUnknown(event.actual_cost_usd), 0)))],
-      ["预计费用", formatUsd(summary?.estimated_cost_usd ?? numberFromUnknown(input.events.reduce((sum, event) => sum + numberFromUnknown(event.cost_usd_estimate), 0)))],
-      ["基础额度", formatUsd(summary?.base_limit_usd ?? 0)],
-      ["临时额度", formatUsd(summary?.active_allowance_usd ?? 0)],
-      ["剩余额度", formatUsd(summary?.remaining_usd ?? 0)],
-      ["进行中任务", String(summary?.active_task_count ?? 0)],
-      ["暂未折算", `${summary?.unpriced_call_count ?? input.events.filter((event) => String(event.ledger_status ?? "").toLowerCase() === "unpriced").length} 次`],
+      ["需估算的费用", formatUsd(summary?.estimated_cost_usd ?? numberFromUnknown(input.events.reduce((sum, event) => sum + numberFromUnknown(event.cost_usd_estimate), 0)))],
+      ...(showMonthlyBudget ? [
+        ["本月总额度", formatUsd(numberFromUnknown(summary?.base_limit_usd) + numberFromUnknown(summary?.active_allowance_usd))] as [string, string],
+        ["本月剩余额度", formatUsd(summary?.remaining_usd ?? 0)] as [string, string],
+      ] : []),
+      ["未估算调用", `${summary?.unpriced_call_count ?? input.events.filter((event) => String(event.ledger_status ?? "").toLowerCase() === "unpriced").length} 次`],
     ],
     sections: [
       {
-        heading: "一、费用摘要",
+        heading: "一、导出说明",
         paragraphs: [
-          "本报告与管理端费用监控使用同一员工和账本范围，展示员工最近费用记录及额度情况。",
-          "已发生费用为已折算美元的实际记录；预计费用为提交前或运行中预算模型估算。",
+          `本文件来自管理端成本明细弹窗的当前筛选：时间范围为 ${input.rangeLabel}，成本明细清单时间范围为 ${rangePeriodLabel}，成本类型为 ${costFilterLabel}。`,
+          "已发生费用为已折算美元的实际记录；需估算的费用为提交前、运行中预算模型或供应商月付/credit/每千次事件规则估算。",
+          `文件名按“成本明细-员工或账号名称-时间范围-成本类型”生成，本次导出基名为：${fileBase}。`,
+          input.events.length ? "费用明细会导出当前筛选后存在的全部记录，排序沿用弹窗中的时间倒序。" : "当前筛选没有费用明细记录。",
         ],
       },
       {
-        heading: "二、费用明细",
+        heading: "二、费用摘要",
+        paragraphs: [
+          `本报告与管理端费用监控使用同一员工、账本范围和费用类型筛选：${input.rangeLabel}（${rangePeriodLabel}） · ${costFilterLabel}。`,
+        ],
+      },
+      {
+        heading: "三、费用明细",
         paragraphs: eventRows.length ? undefined : ["暂无费用明细。"],
         table: eventRows.length
           ? {
-              columns: ["时间", "任务", "来源", "已发生", "预计", "状态"],
+              columns: ["时间", "任务", "来源", "已发生", "需估算", "状态"],
               rows: eventRows,
             }
           : undefined,
@@ -680,12 +758,20 @@ export function exportCustomerListDocument(input: CustomerListExportInput, forma
 
 export function exportEmployeeCostDocument(input: EmployeeCostExportInput, format: ExportFormat) {
   const document = buildEmployeeCostDocument(input);
-  downloadExportDocument(document, format, `成本明细-${input.subjectLabel ?? "员工"}-${input.rangeLabel ?? "本月"}`);
+  downloadExportDocument(
+    document,
+    format,
+    costExportFileBase(input.subjectLabel ?? "员工", input.rangeLabel ?? "本月", input.costFilterLabel ?? "全部"),
+  );
 }
 
 export function exportAdminCostDocument(input: AdminCostExportInput, format: ExportFormat) {
   const document = buildAdminCostDocument(input);
-  downloadExportDocument(document, format, `成本明细-${input.profile?.display_name ?? "员工"}-${input.rangeLabel}`);
+  downloadExportDocument(
+    document,
+    format,
+    costExportFileBase(input.profile?.display_name ?? "员工", input.rangeLabel, input.costFilterLabel ?? "全部"),
+  );
 }
 
 function downloadExportDocument(document: ExportDocument, format: ExportFormat, filenameBase: string) {

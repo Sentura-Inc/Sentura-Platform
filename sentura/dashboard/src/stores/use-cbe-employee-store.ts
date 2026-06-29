@@ -107,8 +107,15 @@ function createId(prefix: string) {
 }
 
 function taskSort(left: CbeEmployeeTaskRecord, right: CbeEmployeeTaskRecord) {
-  if (ACTIVE_TASK_STATUSES.has(left.status) && !ACTIVE_TASK_STATUSES.has(right.status)) return -1;
-  if (!ACTIVE_TASK_STATUSES.has(left.status) && ACTIVE_TASK_STATUSES.has(right.status)) return 1;
+  const leftActive = ACTIVE_TASK_STATUSES.has(left.status);
+  const rightActive = ACTIVE_TASK_STATUSES.has(right.status);
+  if (leftActive && !rightActive) return -1;
+  if (!leftActive && rightActive) return 1;
+  if (leftActive && rightActive) {
+    const startedDiff = left.startedAt - right.startedAt;
+    if (startedDiff !== 0) return startedDiff;
+    return left.id.localeCompare(right.id);
+  }
   return right.updatedAt - left.updatedAt;
 }
 

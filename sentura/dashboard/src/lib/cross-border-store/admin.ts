@@ -5,6 +5,11 @@ import { createCbeId } from "./ids";
 import { hashCbePassword, verifyCbePassword } from "./session";
 import { getServerGatewayClient } from "../gateway/server-client";
 import type { CostEvent } from "../gateway/types";
+import {
+  applyEstimatedCostToEvent,
+  applyEstimatedCostToEvents,
+  estimateApiLedgerExternalCost,
+} from "../cross-border-cost-estimates";
 import type {
   AdminCostApprovalDecisionRequest,
   AdminCostAllowancePatchRequest,
@@ -255,6 +260,7 @@ export async function getAdminOperator(context: TenantContext, operatorId: strin
   const costEvents = await queryCbe(
     `
       select
+        l.id,
         ar.id as agent_run_id,
         ar.agent_id,
         ar.task_kind,
@@ -270,7 +276,8 @@ export async function getAdminOperator(context: TenantContext, operatorId: strin
         l.request_units::text as request_units,
         l.cost_usd::text as actual_cost_usd,
         l.status as ledger_status,
-        l.created_at as ledger_created_at
+        l.created_at as ledger_created_at,
+        l.metadata_json as ledger_metadata_json
       from agent_runs ar
       left join api_call_ledger l
         on l.tenant_id = ar.tenant_id
@@ -385,7 +392,15 @@ function dbCostEventRowToCostEvent(context: TenantContext, row: Record<string, u
   const actualCostUsd = row.actual_cost_usd === null || row.actual_cost_usd === undefined
     ? null
     : moneyUsd(row.actual_cost_usd as string | number | null | undefined);
-  const estimatedCostUsd = moneyUsd(row.cost_usd_estimate as string | number | null | undefined);
+  const hasLedgerRow = Boolean(
+    optionalText(row.provider) ||
+    optionalText(row.endpoint) ||
+    optionalText(row.source_type) ||
+    row.ledger_created_at,
+  );
+  const estimatedCostUsd = hasLedgerRow
+    ? 0
+    : moneyUsd(row.cost_usd_estimate as string | number | null | undefined);
   const pricingStatus = pricingStatusFromDbRow(row, actualCostUsd, estimatedCostUsd);
   const fallbackCostUsd = actualCostUsd ?? (pricingStatus === "estimated" ? estimatedCostUsd : null);
   const requestUnits = numeric(row.request_units as string | number | null | undefined) || 1;
@@ -394,7 +409,7 @@ function dbCostEventRowToCostEvent(context: TenantContext, row: Record<string, u
   const provider = optionalText(row.provider) ?? optionalText(row.source_type) ?? "cbe-db-ledger";
   const endpoint = optionalText(row.endpoint) ?? provider;
 
-  return {
+  return applyEstimatedCostToEvent({
     id: optionalText(row.id) ?? optionalText(row.agent_run_id) ?? `${agentId}:${timestamp}`,
     timestamp,
     agentId,
@@ -422,7 +437,7 @@ function dbCostEventRowToCostEvent(context: TenantContext, row: Record<string, u
     costUsd: fallbackCostUsd,
     durationMs: durationBetweenMs(row.started_at, row.finished_at),
     source: "external_tool_log",
-  };
+  });
 }
 
 function usd(value: string | number | null | undefined) {
@@ -531,9 +546,15 @@ function eventTimeMs(event: CostEvent) {
 }
 
 function summarizeSenturaCostEvents(events: CostEvent[]) {
-  return events.reduce(
+  const summary = events.reduce(
     (acc, event) => {
       const amount = eventCostUsd(event);
+      const time = eventTimeMs(event);
+      acc.totalCallCount += 1;
+      if (time > 0) {
+        acc.periodStartMs = acc.periodStartMs === null ? time : Math.min(acc.periodStartMs, time);
+        acc.periodEndMs = acc.periodEndMs === null ? time : Math.max(acc.periodEndMs, time);
+      }
       if (event.costUsd === null) {
         acc.unpricedCallCount += 1;
       } else if (event.pricingStatus === "estimated") {
@@ -544,8 +565,25 @@ function summarizeSenturaCostEvents(events: CostEvent[]) {
       }
       return acc;
     },
-    { spendUsd: 0, actualCostUsd: 0, estimatedCostUsd: 0, unpricedCallCount: 0 },
+    {
+      spendUsd: 0,
+      actualCostUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedCallCount: 0,
+      totalCallCount: 0,
+      periodStartMs: null as number | null,
+      periodEndMs: null as number | null,
+    },
   );
+  return {
+    spendUsd: summary.spendUsd,
+    actualCostUsd: summary.actualCostUsd,
+    estimatedCostUsd: summary.estimatedCostUsd,
+    unpricedCallCount: summary.unpricedCallCount,
+    totalCallCount: summary.totalCallCount,
+    costPeriodStart: summary.periodStartMs === null ? null : new Date(summary.periodStartMs).toISOString(),
+    costPeriodEnd: summary.periodEndMs === null ? null : new Date(summary.periodEndMs).toISOString(),
+  };
 }
 
 async function fetchSenturaCostEvents(options: {
@@ -565,7 +603,7 @@ async function fetchSenturaCostEvents(options: {
         limit: Math.min(pageSize, maxEvents - offset),
         offset,
       });
-      events.push(...result.events);
+      events.push(...applyEstimatedCostToEvents(result.events));
       if (result.events.length < pageSize) break;
     }
     return events;
@@ -697,6 +735,13 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
 
   const events = await fetchSenturaCostEvents({ startTime: rangeStartIso(range), limit: 10000 });
   if (!events) return rows;
+  const monthStartMs = startOfLocalMonth().getTime();
+  const monthlyEvents =
+    range === "month"
+      ? events
+      : range === "all"
+        ? events.filter((event) => eventTimeMs(event) >= monthStartMs)
+        : await fetchSenturaCostEvents({ startTime: rangeStartIso("month"), limit: 10000 }) ?? events;
 
   const eventsByOperator = new Map<string, CostEvent[]>();
   for (const event of events) {
@@ -704,11 +749,20 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
     if (!ownerId) continue;
     eventsByOperator.set(ownerId, [...(eventsByOperator.get(ownerId) ?? []), event]);
   }
+  const monthlyEventsByOperator = new Map<string, CostEvent[]>();
+  for (const event of monthlyEvents) {
+    const ownerId = sessionOwner.get(event.sessionKey);
+    if (!ownerId) continue;
+    monthlyEventsByOperator.set(ownerId, [...(monthlyEventsByOperator.get(ownerId) ?? []), event]);
+  }
 
   return rows.map((row) => {
-    const ownerEvents = eventsByOperator.get(String(row.user_id ?? ""));
-    if (!ownerEvents) return row;
+    const userId = String(row.user_id ?? "");
+    const ownerEvents = eventsByOperator.get(userId) ?? [];
+    const monthlyOwnerEvents = monthlyEventsByOperator.get(userId) ?? [];
+    if (ownerEvents.length === 0 && monthlyOwnerEvents.length === 0) return row;
     const summary = summarizeSenturaCostEvents(ownerEvents);
+    const monthlySummary = summarizeSenturaCostEvents(monthlyOwnerEvents);
     const pendingEstimateUsd = Math.max(
       summary.estimatedCostUsd,
       numeric(row.estimated_cost_usd as string | number | null | undefined),
@@ -722,7 +776,84 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
       actual_cost_usd: moneyUsd(summary.actualCostUsd),
       estimated_cost_usd: moneyUsd(pendingEstimateUsd),
       unpriced_call_count: summary.unpricedCallCount,
-      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - spendUsd),
+      total_call_count: summary.totalCallCount,
+      cost_period_start: summary.costPeriodStart,
+      cost_period_end: summary.costPeriodEnd,
+      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - monthlySummary.spendUsd),
+    };
+  });
+}
+
+function agentRunRangeSql(range: "today" | "week" | "month" | "all") {
+  if (range === "today") return "and ar.started_at >= date_trunc('day', now())";
+  if (range === "week") return "and ar.started_at >= date_trunc('week', now())";
+  if (range === "month") return "and ar.started_at >= date_trunc('month', now())";
+  return "";
+}
+
+async function applyEstimatedDbUnpricedCostsToCostRows<T extends Record<string, unknown>>(
+  context: TenantContext,
+  range: "today" | "week" | "month" | "all",
+  rows: T[],
+) {
+  const operatorIds = rows.map((row) => String(row.user_id ?? "")).filter(Boolean);
+  if (operatorIds.length === 0) return rows;
+  const result = await queryCbe<{
+    owner_user_id: string;
+    provider: string | null;
+    endpoint: string | null;
+    source_type: string | null;
+    request_units: string | null;
+    status: string | null;
+    metadata_json: Record<string, unknown> | null;
+  }>(
+    `
+      select
+        ar.owner_user_id,
+        l.provider,
+        l.endpoint,
+        l.source_type,
+        l.request_units::text as request_units,
+        l.status,
+        l.metadata_json
+      from agent_runs ar
+      join api_call_ledger l
+        on l.tenant_id = ar.tenant_id
+       and l.agent_run_id = ar.id
+      where ar.tenant_id = $1
+        and ar.owner_user_id = any($2::text[])
+        and l.cost_usd is null
+        ${agentRunRangeSql(range)}
+    `,
+    [context.tenantId, operatorIds],
+  );
+
+  const estimatesByOperator = new Map<string, { estimatedCostUsd: number; resolvedCallCount: number }>();
+  for (const row of result.rows) {
+    const estimate = estimateApiLedgerExternalCost({
+      provider: row.provider,
+      endpoint: row.endpoint,
+      sourceType: row.source_type,
+      requestUnits: numeric(row.request_units),
+    });
+    if (!estimate) continue;
+    const current = estimatesByOperator.get(row.owner_user_id) ?? { estimatedCostUsd: 0, resolvedCallCount: 0 };
+    estimatesByOperator.set(row.owner_user_id, {
+      estimatedCostUsd: current.estimatedCostUsd + (estimate.pricingStatus === "estimated" ? estimate.costUsd : 0),
+      resolvedCallCount: current.resolvedCallCount + 1,
+    });
+  }
+
+  return rows.map((row) => {
+    const estimate = estimatesByOperator.get(String(row.user_id ?? ""));
+    if (!estimate) return row;
+    return {
+      ...row,
+      estimated_cost_usd: moneyUsd(numeric(row.estimated_cost_usd as string | number | null | undefined) + estimate.estimatedCostUsd),
+      unpriced_call_count: Math.max(
+        0,
+        numeric(row.unpriced_call_count as string | number | null | undefined) - estimate.resolvedCallCount,
+      ),
     };
   });
 }
@@ -1160,6 +1291,27 @@ function toCostApproval(row: CostApprovalRow) {
   };
 }
 
+function isoText(value: unknown) {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  return null;
+}
+
+function earlierIso(left: string | null, right: string | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return new Date(left).getTime() <= new Date(right).getTime() ? left : right;
+}
+
+function laterIso(left: string | null, right: string | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
+}
+
 export async function listAdminCosts(
   context: TenantContext,
   range: "today" | "week" | "month" | "all" = "month",
@@ -1188,9 +1340,13 @@ export async function listAdminCosts(
         coalesce(limit_row.enabled, false) as limit_enabled,
         coalesce(allowances.allowance_usd, 0)::text as active_allowance_usd,
         coalesce(costs.spend_usd, 0)::text as spend_usd,
+        coalesce(month_costs.month_spend_usd, 0)::text as month_spend_usd,
         coalesce(costs.actual_cost_usd, 0)::text as actual_cost_usd,
         coalesce(costs.estimated_cost_usd, 0)::text as estimated_cost_usd,
         coalesce(costs.unpriced_call_count, 0)::text as unpriced_call_count,
+        coalesce(costs.total_call_count, 0)::text as total_call_count,
+        costs.cost_period_start,
+        costs.cost_period_end,
         coalesce(costs.active_task_count, 0)::text as active_task_count,
         coalesce(pending.pending_count, 0)::text as pending_approval_count
       from cbe_user_profiles p
@@ -1219,12 +1375,18 @@ export async function listAdminCosts(
             end
           ), 0) as estimated_cost_usd,
           coalesce(sum(coalesce(ledger.unpriced_call_count, 0)), 0) as unpriced_call_count,
+          coalesce(sum(coalesce(ledger.total_call_count, 0)), 0) as total_call_count,
+          min(ledger.cost_period_start) as cost_period_start,
+          max(ledger.cost_period_end) as cost_period_end,
           count(*) filter (where ar.status in ('queued', 'running', 'polling')) as active_task_count
         from agent_runs ar
         left join lateral (
           select
             sum(cost_usd) filter (where cost_usd is not null) as actual_cost_usd,
-            count(*) filter (where cost_usd is null) as unpriced_call_count
+            count(*) filter (where cost_usd is null) as unpriced_call_count,
+            count(*) as total_call_count,
+            min(created_at) as cost_period_start,
+            max(created_at) as cost_period_end
           from api_call_ledger l
           where l.tenant_id = ar.tenant_id
             and l.agent_run_id = ar.id
@@ -1233,6 +1395,20 @@ export async function listAdminCosts(
           and ar.owner_user_id = p.user_id
           ${agentPeriodClause}
       ) costs on true
+      left join lateral (
+        select coalesce(sum(coalesce(ledger.actual_cost_usd, 0)), 0) as month_spend_usd
+        from agent_runs ar
+        left join lateral (
+          select
+            sum(cost_usd) filter (where cost_usd is not null) as actual_cost_usd
+          from api_call_ledger l
+          where l.tenant_id = ar.tenant_id
+            and l.agent_run_id = ar.id
+        ) ledger on true
+        where ar.tenant_id = p.tenant_id
+          and ar.owner_user_id = p.user_id
+          and ar.started_at >= date_trunc('month', now())
+      ) month_costs on true
       left join lateral (
         select count(*) as pending_count
         from cbe_cost_approval_requests req
@@ -1281,6 +1457,7 @@ export async function listAdminCosts(
   );
   const items = costs.rows.map((row) => {
     const spendUsd = moneyUsd(row.spend_usd as string | null);
+    const monthSpendUsd = moneyUsd(row.month_spend_usd as string | null);
     const baseLimitUsd = moneyUsd(row.base_limit_usd as string | null);
     const activeAllowanceUsd = moneyUsd(row.active_allowance_usd as string | null);
     return {
@@ -1289,14 +1466,18 @@ export async function listAdminCosts(
       actual_cost_usd: moneyUsd(row.actual_cost_usd as string | null),
       estimated_cost_usd: moneyUsd(row.estimated_cost_usd as string | null),
       unpriced_call_count: numeric(row.unpriced_call_count as string | null),
+      total_call_count: numeric(row.total_call_count as string | null),
+      cost_period_start: isoText(row.cost_period_start),
+      cost_period_end: isoText(row.cost_period_end),
       active_task_count: numeric(row.active_task_count as string | null),
       pending_approval_count: numeric(row.pending_approval_count as string | null),
       base_limit_usd: baseLimitUsd,
       active_allowance_usd: activeAllowanceUsd,
-      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - spendUsd),
+      remaining_usd: moneyUsd(baseLimitUsd + activeAllowanceUsd - monthSpendUsd),
     };
   });
-  const reconciledItems = await applySenturaCostToCostRows(context, range, items);
+  const estimatedDbItems = await applyEstimatedDbUnpricedCostsToCostRows(context, range, items);
+  const reconciledItems = await applySenturaCostToCostRows(context, range, estimatedDbItems);
   const rawPool = reconciledItems.reduce(
     (acc, item) => ({
       spendUsd: acc.spendUsd + (item.spend_usd as number),
@@ -1307,6 +1488,9 @@ export async function listAdminCosts(
       remainingUsd: acc.remainingUsd + (item.remaining_usd as number),
       activeTaskCount: acc.activeTaskCount + (item.active_task_count as number),
       unpricedCallCount: acc.unpricedCallCount + (item.unpriced_call_count as number),
+      totalCallCount: acc.totalCallCount + numeric(item.total_call_count as string | number | null | undefined),
+      costPeriodStart: earlierIso(acc.costPeriodStart, isoText(item.cost_period_start)),
+      costPeriodEnd: laterIso(acc.costPeriodEnd, isoText(item.cost_period_end)),
     }),
     {
       spendUsd: 0,
@@ -1317,6 +1501,9 @@ export async function listAdminCosts(
       remainingUsd: 0,
       activeTaskCount: 0,
       unpricedCallCount: 0,
+      totalCallCount: 0,
+      costPeriodStart: null as string | null,
+      costPeriodEnd: null as string | null,
     },
   );
   const pool = {
@@ -1328,6 +1515,9 @@ export async function listAdminCosts(
     remainingUsd: moneyUsd(rawPool.remainingUsd),
     activeTaskCount: rawPool.activeTaskCount,
     unpricedCallCount: rawPool.unpricedCallCount,
+    totalCallCount: rawPool.totalCallCount,
+    costPeriodStart: rawPool.costPeriodStart,
+    costPeriodEnd: rawPool.costPeriodEnd,
   };
   return {
     period,
@@ -1417,6 +1607,7 @@ export async function getEmployeeCostEvents(context: TenantContext) {
   const costEvents = await queryCbe(
     `
       select
+        l.id,
         ar.id as agent_run_id,
         ar.agent_id,
         ar.task_kind,
@@ -1432,7 +1623,8 @@ export async function getEmployeeCostEvents(context: TenantContext) {
         l.request_units::text as request_units,
         l.cost_usd::text as actual_cost_usd,
         l.status as ledger_status,
-        l.created_at as ledger_created_at
+        l.created_at as ledger_created_at,
+        l.metadata_json as ledger_metadata_json
       from agent_runs ar
       left join api_call_ledger l
         on l.tenant_id = ar.tenant_id
