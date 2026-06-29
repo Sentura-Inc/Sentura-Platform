@@ -2,7 +2,7 @@
 
 ## When to Use
 
-Use when a target has website, domain, email, or a contact candidate from Marketing/Accio.
+Use when a target has website, domain, email, or a contact candidate from Marketing/manual input.
 
 ## Procedure
 

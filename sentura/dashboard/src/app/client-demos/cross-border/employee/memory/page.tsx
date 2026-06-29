@@ -936,8 +936,16 @@ function CrossBorderMemoryPageContent() {
 
   const canRun = state === "connected" && !!accioAgent;
   const activeFilterCount = activeFilterChips.length;
-  const chatCustomerPage = usePagedItems(filteredChatCustomers, 5);
-  const memoryPage = usePagedItems(filtered, 10);
+  const memoryPaginationResetKey = useMemo(
+    () => JSON.stringify({ filters, query, statusFilter }),
+    [filters, query, statusFilter],
+  );
+  const chatCustomerPaginationResetKey = useMemo(
+    () => JSON.stringify({ chatCustomerFilter, filters, query, statusFilter }),
+    [chatCustomerFilter, filters, query, statusFilter],
+  );
+  const chatCustomerPage = usePagedItems(filteredChatCustomers, 5, { resetKey: chatCustomerPaginationResetKey });
+  const memoryPage = usePagedItems(filtered, 10, { resetKey: memoryPaginationResetKey });
   const {
     page: currentMemoryPage,
     pageSize: memoryPageSize,
@@ -1708,7 +1716,7 @@ function CrossBorderMemoryPageContent() {
               </div>
             ) : (
               <div className="mt-3 space-y-3">
-                <AnimatedList viewportClassName="grid gap-3 overflow-visible" displayScrollbar={false}>
+                <AnimatedList viewportClassName="grid gap-3 overflow-visible" displayScrollbar={false} scrollable={false}>
                   {chatCustomerPage.items.map((row) => (
                     <ChatCustomerCard
                       key={row.record.recordId}
@@ -1760,7 +1768,7 @@ function CrossBorderMemoryPageContent() {
             </div>
           ) : (
             <>
-              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false}>
+              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false} scrollable={false}>
                 {pagedMemoryRecords.map((item) => {
                   const isHighlighted = highlightedRecordIds.has(item.recordId);
                   return (
@@ -1780,7 +1788,7 @@ function CrossBorderMemoryPageContent() {
                 })}
               </AnimatedList>
 
-              <div className="hidden overflow-x-auto rounded-md border lg:block">
+              <div className="hidden overflow-x-auto overflow-y-hidden rounded-md border lg:block">
                 <table className="w-full min-w-[820px] text-sm">
                   <thead className="bg-muted/50 text-xs text-muted-foreground">
                     <tr>

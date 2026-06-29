@@ -5,6 +5,7 @@ import {
   CBE_ADMIN_LOGIN_PATH,
 } from "@/lib/cross-border-routes";
 import type { CostEvent } from "@/lib/gateway";
+import type { LeadFilterSettings } from "@/lib/cross-border-lead-settings";
 import type { MemoryRecordItem } from "../../employee/_data/employee-data";
 
 type JsonRecord = Record<string, unknown>;
@@ -26,9 +27,11 @@ export interface AdminCustomerRow {
   recordId: string;
   companyName: string;
   country: string | null;
+  countryName?: string | null;
   buyerType: string | null;
   domain: string | null;
   matchedProducts: string[];
+  leadQueryCountries?: string[];
   website: string | null;
   leadStatus?: string | null;
   screeningStatus: string;
@@ -64,6 +67,8 @@ export interface AdminApprovalRow extends JsonRecord {
   display_name: string;
   task_kind: string;
   target_summary: string | null;
+  request_kind?: string | null;
+  request_reason?: string | null;
   requested_allowance_usd: string;
   estimated_cost_usd: string;
   period: string;
@@ -123,6 +128,17 @@ export function fetchAdminOperators() {
   return adminFetch<{ items: AdminOperatorRow[] }>(`${CBE_ADMIN_API_BASE}/operators`);
 }
 
+export function fetchAdminLeadFilterSettings() {
+  return adminFetch<{ settings: LeadFilterSettings }>(`${CBE_ADMIN_API_BASE}/lead-filter-settings`);
+}
+
+export function updateAdminLeadFilterSettings(input: LeadFilterSettings) {
+  return adminFetch<{ settings: LeadFilterSettings }>(
+    `${CBE_ADMIN_API_BASE}/lead-filter-settings`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
 export function createAdminOperator(input: {
   display_name: string;
   password: string;
@@ -145,6 +161,13 @@ export function updateAdminOperator(
   },
 ) {
   return adminFetch(`${CBE_ADMIN_API_BASE}/operators/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAdminOwnPassword(input: { current_password: string; new_password: string }) {
+  return adminFetch<{ ok: true }>(`${CBE_ADMIN_API_BASE}/profile/password`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });

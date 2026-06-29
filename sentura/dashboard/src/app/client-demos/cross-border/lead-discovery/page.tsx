@@ -123,7 +123,6 @@ interface LeadDiscoveryStoredState {
   selectedPersonaIds: string[];
   selectedCountryCodes: string[];
   targetCount: number;
-  excludeDomains: string;
   customKeyword: string;
   leads: LeadCandidate[];
   expandedLeadId?: string;
@@ -412,9 +411,6 @@ export default function CrossBorderLeadDiscoveryPage() {
   ]);
   const [selectedCountryCodes, setSelectedCountryCodes] = useState<string[]>(["GB", "US"]);
   const [targetCount, setTargetCount] = useState(MAX_LEAD_DISCOVERY_TARGET_COUNT);
-  const [excludeDomains, setExcludeDomains] = useState(
-    "amazon.com, alibaba.com, aliexpress.com, temu.com, ebay.com",
-  );
   const [customKeyword, setCustomKeyword] = useState("");
   const [leads, setLeads] = useState<LeadCandidate[]>([]);
   const [expandedLeadId, setExpandedLeadId] = useState<string | undefined>();
@@ -450,11 +446,9 @@ export default function CrossBorderLeadDiscoveryPage() {
       countries: selectedCountries.map((country) => country.code),
       languages: Array.from(new Set(selectedCountries.map((country) => country.language))),
       daily_candidate_target: targetCount,
-      exclude_domains: excludeDomains.split(",").map((item) => item.trim()).filter(Boolean),
     };
   }, [
     customKeyword,
-    excludeDomains,
     selectedCountries,
     selectedPersonas,
     selectedProducts,
@@ -462,22 +456,28 @@ export default function CrossBorderLeadDiscoveryPage() {
   ]);
 
   useEffect(() => {
-    const stored = readStoredLeadDiscoveryState();
-    if (stored) {
-      setSelectedProductIds(stored.selectedProductIds);
-      setSelectedPersonaIds(stored.selectedPersonaIds);
-      setSelectedCountryCodes(stored.selectedCountryCodes);
-      setTargetCount(Math.min(MAX_LEAD_DISCOVERY_TARGET_COUNT, Math.max(1, stored.targetCount)));
-      setExcludeDomains(stored.excludeDomains);
-      setCustomKeyword(stored.customKeyword);
-      setLeads(stored.leads);
-      setExpandedLeadId(stored.expandedLeadId);
-      setEnvStatus(stored.envStatus);
-      setRunStatus(stored.runStatus === "running" ? "idle" : stored.runStatus);
-      setRunMessage(stored.runStatus === "running" ? "上次运行未完成，请重新发起搜索" : stored.runMessage);
-      setLeadSessionKey(stored.leadSessionKey);
-    }
-    setHasHydratedState(true);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const stored = readStoredLeadDiscoveryState();
+      if (stored) {
+        setSelectedProductIds(stored.selectedProductIds);
+        setSelectedPersonaIds(stored.selectedPersonaIds);
+        setSelectedCountryCodes(stored.selectedCountryCodes);
+        setTargetCount(Math.min(MAX_LEAD_DISCOVERY_TARGET_COUNT, Math.max(1, stored.targetCount)));
+        setCustomKeyword(stored.customKeyword);
+        setLeads(stored.leads);
+        setExpandedLeadId(stored.expandedLeadId);
+        setEnvStatus(stored.envStatus);
+        setRunStatus(stored.runStatus === "running" ? "idle" : stored.runStatus);
+        setRunMessage(stored.runStatus === "running" ? "上次运行未完成，请重新发起搜索" : stored.runMessage);
+        setLeadSessionKey(stored.leadSessionKey);
+      }
+      setHasHydratedState(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -487,7 +487,6 @@ export default function CrossBorderLeadDiscoveryPage() {
       selectedPersonaIds,
       selectedCountryCodes,
       targetCount,
-      excludeDomains,
       customKeyword,
       leads,
       expandedLeadId,
@@ -499,7 +498,6 @@ export default function CrossBorderLeadDiscoveryPage() {
   }, [
     customKeyword,
     envStatus,
-    excludeDomains,
     expandedLeadId,
     hasHydratedState,
     leads,
@@ -781,7 +779,7 @@ ${LEADS_JSON_END}`;
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold">运行配置</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">关键词、买家画像、国家与排除域名</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">关键词、买家画像、国家与目标数量</p>
             </div>
             <Search className="h-4 w-4 text-muted-foreground" />
           </div>
@@ -837,7 +835,7 @@ ${LEADS_JSON_END}`;
             </section>
 
             <section>
-              <div className="mb-2 text-xs font-medium text-muted-foreground">国家 / 语言</div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">国家 / 地区</div>
               <div className="grid grid-cols-3 gap-1.5">
                 {countryOptions.map((country) => {
                   const active = selectedCountryCodes.includes(country.code);
@@ -871,15 +869,6 @@ ${LEADS_JSON_END}`;
                   }
                 />
               </label>
-            </section>
-
-            <section>
-              <div className="mb-2 text-xs font-medium text-muted-foreground">排除域名</div>
-              <textarea
-                className="min-h-20 w-full rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={excludeDomains}
-                onChange={(event) => setExcludeDomains(event.target.value)}
-              />
             </section>
 
             <section>
@@ -930,7 +919,7 @@ ${LEADS_JSON_END}`;
                 </Badge>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-hidden">
               <table className="w-full min-w-[1120px] text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>

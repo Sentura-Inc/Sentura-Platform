@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { gsap } from "gsap";
 import {
   AlertTriangle,
@@ -11,10 +11,13 @@ import {
   CheckCircle2,
   Database,
   BadgeDollarSign,
+  KeyRound,
+  Loader2,
   LogOut,
   Maximize2,
   Minimize2,
   ShieldCheck,
+  SlidersHorizontal,
   Star,
   UserRound,
   UsersRound,
@@ -31,6 +34,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -42,6 +54,7 @@ import {
   CBE_ADMIN_COSTS_PATH,
   CBE_ADMIN_EMPLOYEES_PATH,
   CBE_ADMIN_HIGH_VALUE_CUSTOMERS_PATH,
+  CBE_ADMIN_LEAD_SETTINGS_PATH,
   CBE_ADMIN_LOGIN_PATH,
   CBE_ADMIN_MEMORY_PATH,
   CBE_EMPLOYEE_CUSTOMERS_PATH,
@@ -104,6 +117,11 @@ const adminNav = [
     label: "记忆整理",
     href: CBE_ADMIN_MEMORY_PATH,
     icon: Database,
+  },
+  {
+    label: "获客设置",
+    href: CBE_ADMIN_LEAD_SETTINGS_PATH,
+    icon: SlidersHorizontal,
   },
   {
     label: "费用监控",
@@ -806,6 +824,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const setTasks = useCbeEmployeeStore((state) => state.setTasks);
   const [sessionUser, setSessionUser] = useState<{ displayName: string } | null>(null);
   const [fullscreenMode, setFullscreenMode] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   useEffect(() => {
     if (!isEmployeePath || isAuthPath) return;
@@ -896,6 +923,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [isAdminPath, isAuthPath, setTasks]);
 
+  function resetPasswordDialogState() {
+    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    setPasswordError(null);
+    setPasswordNotice(null);
+  }
+
+  function setPasswordDialog(open: boolean) {
+    if (!open && passwordSaving) return;
+    setPasswordDialogOpen(open);
+    if (!open) resetPasswordDialogState();
+  }
+
+  async function submitAdminPasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const currentPassword = passwordForm.currentPassword.trim();
+    const newPassword = passwordForm.newPassword.trim();
+    const confirmPassword = passwordForm.confirmPassword.trim();
+    setPasswordNotice(null);
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("请填写当前密码、新密码和确认密码。");
+      return;
+    }
+    if (newPassword.length < 4) {
+      setPasswordError("新密码至少 4 位。");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("两次输入的新密码不一致。");
+      return;
+    }
+
+    setPasswordSaving(true);
+    setPasswordError(null);
+    try {
+      const response = await fetch(`${CBE_ADMIN_API_BASE}/profile/password`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof body?.error?.message === "string" ? body.error.message : "密码更新失败。";
+        throw new Error(message);
+      }
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordNotice("密码已更新，下次登录请使用新密码。");
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "密码更新失败。");
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   async function logoutTo(loginPath: string) {
     const role = loginPath.startsWith(CBE_ADMIN_LOGIN_PATH) ? "admin" : "operator";
     await fetch(`/api/auth/logout?role=${role}`, { method: "POST" }).catch(() => undefined);
@@ -970,6 +1053,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
                 <span className="text-sm font-medium">{sessionUser?.displayName ?? accountLabel}</span>
               </div>
+              <Button variant="outline" size="sm" className="px-2" onClick={() => setPasswordDialog(true)} aria-label="修改管理员密码">
+                <KeyRound className="h-4 w-4" />
+                <span className="hidden sm:inline">修改密码</span>
+              </Button>
               <Button variant="outline" size="sm" className="px-2" onClick={() => void logoutTo(CBE_ADMIN_LOGIN_PATH)} aria-label="退出管理端">
                 <LogOut className="h-4 w-4" />
                 <span className="hidden sm:inline">退出</span>
@@ -1003,6 +1090,73 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      {isAdminAppPath ? (
+        <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialog}>
+          <DialogContent className="sm:max-w-md">
+            <form className="grid gap-4" onSubmit={submitAdminPasswordChange}>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  修改密码
+                </DialogTitle>
+                <DialogDescription>更新当前管理员账号的登录密码。</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-3">
+                <label className="grid gap-1.5 text-sm font-medium">
+                  当前密码
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    value={passwordForm.currentPassword}
+                    onChange={(event) => setPasswordForm((value) => ({ ...value, currentPassword: event.target.value }))}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  新密码
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordForm.newPassword}
+                    onChange={(event) => setPasswordForm((value) => ({ ...value, newPassword: event.target.value }))}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  确认新密码
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) => setPasswordForm((value) => ({ ...value, confirmPassword: event.target.value }))}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                {passwordError ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {passwordError}
+                  </div>
+                ) : null}
+                {passwordNotice ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {passwordNotice}
+                  </div>
+                ) : null}
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setPasswordDialog(false)} disabled={passwordSaving}>
+                  取消
+                </Button>
+                <Button type="submit" disabled={passwordSaving}>
+                  {passwordSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                  保存新密码
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <PlatformFullscreenToggle onActiveChange={setFullscreenMode} />
     </div>

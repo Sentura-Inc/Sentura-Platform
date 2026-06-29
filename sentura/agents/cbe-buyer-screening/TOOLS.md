@@ -11,7 +11,7 @@ Default execution shape:
 
 ## `web_search`
 
-Use for public footprint, official registry-page discovery outside supported APIs, social/profile snippets, public fraud/adverse-media searches, annual-report discovery, and SEC CIK discovery. Keep query strings in evidence.
+Use for public footprint, official registry-page discovery outside supported APIs, social/profile snippets, public fraud/adverse-media searches, legal-dispute/court-case/insolvency/regulatory-enforcement searches, annual-report discovery, and SEC CIK discovery. Keep query strings in evidence.
 
 ## `web_fetch`
 
@@ -34,8 +34,6 @@ Allowed MCP tools:
 - `cross-border-intel__cbe_intel_trade_record_search`
 - `cross-border-intel__cbe_intel_score_buyer`
 
-Do not use Accio parser/summarizer tools unless the operator explicitly supplies Accio chat context for behavior scoring.
-
 Paid-source constraints:
 
 - `cbe_intel_email_domain_check` may use Abstract/Hunter paid validation only when `enable_paid_validation=true` and the target email is supplied by the operator or discovered as a same-domain email on the official website.
@@ -52,10 +50,11 @@ Deferred or blocked APIs:
 
 - No Apollo, Hunter Domain Search/Finder, ImportGenius, Panjiva, D&B, Creditsafe, Experian, Surepass, Karza, Alibaba/ICBU, product-posting, CRM-write, or outreach APIs in the default Screening path.
 - Alibaba/ICBU is future read-only internal evidence only after seller authorization/access proof.
+- Do not log in to PACER, court portals, insolvency portals, or paid legal databases unless the operator explicitly provides authorized access and budget. Default legal-dispute checks use public pages, official no-login searches, and public web search only.
 
 ## `memory_search` / `memory_get`
 
-Use to retrieve prior Accio summaries, previous Screening reports, or operator-approved customer facts. Never treat memory as proof unless it has source references.
+Use only for previous Screening reports or operator-approved customer facts with source references. Do not retrieve or score summaries from other employees.
 
 ## Not Allowed
 

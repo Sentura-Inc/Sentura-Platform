@@ -3,15 +3,19 @@ import { createAuditEvent } from "./audit";
 import { CbeStoreError } from "./errors";
 import { scopedOwnerClause } from "./tenant-context";
 import type { ListQuery, TenantContext } from "./schemas";
+import { DEFAULT_LEAD_COUNTRY_OPTIONS } from "../cross-border-lead-settings";
 
 export interface EmployeeCustomerRecord {
   recordType: string;
   recordId: string;
   companyName: string;
   country: string | null;
+  countryName: string | null;
   buyerType: string | null;
   domain: string | null;
   matchedProducts: string[];
+  leadQueryProducts: string[];
+  leadQueryCountries: string[];
   website: string | null;
   leadStatus: string;
   screeningStatus: string;
@@ -35,9 +39,11 @@ interface CustomerRow {
   record_id: string;
   company_name: string;
   country: string | null;
+  lead_settings_countries_json: unknown;
   buyer_type: string | null;
   domain: string | null;
   matched_products_json: unknown;
+  lead_query_config_json: Record<string, unknown> | null;
   target_fields_json: Record<string, unknown> | null;
   lead_status: string;
   screening_status: string;
@@ -71,6 +77,65 @@ function stringArray(value: unknown) {
     : [];
 }
 
+function productKeywordsFromQueryConfig(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  return stringArray(record.product_keywords ?? record.products);
+}
+
+function countryLabelsFromQueryConfig(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  return stringArray(record.countries);
+}
+
+function isPlaceholderProduct(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
+  return !normalized ||
+    normalized === "mobile-accessories" ||
+    normalized === "product-pending-confirmation" ||
+    normalized === "产品待确认" ||
+    normalized === "未确认" ||
+    normalized === "待确认";
+}
+
+function displayProductsForRow(row: CustomerRow) {
+  const queryProducts = productKeywordsFromQueryConfig(row.lead_query_config_json);
+  if (queryProducts.length > 0) return queryProducts;
+  return stringArray(row.matched_products_json).filter((item) => !isPlaceholderProduct(item));
+}
+
+function countryLabelOptions(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const record = item as Record<string, unknown>;
+          const code = typeof record.code === "string" ? record.code.trim().toUpperCase() : "";
+          const label = typeof record.label === "string" ? record.label.trim() : "";
+          return code && label ? { code, label } : null;
+        })
+        .filter((item): item is { code: string; label: string } => Boolean(item))
+    : [];
+}
+
+function defaultCountryLabel(code: string) {
+  return DEFAULT_LEAD_COUNTRY_OPTIONS.find((item) => item.code === code)?.label;
+}
+
+function countryNameForRow(row: CustomerRow) {
+  const countryCode = row.country?.trim().toUpperCase();
+  if (!countryCode) return null;
+  const tenantLabel = countryLabelOptions(row.lead_settings_countries_json)
+    .find((item) => item.code === countryCode)?.label;
+  if (tenantLabel) return tenantLabel;
+  const defaultLabel = defaultCountryLabel(countryCode);
+  if (defaultLabel) return defaultLabel;
+  const queryCountries = countryLabelsFromQueryConfig(row.lead_query_config_json);
+  if (queryCountries.length === 1) return queryCountries[0];
+  return countryCode;
+}
+
 function websiteFromRow(row: CustomerRow) {
   const targetWebsite =
     row.target_fields_json &&
@@ -89,9 +154,12 @@ function toCustomerRecord(row: CustomerRow): EmployeeCustomerRecord {
     recordId: row.record_id,
     companyName: row.company_name,
     country: row.country,
+    countryName: countryNameForRow(row),
     buyerType: row.buyer_type,
     domain: row.domain,
-    matchedProducts: stringArray(row.matched_products_json),
+    matchedProducts: displayProductsForRow(row),
+    leadQueryProducts: productKeywordsFromQueryConfig(row.lead_query_config_json),
+    leadQueryCountries: countryLabelsFromQueryConfig(row.lead_query_config_json),
     website: websiteFromRow(row),
     leadStatus: row.lead_status,
     screeningStatus: row.screening_status,
@@ -136,9 +204,11 @@ export async function listEmployeeCustomers(
         c.record_id,
         c.company_name,
         c.country,
+        c.lead_settings_countries_json,
         c.buyer_type,
         c.domain,
         c.matched_products_json,
+        c.lead_query_config_json,
         c.target_fields_json,
         c.lead_status,
         c.screening_status,
@@ -162,6 +232,7 @@ export async function listEmployeeCustomers(
           c.record_id,
           c.company_name,
           c.country,
+          lfs.countries_json as lead_settings_countries_json,
           c.buyer_type,
           c.domain,
           c.owner_user_id,
@@ -170,6 +241,7 @@ export async function listEmployeeCustomers(
           c.team_name,
           c.visibility_scope,
           coalesce(lc.matched_products_json, st.product_interest_json, '[]'::jsonb) as matched_products_json,
+          lead_run_for_customer.query_config_json as lead_query_config_json,
           st.supplied_fields_json as target_fields_json,
           c.lead_status,
           c.screening_status,
@@ -182,6 +254,8 @@ export async function listEmployeeCustomers(
           c.created_at,
           c.updated_at
         from cbe_customer_work_items c
+        left join cbe_lead_filter_settings lfs
+          on lfs.tenant_id = c.tenant_id
         left join lead_candidates lc
           on c.record_type = 'lead_candidate'
          and lc.tenant_id = c.tenant_id
@@ -205,14 +279,6 @@ export async function listEmployeeCustomers(
           where tenant_id = c.tenant_id
             and lead_candidate_id = c.record_id
         ) ls on c.record_type = 'lead_candidate'
-        where not (
-          c.record_type = 'screening_target'
-          and coalesce((
-            st.source = 'accio_memory'
-            or sr.report_json->'target'->>'source' = 'accio_memory'
-            or sr.report_json->>'target_source' = 'accio_memory'
-          ), false)
-        )
       ) c
       left join screening_reports sr
         on sr.tenant_id = c.tenant_id

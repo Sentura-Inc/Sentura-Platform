@@ -99,6 +99,10 @@ const ADMIN_OPERATOR_API_ROUTE = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/[id]/route.ts",
 );
+const ADMIN_PROFILE_PASSWORD_API_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/admin/profile/password/route.ts",
+);
 const ADMIN_MEMORY_IMPORT_API_ROUTE = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/admin/operators/[id]/memory/imports/[importId]/route.ts",
@@ -106,6 +110,18 @@ const ADMIN_MEMORY_IMPORT_API_ROUTE = path.join(
 const ADMIN_COSTS_PAGE = path.join(
   ROOT,
   "sentura/dashboard/src/app/client-demos/cross-border/admin/costs/page.tsx",
+);
+const ADMIN_LEAD_SETTINGS_PAGE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/client-demos/cross-border/admin/lead-settings/page.tsx",
+);
+const ADMIN_LEAD_SETTINGS_API_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/admin/lead-filter-settings/route.ts",
+);
+const EMPLOYEE_LEAD_SETTINGS_API_ROUTE = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/employee/lead-filter-settings/route.ts",
 );
 const ADMIN_CUSTOMER_LIST_TABLE = path.join(
   ROOT,
@@ -135,6 +151,14 @@ const CBE_LEAD_RUNS_STORE = path.join(
   ROOT,
   "sentura/dashboard/src/lib/cross-border-store/lead-runs.ts",
 );
+const CBE_LEAD_SETTINGS_STORE = path.join(
+  ROOT,
+  "sentura/dashboard/src/lib/cross-border-store/lead-settings.ts",
+);
+const CBE_LEAD_SETTINGS = path.join(
+  ROOT,
+  "sentura/dashboard/src/lib/cross-border-lead-settings.ts",
+);
 const CBE_SCREENING_STORE = path.join(
   ROOT,
   "sentura/dashboard/src/lib/cross-border-store/screening.ts",
@@ -146,6 +170,18 @@ const CBE_ADMIN_STORE = path.join(
 const EMPLOYEE_TASK_STATUS = path.join(
   ROOT,
   "sentura/dashboard/src/components/cross-border/employee-task-status.tsx",
+);
+const ANIMATED_LIST = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/animated-list.tsx",
+);
+const BRAND_UI = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/cross-border/brand-ui.tsx",
+);
+const UI_TABLE = path.join(
+  ROOT,
+  "sentura/dashboard/src/components/ui/table.tsx",
 );
 const EMPLOYEE_TASK_CANCEL_API = path.join(
   ROOT,
@@ -183,8 +219,17 @@ const EMPLOYEE_COST_BUDGET_API = path.join(
   ROOT,
   "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-budget/route.ts",
 );
+const EMPLOYEE_COST_EVENTS_API = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-events/route.ts",
+);
+const EMPLOYEE_COST_ALLOWANCE_API = path.join(
+  ROOT,
+  "sentura/dashboard/src/app/api/client-demos/cross-border/employee/cost-allowance-requests/route.ts",
+);
 const NEXT_CONFIG = path.join(ROOT, "sentura/dashboard/next.config.ts");
 const CBE_ROUTES = path.join(ROOT, "sentura/dashboard/src/lib/cross-border-routes.ts");
+const AUTH_LOGIN_API_ROUTE = path.join(ROOT, "sentura/dashboard/src/app/api/auth/login/route.ts");
 const GATEWAY_CLIENT = path.join(ROOT, "sentura/dashboard/src/lib/gateway/client.ts");
 const GATEWAY_TYPES = path.join(ROOT, "sentura/dashboard/src/lib/gateway/types.ts");
 const CROSS_BORDER_INTEL_TOOLS = path.join(
@@ -219,6 +264,7 @@ const screeningSkillFiles = [
   "skills/evidence-collection/SKILL.md",
   "skills/registry-verification/SKILL.md",
   "skills/domain-email-verification/SKILL.md",
+  "skills/legal-dispute-check/SKILL.md",
   "skills/trade-record-check/SKILL.md",
   "skills/buyer-scoring/SKILL.md",
   "skills/report-writing/SKILL.md",
@@ -296,8 +342,12 @@ const adminEmployeesPage = read(ADMIN_EMPLOYEES_PAGE);
 const adminMemoryPage = read(ADMIN_MEMORY_PAGE);
 const adminApi = read(ADMIN_API);
 const adminOperatorApiRoute = read(ADMIN_OPERATOR_API_ROUTE);
+const adminProfilePasswordApiRoute = read(ADMIN_PROFILE_PASSWORD_API_ROUTE);
 const adminMemoryImportApiRoute = read(ADMIN_MEMORY_IMPORT_API_ROUTE);
 const adminCostsPage = read(ADMIN_COSTS_PAGE);
+const adminLeadSettingsPage = read(ADMIN_LEAD_SETTINGS_PAGE);
+const adminLeadSettingsApiRoute = read(ADMIN_LEAD_SETTINGS_API_ROUTE);
+const employeeLeadSettingsApiRoute = read(EMPLOYEE_LEAD_SETTINGS_API_ROUTE);
 const adminCustomerListTable = read(ADMIN_CUSTOMER_LIST_TABLE);
 const persistentUiStateHook = read(PERSISTENT_UI_STATE_HOOK);
 const cbeEmployeeStore = read(CBE_EMPLOYEE_STORE);
@@ -305,9 +355,14 @@ const cbeCustomersStore = read(CBE_CUSTOMERS_STORE);
 const cbeAccioStore = read(CBE_ACCIO_STORE);
 const cbeStoreSchemas = read(CBE_STORE_SCHEMAS);
 const leadRunsStore = read(CBE_LEAD_RUNS_STORE);
+const leadSettingsStore = read(CBE_LEAD_SETTINGS_STORE);
+const leadSettings = read(CBE_LEAD_SETTINGS);
 const screeningStore = read(CBE_SCREENING_STORE);
 const cbeAdminStore = read(CBE_ADMIN_STORE);
 const employeeTaskStatus = read(EMPLOYEE_TASK_STATUS);
+const animatedList = read(ANIMATED_LIST);
+const brandUi = read(BRAND_UI);
+const uiTable = read(UI_TABLE);
 const customerReportDialog = read(CUSTOMER_REPORT_DIALOG);
 const screeningReportCopy = read(SCREENING_REPORT_COPY);
 const documentExport = read(DOCUMENT_EXPORT);
@@ -317,8 +372,11 @@ const employeeTaskCancelApi = read(EMPLOYEE_TASK_CANCEL_API);
 const employeeCost = read(EMPLOYEE_COST);
 const costDetailDialog = read(COST_DETAIL_DIALOG);
 const employeeCostBudgetApi = read(EMPLOYEE_COST_BUDGET_API);
+const employeeCostEventsApi = read(EMPLOYEE_COST_EVENTS_API);
+const employeeCostAllowanceApi = read(EMPLOYEE_COST_ALLOWANCE_API);
 const nextConfig = read(NEXT_CONFIG);
 const cbeRoutes = read(CBE_ROUTES);
+const authLoginApiRoute = read(AUTH_LOGIN_API_ROUTE);
 const gatewayClient = read(GATEWAY_CLIENT);
 const gatewayTypes = read(GATEWAY_TYPES);
 const crossBorderIntelTools = read(CROSS_BORDER_INTEL_TOOLS);
@@ -380,7 +438,7 @@ check("query skill targets company-owned downstream buyer websites", [
   "Retail and repair buyer",
   "Store/location/contact proof",
   "Reseller/import buyer",
-  "Domain exclusions",
+  "invalid-source filtering",
 ].every((needle) => querySkill.includes(needle)));
 check("query skill blocks protected social scraping", querySkill.includes("Do not log in to protected sites"));
 check("query skill rejects social/directories/marketplaces as leads", querySkill.includes("Reject as leads") && querySkill.includes("Facebook") && querySkill.includes("Europages") && querySkill.includes("GlobalSources"));
@@ -442,10 +500,11 @@ check("live route returns redacted env status", [
 check("live route emits source-audited company website leads", apiRoute.includes("company_website_mentions_mobile_accessory_business") && apiRoute.includes('source_label: "实时查询"'));
 check("live route blocks social/directories/marketplaces", apiRoute.includes("BLOCKED_LEAD_DOMAINS") && apiRoute.includes("facebook.com") && apiRoute.includes("europages.com") && apiRoute.includes("wholesalecentral.com"));
 check("live route requires buyer-company relevance", apiRoute.includes("rejectionReasonForResult") && apiRoute.includes("MOBILE_ACCESSORY_TERMS") && apiRoute.includes("BUYER_BUSINESS_TERMS"));
-for (const label of ["产品关键词", "买家画像", "国家 / 语言", "目标数量", "排除域名", "让获客员工开始搜索"]) {
+for (const label of ["产品关键词", "买家画像", "国家 / 地区", "目标数量", "让获客员工开始搜索"]) {
   check(`run builder label exists: ${label}`, page.includes(label));
 }
 check("run builder removed per-query search limit control", !page.includes("单查询上限") && !page.includes("maxResultsPerQuery"));
+check("run builder removed invalid-source domain control", !page.includes("排除域名") && !page.includes("exclude_domains") && !apiRoute.includes("exclude_domains"));
 for (const label of ["手机壳", "钢化膜", "充电器", "MagSafe 配件", "维修配件"]) {
   check(`product chip exists: ${label}`, page.includes(label));
 }
@@ -505,16 +564,47 @@ for (const file of screeningSkillFiles) {
 const evidenceSkill = read(path.join(SCREENING_AGENT_DIR, "skills/evidence-collection/SKILL.md"));
 const registrySkill = read(path.join(SCREENING_AGENT_DIR, "skills/registry-verification/SKILL.md"));
 const domainSkill = read(path.join(SCREENING_AGENT_DIR, "skills/domain-email-verification/SKILL.md"));
+const legalDisputeSkill = read(path.join(SCREENING_AGENT_DIR, "skills/legal-dispute-check/SKILL.md"));
 const tradeSkill = read(path.join(SCREENING_AGENT_DIR, "skills/trade-record-check/SKILL.md"));
 const scoringSkill = read(path.join(SCREENING_AGENT_DIR, "skills/buyer-scoring/SKILL.md"));
 const reportSkill = read(path.join(SCREENING_AGENT_DIR, "skills/report-writing/SKILL.md"));
+const screeningWorkspaceText = [
+  screeningAgents,
+  screeningTools,
+  screeningBootstrap,
+  evidenceSkill,
+  registrySkill,
+  domainSkill,
+  legalDisputeSkill,
+  tradeSkill,
+  scoringSkill,
+  reportSkill,
+].join("\n");
+const screeningPromptSource = employeeTaskRunner.slice(
+  employeeTaskRunner.indexOf("function buildScreeningPrompt"),
+  employeeTaskRunner.indexOf("function buildAccioPrompt"),
+);
 check("evidence skill normalizes batch and manual inputs", evidenceSkill.includes("marketing_lead_batch") && evidenceSkill.includes("manual_input") && evidenceSkill.includes("InvestigationTarget"));
 check("registry skill prioritizes Companies House and SEC", registrySkill.includes("cbe_intel_company_registry_search") && registrySkill.includes("cbe_intel_sec_lookup"));
 check("registry skill forces GB Companies House and US SEC before web fallback", registrySkill.includes("country=GB") && registrySkill.includes("always call `cross-border-intel__cbe_intel_company_registry_search` before public web search") && registrySkill.includes("country=US") && registrySkill.includes("company_tickers.json") && registrySkill.includes("then state registry or official registry web search fallback"));
 check("domain skill calls RDAP/email checks and paid validation only when enabled", domainSkill.includes("cbe_intel_domain_rdap_lookup") && domainSkill.includes("cbe_intel_email_domain_check") && domainSkill.includes("enable_paid_validation=true"));
 check("domain skill discovers official-site emails before paid validation", domainSkill.includes("cbe_intel_official_contact_email_search") && domainSkill.includes("same-domain business emails") && domainSkill.includes("best same-domain public contact email"));
+check("legal dispute skill defines country-aware court, insolvency, and enforcement checks", [
+  "legal_disputes",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "CourtListener",
+  "The Gazette",
+  "Insolvenzbekanntmachungen",
+  "CENDOJ",
+  "DataJud",
+  "confirmed_material_dispute",
+  "no_material_public_hit",
+].every((needle) => legalDisputeSkill.includes(needle)));
 check("trade skill preserves budget and missing-data semantics", tradeSkill.includes("ImportYeti") && tradeSkill.includes("disabled_by_budget") && tradeSkill.includes("coverage gap"));
-check("scoring skill uses contextual score blocks and forced downgrades", scoringSkill.includes("not_applicable") && scoringSkill.includes("cross-border-intel__cbe_intel_score_buyer") && scoringSkill.includes("forced downgrades"));
+check("scoring skill uses contextual score blocks and forced downgrades", scoringSkill.includes("not_applicable") && scoringSkill.includes("cross-border-intel__cbe_intel_score_buyer") && scoringSkill.includes("forced downgrades") && scoringSkill.includes("`legal_disputes` max 15"));
 check("scoring skill applies scale-aware Google Maps first-block rule", [
   "company_scale_assessment",
   "small_local_offline",
@@ -523,6 +613,59 @@ check("scoring skill applies scale-aware Google Maps first-block rule", [
   "OPERATIONAL",
 ].every((needle) => scoringSkill.includes(needle)));
 check("report skill defines ScreeningReport JSON output", reportSkill.includes("ScreeningReport") && reportSkill.includes("missing_or_unavailable_evidence") && reportSkill.includes("evidence_coverage"));
+check("screening agent requires decision-ready evidence and actionable non-contradictory gaps", [
+  "decision-ready",
+  "official_registry_page",
+  "0.95-1.0",
+  "Companies House",
+  "concrete facts",
+  "coverage_gaps",
+  "scored",
+  "not_applicable",
+  "severity",
+  "natural Simplified Chinese",
+  "non-technical",
+].every((needle) => screeningAgents.includes(needle) || evidenceSkill.includes(needle) || scoringSkill.includes(needle) || reportSkill.includes(needle)) && [
+  "可展示文本必须面向没有技术背景的中文业务用户",
+  "evidence.finding 必须是员工可直接判断的中文事实摘要",
+  "confidence 通常应为 0.95-1.0",
+  "coverage_gaps 不得再列同一 block",
+  "小型私营",
+  "not_applicable 或 optional limitation",
+  "不要在可展示文本里出现 API、JSON、payload、endpoint、provider、field_mask、RDAP、DNS、MX、SPF、DMARC",
+].every((needle) => employeeTaskRunner.includes(needle)));
+check("screening agent requires legal-dispute scoring and source provenance", [
+  "legal-dispute-check",
+  "legal disputes/cases/insolvency/enforcement",
+  "confirmed_material_dispute",
+].every((needle) => screeningAgents.includes(needle) || screeningTools.includes(needle) || legalDisputeSkill.includes(needle) || reportSkill.includes(needle) || scoringSkill.includes(needle)) && [
+  "legal_disputes 为独立评分板块",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "public_legal_database",
+  "block 必须且只能覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、legal_disputes",
+].every((needle) => employeeTaskRunner.includes(needle)));
+check("screening agent removes conversation and memory behavior scoring", ![
+  "conversation_behavior",
+  "accio_behavior",
+  "Accio",
+  "聊天记录",
+  "销售对话",
+  "行为记录",
+  "behavior proof",
+  "behavior scoring",
+].some((needle) => screeningWorkspaceText.includes(needle)) && [
+  "block 必须且只能覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、legal_disputes",
+  "legal_identity 20、domain_email 20、public_footprint 15、business_fit 20、trade_financial 10、legal_disputes 15",
+].every((needle) => screeningPromptSource.includes(needle)) && ![
+  "conversation_behavior",
+  "accio_behavior",
+  "聊天记录",
+  "销售对话",
+  "行为记录",
+].some((needle) => screeningPromptSource.includes(needle)));
 check("screening Hard Rules forbid invented evidence and missing-data fraud claims", screeningAgents.includes("NEVER invent registry records") && screeningAgents.includes("NEVER treat missing paid/API evidence as proof of fraud"));
 check("screening Hard Rules allow small-local Maps first-block support without KYB overclaim", [
   "公司注册与线下门店/地址",
@@ -558,11 +701,11 @@ check("screening live API route exists", exists(SCREENING_API_ROUTE));
 check("screening page is a client component", screeningPage.startsWith('"use client";'));
 check("screening page does not bypass employee with direct API report fetch", !screeningPage.includes('fetch("/api/client-demos/cross-border/screening/run"') && screeningPage.includes("chatRef.current.sendMessage") && screeningPage.includes("buildEmployeePrompt"));
 check("screening UI has batch and manual intake tabs", screeningPage.includes("来自获客列表") && screeningPage.includes("手动背调"));
-for (const label of ["公司名称", "国家，如 GB", "网站 / Website", "域名 / Domain", "邮箱 / Email", "联系人", "职位", "社媒/公开资料 URL", "产品兴趣，逗号分隔", "操作员备注 / Accio 行为线索"]) {
+for (const label of ["公司名称", "国家，如 GB", "网站 / Website", "域名 / Domain", "邮箱 / Email", "联系人", "职位", "社媒/公开资料 URL", "产品兴趣，逗号分隔", "备注（可选）"]) {
   check(`manual screening field exists: ${label}`, screeningPage.includes(label));
 }
 check("screening UI exposes source/budget toggles", screeningPage.includes("Abstract/Hunter 邮箱验证") && screeningPage.includes("ImportYeti 付费贸易数据") && screeningPage.includes("单次预算上限 USD"));
-check("screening UI groups evidence timeline", ["法律注册", "域名/邮箱", "公开足迹", "贸易/海关", "财务/公开申报", "行为记录"].every((label) => screeningPage.includes(label)));
+check("screening UI groups evidence timeline", ["域名/邮箱", "公开足迹", "法律纠纷与案件", "贸易/海关", "财务/公开申报"].every((label) => screeningPage.includes(label)) && !screeningPage.includes("行为记录"));
 check("screening UI separates normalized score and coverage", screeningPage.includes("证据覆盖") && screeningPage.includes("normalized_score") && screeningPage.includes("evidence_coverage"));
 check("screening UI shows unavailable sources as gaps", screeningPage.includes("缺口 / 未启用证据") && screeningPage.includes("未启用/不可用"));
 check("screening UI triggers real cbe-buyer-screening AgentChat", screeningPage.includes('const SCREENING_AGENT_ID = "cbe-buyer-screening"') && screeningPage.includes("<AgentChat") && screeningPage.includes("agentId={SCREENING_AGENT_ID}") && screeningPage.includes("useAgent(SCREENING_AGENT_ID)") && screeningPage.includes("onMessage={handleEmployeeMessage}"));
@@ -733,7 +876,7 @@ check("employee lead prompt follows requested target count instead of 1-5 cap", 
   "前 N 个合规潜在客户即可",
   "web_fetch 被安全策略拦截",
 ].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("优先返回 1-5 个高质量候选") && !employeeTaskRunner.includes("target_count * 3") && !employeeTaskRunner.includes("max_results_per_query"));
-check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount)"));
+check("employee lead import caps over-returned rows to requested target count", employeeTaskRunner.includes("function normalizedTargetCount") && employeeTaskRunner.includes("rows.slice(0, limit)") && employeeTaskRunner.includes("leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount, input.productKeywords)"));
 check("employee runner emits measured wait progress without max-wait copy", ["estimateLeadTaskDurationMs", "estimateScreeningTaskDurationMs", "estimateEmployeeTaskTimeoutMs", "已轮询", "progressPercent"].every((needle) => employeeTaskRunner.includes(needle)) && !employeeTaskRunner.includes("预计剩余") && !employeeTaskRunner.includes("最长等待剩余"));
 check("employee lead task duration scales with requested target count", [
   "LEAD_PER_TARGET_DURATION_MS",
@@ -831,6 +974,27 @@ check("Next config rewrites production CBE routes to legacy implementation and r
 ].every((needle) => nextConfig.includes(needle)));
 check("AppShell employee account area uses role-scoped session login and logout instead of personal dropdown", appShell.includes("CBE_SESSION_API_PATH") && appShell.includes("role=operator") && appShell.includes("/api/auth/logout?role=") && appShell.includes("CBE_EMPLOYEE_LOGIN_PATH") && appShell.includes("EMPLOYEE_MESSAGE_CENTER_HREF"));
 check("AppShell manager account area matches employee name and logout controls", appShell.includes("logoutTo(CBE_ADMIN_LOGIN_PATH)") && appShell.includes("AdminNotificationBell") && appShell.includes("<ConnectionStatus />") && !appShell.includes("ChevronDown") && !appShell.includes("管理者系统</div>") && !appShell.includes('href="/admin/employees" />'));
+check("AppShell manager can change own password through role-scoped admin API", [
+  "修改密码",
+  "submitAdminPasswordChange",
+  "current_password",
+  "new_password",
+  "CBE_ADMIN_API_BASE}/profile/password",
+].every((needle) => appShell.includes(needle)) && [
+  "updateAdminOwnPassword",
+  "profile/password",
+].every((needle) => adminApi.includes(needle)) && [
+  'expectedRole: "admin"',
+  "AdminChangePasswordRequestSchema",
+  "updateAdminOwnPassword",
+].every((needle) => adminProfilePasswordApiRoute.includes(needle)) && [
+  "verifyCbePassword",
+  "admin_current_password_invalid",
+  "hashCbePassword(input.new_password)",
+].every((needle) => cbeAdminStore.includes(needle)) && [
+  "password_hash = coalesce(password_hash, $4)",
+  "&& !presetRow.password_hash",
+].every((needle) => authLoginApiRoute.includes(needle)) && cbeStoreSchemas.includes("AdminChangePasswordRequestSchema"));
 check("AppShell keeps only the side logo in the header", appShell.includes("sentura-logo-side.svg") && !appShell.includes("sentura-logo-icon.svg"));
 check("AppShell exposes personal center as the first employee nav item", appShell.indexOf('label: "个人中心"') > 0 && appShell.indexOf('label: "个人中心"') < appShell.indexOf('label: "获客与背调"'));
 check("AppShell logo is not the employee-home navigation entry", appShell.includes("aria-label={`Sentura ${shellTitle}`}") && appShell.includes("跨境电商员工操作系统") && appShell.includes("跨境电商管理者系统") && !appShell.includes('aria-label="回到个人中心"'));
@@ -886,6 +1050,28 @@ check("employee cost card syncs manager-updated quota from server budget", [
   'const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"]',
   "period = any($3::text[])",
 ].every((needle) => cbeAdminStore.includes(needle)) && employeeApi.includes('employeeApi("/cost-budget")'));
+check("employee and manager cost screens use one server-scoped actual-spend source", [
+  "fetchEmployeeCostEvents",
+  "employeeApi(\"/cost-events\")",
+  "requestEmployeeCostAllowance",
+  "employeeApi(\"/cost-allowance-requests\")",
+].every((needle) => employeeApi.includes(needle)) && [
+  "fetchEmployeeCostEvents",
+  "requestEmployeeCostAllowance",
+  "预计费用不计入已用",
+  "申请额度",
+].every((needle) => employeeCost.includes(needle)) && !employeeCost.includes("client.getCostEvents") && !employeeCost.includes("fetchEmployeeTasks") && [
+  "getEmployeeCostEvents",
+  "resolveCbeTenantContext",
+].every((needle) => employeeCostEventsApi.includes(needle)) && [
+  "EmployeeCostAllowanceRequestSchema",
+  "createEmployeeCostAllowanceRequest",
+].every((needle) => employeeCostAllowanceApi.includes(needle)) && [
+  "event.pricingStatus === \"estimated\"",
+  "acc.spendUsd += amount",
+  "const spendUsd = summary.spendUsd",
+  "createEmployeeCostAllowanceRequest",
+].every((needle) => cbeAdminStore.includes(needle)) && adminCostsPage.includes("approvalReason(approval)") && adminCostsPage.includes("员工主动申请"));
 check("admin employee management supports soft deletion", [
   "deleteAdminOperator",
   "deleteTarget",
@@ -942,17 +1128,90 @@ check("employee memory page has no handoff action to customer board", !["sendToS
 check("employee memory projection suppresses duplicate import rows after analysis", ["existing_summary", "duplicate_summary", "summary_conversation.accio_import_id = ai.id", "coalesce(ar.status, 'queued') in ('running', 'polling')", "recordId: record.summaryId ?? record.importId", "agentRunStatus: row.agent_run_status"].every((needle) => cbeAccioStore.includes(needle) || employeeApi.includes(needle)));
 check("employee customer projection excludes Accio memory rows", !["'accio_summary'::text as record_type", "'accio_handoff'::text as lead_status", "record.recordType === \"accio_summary\""].some((needle) => cbeCustomersStore.includes(needle) || employeeApi.includes(needle)));
 check("employee customer projection does not merge Accio screening handoffs", !["report_json->'target'->>'lead_id' = asum.id", "coalesce(accio_sr.risk_tier, 'not_started')"].some((needle) => cbeCustomersStore.includes(needle)));
-check("employee customer projection keeps legacy accio-memory screening targets hidden", ["and coalesce((", "st.source = 'accio_memory'", "), false)"].every((needle) => cbeCustomersStore.includes(needle)));
+check("employee customer projection has no Accio-derived Screening source branch", !["st.source = 'accio_memory'", "target_source' = 'accio_memory'", "source <> 'accio_memory'"].some((needle) => cbeCustomersStore.includes(needle) || screeningStore.includes(needle)));
 check("employee customer company-name badge hides insufficient evidence", employeeCustomersPage.includes('if (item.screeningStatus === "insufficient_evidence")') && !employeeCustomersPage.includes('return { label: "证据不足"'));
 check("employee customers page does not route insufficient evidence back to memory", !["needsChatRecordSupplement", 'item.source === "accio_handoff"', "补充聊天记录", "supplementCustomer", "supplementCompany", "selectedScreeningCustomers", "runnableTargets"].some((needle) => employeeCustomersPage.includes(needle)));
+check("screening reports and exports have no conversation behavior compatibility branch", ![
+  "legacyConversationScoreBlock",
+  "legacyAccioEvidenceLayer",
+  "isScreeningConversationArtifact",
+].some((needle) => employeeApi.includes(needle) || adminCustomerListTable.includes(needle)) && ![
+  "conversation_behavior",
+  "accio_behavior",
+  "行为记录",
+].some((needle) => customerReportDialog.includes(needle) || documentExport.includes(needle) || screeningReportCopy.includes(needle) || employeeData.includes(needle) || screeningPage.includes(needle) || screeningApiRoute.includes(needle)));
 check("employee customer list does not show unknown city fallback", !employeeCustomersPage.includes("城市未确认"));
 check("employee lead target count is manual numeric input capped at 10", ["normalizeLeadTargetCount", "MAX_LEAD_TARGET_COUNT", "目标数量手动输入", "type=\"number\"", "min={1}", "max={MAX_LEAD_TARGET_COUNT}", "leadTargetCountText"].every((needle) => employeeCustomersPage.includes(needle)) && employeeData.includes("export const MAX_LEAD_TARGET_COUNT = 10") && employeeTaskRunner.includes("MAX_LEAD_TARGET_COUNT") && employeeApi.includes("Math.min(MAX_LEAD_TARGET_COUNT") && cbeStoreSchemas.includes("target_count: z.number().int().positive().max(10)") && !employeeCustomersPage.includes("[20, 50, 100, 150].map"));
+check("employee lead find-more-than-five runs use internal batching with overflow retry", [
+  "LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT = 5",
+  "function leadInternalBatchSizes",
+  "shouldInternallyBatchLeadTask",
+  "runLeadInternalBatchGroup",
+  "Promise.allSettled",
+  "isLeadContextOverflowError",
+  "上下文过大，正在拆成更小分批重试",
+  "internal_batch",
+  "internal_session_keys",
+  "internal_batching",
+].every((needle) => employeeTaskRunner.includes(needle)) && [
+  "internal_session_keys: asStringArray(raw.internal_session_keys)",
+  "internal_batching: asRecord(raw.internal_batching)",
+].every((needle) => employeeApi.includes(needle)) && [
+  "internal_session_keys: z.array(z.string().min(1)).max(20).optional()",
+  "internal_batching: JsonRecordSchema.optional()",
+].every((needle) => cbeStoreSchemas.includes(needle)) && [
+  "function runScopeSessionKeys",
+  "metadata.internal_session_keys",
+].every((needle) => cbeAdminStore.includes(needle)) && [
+  "internal_session_keys: input.payload.internal_session_keys ?? []",
+  "internal_batching: input.payload.internal_batching ?? null",
+].every((needle) => leadRunsStore.includes(needle)));
 check("employee lead UI removed single-group search limit", !employeeCustomersPage.includes("单组搜索上限") && !employeeCustomersPage.includes("maxResultsPerQuery") && !employeeCustomersPage.includes("max_results_per_query"));
-check("employee lead submit reads target count from current input ref", ["leadTargetInputRef", "buildLeadSubmitInput", "leadTargetInputRef.current?.value", "leadInputFromSelection(submittedSelection)", "targetCount: submittedTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("onClick={() => onLeadSubmit(leadTaskInput)}"));
+check("admin manages tenant lead filter settings", ["获客设置", "CBE_ADMIN_LEAD_SETTINGS_PATH"].every((needle) => appShell.includes(needle) || cbeRoutes.includes(needle)) && ["产品关键词", "买家类型", "国家", "保存配置", "fetchAdminLeadFilterSettings", "updateAdminLeadFilterSettings"].every((needle) => adminLeadSettingsPage.includes(needle)) && ["cbe_lead_filter_settings", "updateLeadFilterSettings", "getLeadFilterSettings"].every((needle) => leadSettingsStore.includes(needle)) && ["LeadFilterSettingsInputSchema", "LEAD_FILTER_PRODUCT_LIMIT"].every((needle) => cbeStoreSchemas.includes(needle)) && ["expectedRole: \"admin\"", "PATCH"].every((needle) => adminLeadSettingsApiRoute.includes(needle)));
+check("admin lead settings only asks for Chinese business terms", adminLeadSettingsPage.includes("只需要输入中文业务词") && adminLeadSettingsPage.includes("keyword: label") && leadSettingsStore.includes("canonicalizeLeadFilterSettingsInput") && leadSettingsStore.includes("keyword: item.label") && !['placeholder="搜索关键词"', 'placeholder="ISO"', 'placeholder="语言"', 'placeholder="说明"'].some((needle) => adminLeadSettingsPage.includes(needle)));
+check("employee lead options come from admin settings", ["fetchEmployeeLeadFilterSettings", "leadFilterSettings.products", "leadFilterSettings.buyerTypes", "leadFilterSettings.countries", "sanitizeLeadSelectionForSettings", "productKeywords: products.map((item) => item.label)", "countries: countries.map((item) => item.label)", "buyerTypes: buyerTypes.map((item) => item.label)"].every((needle) => employeeCustomersPage.includes(needle)) && ["getLeadFilterSettings", "expectedRole: \"operator\""].every((needle) => employeeLeadSettingsApiRoute.includes(needle)) && ["DEFAULT_LEAD_FILTER_SETTINGS", "DEFAULT_LEAD_PRODUCT_OPTIONS"].every((needle) => leadSettings.includes(needle)));
+check("lead invalid-source domain option removed end to end", !["排除无效来源", "排除域名", "excludeDomainIds", "excludeDomains", "exclude_domains"].some((needle) => employeeCustomersPage.includes(needle) || employeeApi.includes(needle) || employeeTaskRunner.includes(needle) || leadRunsStore.includes(needle) || config.includes(needle)));
+check("employee lead product chips show searched keywords only", ["productKeywords: runInput.productKeywords", "searchedProducts.length ? searchedProducts", "lead_query_config_json", "query_config_json as lead_query_config_json", "isPlaceholderProduct"].every((needle) => employeeCustomersPage.includes(needle) || employeeApi.includes(needle) || employeeTaskRunner.includes(needle) || cbeCustomersStore.includes(needle) || adminCustomerListTable.includes(needle)));
+check("employee and admin customer countries show admin-managed Chinese labels", ["countryNameForRow", "lead_settings_countries_json", "countries_json as lead_settings_countries_json", "leadQueryCountries", "DEFAULT_LEAD_COUNTRY_OPTIONS"].every((needle) => cbeCustomersStore.includes(needle) || employeeApi.includes(needle) || adminApi.includes(needle)) && employeeApi.includes("asString(record.countryName) ?? countryName(record.country)") && adminCustomerListTable.includes("row.countryName?.trim() || countryLabels[country] || country"));
+check("employee lead submit reads target count from current input ref", ["leadTargetInputRef", "buildLeadSubmitInput", "leadTargetInputRef.current?.value", "leadInputFromSelection(submittedSelection, leadFilterSettings)", "targetCount: submittedTargetCount"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("onClick={() => onLeadSubmit(leadTaskInput)}"));
 check("employee lead sheet echoes submitted target count", ["目标 {effectiveLeadTargetCount} 个客户", "提交获客任务（{effectiveLeadTargetCount} 个）"].every((needle) => employeeCustomersPage.includes(needle)));
 check("employee customer list highlights task-linked rows without new-found badges", ["newlyAddedCustomerIds", "flashNewCustomers", "highlightTaskId", "taskAffectedCustomerIds", "animate-pulse", "outline-sky-300", "workflowBadge", "icon: \"check\"", "clearCustomerHighlight", "onMouseDown"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes("新找到") && !employeeCustomersPage.includes("label: \"✅\""));
 check("employee screening completion does not hide unselected customers", ["taskAffectedCustomerIds", "targetNames", "customerHighlightStatus === \"screened\"", "? \"all\"", "setStatusFilter(nextStatusFilter)"].every((needle) => employeeCustomersPage.includes(needle)) && employeeNotificationTargets.includes('task.kind === "screening" && task.status === "failed"') && !employeeNotificationTargets.includes('task.status === "failed" ? "failed" : "screened"'));
 check("employee customer product overflow expands in place", ["CustomerProductBadges", "expandedProductRows", "toggleProductsExpanded", "aria-expanded={expanded}", "`+${hiddenCount}`", "收起"].every((needle) => employeeCustomersPage.includes(needle)));
+check("employee customer list exports filtered PDF and DOCX with data columns and filter summary", [
+  "exportCustomerListDocument",
+  "buildCustomerListDocument",
+  'columns: ["公司名称", "国家", "类型", "产品", "网站", "时间", "评分"]',
+  "导出筛选条件",
+  "筛选条件：${filterText}",
+  "不包含网页选择框和操作列",
+  "customerListScoreLabel",
+].every((needle) => documentExport.includes(needle)) && !documentExport.includes('columns: ["公司名称", "国家", "类型", "产品", "网站", "时间", "评分", "操作"]') && [
+  "exportCustomerListDocument",
+  "exportFilterLabels",
+  "customers: filtered",
+  "totalBeforeFilter: rows.length",
+  'exportCustomerList("docx")',
+  'exportCustomerList("pdf")',
+  "导出 DOCX",
+  "导出 PDF",
+].every((needle) => employeeCustomersPage.includes(needle)));
+check("paginated CBE lists use browser scroll instead of inner vertical scroll", animatedList.includes("scrollable?: boolean") && animatedList.includes("scrollable ? \"overflow-y-auto\" : \"overflow-visible\"") && uiTable.includes("overflow-x-auto overflow-y-hidden") && [
+  employeeHomePage,
+  employeeCustomersPage,
+  employeeMemoryPage,
+  memoryChatCustomerList,
+].every((text) => text.includes("scrollable={false}")) && [
+  employeeCustomersPage,
+  employeeMemoryPage,
+  memoryChatCustomerList,
+  adminCustomerListTable,
+].every((text) => text.includes("overflow-x-auto overflow-y-hidden")) && adminEmployeesPage.includes("max-h-[calc(100dvh-2rem)]") && adminEmployeesPage.includes("overflow-y-auto overscroll-contain") && !adminEmployeesPage.includes("ScrollArea") && !adminEmployeesPage.includes("grid-rows-[auto_minmax(0,1fr)] overflow-hidden") && !adminMemoryPage.includes("min-h-0 overflow-y-auto p-4 sm:p-5"));
+check("paginated CBE filter changes reset pagination to first page", brandUi.includes("resetKey") && brandUi.includes("resetPending ? 1 : pageState.page") && brandUi.includes("setPageState({ page: 1, resetKey })") && [
+  employeeCustomersPage,
+  adminCustomerListTable,
+  memoryChatCustomerList,
+].every((text) => text.includes("PaginationResetKey") && text.includes("resetKey:")) && employeeMemoryPage.includes("memoryPaginationResetKey") && employeeMemoryPage.includes("chatCustomerPaginationResetKey") && employeeMemoryPage.includes("resetKey: memoryPaginationResetKey") && employeeMemoryPage.includes("resetKey: chatCustomerPaginationResetKey"));
 check("employee customer list uses time header with acquisition and screening lines", ["CustomerTimeStack", ">获客</span>", ">背调</span>", "customerScreeningTimeLabel", "formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts"].every((needle) => employeeCustomersPage.includes(needle)) && !employeeCustomersPage.includes(["找到", "时间"].join("")) && !employeeCustomersPage.includes(["获客", "时间"].join("")) && !employeeCustomersPage.includes(["背调", "时间"].join("")));
 check("admin customer list uses the same time display logic", ["CustomerTimeStack", ">获客</span>", ">背调</span>", "customerScreeningTimeLabel", "formatBeijingDateTime", "parseCustomerDate", "Asia/Shanghai", "formatToParts", "时间新到旧", "时间旧到新"].every((needle) => adminCustomerListTable.includes(needle)) && !adminCustomerListTable.includes(["找到", "时间"].join("")) && !adminCustomerListTable.includes(["获客", "时间"].join("")) && !adminCustomerListTable.includes(["背调", "时间"].join("")));
 check("employee task dismissal is preserved across task refreshes", ["dismissedTaskIds", "mergeTasksWithLocalDismissals", "rememberDismissedTask"].every((needle) => cbeEmployeeStore.includes(needle)) && employeeTaskStatus.includes("dismissEmployeeTaskInDb") && employeeApi.includes("/tasks/${encodeURIComponent(id)}/dismiss"));
@@ -1003,18 +1262,20 @@ check("employee cost mini opens scoped model and external tool cost details", [
   "hover:scale-[1.03]",
   "工具成本",
   "CostDetailDialog",
-  "fetchEmployeeTasks",
+  "fetchEmployeeCostEvents",
   "outsideScopeCount",
-  "只统计已关联到当前跨境电商客户库任务的处理编号",
+  "后端统一归属到当前员工的费用记录",
 ].every((needle) => employeeCost.includes(needle)) && [
   "成本明细",
   "今日",
   "本周",
   "本月",
   "全部",
+  "本月额度",
+  "预计 ",
   "智能处理和外部资料查询费用",
-  "costPricingLabels",
-  "外部回填",
+  "pricingStatus !== \"estimated\"",
+  "formatUsd(costBudget.limitUsd)",
 ].every((needle) => costDetailDialog.includes(needle)));
 check("cross-border SEC lookup returns compact submission summaries", ["secRecentFilingsSummary", "recent_filings: recentFilings", "submissions_summary", "forms.slice(0, 8)"].every((needle) => crossBorderIntelTools.includes(needle)) && !crossBorderIntelTools.includes("submissions: body"));
 

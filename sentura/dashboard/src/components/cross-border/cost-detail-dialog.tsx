@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Download, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,15 @@ export interface CostDetailExportSnapshot {
   sourceBreakdown: CostSourceBreakdownItem[];
 }
 
+export interface CostDetailBudget {
+  period: "month";
+  baseLimitUsd: number;
+  activeAllowanceUsd: number;
+  limitUsd: number;
+  limitEnabled: boolean;
+  remainingUsd: number | null;
+}
+
 interface CostDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -61,6 +70,8 @@ interface CostDetailDialogProps {
   outsideScopeCount?: number;
   dataSourceNote?: string;
   exportDisabled?: boolean;
+  costBudget?: CostDetailBudget;
+  actions?: ReactNode;
   onRefresh?: () => void | Promise<void>;
   onExport?: (format: ExportFormat, snapshot: CostDetailExportSnapshot) => void;
 }
@@ -116,7 +127,7 @@ export function summarizeCostEvents(events: CostEvent[]): CostDetailSummary {
       acc.totalCalls += 1;
       acc.totalTokens += event.usage.totalTokens;
       if (event.costUsd === null) acc.unpricedCalls += 1;
-      else acc.spendUsd += event.costUsd;
+      else if (event.pricingStatus !== "estimated") acc.spendUsd += event.costUsd;
       return acc;
     },
     { spendUsd: 0, totalTokens: 0, totalCalls: 0, unpricedCalls: 0 },
@@ -128,13 +139,18 @@ function costEventKind(event: CostEvent) {
   return event.kind ?? "model";
 }
 
+function actualCostUsd(event: CostEvent) {
+  if (event.costUsd === null || event.pricingStatus === "estimated") return 0;
+  return event.costUsd;
+}
+
 export function buildCostBreakdown(events: CostEvent[]): CostSourceBreakdownItem[] {
   const modelSpend = events
     .filter((event) => costEventKind(event) === "model")
-    .reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
+    .reduce((sum, event) => sum + actualCostUsd(event), 0);
   const externalSpend = events
     .filter((event) => costEventKind(event) === "external_api")
-    .reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
+    .reduce((sum, event) => sum + actualCostUsd(event), 0);
   const freeExternalCalls = events.filter((event) =>
     costEventKind(event) !== "model" &&
     (event.pricingStatus === "free" || event.pricingStatus === "included") &&
@@ -215,6 +231,7 @@ function costUsageLabel(event: CostEvent) {
 }
 
 function costAmountLabel(event: CostEvent) {
+  if (event.pricingStatus === "estimated" && event.costUsd !== null) return `预计 ${formatUsd(event.costUsd)}`;
   if (event.costUsd !== null) return formatUsd(event.costUsd);
   return "未折算";
 }
@@ -223,7 +240,7 @@ export function CostDetailDialog({
   open,
   onOpenChange,
   title = "成本明细",
-  description = "逐条展示已记录的智能处理和外部资料查询费用；已折算美元的计入已用，暂未折算的项目会单独汇总。",
+  description = "逐条展示已记录的智能处理和外部资料查询费用；已发生的实际费用计入已用，预计和暂未折算的项目单独展示。",
   events,
   range,
   onRangeChange,
@@ -234,6 +251,8 @@ export function CostDetailDialog({
   outsideScopeCount = 0,
   dataSourceNote,
   exportDisabled = false,
+  costBudget,
+  actions,
   onRefresh,
   onExport,
 }: CostDetailDialogProps) {
@@ -299,6 +318,7 @@ export function CostDetailDialog({
                 </Button>
               </>
             ) : null}
+            {actions}
           </div>
           {dataSourceNote ? <p className="mt-2 text-xs text-muted-foreground">{dataSourceNote}</p> : null}
           {technicalDescription ? (
@@ -309,18 +329,35 @@ export function CostDetailDialog({
           ) : null}
         </DialogHeader>
 
-        <div className="relative z-10 grid shrink-0 grid-cols-3 gap-2 bg-popover/95">
+        <div className={cn(
+          "relative z-10 grid shrink-0 gap-2 bg-popover/95",
+          costBudget ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3",
+        )}>
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-xs text-muted-foreground">{rangeLabel}已用</div>
             <div className="mt-1 font-mono text-lg font-semibold">{formatUsd(summary.spendUsd)}</div>
           </div>
+          {costBudget ? (
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">本月额度</div>
+              <div className="mt-1 font-mono text-lg font-semibold">
+                {costBudget.limitEnabled ? formatUsd(costBudget.limitUsd) : "不限额"}
+              </div>
+            </div>
+          ) : null}
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="text-xs text-muted-foreground">调用次数</div>
             <div className="mt-1 font-mono text-lg font-semibold">{summary.totalCalls}</div>
           </div>
           <div className="rounded-md border bg-muted/20 p-3">
-            <div className="text-xs text-muted-foreground">智能处理用量</div>
-            <div className="mt-1 font-mono text-lg font-semibold">{formatCompact(summary.totalTokens)}</div>
+            <div className="text-xs text-muted-foreground">{costBudget ? "剩余额度" : "智能处理用量"}</div>
+            <div className="mt-1 font-mono text-lg font-semibold">
+              {costBudget
+                ? costBudget.limitEnabled
+                  ? formatUsd(costBudget.remainingUsd ?? Math.max(0, costBudget.limitUsd - summary.spendUsd))
+                  : "不限额"
+                : formatCompact(summary.totalTokens)}
+            </div>
           </div>
         </div>
 

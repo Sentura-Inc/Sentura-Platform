@@ -29,6 +29,7 @@ Implementation status as of 2026-06-23:
   - `evidence-collection/SKILL.md`
   - `registry-verification/SKILL.md`
   - `domain-email-verification/SKILL.md`
+  - `legal-dispute-check/SKILL.md`
   - `trade-record-check/SKILL.md`
   - `buyer-scoring/SKILL.md`
   - `report-writing/SKILL.md`
@@ -44,6 +45,7 @@ Implementation status as of 2026-06-23:
 - Phase 2 typed persistence stores Screening targets, reports, evidence, score blocks, and dedicated Google Maps address locations through the CBE store/API boundary.
 - Google Maps address-footprint reporting is implemented across the hidden Employee prompt, Screening workspace skills, marker/store schemas, dedicated `screening_address_locations` table, and shared Dashboard report UI.
 - Scale-aware first-block scoring is implemented across the hidden Employee prompt, Screening workspace skills, MCP scoring schema/result shape, Dashboard normalization, shared report UI, and regression scripts. The first score block is displayed as `公司注册与线下门店/地址` while retaining `legal_identity` as the JSON block id.
+- Legal-dispute/case/insolvency/regulatory-enforcement checking is now a dedicated evidence layer and scoring block (`legal_disputes`, 15 points) instead of being mixed into generic public footprint.
 
 Live provider status from the 2026-06-08 audit:
 
@@ -107,7 +109,7 @@ Rules:
 - Batch and manual inputs must normalize into the same `InvestigationTarget` shape.
 - Missing fields are allowed.
 - The report must state whether each key field was supplied by the operator, inferred from search, or unavailable.
-- Accio Memory handoff targets are treated as manual/contextual targets when they are not already Marketing leads.
+- Screening targets come only from Marketing leads or direct manual input. `记忆整理` / Accio records are not Screening target sources.
 
 ## 3. UI Design
 
@@ -142,6 +144,7 @@ Primary layout:
   - domain/email
   - Google Maps 地址版图
   - website/social footprint
+  - legal disputes / court cases / insolvency / enforcement
   - trade/customs
   - financial/public filing
   - behavior
@@ -156,10 +159,12 @@ Primary layout:
 Display rules:
 
 - Every evidence card shows source type, confidence, cost, and whether it affects score or only coverage.
+- Every evidence card must show concrete facts from the source, not only the agent's final judgment. For example, a registry card should show legal name, company number, status, registered office/jurisdiction, and match rationale when those fields are available.
+- Official registry/API/page evidence is primary evidence. A matching Companies House, SEC, state registry, or equivalent official registry source should normally be `official_api` or `official_registry_page` with confidence 0.95-1.0.
 - Missing API evidence is shown as `未启用/不可用`, not as a fraud signal.
 - Final score already includes evidence coverage, e.g. `79.33/100 · 中等 · 证据覆盖 90%`.
 - If coverage is low but at least one scored block exists, show the lower final score and explain which evidence would raise it; use `证据不足` only when no normal score can be computed.
-- If behavior is not applicable, display `行为记录：未适用（冷启动潜客）` rather than `0/15`.
+- The missing-evidence panel only shows unresolved human-actionable gaps. It must not repeat blocks that are already `scored` or `not_applicable`, unless a concrete contradiction or risk exists.
 
 ## 4. Low-Cost Evidence Ladder
 
@@ -170,14 +175,20 @@ The employee must use the following ladder in order:
 3. Website/domain/email credibility.
 4. Google Maps address footprint and broader public local presence.
 5. Public digital footprint.
-6. Trade behavior / customs evidence.
-7. Financial/public filing evidence where applicable.
-8. Conversation behavior signals only if Accio history or sales interaction exists.
+6. Legal disputes, court cases, insolvency/bankruptcy, and regulatory enforcement.
+7. Trade behavior / customs evidence.
+8. Financial/public filing evidence where applicable.
+9. Conversation behavior signals only if Accio history or sales interaction exists.
 
 Evidence source tags:
 
 - `official_api`
 - `official_registry_page`
+- `official_court_search`
+- `official_case_law`
+- `official_insolvency_notice`
+- `regulatory_enforcement`
+- `public_legal_database`
 - `public_web`
 - `google_maps_places`
 - `google_maps_address_validation`
@@ -219,7 +230,7 @@ These country routes are the operational instructions for the Screening employee
 
 | Country | Best first evidence | When to escalate | Agent report wording |
 |---|---|---|---|
-| GB | Companies House API/profile; if the key fails, official public Companies House page. | Escalate to OpenCorporates only if Companies House is unavailable and the user approved paid fallback. | `official_api` for Companies House API; `official_registry_page` for public Companies House HTML; missing key is `unavailable_api`. |
+| GB | Companies House API/profile; if the key fails, official public Companies House page. | Escalate to OpenCorporates only if Companies House is unavailable and the user approved paid fallback. | `official_api` for Companies House API; `official_registry_page` for public Companies House HTML; matched Companies House evidence is confidence 0.95-1.0; missing key is `unavailable_api`. |
 | US | SEC only for public-company/filer checks; state registry/official website/public footprint for private importers; ImportYeti/Volza only after paid trade approval. | Escalate to paid trade data when the buyer claims importer/distributor scale or when trade evidence materially improves confidence. | SEC `not_found` for private companies is `not_applicable`; missing import data is coverage gap. |
 | FR | Search API Recherche d'Entreprises for SIREN/SIRET and basic identity after adapter exists; otherwise official French registry/search result URLs. | Use API Entreprise only after customer habilitation and legal-use approval. | If only public search evidence exists, say "官方公开检索/页面证据", not API-backed verification. |
 | JP | Corporate Number Publication Site/Web-API for corporate number/name/address; public website/domain checks for business fit. | Ask operator for corporate number when name matching is ambiguous; legal registry extracts remain human/manual. | Corporate Number confirms basic identity only; it is not a trade-credit or financial-risk score. |
@@ -237,9 +248,69 @@ Implementation backlog:
 - Every new country adapter must return provider status, source URL, fetched timestamp, rate-limit metadata when available, and a confidence value that the scoring tool can consume.
 - Unsupported country or denied provider access must be `unavailable_api` / `pending_human_input`, never fraud evidence.
 
+### 5.1.1 Decision-ready Evidence And Gap Rules
+
+Screening reports must reduce human review work. The Agent should not output source cards that only say "已核验" or "仍需确认"; each card must include the facts a human would otherwise open the source to inspect. Those facts must be written in natural Simplified Chinese for non-technical sales users. Keep only company names, source names, URLs/domains, emails, registry numbers, case numbers, and unavoidable legal/product terms in their original language.
+
+Required evidence detail examples:
+
+- Registry: explain in Chinese which official register was checked, the company name, registration number, status, address/registration place, date fields when available, and whether they match the target.
+- Domain/email: explain in Chinese which website/email domain was checked, whether the domain registration looks normal, whether the mailbox can receive mail, whether anti-spoofing records exist, and whether the domain matches the company.
+- Official website/contact: explain in Chinese which page was checked, company/address/contact/product facts found, and why the website appears company-owned.
+- Google Maps: explain in Chinese whether the public listing is operating, its public name, address, category, website/phone match, and whether the address is confirmed/probable/possible/rejected for the target.
+- Legal disputes/cases: explain in Chinese the searched country/source, search keywords, court/regulator/notice source, case or notice number when public, company-match basis, date/status/result/type, and whether the result is material risk, possible name collision, no-hit, or low coverage.
+- Trade/financial: explain in Chinese whether the source is not applicable, unavailable, no-hit, or shows concrete shipment/filing facts such as product, counterparty, and date.
+
+Do not expose machine/tool/schema wording such as API, JSON, payload, endpoint, provider, field_mask, RDAP, DNS, MX, SPF, DMARC, business_status, relationship_status, source_type, query, or score_block in report-facing text.
+
+Gap reconciliation rules:
+
+- `coverage_gaps` are not a dump of every unavailable source. They are only unresolved work that a human can act on.
+- A `scored` score block must not also appear as a gap unless the gap names a concrete contradiction, mismatch, or risk.
+- A `not_applicable` score block must not appear as a gap.
+- For small private/local companies, missing trade/customs, SEC, or public financial filings are normally `not_applicable` or an optional limitation unless the target claims importer/distributor/listed-company scale.
+- Each gap should include `block`, `status`, `reason`, `action`, and `severity` (`blocking`, `recommended`, or `optional`).
+
+### 5.1.2 Legal Dispute / Court Case / Insolvency Checks
+
+This block answers a seller-risk question: whether public sources show material lawsuits, court cases, insolvency/bankruptcy, regulatory enforcement, unpaid-debt enforcement, IP/counterfeit disputes, or similar legal risk that should change sales priority or payment/shipping terms.
+
+Country-aware route matrix:
+
+| Country / region | Primary low-cost sources | Support sources | Reporting rule |
+|---|---|---|---|
+| GB | The National Archives Find Case Law; The Gazette insolvency notices; Companies House filings/insolvency state. | BAILII as public legal database; public web search with `lawsuit`, `court`, `insolvency`, `administration`. | Official exact match can be high confidence. No-hit is only "not found in checked public sources". |
+| US | PACER for official federal dockets when authorized; SEC litigation/enforcement releases for public/regulated companies; bankruptcy/federal/state court portals where known. | CourtListener/RECAP for public docket copies; web search with `lawsuit`, `litigation`, `bankruptcy`, `enforcement`. | CourtListener/RECAP is useful support but not the official docket of record. State coverage varies. |
+| FR | Cour de cassation Judilibre/case-law access; BODACC legal/insolvency notices. | Pappers Justice as public aggregation only; web search in French. | Aggregators need source-link or corroboration before negative scoring. |
+| DE | Insolvenzbekanntmachungen official insolvency notices; Rechtsprechung im Internet and court portals; Unternehmensregister/Bundesanzeiger where applicable. | Public web search in German. | Insolvency official exact match is material risk; ordinary no-hit does not prove no litigation. |
+| ES | CENDOJ / Poder Judicial case-law search; Registro Publico Concursal / BOE insolvency notice route. | Public web search in Spanish. | Preserve court/source/date/party fields; coverage differs for pending vs published cases. |
+| IT | Ministero della Giustizia / Portale Servizi Telematici public services; Registro Imprese / procedure concorsuali where accessible. | Public web search in Italian. | Many useful records may be portal-limited or paid; mark low coverage when access is blocked. |
+| BR | CNJ DataJud public API and state/federal tribunal `consulta processual` where party-name search is supported. | Jusbrasil as public aggregation only; terms `recuperacao judicial`, `falencia`, `processo`, `acao`, `execucao`. | Use CNPJ/legal name when available; party-name coverage varies by tribunal. |
+| MX | IFECOM/concurso mercantil route; federal/state Poder Judicial portals, boletines/listas de acuerdos where available. | Web search terms `demanda`, `juicio`, `expediente`, `amparo`, `concurso mercantil`. | Coverage is fragmented by state; unresolved low coverage is a gap, not a negative finding. |
+| JP | Courts in Japan judgment search and official court pages. | Web search terms `訴訟`, `裁判`, `破産`, `倒産`, `民事再生`. | Public party-name coverage is limited; do not overstate no-hit results. |
+| KR | Korean court public access where available; DART material litigation/disclosure for listed companies; insolvency/rehabilitation notices where public. | Web search terms `소송`, `판결`, `회생`, `파산`. | DART is meaningful for listed/disclosing companies; private-company litigation coverage is limited. |
+| Other countries | Search official judiciary/court, insolvency, bankruptcy, business-register notice, and regulator sites first. | Public legal databases and web search in local language. | If no reliable party-name search exists, mark `not_checked_or_low_coverage` and ask for legal name/registry id/jurisdiction. |
+
+Evidence and scoring contract:
+
+- Evidence layer: `legal_disputes`.
+- Source types: `official_court_search`, `official_case_law`, `official_insolvency_notice`, `regulatory_enforcement`, `public_legal_database`, or `public_web`.
+- Evidence finding must explain in Chinese the searched country/source, search keywords, target-match basis, court/tribunal/regulator/notice, case/notice number when public, date/status/outcome/proceeding type, and materiality.
+- Confidence:
+  - official docket/judgment/insolvency/regulatory page exact match: 0.9-1.0;
+  - official no-hit with clear query/jurisdiction and reasonable coverage: 0.65-0.8 as coverage support only;
+  - public legal database exact party/source linkage: 0.6-0.8;
+  - generic snippets, media, forum complaints, or name-collision results: 0.35-0.6.
+- Scoring:
+  - 13-15: searched applicable public sources and found no material target-specific dispute;
+  - 9-12: limited coverage, old/minor/irrelevant disputes, or unresolved name-collision risk;
+  - 4-8: probable legal dispute or repeated public complaints needing human review;
+  - 0-3: confirmed recent/material lawsuit, insolvency, bankruptcy, regulatory enforcement, fraud judgment, unpaid-debt enforcement, IP/counterfeit dispute, sanctions/compliance action, or similar seller-risk event.
+- Never write "no legal cases exist" unless a jurisdiction's official source actually provides a complete statement. Use "本次公开来源未发现..." and keep the search scope.
+
 ### 5.2 Company Scale Assessment And First Score Block
 
-The first score block is now the 25% `公司注册与线下门店/地址` block. Its storage id can remain `legal_identity` for backward compatibility, but the report label and scoring explanation must make clear that the block measures practical company existence/authenticity, not only formal registry lookup.
+The first score block is now the 20-point `公司注册与线下门店/地址` block. Its storage id can remain `legal_identity` for backward compatibility, but the report label and scoring explanation must make clear that the block measures practical company existence/authenticity, not only formal registry lookup.
 
 Why this change exists:
 
@@ -315,14 +386,14 @@ Do not:
 
 ## 7.1 Google Maps / Places Checks
 
-Google Maps Places is useful for Screening when the target is a storefront, repair chain, electronics retailer, phone shop, local wholesaler, or distributor with public local presence. It is not a formal company registry, trade database, credit bureau, or proof of legal ownership. However, for small local/offline businesses, a high-confidence `OPERATIONAL` Google Maps Place with a physical address can satisfy the 25% company-registration/authenticity score block as practical offline-existence evidence.
+Google Maps Places is useful for Screening when the target is a storefront, repair chain, electronics retailer, phone shop, local wholesaler, or distributor with public local presence. It is not a formal company registry, trade database, credit bureau, proof of legal ownership, or proof of no litigation. However, for small local/offline businesses, a high-confidence `OPERATIONAL` Google Maps Place with a physical address can satisfy the 20-point company-registration/authenticity score block as practical offline-existence evidence.
 
 Target design after Google Maps integration:
 
 | Screening question | Google Maps field/source | How to interpret |
 |---|---|---|
 | Does the business appear to operate at a real public location? | Place Details `businessStatus`, `formattedAddress`, `googleMapsUri`, `regularOpeningHours`. | Positive public-footprint signal when `OPERATIONAL`; `CLOSED_PERMANENTLY` is a caution/blocker unless web evidence shows relocation/rebrand. |
-| Can a small local/offline company be treated as real even when registry APIs do not find it? | Place Details `businessStatus`, `formattedAddress`, `types`, `googleMapsUri`; Address Validation verdict where available. | For `small_local_offline`, a matched `OPERATIONAL` place with physical address and non-contradictory name/category/address evidence can satisfy the first 25% company-registration/authenticity block. |
+| Can a small local/offline company be treated as real even when registry APIs do not find it? | Place Details `businessStatus`, `formattedAddress`, `types`, `googleMapsUri`; Address Validation verdict where available. | For `small_local_offline`, a matched `OPERATIONAL` place with physical address and non-contradictory name/category/address evidence can satisfy the first 20-point company-registration/authenticity block. |
 | Does the Maps profile connect to the same official website/domain? | Place Details `websiteUri`, then OpenClaw `web_fetch` of that website. | Stronger domain/business-fit evidence when website domain matches operator-supplied lead or official site. |
 | Does the phone/address align with other public sources? | Place Details `internationalPhoneNumber` / `nationalPhoneNumber`, `formattedAddress`; registry/website/footer search. | Supporting evidence only; conflicts require explanation or human clue. |
 | Is the company in the right business category? | Place types plus Text Search query intent. | Use as weak category evidence; confirm with official site/product pages. |
@@ -346,7 +417,7 @@ Recommended Screening evidence mapping:
 | `public_footprint` | Positive support from `OPERATIONAL` status, stable address, opening hours, Maps URI, and non-trivial rating count. |
 | `business_fit` | Weak support from place types/search query; must be strengthened by official-site category/product evidence. |
 | `trade_financial` | None. |
-| `conversation_behavior` | None. |
+| `legal_disputes` | None. Legal disputes require court/case-law/insolvency/regulatory/legal-database or public-search evidence, not Maps evidence. |
 
 Recommended status language:
 
@@ -470,31 +541,31 @@ Default block library:
 
 | Block | Max points | Applicable when | Low-cost source |
 |---|---:|---|---|
-| `legal_identity` (`公司注册与线下门店/地址`) | 25 | company name, registry number, Google Maps place, physical address, or stable public company identity exists | Scale-aware fusion of registry/disclosure evidence and Google Maps offline store/address evidence |
-| `domain_email` | 25 | domain, website, or email exists/can be discovered | DNS MX/SPF/DMARC, RDAP, email syntax/free-provider/disposable checks, optional Abstract/Hunter |
-| `public_footprint` | 20 | website, Maps place, social/profile URL, or public search result exists | `web_search`, `web_fetch`, Google Maps Places local-presence evidence, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
-| `business_fit` | 20 | product interest or discovered category evidence exists | website categories, search snippets, Accio product requests, lead matched products |
+| `legal_identity` (`公司注册与线下门店/地址`) | 20 | company name, registry number, Google Maps place, physical address, or stable public company identity exists | Scale-aware fusion of registry/disclosure evidence and Google Maps offline store/address evidence |
+| `domain_email` | 20 | domain, website, or email exists/can be discovered | DNS MX/SPF/DMARC, RDAP, email syntax/free-provider/disposable checks, optional Abstract/Hunter |
+| `public_footprint` | 15 | website, Maps place, social/profile URL, or public search result exists | `web_search`, `web_fetch`, Google Maps Places local-presence evidence, public LinkedIn/company pages, Facebook/Instagram/YouTube public snippets |
+| `business_fit` | 20 | product interest or discovered category evidence exists | website categories, search snippets, lead matched products |
 | `trade_financial` | 10 | country/source supports affordable check or paid data enabled | ImportYeti/Volza/SEC/annual report/registry filings |
-| `conversation_behavior` | 15 | Accio chat or sales interaction exists | Accio Memory summary, CRM/chat transcript, manual sales notes |
+| `legal_disputes` | 15 | company legal name, registry id, domain, country, or location is enough to search public legal sources | Official court/case-law search, insolvency notices, bankruptcy records, regulatory enforcement, public legal databases, web search |
 
 ### 10.1 Company Scale-Aware First Block
 
-The first block is fixed at 25 points in the score model and should be displayed as `公司注册与线下门店/地址`. The implementation may keep the JSON block key `legal_identity` for backward compatibility.
+The first block is fixed at 20 points in the score model and should be displayed as `公司注册与线下门店/地址`. The implementation may keep the JSON block key `legal_identity` for backward compatibility.
 
 For `listed_or_public` and `medium_large_registered` companies:
 
 - Registry/disclosure/official-page evidence should drive the majority of the block.
 - Google Maps evidence can add confidence for office/store/address/domain consistency.
 - A claimed listed/public/large company with no registry/disclosure match should not receive a full first-block score from Maps alone.
-- Suggested allocation: registry/disclosure identity up to 15 points; Google Maps address/local-presence consistency up to 10 points.
+- Suggested allocation: registry/disclosure identity up to 12 points; Google Maps address/local-presence consistency up to 8 points.
 
 For `small_local_offline` companies:
 
 - Google Maps can be the primary source for the first block.
 - If there is at least one confirmed/probable company location with `businessStatus=OPERATIONAL`, a physical address, plausible category/type, and no contradictory website/registry evidence, score the company-registration/authenticity block as real for sales-screening purposes.
-- Full 25/25 is allowed when name/category/country-city alignment is strong and either website, phone, Address Validation, or official-site/store-locator evidence supports the listing.
-- 20-23/25 is appropriate when Maps strongly proves an operating physical business but website/phone/domain corroboration is weak.
-- 0-8/25 is appropriate for `CLOSED_PERMANENTLY`, rejected/unrelated listings, no physical address, or material contradictions unless relocation/rebrand evidence explains the issue.
+- Full 20/20 is allowed when name/category/country-city alignment is strong and either website, phone, Address Validation, or official-site/store-locator evidence supports the listing.
+- 16-18/20 is appropriate when Maps strongly proves an operating physical business but website/phone/domain corroboration is weak.
+- 0-6/20 is appropriate for `CLOSED_PERMANENTLY`, rejected/unrelated listings, no physical address, or material contradictions unless relocation/rebrand evidence explains the issue.
 
 For `small_online_only` and `unknown_scale` companies:
 
@@ -527,6 +598,7 @@ Forced downgrade rules:
 - Company name cannot be matched to any registry or stable official source, and website/domain is younger than 90 days.
 - Contact uses only disposable/free email and no business domain can be verified.
 - Website claims a different company/legal name than registry and no explanation is found.
+- Official or corroborated public legal sources show a confirmed material lawsuit, insolvency, bankruptcy, regulatory enforcement, fraud judgment, unpaid-debt enforcement, IP/counterfeit dispute, sanctions/compliance action, or equivalent seller-risk event.
 - Customs/trade evidence materially contradicts claimed country or product category.
 - Public sources show fraud/scam accusations from credible official or repeated independent sources.
 - Accio chat asks for abnormal payment/compliance behavior, e.g. unrelated third-party bank payment before formal order.
@@ -549,22 +621,22 @@ Cold lead scoring example:
       {
         "block": "legal_identity",
         "status": "scored",
-        "max_points": 25,
-        "earned_points": 19,
+        "max_points": 20,
+        "earned_points": 16,
         "source_count": 2
       },
       {
         "block": "domain_email",
         "status": "scored",
-        "max_points": 25,
-        "earned_points": 20,
+        "max_points": 20,
+        "earned_points": 17,
         "source_count": 3
       },
       {
         "block": "public_footprint",
         "status": "scored",
-        "max_points": 20,
-        "earned_points": 15,
+        "max_points": 15,
+        "earned_points": 12,
         "source_count": 4
       },
       {
@@ -575,18 +647,19 @@ Cold lead scoring example:
         "source_count": 2
       },
       {
+        "block": "legal_disputes",
+        "status": "scored",
+        "max_points": 15,
+        "earned_points": 13,
+        "source_count": 2,
+        "summary": "Public legal-dispute and insolvency searches found no material target-specific case in checked sources; no-hit is scoped to the searched public sources."
+      },
+      {
         "block": "trade_financial",
         "status": "disabled_by_budget",
         "max_points": 10,
         "earned_points": null,
         "reason": "Volza/ImportYeti key not enabled for this demo run"
-      },
-      {
-        "block": "conversation_behavior",
-        "status": "not_applicable",
-        "max_points": 15,
-        "earned_points": null,
-        "reason": "Cold lead from Marketing; no Accio or sales conversation yet"
       }
     ]
   }
@@ -609,16 +682,16 @@ Cold lead scoring example:
     {
       "block": "legal_identity",
       "status": "scored",
-      "max_points": 25,
-      "earned_points": 19,
-      "summary": "Company active; registered address matches website footer."
+      "max_points": 20,
+      "earned_points": 16,
+      "summary": "Companies House shows Example Mobile Distribution Ltd, company number 12345678, status active, registered office in London; website footer address matches the registry country."
     },
     {
-      "block": "conversation_behavior",
-      "status": "not_applicable",
+      "block": "legal_disputes",
+      "status": "scored",
       "max_points": 15,
-      "earned_points": null,
-      "summary": "Cold lead from Marketing; no Accio or sales conversation exists yet."
+      "earned_points": 13,
+      "summary": "Find Case Law / Gazette / public web searches did not find a material target-specific lawsuit, insolvency notice, or regulatory enforcement item in the checked public sources."
     }
   ],
   "address_footprint": {
@@ -676,19 +749,31 @@ Cold lead scoring example:
   },
   "evidence": [
     {
-      "layer": "registry",
+      "layer": "legal_registry",
       "source_type": "official_api",
       "source": "Companies House",
-      "url": "https://api.company-information.service.gov.uk/company/12345678",
-      "finding": "Company active; registered address matches website footer.",
+      "url": "https://find-and-update.company-information.service.gov.uk/company/12345678",
+      "finding": "Companies House 官方资料显示 Example Mobile Distribution Ltd 的注册编号为 12345678，状态为正常存续，注册地址在英国伦敦；公司名称和国家都与本次目标一致。",
+      "confidence": 0.98,
       "score_block": "legal_identity",
+      "score_impact": "positive"
+    },
+    {
+      "layer": "legal_disputes",
+      "source_type": "official_case_law",
+      "source": "The National Archives Find Case Law",
+      "url": "https://caselaw.nationalarchives.gov.uk/",
+      "finding": "本次在英国公开判例来源 The National Archives Find Case Law 中按公司全名搜索，未发现与 Example Mobile Distribution Ltd 精确匹配的重大判决记录；这只代表本次公开来源未命中，不等于证明该公司绝对没有案件。",
+      "confidence": 0.72,
+      "score_block": "legal_disputes",
       "score_impact": "positive"
     },
     {
       "layer": "domain_email",
       "source_type": "public_dns",
-      "source": "DNS MX/TXT/RDAP",
-      "finding": "Domain has MX and SPF; RDAP creation date older than 3 years.",
+      "source": "公开域名和邮箱记录",
+      "finding": "公开域名记录显示 example-mobile.example 已使用超过 3 年，并且与公司官网一致；该邮箱域名已配置收信记录和发信防伪记录，说明邮箱基础设置比较完整。",
+      "confidence": 0.82,
       "score_block": "domain_email",
       "score_impact": "positive"
     }
@@ -700,6 +785,8 @@ Cold lead scoring example:
     {
       "block": "trade_financial",
       "status": "disabled_by_budget",
+      "severity": "optional",
+      "reason": "本次未启用付费贸易数据；该目标未自称大型进口商，因此不作为阻断项。",
       "recommended_next_step": "如需提高证据覆盖率，可为此客户启用一次 Volza Buyer Insights。"
     }
   ],

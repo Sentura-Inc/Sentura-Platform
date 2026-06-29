@@ -3,6 +3,11 @@ import { z } from "zod";
 export const SourceTypeValues = [
   "official_api",
   "official_registry_page",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "public_legal_database",
   "public_web",
   "public_dns",
   "paid_trade_data",
@@ -25,7 +30,7 @@ export const ScoreBlockIdValues = [
   "public_footprint",
   "business_fit",
   "trade_financial",
-  "conversation_behavior",
+  "legal_disputes",
 ] as const;
 
 export const RiskTierValues = [
@@ -81,7 +86,7 @@ export const LeadCandidateSchema = z.object({
 
 export const InvestigationTargetSchema = z.object({
   target_id: z.string().min(1),
-  source: z.enum(["marketing_lead", "manual_input", "accio_memory"]),
+  source: z.enum(["marketing_lead", "manual_input"]),
   lead_id: z.string().min(1).nullable().optional(),
   company_name: z.string().min(1).optional(),
   country: CountryCodeSchema.optional(),
@@ -141,8 +146,8 @@ export const ScreeningEvidenceSchema = z.object({
     "website_social_footprint",
     "trade_customs",
     "financial_public_filing",
+    "legal_disputes",
     "business_fit",
-    "behavior",
   ]),
   source_type: SourceTypeSchema,
   source: z.string().min(1),
@@ -177,7 +182,7 @@ export const ContextualScoreResultSchema = z.object({
 export const ScreeningReportSchema = z.object({
   report_id: z.string().min(1),
   lead_id: z.string().min(1).nullable().optional(),
-  target_source: z.enum(["marketing_lead", "manual_input", "accio_memory"]),
+  target_source: z.enum(["marketing_lead", "manual_input"]),
   company_name: z.string().min(1),
   risk_tier: RiskTierSchema,
   normalized_score: z.number().min(0).max(100).nullable(),

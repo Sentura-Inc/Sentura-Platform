@@ -411,7 +411,7 @@ Customer role-aware row ownership:
 - CBE product roles are `operator` and `admin` only. Sentura authentication can still protect the session under the hood, but the CBE product must not surface the full Sentura platform role model.
 - Business tables that create user-visible records must carry `created_by_user_id`, `owner_user_id`, `team_name`, and `visibility_scope` where applicable.
 - Ordinary operators use the existing `个人中心`, `获客与背调`, and `记忆整理` pages. They can start Lead/Screening/Accio work, see their own records, see approved shared/team rows, and retry their own recoverable failures.
-- Admins are customer-side supervisors with read-mostly monitoring access: live task activity, aggregate lead/screening lists, per-user lists, per-agent usage, statistics, costs, and failure summaries.
+- Admins are customer-side supervisors with monitoring access plus tenant-level Lead filter taxonomy management: live task activity, aggregate lead/screening lists, per-user lists, per-agent usage, statistics, costs, failure summaries, and the admin-managed Chinese product / buyer-type / country-or-region terms shown to operators in `寻找客户`. English query terms, ISO codes, languages, and market-specific query expansion are Lead Agent responsibilities, not Admin form fields.
 - Admins cannot create AI employees, tune prompts, change model/provider keys, change OpenClaw config, edit tool policy, bypass Lead duplicate-run coordination, or impersonate users to start silent tasks.
 
 Minimum indexes:

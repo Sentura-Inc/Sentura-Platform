@@ -1,17 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, DollarSign, RefreshCw, WalletCards } from "lucide-react";
+import { AlertTriangle, DollarSign, Loader2, RefreshCw, Send, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useGateway } from "@/lib/gateway";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { CostEvent } from "@/lib/gateway";
 import { cn } from "@/lib/utils";
 import { monthlyCostBudget } from "@/app/client-demos/cross-border/employee/_data/employee-data";
 import {
   fetchEmployeeCostBudget,
-  fetchEmployeeTasks,
+  fetchEmployeeCostEvents,
+  requestEmployeeCostAllowance,
   type EmployeeCostBudgetSnapshot,
 } from "@/app/client-demos/cross-border/employee/_data/employee-api";
 import {
@@ -99,8 +108,115 @@ function formatBudgetRemaining(spendUsd: number, budget: EmployeeCostBudgetView)
   return formatUsd(Math.max(0, budget.limitUsd - spendUsd));
 }
 
+function AllowanceRequestDialog({
+  open,
+  onOpenChange,
+  costBudget,
+  onSubmitted,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  costBudget: EmployeeCostBudgetView;
+  onSubmitted: () => void | Promise<void>;
+}) {
+  const [amount, setAmount] = useState("20");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setError(null);
+      setNotice(null);
+    }
+    onOpenChange(nextOpen);
+  }
+
+  async function submit() {
+    const requestedAllowanceUsd = Number(amount);
+    const normalizedReason = reason.trim();
+    if (!Number.isFinite(requestedAllowanceUsd) || requestedAllowanceUsd <= 0) {
+      setError("请输入大于 0 的临时额度。");
+      return;
+    }
+    if (normalizedReason.length < 2) {
+      setError("请填写申请理由。");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await requestEmployeeCostAllowance({ requestedAllowanceUsd, reason: normalizedReason });
+      setNotice("申请已提交，管理员可以在费用监控里查看并审批。");
+      setReason("");
+      await onSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "额度申请提交失败。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>申请临时额度</DialogTitle>
+          <DialogDescription>
+            当前本月额度 {formatBudgetLimit(costBudget)}，已用 {formatUsd(costBudget.spendUsd)}，请填写需要增加的额度和原因。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {notice ? (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              {notice}
+            </div>
+          ) : null}
+          {error ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+          <label className="block space-y-1">
+            <span className="text-sm font-medium">申请增加额度（美元）</span>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="例如 20"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-sm font-medium">申请理由</span>
+            <textarea
+              className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={500}
+              placeholder="例如：本月需要批量背调新获客客户，当前额度不足以完成筛选。"
+            />
+            <span className="block text-right text-xs text-muted-foreground">{reason.length}/500</span>
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={submitting}>
+            取消
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            提交申请
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function useEmployeeCostSnapshot() {
-  const { client, state } = useGateway();
   const [snapshot, setSnapshot] = useState<EmployeeCostSnapshot>(() => emptyCostSnapshot("unavailable"));
   const [costBudget, setCostBudget] = useState<EmployeeCostBudgetView>(() => fallbackCostBudget());
   const [loading, setLoading] = useState(false);
@@ -110,43 +226,39 @@ export function useEmployeeCostSnapshot() {
     setLoading(true);
     setError(null);
     try {
-      const [latestTasks, nextBudget] = await Promise.all([
-        fetchEmployeeTasks(),
+      const [costEventsPage, nextBudget] = await Promise.all([
+        fetchEmployeeCostEvents().catch(() => null),
         fetchEmployeeCostBudget().catch(() => null),
       ]);
       if (nextBudget) setCostBudget(nextBudget);
-      const scopedSessionKeys = new Set(
-        latestTasks.map((task) => task.sessionKey).filter((sessionKey): sessionKey is string => Boolean(sessionKey)),
-      );
-      if (state !== "connected") {
+      if (!costEventsPage) {
         setSnapshot({
           ...emptyCostSnapshot("unavailable"),
-          scopedSessionCount: scopedSessionKeys.size,
+          spendUsd: nextBudget?.spendUsd ?? 0,
         });
         return;
       }
-      const result = await client.getCostEvents({ limit: 1000 });
-      const scopedEvents = scopedSessionKeys.size > 0
-        ? result.events.filter((event) => scopedSessionKeys.has(event.sessionKey))
-        : [];
-      const outsideScopeCount = Math.max(0, result.events.length - scopedEvents.length);
+      const scopedEvents = costEventsPage.events;
       const monthEvents = filterCostEventsByRange(scopedEvents, "month");
+      const allSummary = summarizeCostEvents(scopedEvents);
+      const monthSummary = summarizeCostEvents(monthEvents);
       if (monthEvents.length > 0) {
-        const next = summarizeCostEvents(monthEvents);
         setSnapshot({
-          ...next,
-          events: summarizeCostEvents(scopedEvents).events,
+          ...monthSummary,
+          spendUsd: nextBudget?.spendUsd ?? monthSummary.spendUsd,
+          events: allSummary.events,
           source: "recorded",
           sourceBreakdown: buildCostBreakdown(monthEvents),
-          scopedSessionCount: scopedSessionKeys.size,
-          outsideScopeCount,
+          scopedSessionCount: costEventsPage.scopedSessionCount,
+          outsideScopeCount: costEventsPage.outsideScopeCount,
         });
       } else {
         setSnapshot({
           ...emptyCostSnapshot("empty"),
-          events: summarizeCostEvents(scopedEvents).events,
-          scopedSessionCount: scopedSessionKeys.size,
-          outsideScopeCount,
+          spendUsd: nextBudget?.spendUsd ?? 0,
+          events: allSummary.events,
+          scopedSessionCount: costEventsPage.scopedSessionCount,
+          outsideScopeCount: costEventsPage.outsideScopeCount,
         });
       }
     } catch (err) {
@@ -159,7 +271,7 @@ export function useEmployeeCostSnapshot() {
     } finally {
       setLoading(false);
     }
-  }, [client, state]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +302,7 @@ export function useEmployeeCostSnapshot() {
 export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?: string }) {
   const { snapshot, costBudget, ratio, status, loading, refresh } = useEmployeeCostSnapshot();
   const [open, setOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
   const [detailRange, setDetailRange] = useState<CostDetailRangeKey>("month");
   const [detailsFlash, setDetailsFlash] = useState(false);
   const detailsFlashTimerRef = useRef<number | null>(null);
@@ -294,16 +407,37 @@ export function EmployeeCostMini({ subjectLabel = "员工端" }: { subjectLabel?
         loading={loading}
         highlight={detailsFlash}
         outsideScopeCount={snapshot.outsideScopeCount}
-        technicalDescription="明细来自系统费用记录，并只统计已关联到当前跨境电商客户库任务的处理编号。"
+        costBudget={{
+          period: costBudget.period,
+          baseLimitUsd: costBudget.baseLimitUsd,
+          activeAllowanceUsd: costBudget.activeAllowanceUsd,
+          limitUsd: costBudget.limitUsd,
+          limitEnabled: costBudget.limitEnabled,
+          remainingUsd: costBudget.remainingUsd,
+        }}
+        technicalDescription="明细来自后端统一归属到当前员工的费用记录，并和管理员费用监控使用同一口径。预计费用不会计入已用。"
         emptyMessage="当前范围还没有实际成本记录。"
+        actions={(
+          <Button type="button" variant="outline" size="sm" onClick={() => setRequestOpen(true)}>
+            <WalletCards className="h-3.5 w-3.5" />
+            申请额度
+          </Button>
+        )}
         onRefresh={refreshDetails}
         onExport={exportDetails}
+      />
+      <AllowanceRequestDialog
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        costBudget={costBudget}
+        onSubmitted={refreshDetails}
       />
     </>
   );
 }
 export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
   const { snapshot, costBudget, ratio, status, loading, error, refresh } = useEmployeeCostSnapshot();
+  const [requestOpen, setRequestOpen] = useState(false);
   const percent = Math.min(100, Math.round(ratio * 100));
   const sourceLabel =
     snapshot.source === "recorded" ? "实时记录" : snapshot.source === "empty" ? "暂无记录" : "暂不可用";
@@ -314,8 +448,8 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
         ? "正在等待实际费用记录。"
       : snapshot.source === "empty"
         ? snapshot.outsideScopeCount > 0
-          ? `当前任务没有实际费用记录；已隐藏 ${snapshot.outsideScopeCount} 条历史记录，避免混入本月工作台。`
-          : "当前任务本月还没有实际费用；已用显示为 0，且不包含预计任务或演示预算。"
+          ? `当前员工本月没有实际费用记录；已隐藏 ${snapshot.outsideScopeCount} 条未归属记录，避免混入口径。`
+          : "当前员工本月还没有实际费用；已用显示为 0，且不包含预计任务或演示预算。"
         : status === "blocked"
           ? "额度已达上限，高成本任务将被禁用。"
           : "额度接近 80%，建议控制批量背调和付费数据。";
@@ -330,7 +464,7 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
               我的工具成本
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              只统计当前任务产生的实际费用；没有记录时显示 0
+              只统计系统已记录到当前员工的实际费用；预计费用不计入已用
             </p>
           </div>
           <Badge variant={snapshot.source === "recorded" ? "secondary" : "outline"}>
@@ -396,11 +530,23 @@ export function EmployeeCostCard({ compact = false }: { compact?: boolean }) {
           </div>
         )}
 
-        <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="w-full">
-          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          刷新费用
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            刷新费用
+          </Button>
+          <Button size="sm" onClick={() => setRequestOpen(true)}>
+            <WalletCards className="h-3.5 w-3.5" />
+            申请额度
+          </Button>
+        </div>
       </CardContent>
+      <AllowanceRequestDialog
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        costBudget={costBudget}
+        onSubmitted={refresh}
+      />
     </Card>
   );
 }

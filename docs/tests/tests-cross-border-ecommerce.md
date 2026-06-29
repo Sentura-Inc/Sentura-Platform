@@ -59,7 +59,7 @@ npx tsx scripts/test-cross-border-milestone2.ts
 | CE2.9 | Lead discovery SOP ontology | `scripts/test-cross-border-milestone2.ts` | `workflows/lead-discovery-sop.json5` captures query expansion, public-search-only sourcing, dedupe, audit URLs, structured handoff, and no automatic outreach. |
 | CE2.10 | Buyer screening SOP ontology | `scripts/test-cross-border-milestone2.ts` | `workflows/buyer-screening-sop.json5` supports Marketing lead batches and manual inputs, low-cost evidence ladder, contextual scoring, paid-source gaps, and anti-fraud caution rules. |
 | CE2.11 | Shared Zod schemas | `scripts/test-cross-border-milestone2.ts` | `LeadCandidateSchema`, `ScreeningReportSchema`, `AccioChatExportSchema`, and `AccioChatSummarySchema` validate design-shaped sample records. |
-| CE2.12 | Cold lead behavior handling | `scripts/test-cross-border-milestone2.ts` | `conversation_behavior` is `not_applicable` for cold Marketing leads and is excluded from score and coverage denominators. |
+| CE2.12 | Screening score block separation | `scripts/test-cross-border-milestone2.ts` | Screening scoring uses only the six public-evidence blocks: company identity/address, domain/email, public footprint, business fit, trade/financial, and legal disputes. |
 | CE2.13 | Disabled paid API handling | `scripts/test-cross-border-milestone2.ts` | `disabled_by_budget` trade/financial evidence reduces `evidence_coverage` but does not reduce `normalized_score`. |
 | CE2.14 | Forced downgrade handling | `scripts/test-cross-border-milestone2.ts` | Forced downgrade flags override otherwise good normalized scores and return `high_risk`. |
 
@@ -96,7 +96,7 @@ pnpm --filter @sentura/mcp-cross-border-intel build
 | CE3.6 | RDAP adapter | `cbe_intel_domain_rdap_lookup` handles 200 found, 302 redirect, 404 not found, and 429 rate-limited responses without crashing. |
 | CE3.7 | DNS/email checks | `cbe_intel_email_domain_check` covers missing MX, free-provider flag, role inbox flag, SPF, and DMARC through injected DNS resolvers. |
 | CE3.8 | Contextual scoring tiers | `cbe_intel_score_buyer` deterministically covers `trusted_candidate`, `cautious`, `insufficient_evidence`, and `high_risk`. |
-| CE3.9 | Contextual score denominator rules | `conversation_behavior=not_applicable` is excluded from denominators; `disabled_by_budget` paid evidence lowers coverage but not normalized score; forced downgrades override score. |
+| CE3.9 | Contextual score denominator rules | `disabled_by_budget` paid evidence lowers coverage but not normalized score; forced downgrades override score; score denominators come only from actual Screening evidence blocks. |
 | CE3.10 | Trade-data cost controls | `cbe_intel_trade_record_search` does not call Volza/ImportYeti unless paid data is enabled, keys exist, and request budget is within cap; fallback is source-marked `public_web`. |
 | CE3.11 | Accio parser/summarizer | Parser validates `跨境电商/fixtures/accio-chat-records.sample.json`; summarizer extracts company profile, requested goods, quantities, target/best prices, packaging add-on, negotiated prices, next actions, and behavior signals. |
 | CE3.12 | MCP smoke and hermetic tests | `InMemoryTransport` client lists and calls tools; all HTTP and DNS behavior is mocked/injected, so Vitest performs no real external calls and no secrets appear in outputs. |

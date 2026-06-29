@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -92,14 +92,28 @@ export function ListPagination({
   );
 }
 
-export function usePagedItems<T>(items: T[], pageSize = DEFAULT_PAGE_SIZE) {
-  const [pageState, setPageState] = useState(1);
+interface UsePagedItemsOptions {
+  resetKey?: string | number | boolean | null;
+}
+
+export function usePagedItems<T>(items: T[], pageSize = DEFAULT_PAGE_SIZE, options: UsePagedItemsOptions = {}) {
+  const resetKey = options.resetKey;
+  const [pageState, setPageState] = useState(() => ({ page: 1, resetKey }));
+  const resetPending = pageState.resetKey !== resetKey;
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
-  const page = Math.min(Math.max(1, pageState), totalPages);
+  const page = Math.min(Math.max(1, resetPending ? 1 : pageState.page), totalPages);
+
+  useEffect(() => {
+    if (!resetPending) return;
+    const timeoutId = window.setTimeout(() => {
+      setPageState({ page: 1, resetKey });
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [resetKey, resetPending]);
 
   const setPage = useCallback((nextPage: number) => {
-    setPageState(Math.min(Math.max(1, nextPage), totalPages));
-  }, [totalPages]);
+    setPageState({ page: Math.min(Math.max(1, nextPage), totalPages), resetKey });
+  }, [resetKey, totalPages]);
 
   const pageItems = useMemo(() => {
     const start = (page - 1) * pageSize;

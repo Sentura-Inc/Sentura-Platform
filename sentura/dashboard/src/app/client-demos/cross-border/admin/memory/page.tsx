@@ -368,7 +368,7 @@ export default function AdminMemoryPage() {
           if (!open) setAnalysisDialogOpen(false);
         }}
       >
-        <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-lg p-0 sm:max-h-[calc(100dvh-4rem)] sm:max-w-6xl">
+        <DialogContent className="flex max-w-[calc(100vw-1rem)] flex-col rounded-lg p-0 sm:max-w-6xl">
           <div
             aria-hidden
             className={cn(
@@ -378,7 +378,7 @@ export default function AdminMemoryPage() {
           />
           <div
             className={cn(
-              "relative z-0 flex min-h-0 flex-1 flex-col transition duration-150",
+              "relative z-0 flex flex-col transition duration-150",
               analysisDialogOpen ? "brightness-90 blur-[1px]" : "brightness-100 blur-0",
             )}
           >
@@ -398,7 +398,7 @@ export default function AdminMemoryPage() {
                 与员工端列表、筛选、分析模板和完整聊天记录查看保持一致。
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+            <div className="p-4 sm:p-5">
               {selectedOperator ? (
                 <MemoryChatCustomerList
                   records={records}

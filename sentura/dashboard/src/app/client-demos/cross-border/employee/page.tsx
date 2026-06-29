@@ -385,7 +385,7 @@ function CrossBorderEmployeeHomeContent() {
             <CardContent className="space-y-2 p-4 pt-0">
               {pendingCustomers.length > 0 ? (
                 <>
-                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false}>
+                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false} scrollable={false}>
                     {pendingPage.items.map((item) => (
 	                    <Link
 	                      key={item.customerId}
@@ -425,7 +425,7 @@ function CrossBorderEmployeeHomeContent() {
             <CardContent className="space-y-2 p-4 pt-0">
               {highScoreCustomers.length > 0 ? (
                 <>
-                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false}>
+                  <AnimatedList viewportClassName="space-y-2 overflow-visible" displayScrollbar={false} scrollable={false}>
                     {highScorePage.items.map((item) => (
 	                    <Link
 	                      key={item.customerId}

@@ -111,13 +111,6 @@
             countries: ["US", "GB", "DE", "FR", "BR", "MX"],
             languages: ["en", "de", "fr", "pt", "es"],
             dailyCandidateTarget: 10,
-            excludeDomains: [
-              "amazon.com",
-              "alibaba.com",
-              "aliexpress.com",
-              "temu.com",
-              "ebay.com",
-            ],
           },
         },
       },

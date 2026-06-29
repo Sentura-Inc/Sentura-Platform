@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-24
+> Last updated: 2026-06-28
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -83,7 +83,7 @@ For this customer, do not use the full Sentura platform role design as the produ
 | User level | Chinese label | Main purpose | Visible surface |
 |---|---|---|---|
 | `operator` | 普通用户 / 业务员工 | Execute daily work: find leads, start Screening, import Accio records, review own task results. | Existing `个人中心`, `获客与背调`, `记忆整理`. |
-| `admin` | 管理员 / 业务主管 | Monitor work and business output across users: who is running which task, which Agent is being called, what target is under investigation, aggregate lists, per-user lists, and statistics. | Existing Employee pages plus Admin monitoring pages. |
+| `admin` | 管理员 / 业务主管 | Monitor work and business output across users: who is running which task, which Agent is being called, what target is under investigation, aggregate lists, per-user lists, statistics, and own login password. | Existing Employee pages plus Admin monitoring pages. |
 
 Sentura authentication can still protect the underlying dashboard session, but the CBE product must not expose platform concepts such as creating AI employees, changing agent tool policy, editing OpenClaw config, or managing global provider settings. Admin is a customer-side monitor/supervisor role, not a Sentura platform administrator.
 
@@ -121,6 +121,7 @@ Admins can view and monitor:
   - API/model cost by user, Agent, provider, and day;
   - evidence-source coverage by registry/domain/email/trade/public-web source.
 - Task transcripts or detailed evidence only through the same data-tier rules as the Employee UI; raw T3 Accio chat remains protected.
+- Their own Manager login password, after verifying the current password.
 
 Admins cannot:
 
@@ -128,6 +129,7 @@ Admins cannot:
 - Tune or rewrite employee prompts, tools, sandbox policies, model routing, Gateway config, MCP server config, or provider credentials.
 - Impersonate a user by silently starting tasks as that user.
 - Override the Lead coordinator by launching duplicate same-scope tasks outside the shared-result/top-up flow.
+- Change other Admin passwords or expose Employee-side password self-service outside the existing Admin employee-management reset flow.
 - Auto-send outreach.
 
 ### Admin Page Modules
@@ -203,7 +205,7 @@ Admin pages should read projections/views rather than mutating core settings:
 The route/store layer must enforce:
 
 - `operator`: can create tasks and read own/shared records.
-- `admin`: read-only tenant/team monitoring plus scoped report detail. Mutating runtime/platform settings is not part of this customer UI.
+- `admin`: tenant/team monitoring plus scoped report detail and tenant-level Lead filter taxonomy management through Chinese product / buyer-type / country-or-region business terms only. Mutating runtime/platform settings, English query terms, ISO codes, languages, and market-specific query expansion is not part of this customer UI.
 
 ## 3. Execution Order
 
@@ -850,7 +852,7 @@ Implementation notes:
 - Hidden OpenClaw session creation still uses the Gateway client from the Dashboard flow.
 - Completion endpoints accept only parsed/validated employee marker JSON plus the `agent_run_id`/`session_key` reference.
 - All writes add audit rows with `data_tier`.
-- Admin endpoints require `cbeRole = admin` and are read-mostly monitoring endpoints for this customer UI.
+- Admin endpoints require `cbeRole = admin`; they are monitoring endpoints except explicit customer-business settings such as tenant Lead filter taxonomy management through Chinese business terms. English query terms, ISO codes, languages, and search expansion remain Agent/runtime responsibilities.
 - Read endpoints must apply server-side row filters from `resolveCbeTenantContext`; client-side filtering is only presentation.
 
 ### 5.4 Implementation Status (2026-06-17)
@@ -1049,8 +1051,6 @@ Inputs:
   buyerPersonas: string[];
   countries: string[];
   languages: string[];
-  sourcePolicy: string[];
-  excludeDomains: string[];
   targetCount: number;
 }
 ```
@@ -1234,7 +1234,7 @@ Implemented Screening workflow:
 
 1. If a Lead has `google_place_id`, Screening may refresh Place Details once per target using `screening_local_presence`.
 2. If a manual target has only name/city/country and no website, Screening may run one Text Search to find a likely place match.
-3. Maps evidence contributes to `public_footprint`, domain/website consistency, and the scale-aware first score block. For `small_local_offline` targets, an `OPERATIONAL` Google Maps place with a physical address can satisfy the 25% company-registration/authenticity block; for `listed_or_public` and `medium_large_registered` targets, Maps must be fused with registry/disclosure evidence rather than replacing it.
+3. Maps evidence contributes to `public_footprint`, domain/website consistency, and the scale-aware first score block. For `small_local_offline` targets, an `OPERATIONAL` Google Maps place with a physical address can satisfy the 20-point company-registration/authenticity block; for `listed_or_public` and `medium_large_registered` targets, Maps must be fused with registry/disclosure evidence rather than replacing it.
 4. `CLOSED_PERMANENTLY` is a caution/blocker for active outreach unless web evidence shows relocation/rebrand.
 5. No Maps result is neutral and should be shown as coverage gap, not risk.
 
@@ -1253,7 +1253,7 @@ Implemented scale-aware Screening scoring redesign, completed 2026-06-23:
 
 1. Add a `company_scale_assessment` step before scoring: `listed_or_public`, `medium_large_registered`, `small_local_offline`, `small_online_only`, or `unknown_scale`.
 2. Rename the first report block label from pure `公司注册` to `公司注册与线下门店/地址`; keep the JSON block id `legal_identity` unless a migration intentionally changes it.
-3. Keep this first block at 25 points / 25% of the primary score explanation.
+3. Keep this first block at 20 points. Legal disputes/cases/insolvency/regulatory enforcement are now a separate 15-point `legal_disputes` block, so the first block should not carry legal-dispute risk by itself.
 4. For listed/public and medium-large companies, fuse official registry/disclosure evidence with Google Maps address/local-presence evidence. Registry/disclosure remains primary; Maps adds address, website, phone, and operational consistency.
 5. For small local/offline companies, allow Google Maps to satisfy the first block when at least one confirmed/probable place is `OPERATIONAL`, has a physical address, has plausible category/name/location match, and has no contradictory official-site/registry/web evidence.
 6. Reports must phrase the small-company result as `线下经营真实性由 Google Maps 公开门店/地址证据支持`, not as formal legal registration or KYB proof.

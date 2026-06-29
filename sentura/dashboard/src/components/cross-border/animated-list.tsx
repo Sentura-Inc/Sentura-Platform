@@ -21,6 +21,7 @@ interface AnimatedListProps {
   itemClassName?: string;
   showGradients?: boolean;
   displayScrollbar?: boolean;
+  scrollable?: boolean;
   enableArrowNavigation?: boolean;
   initialSelectedIndex?: number;
   onItemSelect?: (index: number) => void;
@@ -84,6 +85,7 @@ export function AnimatedList({
   itemClassName,
   showGradients = false,
   displayScrollbar = true,
+  scrollable = true,
   enableArrowNavigation = false,
   initialSelectedIndex = -1,
   onItemSelect,
@@ -184,10 +186,12 @@ export function AnimatedList({
         onScroll={scheduleGradientOpacityUpdate}
         onKeyDown={handleKeyDown}
         className={cn(
-          "overflow-y-auto",
-          displayScrollbar
+          scrollable ? "overflow-y-auto" : "overflow-visible",
+          scrollable && displayScrollbar
             ? "[scrollbar-color:rgba(15,114,168,0.38)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--sentura-blue)]/28 [&::-webkit-scrollbar-track]:bg-transparent"
-            : "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            : scrollable
+              ? "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              : undefined,
           viewportClassName,
         )}
       >

@@ -7,6 +7,7 @@ import {
   coverageGapActionForBlock,
   coverageGapReasonForBlock,
   isGenericCoverageGapReason,
+  reconcileCoverageGapsWithScoreBlocks,
   type CustomerAddressFootprint,
   type CompanyScaleAssessment,
   type CustomerListItem,
@@ -50,10 +51,20 @@ export interface EmployeeLeadTaskInput {
   countries: string;
   buyerTypes: string;
   targetCount: number;
-  excludeDomains: string;
   runMode?: "new_scope" | "top_up_unique_leads";
   existingIdentityKeys?: string[];
   alreadyCoveredQueries?: string[];
+  internalBatch?: EmployeeLeadInternalBatch;
+}
+
+interface EmployeeLeadInternalBatch {
+  batchIndex: number;
+  batchCount: number;
+  batchPath: string;
+  batchTargetCount: number;
+  parentTargetCount: number;
+  retryDepth: number;
+  strategy: "internal_batch" | "overflow_retry";
 }
 
 export interface EmployeeScreeningTaskOptions {
@@ -126,6 +137,7 @@ const LEAD_PER_TARGET_DURATION_MS = 38_000;
 const LEAD_PER_CONDITION_DURATION_MS = 6_000;
 const LEAD_TOP_UP_EXTRA_MS = 30_000;
 const LEAD_ESTIMATE_MAX_MS = 1_200_000;
+const LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT = 5;
 const SCREENING_CHILD_CONCURRENCY = 3;
 const SCREENING_SINGLE_TARGET_DURATION_MS = 180_000;
 const SCREENING_PAID_EMAIL_EXTRA_MS = 45_000;
@@ -202,6 +214,21 @@ function asStringArray(value: unknown): string[] {
     );
     return recordText ? [recordText] : [];
   });
+}
+
+function isPlaceholderProduct(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
+  return !normalized ||
+    normalized === "mobile-accessories" ||
+    normalized === "product-pending-confirmation" ||
+    normalized === "产品待确认" ||
+    normalized === "未确认" ||
+    normalized === "待确认";
+}
+
+function displayProducts(values: unknown, fallback: string[] = []) {
+  const products = asStringArray(values).filter((item) => !isPlaceholderProduct(item));
+  return products.length ? products : fallback;
 }
 
 function csv(value: string): string[] {
@@ -293,6 +320,36 @@ export function estimateLeadTaskDurationMs(input: EmployeeLeadTaskInput) {
       topUpExtraMs,
     120_000,
     LEAD_ESTIMATE_MAX_MS,
+  );
+}
+
+function leadInternalBatchSizes(totalTargetCount: number, options: { forceSplit?: boolean } = {}) {
+  const total = clamp(Math.floor(totalTargetCount), 1, MAX_LEAD_TARGET_COUNT);
+  const shouldSplit = options.forceSplit || total > LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT;
+  if (!shouldSplit || total <= 1) return [total];
+  const batchCount = Math.min(
+    total,
+    Math.max(2, Math.ceil(total / LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT)),
+  );
+  const baseSize = Math.floor(total / batchCount);
+  const remainder = total % batchCount;
+  return Array.from({ length: batchCount }, (_, index) => baseSize + (index < remainder ? 1 : 0));
+}
+
+function shouldInternallyBatchLeadTask(input: EmployeeLeadTaskInput) {
+  return clamp(Math.floor(input.targetCount), 1, MAX_LEAD_TARGET_COUNT) > LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT;
+}
+
+function isLeadContextOverflowError(error: unknown) {
+  const message = unknownErrorMessage(error, "").toLowerCase();
+  return (
+    message.includes("context overflow") ||
+    message.includes("safe threshold") ||
+    message.includes("context size") ||
+    message.includes("context length") ||
+    message.includes("prompt too long") ||
+    message.includes("exceeds model context window") ||
+    message.includes("maximum context")
   );
 }
 
@@ -1104,8 +1161,8 @@ function scoreBlockLayer(block: string): ScreeningEvidenceLayer {
   if (block === "legal_identity") return "legal_registry";
   if (block === "domain_email") return "email_dns";
   if (block === "business_fit" || block === "public_footprint") return "public_footprint";
+  if (block === "legal_disputes") return "legal_disputes";
   if (block === "trade_financial") return "trade_customs";
-  if (block === "conversation_behavior") return "accio_behavior";
   return "public_footprint";
 }
 
@@ -1119,9 +1176,9 @@ function evidenceLayer(entry: Record<string, unknown>, scoreBlock: string, sourc
     raw === "google_maps_local_presence" ||
     raw === "address_validation" ||
     raw === "public_footprint" ||
+    raw === "legal_disputes" ||
     raw === "trade_customs" ||
-    raw === "financial_public_filing" ||
-    raw === "accio_behavior"
+    raw === "financial_public_filing"
   ) {
     return raw;
   }
@@ -1132,6 +1189,9 @@ function evidenceLayer(entry: Record<string, unknown>, scoreBlock: string, sourc
     return "google_maps_local_presence";
   }
   if (url.includes("company-information.service.gov.uk") || url.includes("opencorporates")) return "legal_registry";
+  if (/(courtlistener|recap|pacer|uscourts|caselaw\.nationalarchives|bailii|thegazette|insolvenzbekanntmachungen|poderjudicial|publicidadconcursal|courdecassation|bodacc|datajud|cnj|ifec|giustizia|dart\.fss|sec\.gov\/litigation)/i.test(url)) {
+    return "legal_disputes";
+  }
   if (url.includes("sec.gov")) return "financial_public_filing";
   if (url.includes("importyeti") || url.includes("volza") || url.includes("shipment")) return "trade_customs";
   return scoreBlockLayer(scoreBlock);
@@ -1164,11 +1224,12 @@ function normalizeEvidenceItem(item: unknown): CustomerEvidenceItem {
 }
 
 const DEFAULT_SCORE_BLOCKS: Array<{ block: string; maxPoints: number }> = [
-  { block: "legal_identity", maxPoints: 25 },
-  { block: "domain_email", maxPoints: 25 },
-  { block: "public_footprint", maxPoints: 20 },
+  { block: "legal_identity", maxPoints: 20 },
+  { block: "domain_email", maxPoints: 20 },
+  { block: "public_footprint", maxPoints: 15 },
   { block: "business_fit", maxPoints: 20 },
   { block: "trade_financial", maxPoints: 10 },
+  { block: "legal_disputes", maxPoints: 15 },
 ];
 
 function normalizeScoreBlock(item: unknown): CustomerScoreBlock {
@@ -1269,7 +1330,12 @@ function normalizeCoverageGap(item: unknown, index: number): CustomerCoverageGap
     block,
     reason: asString(raw.reason) ?? asString(raw.summary) ?? asString(raw.note) ?? coverageGapReasonForBlock(block, status),
     action: asString(raw.action) ?? asString(raw.recommended_action) ?? coverageGapActionForBlock(block, status),
+    severity: normalizeCoverageGapSeverity(raw.severity),
   };
+}
+
+function normalizeCoverageGapSeverity(value: unknown): CustomerCoverageGap["severity"] | undefined {
+  return value === "blocking" || value === "recommended" || value === "optional" ? value : undefined;
 }
 
 function normalizeAddressCoverageStatus(value: unknown): AddressFootprintCoverageStatus {
@@ -1451,12 +1517,13 @@ function screeningReportFromRaw(
   const normalizedScore = normalizedScoreFromScoreBlocks(scoreBlocks, evidenceCoverage) ?? score;
   const normalizedGaps = gapsSource.map(normalizeCoverageGap);
   const derivedGaps = coverageGapsFromScoreBlocks(scoreBlocks);
-  const coverageGaps =
+  const candidateCoverageGaps =
     normalizedGaps.length > 0 && !normalizedGaps.every((gap) => isGenericCoverageGapReason(gap.reason))
       ? normalizedGaps
       : derivedGaps.length > 0
         ? derivedGaps
         : normalizedGaps;
+  const coverageGaps = reconcileCoverageGapsWithScoreBlocks(candidateCoverageGaps, scoreBlocks);
   return {
     reportId: asString(raw.report_id) ?? asString(raw.reportId) ?? sessionKey,
     riskTier: normalizeRiskTier(asString(raw.risk_tier) ?? asString(raw.riskTier), normalizedScore),
@@ -1479,8 +1546,9 @@ function normalizedTargetCount(value?: number) {
     : undefined;
 }
 
-function leadRowsFromPayload(payload: unknown, sessionKey: string, targetCount?: number): CustomerListItem[] {
+function leadRowsFromPayload(payload: unknown, sessionKey: string, targetCount?: number, productKeywords?: string): CustomerListItem[] {
   const runId = asString(asRecord(payload).run_id) ?? sessionKey;
+  const searchedProducts = productKeywords ? csv(productKeywords) : [];
   const rows = payloadArray(payload, "leads")
     .map((item, index) => {
       const raw = asRecord(item);
@@ -1518,9 +1586,7 @@ function leadRowsFromPayload(payload: unknown, sessionKey: string, targetCount?:
         countryName: countryName(country),
         city: asString(raw.city),
         buyerType: asString(raw.buyer_type) ?? "buyer",
-        products: asStringArray(raw.matched_products).length
-          ? asStringArray(raw.matched_products)
-          : ["mobile accessories"],
+        products: searchedProducts.length ? searchedProducts : displayProducts(raw.matched_products),
         website,
         foundAt: nowLabel(),
         screeningStatus: "not_started" as const,
@@ -1759,12 +1825,22 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
     task_type: "lead_discovery",
     run_mode: input.runMode ?? "new_scope",
     product_keywords: csv(input.productKeywords),
-    countries: csv(input.countries).map((item) => item.toUpperCase()),
+    countries: csv(input.countries),
     buyer_types: csv(input.buyerTypes),
     target_count: input.targetCount,
-    exclude_domains: csv(input.excludeDomains),
     existing_identity_keys: input.existingIdentityKeys ?? [],
     already_covered_queries: input.alreadyCoveredQueries ?? [],
+    internal_batch: input.internalBatch
+      ? {
+          batch_index: input.internalBatch.batchIndex,
+          batch_count: input.internalBatch.batchCount,
+          batch_path: input.internalBatch.batchPath,
+          batch_target_count: input.internalBatch.batchTargetCount,
+          parent_target_count: input.internalBatch.parentTargetCount,
+          retry_depth: input.internalBatch.retryDepth,
+          strategy: input.internalBatch.strategy,
+        }
+      : undefined,
   };
   return `[CBE Employee Lead Discovery Task]
 
@@ -1775,18 +1851,21 @@ function buildLeadPrompt(input: EmployeeLeadTaskInput) {
 - 不调用 Dashboard 预计算 API，不伪造工具结果。
 - 允许并优先使用工具：cross-border-intel__cbe_intel_google_places_search、cross-border-intel__cbe_intel_google_place_details、web_search、web_fetch。需要 Nearby 坐标时才用 cross-border-intel__cbe_intel_google_geocode。找到候选后可按需使用 cross-border-intel__cbe_intel_domain_rdap_lookup 或 cross-border-intel__cbe_intel_email_domain_check 做轻量验证。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
+- product_keywords、countries、buyer_types 来自管理员维护的中文业务词。你负责理解中文含义、翻译/扩展为适合目标市场的搜索词，并把国家或地区归一化为适合 Google Maps 和 web_search 的国家名称、ISO 代码和语言。
 - 默认先用 Google Maps Places Text Search 或 web_search 搜索整体条件：把所有 product_keywords、countries、buyer_types 合并为一个搜索 brief。不要把产品、国家和买家类型拆成笛卡尔积组合，也不要为了“覆盖每组”而循环调用工具。
 - 只对短名单 place_id 调用 Place Details，使用 lead_discovery_basic 级别信息；不要请求或输出 Google review text、photos、raw response 或 API key。
 - 最终答案前必须至少调用一个公开证据工具（Google Maps Places、web_search 或 web_fetch）。最终接受 lead 前必须用 web_search/web_fetch 或公司官网证据确认产品/买家适配；Google Maps 单独只能作为 discovery seed。
 - 只返回具体下游买家公司，排除 marketplace、目录页、供应商页和社交主页。
 - target_count 是本次任务必须新增的净新客户硬目标；普通 new_scope 不能把它理解成“员工列表总数”，top_up_unique_leads 则表示本次必须补齐的缺口数。
+- 如果任务输入包含 internal_batch，这是平台为了提速并避免上下文溢出的内部获客分片；你只完成当前分片的 target_count，不要尝试补齐 parent_target_count。
+- internal_batch.batch_index 大于 1 时，优先使用不同城市、不同搜索结果段或不同查询变体，尽量避免和其他分片重复，但仍必须遵守同一个整体搜索 brief。
 - existing_identity_keys 是数据库中已分配或本 scope 已尝试过的客户 identity；无论 run_mode 是什么都必须避开这些客户。命中 denylist 时要丢弃并继续找替代客户，不能把重复客户计入 target_count。
 - run_mode 为 top_up_unique_leads 时，本次只补充缺口客户；不要重复 already_covered_queries 中的搜索字符串。
 - target_count 最高为 ${MAX_LEAD_TARGET_COUNT}。按搜索结果顺序检查候选，遇到合规、去重、且不在 existing_identity_keys 中的具体下游买家公司就收录，直到得到 target_count 个或搜索结果明显耗尽。
 - 不需要按产品/国家/buyer_type 组别平衡，也不需要先收集 target_count 倍数的原始候选。前 N 个合规潜在客户即可。
 - 不要因为“高质量优先”、web_fetch 被安全策略拦截、部分官网无法抓取或前几条结果重复而主动限制在 5 个以下；web_fetch 被拦截时，使用 web_search 返回的公司官网 URL、标题和摘要作为 public_web 证据，并继续搜索替代客户。
 - 如果候选超过 target_count，按搜索结果/发现顺序保留前 target_count 个合规且不在 existing_identity_keys 中的客户；不要为了重新排序或组别平衡继续扩展工具循环。
-- 只有在整体条件搜索、排除无效来源、去重和 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的搜索范围。
+- 只有在整体条件搜索、排除无效候选类型、去重和 denylist 替换后仍不足 target_count 时，才可以少于 target_count，并必须在 shortage_reason 中写清楚缺口原因和已尝试的搜索范围。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
 
 JSON 字段要求：
@@ -1813,17 +1892,25 @@ function buildScreeningPrompt(targets: ScreeningTarget[], options: EmployeeScree
 - 不要回复确认、进度、说明、Markdown、引用脚注或自然语言总结。
 - 严禁调用或提到这些不存在/不适用的工具名：web.run、browser、exec、shell、message、citation。
 - 必须使用 cross-border-intel 工具执行背调，不能只靠推理生成报告。
-- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开资料足迹、贸易/海关记录、SEC/财务公开文件。
-- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
+- JSON 里的可展示文本必须面向没有技术背景的中文业务用户，使用自然、完整、简明的中文句子。适用字段包括 finding、summary、reason、rationale、recommended_action、open_questions、coverage_gaps.reason、coverage_gaps.action。只能保留公司名、来源名、网址/域名、邮箱、注册号、案号、产品名等不好替代的原文；不要在可展示文本里出现 API、JSON、payload、endpoint、provider、field_mask、RDAP、DNS、MX、SPF、DMARC、business_status、relationship_status、source_type、query、score_block 等机器或技术字段名。
+- 对每个目标按最低成本顺序尽量调查并写入报告：公司规模评估、公司注册与线下门店/地址、域名/RDAP、邮箱/DNS、官网公开联系信息、Google Maps 地址版图/本地经营足迹、公开资料足迹、法律纠纷/案件/破产/监管处罚、贸易/海关记录、SEC/财务公开文件。
+- 对每个目标必须调用可用的域名/RDAP、邮箱域名、官方联系邮箱、公司注册、Google Maps local-presence、公开法律纠纷/案件/破产/监管处罚搜索、贸易/海关记录、SEC/财务公开文件、买家评分工具；字段缺失、API 不可用、预算关闭、不适用或未命中时记录 coverage gap。
 - 评分前必须先输出 company_scale_assessment：scale_class 只能是 listed_or_public、medium_large_registered、small_local_offline、small_online_only、unknown_scale；first_block_strategy 只能是 registry_disclosure_primary_maps_support、maps_physical_address_primary、domain_public_source_primary、try_registry_and_maps。
 - Google Maps 地址版图是强制报告板块：每个目标都要尝试发现该公司在 Google Maps 上的全部公开地址版图，包括办公室/总部、门店、仓库/分销点、服务/维修点。先用 company_name/legal name/brand、country、city/region、website domain、phone（如有）和官网 location/store/address 页面线索构造最多 6 组 Text Search 查询；调用 cross-border-intel__cbe_intel_google_places_search 做候选发现。
 - 对地址版图候选按 google_place_id、formatted_address、phone、website domain、display_name 去重；对短名单逐个调用 cross-border-intel__cbe_intel_google_place_details，参数使用 field_mask_profile="screening_address_footprint"、purpose="screening"，不请求 review text、photos 或原始 Google response。
 - 对完整地址在上限内调用 cross-border-intel__cbe_intel_google_address_validate，并把 verdict 写入 address_footprint.locations[].address_validation。
 - 如果 target 或 discovery_evidence 中有 google_place_id，仍可做一次 basic local-presence refresh；这不替代地址版图搜索。若 Google API 缺 key、限流或无结果，address_footprint 仍必须返回 coverage_status="unavailable_api" 或 "not_found" 以及 coverage note。
 - 每个地址候选要分类 relationship_status：confirmed_company_location、probable_company_location、possible_related_location、rejected_unrelated_location；地址角色 address_type：headquarters_or_office、storefront、warehouse_or_distribution、service_or_repair_location、unknown_business_location。
-- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 25 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
+- 第一评分板块 legal_identity 的展示含义是“公司注册与线下门店/地址”，固定 20 分。listed_or_public / medium_large_registered 必须融合注册/披露证据 + Google Maps 地址一致性，不能只靠 Maps 拿满分；small_local_offline 如果有 confirmed/probable 且 OPERATIONAL 的 Google Maps 物理地址、名称/类别/城市匹配且无矛盾证据，可以把 legal_identity 按真实线下经营计算。报告措辞用“线下经营真实性由 Google Maps 公开门店/地址证据支持”，不要写成正式 KYB 或法律注册证明。
+- 必须检查法律纠纷/案件/破产/监管处罚：优先用目标国家的官方法院、判例、破产公告、监管执法来源；再用 CourtListener/RECAP、BAILII、Pappers Justice、Jusbrasil 等公共法律数据库或公开网络搜索补充。finding 必须用中文自然说明查询国家、搜索关键词、来源、是否匹配同一家公司、法院/监管/公告来源、案号或公告号（如公开）、日期、状态、结果和案件类型；无命中只能写“本次公开来源未发现”，不能写成绝对没有案件。
+- legal_disputes 为独立评分板块，固定 15 分。官方案件/判决/破产/监管处罚精确匹配目标主体时可高置信扣分并触发 forced downgrade；搜索片段、投诉页、新闻或同名公司结果只能作为 possible_name_collision/pending_human_input，不能单独定性高风险。
 - SEC/财务公开文件不能留空：即使目标不是美国上市申报主体，也要调用 SEC 查询或写明 not_applicable/not_found 原因，并把结果放入 financial_public_filing 或 coverage_gaps。
-- 如果调用了 cross-border-intel 工具，必须把工具返回的关键结果摘要写入 evidence，不要只写最终结论。
+- 如果调用了 cross-border-intel 工具，必须把工具返回的关键业务结果写入 evidence，不要只写最终结论，也不要把工具参数或原始字段名直接贴给用户。
+- evidence.finding 必须是员工可直接判断的中文事实摘要，不是泛泛评价。官方注册来源要用中文写清官方来源、公司名称、注册编号、状态、注册地址/注册地、成立日期（如有）以及是否匹配目标；域名/邮箱要用中文写清检查的是哪个官网或邮箱域名、域名登记是否正常、是否能收信、是否配置邮件防冒用记录、是否与公司匹配；Google Maps 要用中文写清公开名称、地址、经营状态、类别、官网/电话是否匹配以及该地址和目标公司的关系；贸易/财务要用中文写清不适用、未命中、资料源不可用，或具体的采购/申报事实。
+- source_type=official_api 或 official_registry_page 且来自 Companies House、SEC、州注册处或同等级官方注册来源时，如公司名称/国家/状态匹配，confidence 通常应为 0.95-1.0，并给对应 score_block 正向 score_impact；不要因为公司小、没有贸易数据或没有财务公开文件而把官方注册资料降成低置信度。
+- score_blocks 的 summary/reason 必须用自然中文说明“哪些具体事实拿分/没拿分”，不能只写“信息较完整”“可信度中等”，也不能出现内部字段名。若一个板块已经 scored 或 not_applicable，coverage_gaps 不得再列同一 block，除非存在明确矛盾、风险或人工可查证的问题。
+- 对小型私营、本地门店、维修店或线上小公司，贸易/海关、SEC、财务公开文件缺失通常用 not_applicable 或 optional limitation；只有目标自称进口商/批发商/上市主体，或该来源对判断有实质必要时，才列为 coverage_gaps。
+- coverage_gaps 只能写未解决且人类可执行的问题，每项尽量包含 block、status、reason、action、severity（blocking/recommended/optional）。不要输出“补充域名信息”“进一步核验公司资料”这类没有具体缺口的泛化问题。
 - 使用最低成本证据阶梯，缺失 API/付费证据只能标记 coverage gap，不能当作欺诈证据。
 - 不发送外联、不写 CRM、不暴露密钥或完整个人联系信息。
 - 最终自然回复只能包含下面两个 marker 和 marker 中间的 JSON 对象，不要输出任何其他文字。
@@ -1832,11 +1919,12 @@ JSON 字段要求：
 - 顶层：reports。
 - reports 每项：report_id、lead_id、company_name、target、company_scale_assessment、normalized_score、evidence_coverage、risk_tier、score_blocks、evidence、address_footprint、coverage_gaps、recommended_action、open_questions。
 - company_scale_assessment 每项：scale_class、confidence、rationale、first_block_strategy。
-- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial；不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。
+- score_blocks 每项：block、status、max_points、earned_points、source_count、summary 或 reason。block 必须且只能覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、legal_disputes；权重为 legal_identity 20、domain_email 20、public_footprint 15、business_fit 20、trade_financial 10、legal_disputes 15。不适用用 not_applicable，API/预算缺失用 unavailable_api 或 disabled_by_budget。summary/reason 必须把支撑结论的具体字段改写成普通中文业务判断。
 - normalized_score 必须等于最终分：score_blocks 质量分 sum(earned_points) / sum(max_points) * 100 占 80%，evidence_coverage * 100 占 20%，保留两位小数；risk_tier 也必须按该最终分判断。
 - evidence 每项：source_url、source_type、finding、score_block、score_impact、affects_score、fetched_at；fetched_at 使用 ISO 8601 时间；如能判断请加 layer、confidence、cost_posture。
 - source_url 只能填写用户浏览器可直接打开的公开网页。不要把 ImportYeti/Volza 付费 API 地址、data.importyeti.com/v1.0、SEC company_tickers.json、data.sec.gov/submissions/*.json 等内部接口或机器 JSON 索引作为来源链接；这些工具结果可写入 finding/source_type，但不能作为可点击来源。
-- layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、trade_customs、financial_public_filing 之一。
+- layer 用 legal_registry、domain_rdap、email_dns、official_contact、google_maps_local_presence、address_validation、public_footprint、legal_disputes、trade_customs、financial_public_filing 之一。
+- 法律纠纷 source_type 可用 official_court_search、official_case_law、official_insolvency_notice、regulatory_enforcement、public_legal_database、public_web。
 - address_footprint 必须包含：
   - section_title="Google Maps 地址版图"
   - coverage_status="found|partial|not_found|unavailable_api|not_checked"
@@ -1844,7 +1932,7 @@ JSON 字段要求：
   - summary.total_locations、confirmed_locations、probable_locations、possible_related_locations、operational_locations、closed_locations、countries、cities
   - locations[]：google_place_id、display_name、address_type、relationship_status、formatted_address、city、region、country、business_status、types、website_uri、domain_match、phone_match、address_validation、google_maps_uri、match_confidence、match_reasons、source_type、fetched_at
   - open_questions
-- coverage_gaps 写清楚没查到、没启用、没提供还是 API 不可用。
+- coverage_gaps 写清楚没查到、没启用、没提供、不适用还是 API 不可用；只保留未解决且可执行的缺口，不要和 scored/not_applicable 的 score_blocks 冲突；每项尽量带 severity。
 
 最终格式：
 ${REPORT_JSON_START}
@@ -1991,12 +2079,232 @@ export function manualInputToScreeningTarget(input: ManualScreeningInput): Scree
   };
 }
 
+interface LeadInternalBatchResult {
+  payload: unknown;
+  assistantText: string;
+  sessionKey: string;
+  requestedCount: number;
+  batch: EmployeeLeadInternalBatch;
+}
+
+interface LeadInternalBatchAggregate {
+  results: LeadInternalBatchResult[];
+  attemptedSessionKeys: string[];
+  overflowRetryCount: number;
+}
+
+function leadBatchProgressHandler(
+  batch: EmployeeLeadInternalBatch,
+  onProgress?: (progress: EmployeeTaskProgress) => void,
+) {
+  return (progress: EmployeeTaskProgress) => {
+    onProgress?.({
+      ...progress,
+      message: `获客分批 ${batch.batchPath}：${progress.message}`,
+    });
+  };
+}
+
+async function runLeadDiscoveryHiddenBatch(
+  client: GatewayClient,
+  input: EmployeeLeadTaskInput,
+  batch: EmployeeLeadInternalBatch,
+  options: {
+    sessionKey?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: EmployeeTaskProgress) => void;
+  },
+): Promise<LeadInternalBatchResult> {
+  const estimatedMs = estimateLeadTaskDurationMs(input);
+  const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
+  const result = await runHiddenEmployeeTask({
+    client,
+    agentId: LEAD_AGENT_ID,
+    label: uniqueTaskLabel(`CBE Employee lead discovery batch ${batch.batchPath}`),
+    prompt: buildLeadPrompt(input),
+    startMarker: LEADS_JSON_START,
+    endMarker: LEADS_JSON_END,
+    sessionKey: options.sessionKey,
+    signal: options.signal,
+    estimatedMs,
+    timeoutMs,
+    onProgress: leadBatchProgressHandler(batch, options.onProgress),
+  });
+  return {
+    payload: result.payload,
+    assistantText: result.assistantText,
+    sessionKey: result.sessionKey,
+    requestedCount: input.targetCount,
+    batch,
+  };
+}
+
+function mergeLeadBatchAggregates(aggregates: LeadInternalBatchAggregate[]): LeadInternalBatchAggregate {
+  return {
+    results: aggregates.flatMap((aggregate) => aggregate.results),
+    attemptedSessionKeys: uniqueStrings(aggregates.flatMap((aggregate) => aggregate.attemptedSessionKeys)),
+    overflowRetryCount: aggregates.reduce((sum, aggregate) => sum + aggregate.overflowRetryCount, 0),
+  };
+}
+
+async function runLeadInternalBatchUnit(params: {
+  client: GatewayClient;
+  baseInput: EmployeeLeadTaskInput;
+  batch: EmployeeLeadInternalBatch;
+  sessionKey?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+}): Promise<LeadInternalBatchAggregate> {
+  const input: EmployeeLeadTaskInput = {
+    ...params.baseInput,
+    targetCount: params.batch.batchTargetCount,
+    internalBatch: params.batch,
+  };
+  const plannedSessionKey = params.sessionKey ?? createEmployeeSessionKey(LEAD_AGENT_ID);
+  try {
+    const result = await runLeadDiscoveryHiddenBatch(params.client, input, params.batch, {
+      sessionKey: plannedSessionKey,
+      signal: params.signal,
+      onProgress: params.onProgress,
+    });
+    return {
+      results: [result],
+      attemptedSessionKeys: [result.sessionKey],
+      overflowRetryCount: 0,
+    };
+  } catch (error) {
+    const failedSessionKey = error instanceof EmployeeTaskError ? error.sessionKey : plannedSessionKey;
+    if (isLeadContextOverflowError(error) && params.batch.batchTargetCount > 1) {
+      params.onProgress?.({
+        status: "running",
+        sessionKey: failedSessionKey,
+        message: `获客分批 ${params.batch.batchPath} 上下文过大，正在拆成更小分批重试。`,
+      });
+      const retryAggregate = await runLeadInternalBatchGroup({
+        client: params.client,
+        baseInput: params.baseInput,
+        targetCount: params.batch.batchTargetCount,
+        parentTargetCount: params.batch.parentTargetCount,
+        parentPath: params.batch.batchPath,
+        retryDepth: params.batch.retryDepth + 1,
+        forceSplit: true,
+        signal: params.signal,
+        onProgress: params.onProgress,
+      });
+      return {
+        results: retryAggregate.results,
+        attemptedSessionKeys: uniqueStrings([failedSessionKey, ...retryAggregate.attemptedSessionKeys]),
+        overflowRetryCount: retryAggregate.overflowRetryCount + 1,
+      };
+    }
+    throw error;
+  }
+}
+
+async function runLeadInternalBatchGroup(params: {
+  client: GatewayClient;
+  baseInput: EmployeeLeadTaskInput;
+  targetCount: number;
+  parentTargetCount: number;
+  parentPath?: string;
+  retryDepth: number;
+  forceSplit?: boolean;
+  firstSessionKey?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: EmployeeTaskProgress) => void;
+}): Promise<LeadInternalBatchAggregate> {
+  const sizes = leadInternalBatchSizes(params.targetCount, { forceSplit: params.forceSplit });
+  const batchCount = sizes.length;
+  const promises = sizes.map((batchTargetCount, index) => {
+    const batchPath = params.parentPath ? `${params.parentPath}.${index + 1}` : `${index + 1}`;
+    const batch: EmployeeLeadInternalBatch = {
+      batchIndex: index + 1,
+      batchCount,
+      batchPath,
+      batchTargetCount,
+      parentTargetCount: params.parentTargetCount,
+      retryDepth: params.retryDepth,
+      strategy: params.retryDepth > 0 ? "overflow_retry" : "internal_batch",
+    };
+    return runLeadInternalBatchUnit({
+      client: params.client,
+      baseInput: params.baseInput,
+      batch,
+      sessionKey: index === 0 && params.retryDepth === 0 ? params.firstSessionKey : undefined,
+      signal: params.signal,
+      onProgress: params.onProgress,
+    });
+  });
+
+  const settled = await Promise.allSettled(promises);
+  const failures = settled.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+  if (failures.length > 0) {
+    throw failures[0].reason;
+  }
+  return mergeLeadBatchAggregates(
+    settled.map((item) => (item as PromiseFulfilledResult<LeadInternalBatchAggregate>).value),
+  );
+}
+
+function mergeLeadBatchPayloads(input: EmployeeLeadTaskInput, aggregate: LeadInternalBatchAggregate, sessionKey: string) {
+  const payloads = aggregate.results.map((result) => result.payload);
+  const shortageReasons = payloads
+    .map((payload) => asString(asRecord(payload).shortage_reason))
+    .filter((reason): reason is string => Boolean(reason));
+  const leads = payloads.flatMap((payload) => payloadArray(payload, "leads"));
+  return {
+    run_id: `lead-batched-${sessionKey}`,
+    leads,
+    shortage_reason: shortageReasons.length ? uniqueStrings(shortageReasons).join("；") : undefined,
+    internal_session_keys: aggregate.attemptedSessionKeys,
+    internal_batching: {
+      enabled: true,
+      requested_target_count: input.targetCount,
+      max_batch_target_count: LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT,
+      overflow_retry_count: aggregate.overflowRetryCount,
+      batches: aggregate.results.map((result) => ({
+        batch_path: result.batch.batchPath,
+        requested_target_count: result.requestedCount,
+        session_key: result.sessionKey,
+        retry_depth: result.batch.retryDepth,
+        strategy: result.batch.strategy,
+        returned_count: payloadArray(result.payload, "leads").length,
+      })),
+    },
+  };
+}
+
 export async function runLeadDiscoveryTask(
   client: GatewayClient,
   input: EmployeeLeadTaskInput,
   onProgress?: (progress: EmployeeTaskProgress) => void,
   options: { sessionKey?: string; signal?: AbortSignal } = {},
 ): Promise<EmployeeTaskResult<CustomerListItem[]>> {
+  if (shouldInternallyBatchLeadTask(input)) {
+    const aggregate = await runLeadInternalBatchGroup({
+      client,
+      baseInput: input,
+      targetCount: input.targetCount,
+      parentTargetCount: input.targetCount,
+      retryDepth: 0,
+      firstSessionKey: options.sessionKey,
+      signal: options.signal,
+      onProgress,
+    });
+    const sessionKey = aggregate.results[0]?.sessionKey ?? options.sessionKey ?? createEmployeeSessionKey(LEAD_AGENT_ID);
+    const payload = mergeLeadBatchPayloads(input, aggregate, sessionKey);
+    const assistantText = aggregate.results.map((result) => result.assistantText).join("\n\n");
+    const records = leadRowsFromPayload(payload, sessionKey, input.targetCount, input.productKeywords);
+    throwIfTaskCancelled(options.signal, sessionKey);
+    if (records.length === 0) {
+      throw new EmployeeTaskError("marker_missing", "获客员工返回了结果，但没有可写入客户列表的客户数据。", {
+        sessionKey,
+        lastAssistantText: assistantText,
+      });
+    }
+    return { sessionKey, assistantText, payload, records };
+  }
+
   const estimatedMs = estimateLeadTaskDurationMs(input);
   const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
   const result = await runHiddenEmployeeTask({
@@ -2012,7 +2320,7 @@ export async function runLeadDiscoveryTask(
     timeoutMs,
     onProgress,
   });
-  const records = leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount);
+  const records = leadRowsFromPayload(result.payload, result.sessionKey, input.targetCount, input.productKeywords);
   throwIfTaskCancelled(options.signal, result.sessionKey);
   if (records.length === 0) {
     throw new EmployeeTaskError("marker_missing", "获客员工返回了结果，但没有可写入客户列表的客户数据。", {

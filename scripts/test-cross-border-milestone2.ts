@@ -152,9 +152,10 @@ check("screening SOP accepts manual input", screeningSop.entities[0]?.attributes
 
 section("Contextual scoring ontology");
 const blockIds = scoringRules.evidenceBlocks.map((block: any) => block.id);
-for (const block of ["legal_identity", "domain_email", "public_footprint", "business_fit", "trade_financial", "conversation_behavior"]) {
+for (const block of ["legal_identity", "domain_email", "public_footprint", "business_fit", "trade_financial", "legal_disputes"]) {
   check(`scoring rules define ${block}`, blockIds.includes(block));
 }
+check("scoring rules do not define conversation behavior block", !blockIds.includes("conversation_behavior"));
 const statusRules = scoringRules.scoringModel.blockStatuses;
 check(
   "not_applicable is excluded from score and coverage denominators",
@@ -163,10 +164,6 @@ check(
 check(
   "disabled_by_budget counts as coverage gap only",
   statusRules.some((entry: any) => entry.status === "disabled_by_budget" && entry.inScoreDenominator === false && entry.inCoverageDenominator === true),
-);
-check(
-  "conversation_behavior cold lead default is not_applicable",
-  scoringRules.evidenceBlocks.some((block: any) => block.id === "conversation_behavior" && block.coldLeadDefaultStatus === "not_applicable"),
 );
 check(
   "trade_financial default unavailable status is disabled_by_budget",
@@ -208,10 +205,10 @@ const lead = LeadCandidateSchema.parse({
 check("LeadCandidateSchema accepts design-shaped lead", lead.dedupe_key === "example-mobile-distribution.co.uk");
 
 const coldLeadBlocks: ScoreBlock[] = [
-  { block: "legal_identity", status: "scored", max_points: 25, earned_points: 19, source_count: 2 },
-  { block: "domain_email", status: "scored", max_points: 25, earned_points: 20, source_count: 3 },
-  { block: "public_footprint", status: "scored", max_points: 20, earned_points: 15, source_count: 4 },
-  { block: "business_fit", status: "scored", max_points: 20, earned_points: 15, source_count: 2 },
+  { block: "legal_identity", status: "scored", max_points: 20, earned_points: 15, source_count: 2 },
+  { block: "domain_email", status: "scored", max_points: 20, earned_points: 16, source_count: 3 },
+  { block: "public_footprint", status: "scored", max_points: 15, earned_points: 11, source_count: 4 },
+  { block: "business_fit", status: "scored", max_points: 20, earned_points: 14, source_count: 2 },
   {
     block: "trade_financial",
     status: "disabled_by_budget",
@@ -219,20 +216,14 @@ const coldLeadBlocks: ScoreBlock[] = [
     earned_points: null,
     reason: "Volza/ImportYeti key not enabled for this demo run",
   },
-  {
-    block: "conversation_behavior",
-    status: "not_applicable",
-    max_points: 15,
-    earned_points: null,
-    reason: "Cold lead from Marketing; no Accio or sales conversation yet",
-  },
+  { block: "legal_disputes", status: "scored", max_points: 15, earned_points: 13, source_count: 2 },
 ];
 
 const coldLeadScore = calculateContextualScore({
   profile: "cold_lead_low_cost",
   blocks: coldLeadBlocks,
 });
-check("cold lead score excludes conversation_behavior from denominator", coldLeadScore.coverage_denominator === 100);
+check("cold lead score uses the six public-evidence blocks as denominator", coldLeadScore.coverage_denominator === 100);
 check("disabled paid APIs reduce evidence coverage", coldLeadScore.evidence_coverage === 0.9);
 check("disabled paid APIs reduce final score through coverage component", coldLeadScore.normalized_score === 79.33);
 check("cold lead risk tier follows final score threshold", coldLeadScore.risk_tier === "cautious");

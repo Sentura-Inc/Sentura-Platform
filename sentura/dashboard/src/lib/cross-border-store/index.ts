@@ -9,6 +9,7 @@ export * from "./errors";
 export * from "./handoffs";
 export * from "./ids";
 export * from "./lead-runs";
+export * from "./lead-settings";
 export * from "./notifications";
 export * from "./route-utils";
 export * from "./schemas";

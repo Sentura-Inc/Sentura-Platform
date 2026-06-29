@@ -32,7 +32,7 @@
           "4. Check domain/email credibility with syntax, free-provider/disposable flags, DNS MX/SPF/DMARC, and RDAP.",
           "5. Check public digital footprint through public search/fetch only.",
           "6. Check trade/customs and financial evidence only when low-cost or approved paid sources are enabled.",
-          "7. Add conversation_behavior only when Accio or sales interaction evidence exists; mark cold Marketing leads as not_applicable.",
+          "7. Check legal disputes, court cases, insolvency/bankruptcy, and regulatory enforcement through public sources.",
           "8. Compute contextual normalized_score and evidence_coverage separately.",
           "9. Apply forced downgrade rules after scoring.",
           "10. Return an evidence-cited ScreeningReport with recommended next action and missing evidence.",

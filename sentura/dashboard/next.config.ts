@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const dashboardRoot = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(dashboardRoot, "../..");
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: repoRoot,
+  },
   async redirects() {
     return [
       {

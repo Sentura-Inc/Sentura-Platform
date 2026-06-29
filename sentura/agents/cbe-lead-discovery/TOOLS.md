@@ -52,9 +52,8 @@ Do not fetch private/internal hosts, login-gated pages, or pages whose terms vis
 Use only for operator-requested recurring lead-search runs. The scheduled prompt must include:
 
 - products;
-- countries/languages;
+- target countries/regions;
 - target count;
-- exclusion domains;
 - output destination as chat/report only.
 
 Cron runs still obey the no-outreach rule.

@@ -38,6 +38,16 @@ function hasChinese(value: string) {
   return /[\u3400-\u9fff]/.test(value);
 }
 
+export function isPlaceholderProduct(value: string) {
+  const normalized = normalizeCustomerLabelValue(value);
+  return !normalized ||
+    normalized === "mobile-accessories" ||
+    normalized === "product-pending-confirmation" ||
+    normalized === "产品待确认" ||
+    normalized === "未确认" ||
+    normalized === "待确认";
+}
+
 export function canonicalBuyerType(value: string) {
   const normalized = normalizeCustomerLabelValue(value);
   if (!normalized) return "";

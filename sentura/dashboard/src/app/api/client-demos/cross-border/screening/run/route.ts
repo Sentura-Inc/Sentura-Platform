@@ -10,6 +10,11 @@ export const runtime = "nodejs";
 type SourceType =
   | "official_api"
   | "official_registry_page"
+  | "official_court_search"
+  | "official_case_law"
+  | "official_insolvency_notice"
+  | "regulatory_enforcement"
+  | "public_legal_database"
   | "public_web"
   | "public_dns"
   | "paid_trade_data"
@@ -21,9 +26,9 @@ type EvidenceLayer =
   | "legal_registry"
   | "domain_email"
   | "public_footprint"
+  | "legal_disputes"
   | "trade_customs"
-  | "financial_public_filing"
-  | "behavior";
+  | "financial_public_filing";
 
 type ScoreBlockId =
   | "legal_identity"
@@ -31,7 +36,7 @@ type ScoreBlockId =
   | "public_footprint"
   | "business_fit"
   | "trade_financial"
-  | "conversation_behavior";
+  | "legal_disputes";
 
 type CompanyScaleClass =
   | "listed_or_public"
@@ -186,6 +191,32 @@ const MOBILE_ACCESSORY_TERMS = [
   "screen protector",
   "tempered glass",
   "usb-c",
+];
+
+const LEGAL_DISPUTE_TERMS = [
+  "lawsuit",
+  "litigation",
+  "court",
+  "case",
+  "judgment",
+  "bankruptcy",
+  "insolvency",
+  "liquidation",
+  "administration",
+  "enforcement",
+  "regulatory action",
+  "fraud judgment",
+  "诉讼",
+  "法院",
+  "破产",
+  "倒闭",
+  "recuperacao judicial",
+  "falencia",
+  "concurso mercantil",
+  "sofferenza",
+  "fallimento",
+  "소송",
+  "파산",
 ];
 
 let openClawEnvCache: Record<string, string> | undefined;
@@ -485,6 +516,23 @@ function normalizeCompanyNameForMatch(value: string | undefined): string {
     .trim();
 }
 
+function legalSourceTypeForUrl(url: string): SourceType {
+  const lowered = url.toLowerCase();
+  if (/(thegazette\.co\.uk|insolvenzbekanntmachungen|publicidadconcursal|bodacc|boe\.es|registroimprese|giustizia)/i.test(lowered)) {
+    return "official_insolvency_notice";
+  }
+  if (/(caselaw\.nationalarchives|courdecassation|poderjudicial|uscourts|pacer|supremecourt|courts\.go\.jp|court\.go\.kr)/i.test(lowered)) {
+    return "official_case_law";
+  }
+  if (/(sec\.gov\/litigation|sec\.gov\/enforcement|dart\.fss|fss\.or\.kr|cnj\.jus\.br|datajud)/i.test(lowered)) {
+    return "regulatory_enforcement";
+  }
+  if (/(courtlistener|recap|bailii|pappers|jusbrasil)/i.test(lowered)) {
+    return "public_legal_database";
+  }
+  return "public_web";
+}
+
 function parseCompaniesHouseSearchResults(html: string, maxResults = 3) {
   const results: Array<{ company_number?: string; title: string; description?: string; url: string }> = [];
   const resultsStart = html.search(/<ul[^>]+id=['"]results['"][^>]*>/i);
@@ -569,7 +617,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
       status: "pending_human_input",
       recommended_next_step: "补充公司英文法定名称或注册号。",
     });
-    return { evidence, missing, block: scoreBlock("legal_identity", status, 25, earnedPoints, evidence, summary), officialMatchFound };
+    return { evidence, missing, block: scoreBlock("legal_identity", status, 20, earnedPoints, evidence, summary), officialMatchFound };
   }
 
   if (target.country === "US") {
@@ -581,7 +629,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
       const cik = matchedCik === undefined ? undefined : normalizeCik(matchedCik);
       officialMatchFound = Boolean(cik);
       status = lookup.response.ok ? (cik ? "scored" : "pending_human_input") : "unavailable_api";
-      earnedPoints = cik ? (lookup.matchType === "exact_name" || lookup.matchType === "ticker" ? 20 : 14) : null;
+      earnedPoints = cik ? (lookup.matchType === "exact_name" || lookup.matchType === "ticker" ? 17 : 12) : null;
       summary = lookup.response.ok
         ? cik
           ? `SEC EDGAR ticker/CIK 映射匹配到 ${matchedTitle ?? target.company_name}${matchedTicker ? ` (${matchedTicker})` : ""}，CIK=${cik}。`
@@ -657,7 +705,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
         } else {
           officialMatchFound = items.length > 0;
           status = "scored";
-          earnedPoints = officialMatchFound ? (companyStatus === "active" ? 23 : 15) : 8;
+          earnedPoints = officialMatchFound ? (companyStatus === "active" ? 19 : 12) : 6;
           summary = officialMatchFound
             ? `Companies House API 返回 ${items.length} 条候选，首条状态为 ${companyStatus ?? "未确认"}。`
             : `Companies House API 查询完成，但未找到稳定匹配。`;
@@ -674,7 +722,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
             affects_score: true,
             raw_status: String(response.status),
           }, fetchedAt));
-          return { evidence, missing, block: scoreBlock("legal_identity", status, 25, earnedPoints, evidence, summary), officialMatchFound };
+          return { evidence, missing, block: scoreBlock("legal_identity", status, 20, earnedPoints, evidence, summary), officialMatchFound };
         }
       } catch (error) {
         status = "unavailable_api";
@@ -705,7 +753,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
       const exact = normalizeCompanyNameForMatch(first?.title) === normalizeCompanyNameForMatch(target.company_name);
       officialMatchFound = results.length > 0;
       status = response.ok ? "scored" : "unavailable_api";
-      earnedPoints = response.ok ? (results.length > 0 ? (exact ? 18 : 12) : 6) : null;
+      earnedPoints = response.ok ? (results.length > 0 ? (exact ? 16 : 11) : 5) : null;
       summary = response.ok
         ? results.length > 0
           ? `Companies House 官方公开网页返回 ${results.length} 条候选，首条为 ${first?.title}${first?.company_number ? ` (${first.company_number})` : ""}。`
@@ -745,7 +793,7 @@ async function registryEvidence(target: InvestigationTarget, fetchedAt: string, 
     missing.push({ block: "legal_identity", status, recommended_next_step: "通过公开官方注册页或注册号补强法律主体证据。" });
   }
 
-  return { evidence, missing, block: scoreBlock("legal_identity", status, 25, earnedPoints, evidence, summary), officialMatchFound };
+  return { evidence, missing, block: scoreBlock("legal_identity", status, 20, earnedPoints, evidence, summary), officialMatchFound };
 }
 
 async function rdapLookup(domain: string, fetchedAt: string, signal: AbortSignal) {
@@ -797,7 +845,7 @@ async function domainEmailEvidence(
     return {
       evidence,
       missing,
-      block: scoreBlock("domain_email", "pending_human_input", 25, null, evidence, summary),
+      block: scoreBlock("domain_email", "pending_human_input", 20, null, evidence, summary),
       disposableOrFreeOnly: false,
       youngDomain: false,
       businessDomainVerified: false,
@@ -823,16 +871,16 @@ async function domainEmailEvidence(
   const rdapFound = Boolean(rdapResponse?.ok);
   const domainAgeDays = "body" in rdap ? findRegistrationAgeDays(rdap.body) : undefined;
   const youngDomain = typeof domainAgeDays === "number" && domainAgeDays < 90;
-  let earnedPoints = 8;
-  if (mxPresent) earnedPoints += 6;
-  if (spfPresent) earnedPoints += 3;
-  if (dmarcPresent) earnedPoints += 3;
-  if (rdapFound) earnedPoints += 4;
-  if (!freeProvider && !disposable) earnedPoints += 3;
-  if (freeProvider) earnedPoints -= 4;
-  if (disposable) earnedPoints -= 10;
-  if (youngDomain) earnedPoints -= 4;
-  earnedPoints = Math.max(0, Math.min(25, earnedPoints));
+  let earnedPoints = 6;
+  if (mxPresent) earnedPoints += 5;
+  if (spfPresent) earnedPoints += 2;
+  if (dmarcPresent) earnedPoints += 2;
+  if (rdapFound) earnedPoints += 3;
+  if (!freeProvider && !disposable) earnedPoints += 2;
+  if (freeProvider) earnedPoints -= 3;
+  if (disposable) earnedPoints -= 8;
+  if (youngDomain) earnedPoints -= 3;
+  earnedPoints = Math.max(0, Math.min(20, earnedPoints));
 
   const summary = `域名 ${normalizedDomain}：MX ${mxPresent ? "存在" : "缺失"}，SPF ${spfPresent ? "存在" : "未确认"}，DMARC ${dmarcPresent ? "存在" : "未确认"}，RDAP ${rdapFound ? "可查询" : "未确认"}。`;
   evidence.push(buildEvidence({
@@ -853,8 +901,8 @@ async function domainEmailEvidence(
     const paidResults = await paidEmailEvidence(email, fetchedAt, signal);
     evidence.push(...paidResults.evidence);
     missing.push(...paidResults.missing);
-    if (paidResults.positive) earnedPoints = Math.min(25, earnedPoints + 3);
-    if (paidResults.negative) earnedPoints = Math.max(0, earnedPoints - 6);
+    if (paidResults.positive) earnedPoints = Math.min(20, earnedPoints + 3);
+    if (paidResults.negative) earnedPoints = Math.max(0, earnedPoints - 5);
   } else if (email && (configured("ABSTRACT_API_KEY") || configured("HUNTER_API_KEY"))) {
     missing.push({
       block: "domain_email",
@@ -866,7 +914,7 @@ async function domainEmailEvidence(
   return {
     evidence,
     missing,
-    block: scoreBlock("domain_email", "scored", 25, earnedPoints, evidence, summary),
+    block: scoreBlock("domain_email", "scored", 20, earnedPoints, evidence, summary),
     disposableOrFreeOnly: (freeProvider || disposable) && !target.website && !target.domain,
     youngDomain,
     businessDomainVerified: mxPresent && !freeProvider && !disposable,
@@ -1019,7 +1067,7 @@ async function publicFootprintEvidence(target: InvestigationTarget, fetchedAt: s
     return {
       evidence,
       missing,
-      publicBlock: scoreBlock("public_footprint", "unavailable_api", 20, null, evidence, "Tavily 未配置，公开足迹未检查。"),
+      publicBlock: scoreBlock("public_footprint", "unavailable_api", 15, null, evidence, "Tavily 未配置，公开足迹未检查。"),
       fitBlock: scoreBlock("business_fit", target.product_interest.length > 0 ? "scored" : "pending_human_input", 20, target.product_interest.length > 0 ? 10 : null, evidence, target.product_interest.length > 0 ? "使用操作员或 Marketing 提供的产品兴趣作为初始业务匹配证据。" : "缺少产品兴趣或公开业务内容。"),
       adverseFlags: [] as string[],
     };
@@ -1049,7 +1097,7 @@ async function publicFootprintEvidence(target: InvestigationTarget, fetchedAt: s
 	          (normalizedTargetName.length >= 4 && normalizedResultText.includes(normalizedTargetName));
         const hasProductSignal = targetSpecific && includesAny(text, MOBILE_ACCESSORY_TERMS);
         if (hasProductSignal) productSignal = true;
-        const adverseTerm = /\b(fraud|scam|lawsuit|fake|complaint|blacklist)\b/i.test(text);
+        const adverseTerm = /\b(fraud|scam|fake|complaint|blacklist)\b/i.test(text);
         const adverse = targetSpecific && adverseTerm;
         if (adverse) adverseFlags.push(`public_adverse_result:${url}`);
         evidence.push(buildEvidence({
@@ -1072,14 +1120,100 @@ async function publicFootprintEvidence(target: InvestigationTarget, fetchedAt: s
   }
 
   const targetSpecificEvidence = evidence.filter((item) => item.affects_score);
-  const publicEarned = Math.min(20, Math.max(6, targetSpecificEvidence.length * 3 + (adverseFlags.length === 0 ? 8 : 0)));
+  const publicEarned = Math.min(15, Math.max(4, targetSpecificEvidence.length * 2 + (adverseFlags.length === 0 ? 7 : 0)));
   const fitEarned = productSignal ? Math.min(20, 12 + Math.min(8, target.product_interest.length * 2 + evidence.filter((item) => item.score_block === "business_fit" && item.affects_score).length * 2)) : null;
   return {
     evidence,
     missing,
-    publicBlock: scoreBlock("public_footprint", evidence.length > 0 ? "scored" : "unavailable_api", 20, evidence.length > 0 ? publicEarned : null, evidence, evidence.length > 0 ? "公开网页/搜索足迹已检查。" : "未获得公开网页证据。"),
+    publicBlock: scoreBlock("public_footprint", evidence.length > 0 ? "scored" : "unavailable_api", 15, evidence.length > 0 ? publicEarned : null, evidence, evidence.length > 0 ? "公开网页/搜索足迹已检查。" : "未获得公开网页证据。"),
     fitBlock: scoreBlock("business_fit", productSignal ? "scored" : "pending_human_input", 20, fitEarned, evidence, productSignal ? "产品兴趣或公开内容与手机配件业务相关。" : "缺少产品兴趣或公开业务内容。"),
     adverseFlags,
+  };
+}
+
+async function legalDisputesEvidence(target: InvestigationTarget, fetchedAt: string, signal: AbortSignal) {
+  const evidence: EvidenceItem[] = [];
+  const missing: MissingEvidence[] = [];
+  const company = target.company_name ?? target.domain ?? target.email ?? "";
+  if (!company) {
+    const summary = "缺少公司名称、域名或注册主体，无法稳定检索法律纠纷/案件。";
+    missing.push({ block: "legal_disputes", status: "pending_human_input", recommended_next_step: "补充法定名称、注册号、所在地或司法辖区后重新检索公开案件/破产/监管处罚来源。" });
+    return { evidence, missing, block: scoreBlock("legal_disputes", "pending_human_input", 15, null, evidence, summary), materialLegalRisk: false };
+  }
+  if (!configured("TAVILY_API_KEY")) {
+    const summary = "Tavily 未配置，法律纠纷/案件公开检索未检查。";
+    missing.push({ block: "legal_disputes", status: "unavailable_api", recommended_next_step: "配置公开搜索来源后检索法院案件、破产公告和监管处罚。" });
+    return { evidence, missing, block: scoreBlock("legal_disputes", "unavailable_api", 15, null, evidence, summary), materialLegalRisk: false };
+  }
+
+  const queries = [
+    `${company} ${target.country ?? ""} lawsuit litigation court case judgment`,
+    `${company} ${target.country ?? ""} bankruptcy insolvency liquidation administration regulatory enforcement`,
+  ].map((query) => query.trim());
+  let confirmedMaterial = 0;
+  let possibleMaterial = 0;
+
+  for (const query of queries) {
+    try {
+      const results = await tavilySearch(query, signal);
+      for (const result of results.slice(0, 4)) {
+        const title = asString(result.title) ?? "";
+        const url = asString(result.url) ?? "https://www.google.com/search";
+        const content = asString(result.content) ?? "";
+        const text = `${title}\n${content}`;
+        const targetDomain = target.domain ? normalizeDomain(target.domain) : undefined;
+        const resultDomain = normalizeDomain(url);
+        const normalizedTargetName = normalizeCompanyNameForMatch(company);
+        const normalizedResultText = normalizeCompanyNameForMatch(text);
+        const targetSpecific =
+          Boolean(targetDomain && resultDomain && (resultDomain === targetDomain || resultDomain.endsWith(`.${targetDomain}`))) ||
+          (normalizedTargetName.length >= 4 && normalizedResultText.includes(normalizedTargetName));
+        const legalTerm = includesAny(text, LEGAL_DISPUTE_TERMS);
+        const sourceType = legalSourceTypeForUrl(url);
+        const officialOrLegalDb = sourceType !== "public_web";
+        if (targetSpecific && legalTerm && officialOrLegalDb) confirmedMaterial += 1;
+        else if (targetSpecific && legalTerm) possibleMaterial += 1;
+        evidence.push(buildEvidence({
+          layer: "legal_disputes",
+          source_type: sourceType,
+          source: sourceType === "public_web" ? "Public legal-risk web search" : "Public legal-risk source",
+          url,
+          finding: `${title || url}: query="${query}". ${content.slice(0, 220)}${targetSpecific ? " 结果文本与目标名称/域名存在匹配。" : " 未确认与目标同一主体。"}`,
+          confidence: targetSpecific ? (officialOrLegalDb ? 0.78 : 0.48) : 0.25,
+          cost_usd: 0,
+          score_block: "legal_disputes",
+          score_impact: targetSpecific && legalTerm ? (officialOrLegalDb ? "negative" : "neutral") : "coverage_only",
+          affects_score: targetSpecific,
+          raw_status: query,
+        }, fetchedAt));
+      }
+    } catch (error) {
+      missing.push({ block: "legal_disputes", status: "unavailable_api", recommended_next_step: `法律纠纷公开检索失败：${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
+
+  const targetSpecificEvidence = evidence.filter((item) => item.affects_score);
+  const materialLegalRisk = confirmedMaterial > 0;
+  const status: EvidenceStatus = evidence.length > 0 ? "scored" : "unavailable_api";
+  const earnedPoints = status === "scored"
+    ? materialLegalRisk
+      ? 3
+      : possibleMaterial > 0
+        ? 8
+        : targetSpecificEvidence.length > 0
+          ? 13
+          : 11
+    : null;
+  const summary = materialLegalRisk
+    ? "公开法律/法院/监管来源出现与目标主体匹配的重大法律风险，需要人工复核后再推进。"
+    : possibleMaterial > 0
+      ? "公开搜索出现疑似法律纠纷线索，但缺少官方案件号或主体匹配，需人工复核。"
+      : "本次公开法律纠纷/案件/破产/监管处罚检索未发现目标主体的重大风险；结论仅覆盖已检索公开来源。";
+  return {
+    evidence,
+    missing,
+    block: scoreBlock("legal_disputes", status, 15, earnedPoints, evidence, summary),
+    materialLegalRisk,
   };
 }
 
@@ -1256,18 +1390,6 @@ async function tradeFinancialEvidence(
   return { evidence, missing, block: scoreBlock("trade_financial", status, 10, earnedPoints, evidence, summary) };
 }
 
-function behaviorBlock(target: InvestigationTarget): ScoreBlock {
-  const notes = target.operator_notes ?? "";
-  const hasBehavior = /accio|聊天|付款|payment|pi|报价|responsive|响应/i.test(notes);
-  if (!hasBehavior) {
-    return scoreBlock("conversation_behavior", "not_applicable", 15, null, [], "行为记录：未适用（冷启动潜客）。", "Cold Marketing/manual target has no Accio or sales interaction.");
-  }
-  let points = 8;
-  if (/PI|报价|payment|付款|deposit|定金|证书|certificate/i.test(notes)) points += 4;
-  if (/第三方|third-party bank|unrelated bank|异常/i.test(notes)) points -= 8;
-  return scoreBlock("conversation_behavior", "scored", 15, Math.max(0, Math.min(15, points)), [], "根据操作员提供的 Accio/销售行为备注计入行为信号。");
-}
-
 function scoreBlock(
   block: ScoreBlockId,
   status: EvidenceStatus,
@@ -1345,7 +1467,7 @@ function recommendedAction(score: ScoreResult): string {
   if (score.risk_tier === "high_risk") {
     return "暂缓推进；需人工复核高风险证据，避免预付款、异常收款账户或敏感合规承诺。";
   }
-  return "证据不足；建议补充公司官网、注册号、公司邮箱或 Accio 聊天记录后重新背调。";
+  return "证据不足；建议补充公司官网、注册号、公司邮箱或其他可核验公开来源后重新背调。";
 }
 
 function inferCompanyScaleAssessment(
@@ -1393,50 +1515,37 @@ async function buildReport(
   const registry = await registryEvidence(target, fetchedAt, signal);
   const domainEmail = await domainEmailEvidence(target, fetchedAt, signal, options.enablePaidEmailValidation);
   const publicFootprint = await publicFootprintEvidence(target, fetchedAt, signal);
+  const legalDisputes = await legalDisputesEvidence(target, fetchedAt, signal);
   const tradeFinancial = await tradeFinancialEvidence(target, fetchedAt, signal, options.enablePaidTradeData, options.maxPaidSpendUsd);
-  const behavior = behaviorBlock(target);
   const companyScaleAssessment = inferCompanyScaleAssessment(target, registry);
 
   const evidence = [
     ...registry.evidence,
     ...domainEmail.evidence,
     ...publicFootprint.evidence,
+    ...legalDisputes.evidence,
     ...tradeFinancial.evidence,
   ];
-  if (behavior.status === "scored") {
-    evidence.push(buildEvidence({
-      layer: "behavior",
-      source_type: "self_reported",
-      source: "Operator notes",
-      url: "sentura://operator-notes",
-      finding: behavior.summary,
-      confidence: 0.5,
-      cost_usd: 0,
-      score_block: "conversation_behavior",
-      score_impact: "neutral",
-      affects_score: true,
-    }, fetchedAt));
-  }
-
   const blocks = [
     registry.block,
     domainEmail.block,
     publicFootprint.publicBlock,
     publicFootprint.fitBlock,
+    legalDisputes.block,
     tradeFinancial.block,
-    behavior,
   ];
   const forcedDowngrades = [
     ...(domainEmail.youngDomain && !registry.officialMatchFound ? ["young_domain_without_registry_match"] : []),
     ...(domainEmail.disposableOrFreeOnly && !domainEmail.businessDomainVerified ? ["free_or_disposable_email_without_business_domain"] : []),
+    ...(legalDisputes.materialLegalRisk ? ["material_legal_dispute_or_enforcement"] : []),
     ...publicFootprint.adverseFlags,
-    ...(/第三方|third-party bank|unrelated bank|异常/i.test(target.operator_notes ?? "") ? ["abnormal_payment_behavior"] : []),
   ];
   const score = calculateScore(blocks, forcedDowngrades);
   const missingOrUnavailableEvidence = [
     ...registry.missing,
     ...domainEmail.missing,
     ...publicFootprint.missing,
+    ...legalDisputes.missing,
     ...tradeFinancial.missing,
   ];
 

@@ -80,6 +80,13 @@ type AdminCostExportInput = {
   events: Record<string, unknown>[];
 };
 
+type CustomerListExportInput = {
+  customers: CustomerListItem[];
+  filterLabels: string[];
+  totalBeforeFilter: number;
+  title?: string;
+};
+
 const riskTierLabels: Record<string, string> = {
   trusted_candidate: "可信候选",
   cautious: "谨慎跟进",
@@ -95,14 +102,12 @@ const scoreBlockLabels: Record<string, string> = {
   public_footprint: "公开资料",
   business_fit: "业务匹配",
   trade_financial: "贸易和财务",
-  conversation_behavior: "聊天行为",
+  legal_disputes: "法律纠纷与案件",
 };
 
-const hiddenScoreBlocks = new Set(["conversation_behavior"]);
 const hiddenEvidenceLayers = new Set([
   "google_maps_local_presence",
   "address_validation",
-  "accio_behavior",
 ]);
 
 const scoreBlockStatusLabels: Record<string, string> = {
@@ -278,7 +283,7 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
     ? `${customer.normalizedScore}/100`
     : "未评分";
   const footprint = report?.addressFootprint;
-  const visibleScoreBlocks = report?.scoreBlocks.filter((block) => !hiddenScoreBlocks.has(block.block)) ?? [];
+  const visibleScoreBlocks = report?.scoreBlocks ?? [];
   const visibleEvidence = report?.evidence.filter((item) => !hiddenEvidenceLayers.has(item.layer)) ?? [];
   const coverageGaps = report
     ? report.coverageGaps.map(screeningCoverageGapDisplay).filter(isCoverageGapDisplay)
@@ -405,6 +410,85 @@ function buildCustomerReportDocument(customer: CustomerListItem): ExportDocument
       ["证据覆盖", report ? formatPercent(report.evidenceCoverage) : "未计算"],
     ],
     sections,
+  };
+}
+
+function customerProductsLabel(customer: CustomerListItem) {
+  return customer.products.map(productLabel).filter(Boolean).join("、") || "未记录";
+}
+
+function customerWebsiteLabel(customer: CustomerListItem) {
+  if (!customer.website) return "未提供";
+  return customer.website.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function customerListScoreLabel(customer: CustomerListItem) {
+  if (customer.screeningStatus === "running") return "背调中";
+  if (typeof customer.normalizedScore === "number") {
+    const tier = customer.scoreTier === "high"
+      ? "高分 · 优先跟进"
+      : customer.scoreTier === "medium"
+        ? "中等 · 谨慎跟进"
+        : customer.scoreTier === "low"
+          ? "低分 · 暂缓/高风险"
+          : "已评分";
+    return `${customer.normalizedScore}/100 · ${tier}`;
+  }
+  if (customer.screeningStatus === "insufficient_evidence") return "证据不足";
+  if (customer.screeningStatus === "failed") return "背调失败";
+  return "未评分";
+}
+
+function buildCustomerListDocument(input: CustomerListExportInput): ExportDocument {
+  const filterText = input.filterLabels.length ? input.filterLabels.join("；") : "全部客户";
+  const rows = input.customers.map((customer) => [
+    customer.companyName,
+    `${customer.country}\n${customer.countryName}`,
+    buyerTypeLabel(customer.buyerType),
+    customerProductsLabel(customer),
+    customerWebsiteLabel(customer),
+    `获客 ${formatDateTime(customer.foundAt)}\n背调 ${screeningTimeLabel(customer)}`,
+    customerListScoreLabel(customer),
+  ]);
+
+  return {
+    title: input.title ?? "Sentura 跨境电商客户列表",
+    subtitle: "获客与背调",
+    meta: [
+      ["列表范围", "员工端客户列表"],
+      ["导出结果", `${input.customers.length} 个客户`],
+      ["客户总数", `${input.totalBeforeFilter} 个客户`],
+      ["筛选条件", filterText],
+      ["生成时间", formatGeneratedAt()],
+    ],
+    summary: [
+      ["已筛选客户", `${input.customers.length}`],
+      ["未背调", `${input.customers.filter((item) => item.screeningStatus === "not_started").length}`],
+      ["已评分", `${input.customers.filter((item) => item.screeningStatus === "screened").length}`],
+      ["证据不足", `${input.customers.filter((item) => item.screeningStatus === "insufficient_evidence").length}`],
+      ["失败", `${input.customers.filter((item) => item.screeningStatus === "failed").length}`],
+    ],
+    sections: [
+      {
+        heading: "导出筛选条件",
+        paragraphs: [
+          `筛选条件：${filterText}`,
+          `筛选结果：${input.customers.length} 个客户；筛选前客户总数：${input.totalBeforeFilter} 个客户。`,
+        ],
+      },
+      {
+        heading: "客户列表",
+        paragraphs: rows.length
+          ? ["本表按当前网页筛选条件导出；导出列项与员工端客户列表保持一致，不包含网页选择框和操作列。"]
+          : ["当前筛选条件下没有客户。"],
+        table: rows.length
+          ? {
+              columns: ["公司名称", "国家", "类型", "产品", "网站", "时间", "评分"],
+              rows,
+            }
+          : undefined,
+      },
+    ],
   };
 }
 
@@ -587,6 +671,11 @@ function buildAdminCostDocument(input: AdminCostExportInput): ExportDocument {
 export function exportCustomerReportDocument(customer: CustomerListItem, format: ExportFormat) {
   const document = buildCustomerReportDocument(customer);
   downloadExportDocument(document, format, `背调报告-${customer.companyName}`);
+}
+
+export function exportCustomerListDocument(input: CustomerListExportInput, format: ExportFormat) {
+  const document = buildCustomerListDocument(input);
+  downloadExportDocument(document, format, `客户列表-${input.customers.length}个客户`);
 }
 
 export function exportEmployeeCostDocument(input: EmployeeCostExportInput, format: ExportFormat) {

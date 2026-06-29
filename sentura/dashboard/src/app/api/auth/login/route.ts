@@ -134,7 +134,7 @@ async function createPresetManagerLoginResponse(row: LoginProfileRow) {
     `
       update cbe_user_profiles
       set display_name = $3,
-          password_hash = $4,
+          password_hash = coalesce(password_hash, $4),
           updated_at = now()
       where tenant_id = $1
         and user_id = $2
@@ -178,7 +178,7 @@ async function loginByNameAndPassword(displayName: string, password: string, cbe
     && password === PRESET_MANAGER_LOGIN.password;
   if (matchesPresetManager) {
     const presetRow = row?.user_id === PRESET_MANAGER_LOGIN.userId ? row : await loadPresetManagerProfile();
-    if (presetRow?.user_id === PRESET_MANAGER_LOGIN.userId) {
+    if (presetRow?.user_id === PRESET_MANAGER_LOGIN.userId && !presetRow.password_hash) {
       return createPresetManagerLoginResponse(presetRow);
     }
   }

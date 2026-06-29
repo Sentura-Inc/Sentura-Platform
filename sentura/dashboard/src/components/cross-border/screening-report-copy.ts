@@ -37,7 +37,7 @@ const blockLabels: Record<string, string> = {
   public_footprint: "公开资料",
   business_fit: "业务匹配",
   trade_financial: "贸易和财务公开信息",
-  conversation_behavior: "聊天行为",
+  legal_disputes: "法律纠纷与案件",
 };
 
 const layerLabels: Record<string, string> = {
@@ -48,9 +48,9 @@ const layerLabels: Record<string, string> = {
   google_maps_local_presence: "线下地址",
   address_validation: "地址一致性",
   public_footprint: "公开资料",
+  legal_disputes: "法律纠纷与案件",
   trade_customs: "贸易记录",
   financial_public_filing: "财务公开信息",
-  accio_behavior: "聊天行为",
 };
 
 const sourceTypeLabels: Record<string, string> = {
@@ -65,9 +65,13 @@ const sourceTypeLabels: Record<string, string> = {
   google_maps_local_presence: "Google Maps（谷歌地图）公开地址",
   address_validation: "公开地址资料",
   public_web: "公开资料",
+  official_court_search: "官方法院/案件检索",
+  official_case_law: "官方判例资料",
+  official_insolvency_notice: "官方破产/清算公告",
+  regulatory_enforcement: "监管处罚/执法资料",
+  public_legal_database: "公共法律数据库",
   trade_customs: "贸易资料",
   financial_public_filing: "财务公开资料",
-  accio_behavior: "聊天记录",
   unverified: "待补充来源",
 };
 
@@ -82,12 +86,11 @@ const coverageGapCategoryFallbacks: Record<string, string[]> = {
   address_validation: ["公开资料"],
   public_footprint: ["公开资料"],
   business_fit: ["公开资料"],
+  legal_disputes: ["法律纠纷与案件"],
   trade_financial: ["贸易记录", "财务信息"],
   trade_customs: ["贸易记录"],
   financial_public_filing: ["财务信息"],
 };
-
-const hiddenCoverageGapBlocks = new Set(["conversation_behavior"]);
 
 const businessStatusLabels: Record<string, string> = {
   OPERATIONAL: "营业中",
@@ -98,11 +101,11 @@ const businessStatusLabels: Record<string, string> = {
 const properNounReplacements: Array<[RegExp, string]> = [
   [/\bGoogle Maps\b(?!（谷歌地图）)/g, "Google Maps（谷歌地图）"],
   [/\bSEC\b(?!（美国证券交易委员会）)/g, "SEC（美国证券交易委员会）"],
-  [/\bRDAP\b(?!（域名登记信息）)/gi, "RDAP（域名登记信息）"],
-  [/\bDNS\b(?!（域名解析）)/gi, "DNS（域名解析）"],
-  [/\bMX\b/g, "收信设置"],
-  [/\bSPF\b/g, "发信设置"],
-  [/\bDMARC\b/g, "邮件安全设置"],
+  [/\bRDAP\b(?!（域名登记信息）)/gi, "域名登记信息"],
+  [/\bDNS\b(?!（域名解析）)/gi, "域名解析信息"],
+  [/\bMX\b/g, "收信记录"],
+  [/\bSPF\b/g, "发信防伪记录"],
+  [/\bDMARC\b/g, "邮件防冒用记录"],
   [/\bKYB\b/gi, "企业核验"],
 ];
 
@@ -127,11 +130,18 @@ const technicalCopyReplacements: Array<[RegExp, string]> = [
   [/\bHTTP \d{3}\b/gi, "资料源状态"],
   [/\bendpoint\b/gi, "资料入口"],
   [/\bprovider\b/gi, "资料源"],
+  [/\bfield_mask_profile\b/gi, "查询范围"],
+  [/\bfield_mask\b/gi, "查询范围"],
+  [/\bsource_type\b/gi, "来源类型"],
+  [/\bscore_block\b/gi, "评分项"],
+  [/\bscore_impact\b/gi, "评分影响"],
+  [/\bcost_posture\b/gi, "成本状态"],
   [/\bobjectClassName\b/g, "对象类型"],
   [/\bself link\b/gi, "来源链接"],
   [/\blookup\b/gi, "核验"],
-  [/\bquery\b/gi, "检索条件"],
-  [/\bqueries\b/gi, "检索条件"],
+  [/\bquery string\b/gi, "搜索关键词"],
+  [/\bqueries\b/gi, "搜索范围"],
+  [/\bquery\b/gi, "搜索关键词"],
   [/\bredirected\b/gi, "跳转"],
   [/\breturned\b/gi, "显示"],
   [/\braw response\b/gi, "公开资料"],
@@ -141,6 +151,32 @@ const technicalCopyReplacements: Array<[RegExp, string]> = [
 ];
 
 const englishPhraseReplacements: Array<[RegExp, string]> = [
+  [/\blegal\/company name\b/gi, "公司名称"],
+  [/\bcompany number\b/gi, "注册编号"],
+  [/\bregistry id\b/gi, "注册编号"],
+  [/\bregistered office\b/gi, "注册地址"],
+  [/\bincorporation date\b/gi, "成立日期"],
+  [/\bjurisdiction\b/gi, "注册地"],
+  [/\bbusiness_status\b/gi, "营业状态"],
+  [/\bformatted_address\b/gi, "公开地址"],
+  [/\bdisplay_name\b/gi, "公开名称"],
+  [/\brelationship_status\b/gi, "地址关联判断"],
+  [/\baddress_type\b/gi, "地址类型"],
+  [/\bmatch_confidence\b/gi, "匹配可信度"],
+  [/\bmatch_reasons\b/gi, "匹配原因"],
+  [/\bgoogle_place_id\b/gi, "Google 地点编号"],
+  [/\bgoogle_maps_uri\b/gi, "Google Maps（谷歌地图）链接"],
+  [/\bwebsite_uri\b/gi, "官网链接"],
+  [/\bphone_match\b/gi, "电话匹配"],
+  [/\bdomain_match\b/gi, "官网匹配"],
+  [/\bwebsite_match\b/gi, "官网匹配"],
+  [/\bparty\/company match\b/gi, "主体匹配情况"],
+  [/\bparty match\b/gi, "主体匹配情况"],
+  [/\bcase number\b/gi, "案号"],
+  [/\bdocket\b/gi, "案号"],
+  [/\bnotice number\b/gi, "公告编号"],
+  [/\bproceeding type\b/gi, "案件类型"],
+  [/\boutcome\b/gi, "结果"],
   [/\bname_match\b/gi, "名称匹配"],
   [/\bdomain_match\b/gi, "官网匹配"],
   [/\bphone_match\b/gi, "电话匹配"],
@@ -183,6 +219,18 @@ const englishPhraseReplacements: Array<[RegExp, string]> = [
   [/\bconfidence\b/gi, "可信度"],
   [/\bevidence\b/gi, "依据"],
   [/\bsource\b/gi, "来源"],
+  [/\bOPERATIONAL\b/g, "营业中"],
+  [/\bCLOSED_TEMPORARILY\b/g, "暂停营业"],
+  [/\bCLOSED_PERMANENTLY\b/g, "已关闭"],
+  [/\bconfirmed_company_location\b/g, "确认属于该公司的地址"],
+  [/\bprobable_company_location\b/g, "大概率属于该公司的地址"],
+  [/\bpossible_related_location\b/g, "可能相关的地址"],
+  [/\brejected_unrelated_location\b/g, "已排除的不相关地址"],
+  [/\bheadquarters_or_office\b/g, "总部或办公室"],
+  [/\bstorefront\b/g, "门店"],
+  [/\bwarehouse_or_distribution\b/g, "仓库或分销点"],
+  [/\bservice_or_repair_location\b/g, "服务或维修点"],
+  [/\bunknown_business_location\b/g, "未确认用途的经营地址"],
 ];
 
 const forbiddenTechnicalTerms =
@@ -241,8 +289,20 @@ function cleanWhitespace(value: string) {
   return value.replace(/\s+/g, " ").replace(/\s+([，。；：、])/g, "$1").trim();
 }
 
+function normalizeMachineLikePunctuation(value: string) {
+  return value
+    .replace(/[{}[\]]/g, " ")
+    .replace(/\s*=\s*/g, "：")
+    .replace(/\s*;\s*/g, "；")
+    .replace(/\s*,\s*/g, "，")
+    .replace(/\btrue\b/gi, "是")
+    .replace(/\bfalse\b/gi, "否")
+    .replace(/\bnull\b/gi, "未提供")
+    .replace(/\bundefined\b/gi, "未提供");
+}
+
 function applyPlainReplacements(value: string) {
-  let next = value;
+  let next = normalizeMachineLikePunctuation(value);
   for (const [pattern, replacement] of properNounReplacements) next = next.replace(pattern, replacement);
   for (const [pattern, replacement] of technicalCopyReplacements) next = next.replace(pattern, replacement);
   for (const [pattern, replacement] of englishPhraseReplacements) next = next.replace(pattern, replacement);
@@ -267,9 +327,7 @@ export function simplifyScreeningReportText(value: string | null | undefined, fa
   if (!value) return value ?? fallback;
   const cleaned = applyPlainReplacements(value);
   if (!cleaned) return fallback;
-  if (isMostlyEnglish(cleaned) || forbiddenTechnicalTerms.test(cleaned)) {
-    return fallbackForEnglishText(cleaned, fallback);
-  }
+  if (!hasChinese(cleaned) && isMostlyEnglish(cleaned) && cleaned.length < 80) return fallbackForEnglishText(cleaned, fallback);
   return cleaned;
 }
 
@@ -292,6 +350,11 @@ export function sourceTypeText(value: string | undefined) {
 
 function uniqueLabels(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function isGenericEvidenceFinding(value: string) {
+  return /^(已找到|未找到|暂未找到).{0,30}(可信度|需要人工复核|来源网址)/.test(value) ||
+    /请结合来源网址复核|未提供可读摘要|未提供具体字段|仍需进一步验证|信息较完整|可信度中等|可信度较低/.test(value);
 }
 
 function coverageGapCategoryLabels(block: string, reason?: string | null, action?: string | null) {
@@ -333,7 +396,6 @@ export function screeningCoverageGapActionText(block: string, action?: string | 
 }
 
 export function screeningCoverageGapDisplay(gap: CoverageGapCopyInput): CoverageGapDisplay | null {
-  if (hiddenCoverageGapBlocks.has(gap.block)) return null;
   const title = screeningCoverageGapCategoryText(gap.block, gap.reason, gap.action);
   const reason = screeningCoverageGapReasonText(gap.block, gap.reason, gap.action);
   const action = screeningCoverageGapActionText(gap.block, gap.action, gap.reason);
@@ -363,28 +425,23 @@ export function screeningEvidenceFindingText(input: EvidenceCopyInput) {
   const hasSource = Boolean(publicSourceUrl(input.sourceUrl));
   const confidence = confidenceText(input.confidence);
   const plainFinding = simplifyScreeningReportText(input.finding, "") ?? "";
-  const findingIsUseful = Boolean(plainFinding && isCleanChineseReportText(plainFinding));
-  const alreadyStandardFinding = Boolean(
-    findingIsUseful &&
-      /^(已找到|未找到|暂未找到)/.test(plainFinding) &&
-      /(可信度|需要人工复核|来源网址)/.test(plainFinding),
-  );
+  const findingIsUseful = Boolean(plainFinding && !isGenericEvidenceFinding(plainFinding));
 
-  if (alreadyStandardFinding) return plainFinding;
+  if (findingIsUseful) {
+    if (!hasSource) return `${plainFinding}（未提供可直接打开的公开来源网址；${confidence}）`;
+    return plainFinding;
+  }
 
   if (!hasSource) {
-    if (findingIsUseful) {
-      return `已记录${topic}核验结果，但没有可直接打开的公开来源网址。${confidence}。摘要：${plainFinding}`;
-    }
     return `未找到可直接打开的${topic}公开来源网址。${confidence}。`;
   }
   if (input.scoreImpact === "negative") {
-    return `已找到与${topic}相关的风险信息。${confidence}。${findingIsUseful ? `摘要：${plainFinding}` : "建议结合来源网址人工复核。"}`;
+    return `已找到与${topic}相关的风险信息。${confidence}。建议结合来源网址人工复核。`;
   }
   if (input.scoreImpact === "coverage_only") {
-    return `已找到可参考的${topic}。${confidence}。${findingIsUseful ? `摘要：${plainFinding}` : "该信息仅用于补充判断。"}`;
+    return `已找到可参考的${topic}。${confidence}。该信息仅用于补充判断。`;
   }
-  return `已找到${topic}。${confidence}。${findingIsUseful ? `摘要：${plainFinding}` : "请结合来源网址复核具体内容。"}`;
+  return `已找到${topic}。${confidence}。该报告没有提供足够具体的字段摘要，建议重新背调或打开来源核验。`;
 }
 
 export function screeningScoreBlockText(input: ScoreBlockCopyInput) {

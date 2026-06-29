@@ -757,7 +757,7 @@ export default function CrossBorderAccioMemoryPage() {
                 导出报告 JSON
               </Button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-hidden">
               <table className="w-full min-w-[780px] text-sm">
                 <thead className="border-b text-left text-xs text-muted-foreground">
                   <tr>

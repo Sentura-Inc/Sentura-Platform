@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowDownWideNarrow,
   CheckCircle2,
+  Download,
   Eye,
   ExternalLink,
   Filter,
@@ -44,9 +45,14 @@ import { AnimatedList, AnimatedTableRow } from "@/components/cross-border/animat
 import { TaskCostNotice } from "@/components/cross-border/employee-cost";
 import { CustomerReportDialog } from "@/components/cross-border/customer-report-dialog";
 import {
+  exportCustomerListDocument,
+  type ExportFormat,
+} from "@/components/cross-border/document-export";
+import {
   buyerTypeLabel,
   canonicalBuyerType,
   canonicalProduct,
+  isPlaceholderProduct,
   productLabel,
 } from "@/components/cross-border/customer-labels";
 import {
@@ -68,13 +74,13 @@ import {
   type CustomerEvidenceItem,
   type CustomerScoreBlock,
   type CustomerScreeningReport,
+  type LeadFilterSettings,
   type ScreeningEvidenceLayer,
   type ScoreTier,
   estimateLeadTaskCost,
   estimateScreeningTaskCost,
   leadBuyerTypeOptions,
   leadCountryOptions,
-  leadExcludeDomainOptions,
   leadProductOptions,
 } from "../_data/employee-data";
 import {
@@ -107,6 +113,7 @@ import {
   deleteEmployeeCustomers,
   failEmployeeTaskInDb,
   fetchEmployeeCustomers,
+  fetchEmployeeLeadFilterSettings,
   fetchEmployeeTasks,
 } from "../_data/employee-api";
 import {
@@ -141,7 +148,6 @@ interface LeadSelectionState {
   buyerTypeIds: string[];
   countryCodes: string[];
   targetCount: number;
-  excludeDomainIds: string[];
 }
 
 interface ScreeningOptionState {
@@ -163,13 +169,30 @@ const emptyFilters: CustomerFilters = {
   scoreTiers: [],
 };
 
-const defaultLeadSelection: LeadSelectionState = {
-  productIds: ["phone-case", "tempered-glass", "usb-c-charger"],
-  buyerTypeIds: ["repair-chain", "electronics-retailer", "accessory-retailer"],
-  countryCodes: ["GB", "US"],
-  targetCount: MAX_LEAD_TARGET_COUNT,
-  excludeDomainIds: ["marketplaces", "social", "directories", "supplier-directories"],
+const defaultLeadFilterSettings: LeadFilterSettings = {
+  products: leadProductOptions,
+  buyerTypes: leadBuyerTypeOptions,
+  countries: leadCountryOptions,
 };
+
+function defaultLeadSelectionForSettings(settings: LeadFilterSettings): LeadSelectionState {
+  return {
+    productIds: settings.products.slice(0, 3).map((item) => item.id),
+    buyerTypeIds: settings.buyerTypes.slice(0, 3).map((item) => item.id),
+    countryCodes: settings.countries.slice(0, 2).map((item) => item.code),
+    targetCount: MAX_LEAD_TARGET_COUNT,
+  };
+}
+
+function leadFilterSettingsSignature(settings: LeadFilterSettings) {
+  return [
+    settings.source ?? "default",
+    settings.updatedAt ?? "not-updated",
+    settings.products.map((item) => item.id).join(","),
+    settings.buyerTypes.map((item) => item.id).join(","),
+    settings.countries.map((item) => item.code).join(","),
+  ].join("|");
+}
 
 const defaultScreeningOptions: ScreeningOptionState = {
   paidEmailValidation: false,
@@ -218,7 +241,7 @@ const scoreBlockLabels: Record<string, string> = {
   public_footprint: "公开资料",
   business_fit: "业务匹配",
   trade_financial: "贸易和财务",
-  conversation_behavior: "聊天行为",
+  legal_disputes: "法律纠纷与案件",
 };
 
 const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
@@ -229,9 +252,9 @@ const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
   public_footprint: "公开资料",
+  legal_disputes: "法律纠纷与案件",
   trade_customs: "贸易记录",
   financial_public_filing: "财务公开信息",
-  accio_behavior: "聊天行为",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -242,9 +265,9 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "google_maps_local_presence",
   "address_validation",
   "public_footprint",
+  "legal_disputes",
   "trade_customs",
   "financial_public_filing",
-  "accio_behavior",
 ];
 
 const foundRangeLabels: Record<FoundRange, string> = {
@@ -447,8 +470,9 @@ function CustomerProductBadges({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const visibleProducts = expanded ? products : products.slice(0, 2);
-  const hiddenCount = Math.max(0, products.length - visibleProducts.length);
+  const displayProducts = products.filter((product) => !isPlaceholderProduct(product));
+  const visibleProducts = expanded ? displayProducts : displayProducts.slice(0, 2);
+  const hiddenCount = Math.max(0, displayProducts.length - visibleProducts.length);
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -457,7 +481,7 @@ function CustomerProductBadges({
           {productLabel(product)}
         </Badge>
       ))}
-      {products.length > 2 ? (
+      {displayProducts.length > 2 ? (
         <button
           type="button"
           aria-expanded={expanded}
@@ -644,10 +668,6 @@ function reportForCustomer(item: CustomerListItem): CustomerScreeningReport | nu
   };
 }
 
-function needsChatRecordSupplement(item: CustomerListItem) {
-  return item.source === "manual_screening" && item.screeningStatus === "insufficient_evidence";
-}
-
 function evidenceByLayer(evidence: CustomerEvidenceItem[]) {
   const grouped = new Map<ScreeningEvidenceLayer, CustomerEvidenceItem[]>();
   for (const item of evidence) {
@@ -675,10 +695,6 @@ function toggleValue<T extends string>(values: T[], value: T) {
     : [...values, value];
 }
 
-function unique(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)));
-}
-
 function countCsv(value: string) {
   return value
     .split(",")
@@ -686,20 +702,47 @@ function countCsv(value: string) {
     .filter(Boolean).length;
 }
 
-function leadInputFromSelection(selection: LeadSelectionState): EmployeeLeadTaskInput {
-  const products = leadProductOptions.filter((item) => selection.productIds.includes(item.id));
-  const buyerTypes = leadBuyerTypeOptions.filter((item) => selection.buyerTypeIds.includes(item.id));
-  const countries = leadCountryOptions.filter((item) => selection.countryCodes.includes(item.code));
-  const excludedDomains = leadExcludeDomainOptions
-    .filter((item) => selection.excludeDomainIds.includes(item.id))
-    .flatMap((item) => item.domains);
+function sanitizeLeadSelectionForSettings(
+  selection: LeadSelectionState,
+  settings: LeadFilterSettings,
+): LeadSelectionState {
+  const productIds = new Set(settings.products.map((item) => item.id));
+  const buyerTypeIds = new Set(settings.buyerTypes.map((item) => item.id));
+  const countryCodes = new Set(settings.countries.map((item) => item.code));
+  const fallback = defaultLeadSelectionForSettings(settings);
+
+  const selectedProductIds = selection.productIds.filter((item) => productIds.has(item));
+  const selectedBuyerTypeIds = selection.buyerTypeIds.filter((item) => buyerTypeIds.has(item));
+  const selectedCountryCodes = selection.countryCodes.filter((item) => countryCodes.has(item));
 
   return {
-    productKeywords: products.map((item) => item.keyword).join(", "),
-    countries: countries.map((item) => item.code).join(", "),
-    buyerTypes: buyerTypes.map((item) => item.keyword).join(", "),
-    targetCount: selection.targetCount,
-    excludeDomains: unique(excludedDomains).join(", "),
+    productIds: selectedProductIds.length > 0 ? selectedProductIds : selection.productIds.length > 0 ? fallback.productIds : [],
+    buyerTypeIds: selectedBuyerTypeIds.length > 0 ? selectedBuyerTypeIds : selection.buyerTypeIds.length > 0 ? fallback.buyerTypeIds : [],
+    countryCodes: selectedCountryCodes.length > 0 ? selectedCountryCodes : selection.countryCodes.length > 0 ? fallback.countryCodes : [],
+    targetCount: normalizeLeadTargetCount(selection.targetCount),
+  };
+}
+
+function leadSelectionCounts(selection: LeadSelectionState, settings: LeadFilterSettings) {
+  const sanitized = sanitizeLeadSelectionForSettings(selection, settings);
+  return {
+    products: sanitized.productIds.length,
+    buyerTypes: sanitized.buyerTypeIds.length,
+    countries: sanitized.countryCodes.length,
+  };
+}
+
+function leadInputFromSelection(selection: LeadSelectionState, settings: LeadFilterSettings): EmployeeLeadTaskInput {
+  const sanitized = sanitizeLeadSelectionForSettings(selection, settings);
+  const products = settings.products.filter((item) => sanitized.productIds.includes(item.id));
+  const buyerTypes = settings.buyerTypes.filter((item) => sanitized.buyerTypeIds.includes(item.id));
+  const countries = settings.countries.filter((item) => sanitized.countryCodes.includes(item.code));
+
+  return {
+    productKeywords: products.map((item) => item.label).join(", "),
+    countries: countries.map((item) => item.label).join(", "),
+    buyerTypes: buyerTypes.map((item) => item.label).join(", "),
+    targetCount: sanitized.targetCount,
   };
 }
 
@@ -739,7 +782,6 @@ function leadRetryInputFromTask(task: CbeEmployeeTaskRecord): EmployeeLeadTaskIn
         countries,
         buyerTypes,
         targetCount,
-        excludeDomains: csvFromUnknown(retryInput.excludeDomains),
         runMode: retryInput.runMode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
         existingIdentityKeys: Array.isArray(retryInput.existingIdentityKeys)
           ? retryInput.existingIdentityKeys.map((item) => String(item))
@@ -761,7 +803,6 @@ function leadRetryInputFromTask(task: CbeEmployeeTaskRecord): EmployeeLeadTaskIn
     countries,
     buyerTypes,
     targetCount: numberFromUnknown(metadata.target_count ?? metadata.requested_target_count) ?? 3,
-    excludeDomains: csvFromUnknown(queryConfig.exclude_domains),
     runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
     existingIdentityKeys: Array.isArray(metadata.existing_identity_keys)
       ? metadata.existing_identity_keys.map((item) => String(item))
@@ -952,6 +993,8 @@ function CrossBorderCustomersPageContent() {
   const [newlyAddedCustomerIds, setNewlyAddedCustomerIds] = useState<Set<string>>(() => new Set());
   const [expandedProductRows, setExpandedProductRows] = useState<Set<string>>(() => new Set());
   const [hydrated, setHydrated] = useState(false);
+  const [leadFilterSettings, setLeadFilterSettings] = useState<LeadFilterSettings>(defaultLeadFilterSettings);
+  const [leadFilterSettingsLoading, setLeadFilterSettingsLoading] = useState(true);
   const handledHighlightRequestRef = useRef<string | null>(null);
   const [pendingCustomerHighlight, setPendingCustomerHighlight] = useState<{ ids: string[] } | null>(null);
   const highlightTaskId = searchParams.get("highlightTask");
@@ -1019,6 +1062,28 @@ function CrossBorderCustomersPageContent() {
       cancelled = true;
     };
   }, [setRows, setTasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshLeadFilterSettings() {
+      setLeadFilterSettingsLoading(true);
+      try {
+        const result = await fetchEmployeeLeadFilterSettings();
+        if (cancelled) return;
+        setLeadFilterSettings(result.settings);
+      } catch {
+        if (!cancelled) {
+          setLeadFilterSettings(defaultLeadFilterSettings);
+        }
+      } finally {
+        if (!cancelled) setLeadFilterSettingsLoading(false);
+      }
+    }
+    void refreshLeadFilterSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filterOptions = useMemo(() => {
     const countryMap = new Map<string, string>();
@@ -1142,9 +1207,14 @@ function CrossBorderCustomersPageContent() {
     }
     return chips;
   }, [filterOptions.buyerTypes, filterOptions.countries, filterOptions.products, filters, scoreSort, statusFilter]);
+  const exportFilterLabels = useMemo(() => {
+    const labels = activeFilterChips.map((chip) => chip.label);
+    const searchText = query.trim();
+    if (searchText) labels.unshift(`搜索：${searchText}`);
+    return labels.length ? labels : ["全部客户"];
+  }, [activeFilterChips, query]);
 
   const selectedCustomers = rows.filter((item) => selectedIds.includes(item.customerId));
-  const selectedScreeningCustomers = selectedCustomers.filter((item) => !needsChatRecordSupplement(item));
   const deleteTargets = deleteIntent
     ? rows.filter((item) => deleteIntent.customerIds.includes(item.customerId))
     : [];
@@ -1152,7 +1222,15 @@ function CrossBorderCustomersPageContent() {
   const canRunScreening = state === "connected" && !!screeningAgent;
   const checkingLeadAgent = hydrated && state === "connected" && leadLoading;
   const activeFilterCount = activeFilterChips.length;
-  const customerPage = usePagedItems(filtered, 10);
+  const leadFilterSettingsKey = useMemo(
+    () => leadFilterSettingsSignature(leadFilterSettings),
+    [leadFilterSettings],
+  );
+  const customerPaginationResetKey = useMemo(
+    () => JSON.stringify({ filters, query, scoreSort, statusFilter }),
+    [filters, query, scoreSort, statusFilter],
+  );
+  const customerPage = usePagedItems(filtered, 10, { resetKey: customerPaginationResetKey });
   const {
     page: currentCustomerPage,
     pageSize: customerPageSize,
@@ -1283,24 +1361,19 @@ function CrossBorderCustomersPageContent() {
     setSheetMode("detail");
   };
 
-  const openMemoryRefresh = (item: CustomerListItem) => {
-    setSheetMode(null);
-    const params = new URLSearchParams({
-      supplementCustomer: item.customerId,
-      supplementCompany: item.companyName,
-      supplementSource: item.source,
-    });
-    router.push(`${CBE_EMPLOYEE_MEMORY_PATH}?${params.toString()}`);
+  const exportCustomerList = (format: ExportFormat) => {
+    exportCustomerListDocument({
+      customers: filtered,
+      filterLabels: exportFilterLabels,
+      totalBeforeFilter: rows.length,
+    }, format);
+    showNotice(`已导出 ${filtered.length} 个客户。`, "success");
   };
 
   const openBulkScreening = () => {
-    const skippedCount = selectedCustomers.length - selectedScreeningCustomers.length;
-    if (selectedScreeningCustomers.length === 0) {
-      showNotice("证据不足的聊天记录或手动录入客户，需要先补充聊天记录，再送到背调。", "info", 6000);
+    if (selectedCustomers.length === 0) {
+      showNotice("请选择要背调的客户。", "info", 6000);
       return;
-    }
-    if (skippedCount > 0) {
-      showNotice(`已跳过 ${skippedCount} 个需补充聊天记录的客户；其余客户可继续背调。`, "info", 6000);
     }
     setSheetMode("bulk");
   };
@@ -1465,6 +1538,7 @@ function CrossBorderCustomersPageContent() {
           agentRunId: createdRun.agentRun.id,
           sessionKey: result.sessionKey,
           payload: result.payload,
+          productKeywords: runInput.productKeywords,
         });
         const reconciliation = completion.reconciliation;
         const newUniqueCount = reconciliation.newUniqueCount;
@@ -1538,11 +1612,7 @@ function CrossBorderCustomersPageContent() {
     targets: CustomerListItem[],
     options?: EmployeeScreeningTaskOptions,
   ) => {
-    const runnableTargets = targets.filter((item) => !needsChatRecordSupplement(item));
-    if (runnableTargets.length !== targets.length) {
-      showNotice("证据不足的聊天记录移交/手动录入客户需要先补充聊天记录，重新分析后再送到背调。", "info", 6000);
-    }
-    if (runnableTargets.length === 0) return;
+    if (targets.length === 0) return;
     if (screeningRunning) {
       showNotice("已有背调任务正在运行，完成后可再次启动背调。", "info");
       return;
@@ -1556,12 +1626,12 @@ function CrossBorderCustomersPageContent() {
       );
       return;
     }
-    const screeningTargets = customersToScreeningTargets(runnableTargets);
+    const screeningTargets = customersToScreeningTargets(targets);
     if (screeningTargets.length === 0) {
       showNotice("请先选择至少一个客户。", "error");
       return;
     }
-    const ids = new Set(runnableTargets.map((item) => item.customerId));
+    const ids = new Set(targets.map((item) => item.customerId));
     const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs(screeningTargets, options);
     let taskId: string | undefined;
@@ -1588,14 +1658,14 @@ function CrossBorderCustomersPageContent() {
       const localTaskId = startTask({
         id: createdRun.agentRun.id,
         kind: "screening",
-        title: runnableTargets.length > 1 ? "批量背调" : "单个背调",
-        message: runnableTargets.length > 1
-          ? `批量背调已拆分为 ${runnableTargets.length} 个单客户任务。`
+        title: targets.length > 1 ? "批量背调" : "单个背调",
+        message: targets.length > 1
+          ? `批量背调已拆分为 ${targets.length} 个单客户任务。`
           : "背调任务已启动，正在核验客户资料。",
         estimatedMs,
         timeoutMs: estimateEmployeeTaskTimeoutMs(estimatedMs),
         sessionKey: createdRun.agentRun.sessionKey ?? initialChildRuns.find((child) => child.agentRun.sessionKey)?.agentRun.sessionKey ?? plannedSessionKey,
-        targetLabel: `${runnableTargets.length} 个客户`,
+        targetLabel: `${targets.length} 个客户`,
         metadata: {
           retry_customer_ids: Array.from(ids),
           retry_options: options ?? {},
@@ -1887,6 +1957,14 @@ function CrossBorderCustomersPageContent() {
             <Plus className="h-4 w-4" />
             手动背调
           </Button>
+          <Button variant="outline" onClick={() => exportCustomerList("docx")} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4" />
+            导出 DOCX
+          </Button>
+          <Button variant="outline" onClick={() => exportCustomerList("pdf")} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4" />
+            导出 PDF
+          </Button>
           <Button
             variant="destructive"
             onClick={() => requestDeleteCustomers(selectedCustomers.map((item) => item.customerId), "bulk")}
@@ -2014,10 +2092,9 @@ function CrossBorderCustomersPageContent() {
             </div>
           ) : (
             <>
-              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false}>
+              <AnimatedList viewportClassName="grid gap-3 overflow-visible lg:hidden" displayScrollbar={false} scrollable={false}>
                 {pagedCustomers.map((item) => {
                   const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
-                  const requiresMemoryRefresh = needsChatRecordSupplement(item);
                   return (
                     <CustomerMobileCard
                       key={item.customerId}
@@ -2027,7 +2104,6 @@ function CrossBorderCustomersPageContent() {
                       toggleSelected={toggleSelected}
                       openDetail={openDetail}
                       clearHighlight={clearCustomerHighlight}
-                      openMemoryRefresh={requiresMemoryRefresh ? () => openMemoryRefresh(item) : undefined}
                       startScreening={() => {
                         setSelectedIds([item.customerId]);
                         setSheetMode("bulk");
@@ -2039,7 +2115,7 @@ function CrossBorderCustomersPageContent() {
                 })}
               </AnimatedList>
 
-              <div className="hidden overflow-x-auto rounded-md border lg:block">
+              <div className="hidden overflow-x-auto overflow-y-hidden rounded-md border lg:block">
                 <table className="w-full min-w-[1080px] text-sm">
                   <thead className="bg-muted/50 text-xs text-muted-foreground">
                     <tr>
@@ -2058,7 +2134,6 @@ function CrossBorderCustomersPageContent() {
                     {pagedCustomers.map((item, index) => {
                       const itemWorkflowBadge = workflowBadge(item);
                       const isNewlyAdded = newlyAddedCustomerIds.has(item.customerId);
-                      const requiresMemoryRefresh = needsChatRecordSupplement(item);
                       return (
                       <AnimatedTableRow
                         index={index}
@@ -2089,7 +2164,7 @@ function CrossBorderCustomersPageContent() {
                                 </Badge>
                               ) : null}
                             </div>
-	                            <div className="text-xs text-muted-foreground">{customerSubtitle(item)}</div>
+                              <div className="text-xs text-muted-foreground">{customerSubtitle(item)}</div>
                           </button>
                         </td>
                         <td className="px-3 py-3">
@@ -2127,28 +2202,23 @@ function CrossBorderCustomersPageContent() {
                               <Eye className="h-3.5 w-3.5" />
                               {item.screeningStatus === "screened" ? "查看报告" : item.screeningStatus === "running" ? "查看进度" : "详情"}
                             </Button>
-                              {requiresMemoryRefresh ? (
-                                <Button variant="outline" size="sm" onClick={() => openMemoryRefresh(item)}>
-                                  <Plus className="h-3.5 w-3.5" />
-                                  补充聊天记录
-                                </Button>
-                              ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
-	                              <Button variant="outline" size="sm" onClick={() => {
-	                                setSelectedIds([item.customerId]);
-	                                setSheetMode("bulk");
-	                              }}>
-	                                开始调研
-	                              </Button>
-	                            ) : item.screeningStatus === "failed" ? (
-	                              <Button variant="outline" size="sm" disabled={screeningRunningUi} onClick={() => {
-	                                setSelectedIds([item.customerId]);
-	                                setSheetMode("bulk");
-	                              }}>
-	                                <RotateCcw className="h-3.5 w-3.5" />
-	                                重试背调
-	                              </Button>
-	                            ) : null}
-			                          </div>
+                              {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+                              <Button variant="outline" size="sm" onClick={() => {
+                                setSelectedIds([item.customerId]);
+                                setSheetMode("bulk");
+                              }}>
+                                开始调研
+                              </Button>
+                            ) : item.screeningStatus === "failed" ? (
+                              <Button variant="outline" size="sm" disabled={screeningRunningUi} onClick={() => {
+                                setSelectedIds([item.customerId]);
+                                setSheetMode("bulk");
+                              }}>
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                重试背调
+                              </Button>
+                            ) : null}
+                          </div>
                         </td>
                       </AnimatedTableRow>
                       );
@@ -2168,17 +2238,18 @@ function CrossBorderCustomersPageContent() {
       </Card>
 
       <TaskSheet
-	        mode={sheetMode}
-	        onOpenChange={(open) => {
-	          if (!open) {
-	            setSheetMode(null);
-	            setDeleteIntent(null);
-	          }
-	        }}
-	        activeCustomer={activeCustomer}
-	        selectedCustomers={selectedScreeningCustomers}
-	        deleteTargets={deleteTargets}
-	        canRunLead={canRunLead}
+        key={leadFilterSettingsKey}
+        mode={sheetMode}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSheetMode(null);
+            setDeleteIntent(null);
+          }
+        }}
+        activeCustomer={activeCustomer}
+        selectedCustomers={selectedCustomers}
+        deleteTargets={deleteTargets}
+        canRunLead={canRunLead}
         canRunScreening={canRunScreening}
         gatewayConnected={state === "connected"}
         screeningLoading={screeningLoading}
@@ -2190,13 +2261,15 @@ function CrossBorderCustomersPageContent() {
         setScoreSort={setScoreSort}
         filterOptions={filterOptions}
         activeFilterCount={activeFilterCount}
+        leadFilterSettings={leadFilterSettings}
+        leadFilterSettingsLoading={leadFilterSettingsLoading}
         leadRunning={leadRunningUi}
-	        screeningRunning={screeningRunningUi}
-	        onLeadSubmit={submitLeadTask}
-	        onScreeningSubmit={submitScreeningTask}
-	        onManualSubmit={submitManualScreeningTask}
-	        onDeleteConfirm={confirmDeleteCustomers}
-	      />
+        screeningRunning={screeningRunningUi}
+        onLeadSubmit={submitLeadTask}
+        onScreeningSubmit={submitScreeningTask}
+        onManualSubmit={submitManualScreeningTask}
+        onDeleteConfirm={confirmDeleteCustomers}
+      />
     </div>
   );
 }
@@ -2208,7 +2281,6 @@ function CustomerMobileCard({
   toggleSelected,
   openDetail,
   clearHighlight,
-  openMemoryRefresh,
   startScreening,
   productsExpanded,
   toggleProductsExpanded,
@@ -2219,7 +2291,6 @@ function CustomerMobileCard({
   toggleSelected: (customerId: string) => void;
   openDetail: (item: CustomerListItem) => void;
   clearHighlight: (customerId: string) => void;
-  openMemoryRefresh?: () => void;
   startScreening: () => void;
   productsExpanded: boolean;
   toggleProductsExpanded: () => void;
@@ -2279,12 +2350,7 @@ function CustomerMobileCard({
           <Eye className="h-3.5 w-3.5" />
           {item.screeningStatus === "screened" ? "查看报告" : "详情"}
         </Button>
-        {openMemoryRefresh ? (
-          <Button variant="outline" size="sm" onClick={openMemoryRefresh}>
-            <Plus className="h-3.5 w-3.5" />
-            补充聊天记录
-          </Button>
-        ) : item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
+        {item.screeningStatus === "not_started" || item.screeningStatus === "insufficient_evidence" ? (
           <Button size="sm" onClick={startScreening}>
             <ShieldCheck className="h-3.5 w-3.5" />
             开始调研
@@ -2678,6 +2744,8 @@ function TaskSheet({
   setScoreSort,
   filterOptions,
   activeFilterCount,
+  leadFilterSettings,
+  leadFilterSettingsLoading,
   leadRunning,
   screeningRunning,
   onLeadSubmit,
@@ -2706,6 +2774,8 @@ function TaskSheet({
     products: FilterOption[];
   };
   activeFilterCount: number;
+  leadFilterSettings: LeadFilterSettings;
+  leadFilterSettingsLoading: boolean;
   leadRunning: boolean;
   screeningRunning: boolean;
   onLeadSubmit: (input: EmployeeLeadTaskInput) => void;
@@ -2716,8 +2786,8 @@ function TaskSheet({
   const open = mode !== null;
   const contentRef = useRef<HTMLDivElement | null>(null);
   const leadTargetInputRef = useRef<HTMLInputElement | null>(null);
-  const [leadSelection, setLeadSelection] = useState<LeadSelectionState>(defaultLeadSelection);
-  const [leadTargetCountText, setLeadTargetCountText] = useState(String(defaultLeadSelection.targetCount));
+  const [leadSelection, setLeadSelection] = useState<LeadSelectionState>(() => defaultLeadSelectionForSettings(leadFilterSettings));
+  const [leadTargetCountText, setLeadTargetCountText] = useState(() => String(defaultLeadSelectionForSettings(leadFilterSettings).targetCount));
   const [screeningOptions, setScreeningOptions] = useState<ScreeningOptionState>(defaultScreeningOptions);
   const [manualForm, setManualForm] = useState<ManualScreeningInput>({
     companyName: "",
@@ -2730,15 +2800,23 @@ function TaskSheet({
     operatorNotes: "",
   });
   const effectiveLeadTargetCount = normalizeLeadTargetCount(Number(leadTargetCountText));
+  const sanitizedLeadSelection = useMemo(
+    () => sanitizeLeadSelectionForSettings(leadSelection, leadFilterSettings),
+    [leadFilterSettings, leadSelection],
+  );
+  const leadCounts = useMemo(
+    () => leadSelectionCounts(leadSelection, leadFilterSettings),
+    [leadFilterSettings, leadSelection],
+  );
   const leadEstimate = useMemo(
     () =>
       estimateLeadTaskCost({
-        productCount: leadSelection.productIds.length,
-        buyerTypeCount: leadSelection.buyerTypeIds.length,
-        countryCount: leadSelection.countryCodes.length,
+        productCount: leadCounts.products,
+        buyerTypeCount: leadCounts.buyerTypes,
+        countryCount: leadCounts.countries,
         targetCount: effectiveLeadTargetCount,
       }),
-    [effectiveLeadTargetCount, leadSelection],
+    [effectiveLeadTargetCount, leadCounts],
   );
   const screeningOptionsPayload = useMemo(
     () => screeningOptionsFromState(screeningOptions),
@@ -2764,20 +2842,17 @@ function TaskSheet({
       }),
     [screeningOptions],
   );
-  const leadReady =
-    leadSelection.productIds.length > 0 &&
-    leadSelection.buyerTypeIds.length > 0 &&
-    leadSelection.countryCodes.length > 0;
+  const leadReady = leadCounts.products > 0 && leadCounts.buyerTypes > 0 && leadCounts.countries > 0;
   const buildLeadSubmitInput = () => {
     const submittedTargetCount = normalizeLeadTargetCount(Number(leadTargetInputRef.current?.value ?? leadTargetCountText));
-    const submittedSelection = {
+    const submittedSelection = sanitizeLeadSelectionForSettings({
       ...leadSelection,
       targetCount: submittedTargetCount,
-    };
+    }, leadFilterSettings);
     setLeadTargetCountText(String(submittedTargetCount));
     setLeadSelection(submittedSelection);
     onLeadSubmit({
-      ...leadInputFromSelection(submittedSelection),
+      ...leadInputFromSelection(submittedSelection, leadFilterSettings),
       targetCount: submittedTargetCount,
     });
   };
@@ -2973,10 +3048,10 @@ function TaskSheet({
                   </span>
                 }
               >
-                {leadProductOptions.map((product) => (
+                {leadFilterSettings.products.map((product) => (
                   <ChoiceButton
                     key={product.id}
-                    active={leadSelection.productIds.includes(product.id)}
+                    active={sanitizedLeadSelection.productIds.includes(product.id)}
                     label={product.label}
                     description={product.description}
                     onClick={() =>
@@ -2997,10 +3072,10 @@ function TaskSheet({
                   </span>
                 }
               >
-                {leadBuyerTypeOptions.map((buyerType) => (
+                {leadFilterSettings.buyerTypes.map((buyerType) => (
                   <ChoiceButton
                     key={buyerType.id}
-                    active={leadSelection.buyerTypeIds.includes(buyerType.id)}
+                    active={sanitizedLeadSelection.buyerTypeIds.includes(buyerType.id)}
                     label={buyerType.label}
                     description={buyerType.description}
                     onClick={() =>
@@ -3021,10 +3096,10 @@ function TaskSheet({
                   </span>
                 }
               >
-                {leadCountryOptions.map((country) => (
+                {leadFilterSettings.countries.map((country) => (
                   <ChoiceButton
                     key={country.code}
-                    active={leadSelection.countryCodes.includes(country.code)}
+                    active={sanitizedLeadSelection.countryCodes.includes(country.code)}
                     label={country.label}
                     description={country.description}
                     onClick={() =>
@@ -3084,36 +3159,13 @@ function TaskSheet({
                 </label>
               </FilterGroup>
 
-              <FilterGroup
-                title={
-                  <span className="inline-flex items-center gap-1.5">
-                    排除无效来源
-                    <InfoTooltip>这些来源通常不是具体买家公司，排除后结果更干净。</InfoTooltip>
-                  </span>
-                }
-              >
-                {leadExcludeDomainOptions.map((group) => (
-                  <ChoiceButton
-                    key={group.id}
-                    active={leadSelection.excludeDomainIds.includes(group.id)}
-                    label={group.label}
-                    description={group.description}
-                    onClick={() =>
-                      setLeadSelection((current) => ({
-                        ...current,
-                        excludeDomainIds: toggleValue(current.excludeDomainIds, group.id),
-                      }))
-                    }
-                  />
-                ))}
-              </FilterGroup>
-
               <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-                将搜索 {leadSelection.productIds.length} 类产品、{leadSelection.buyerTypeIds.length} 类买家、
-                {leadSelection.countryCodes.length} 个国家，目标 {effectiveLeadTargetCount} 个客户。结果只保留具体买家公司，默认排除平台页、社媒主页、目录页和供应商目录。
+                将搜索 {leadCounts.products} 类产品、{leadCounts.buyerTypes} 类买家、
+                {leadCounts.countries} 个国家，目标 {effectiveLeadTargetCount} 个客户。结果只保留具体买家公司。
               </div>
 
               <TaskCostNotice {...leadEstimate} />
+              {leadFilterSettingsLoading ? <SystemNotice text="正在读取管理员设置的获客条件。" /> : null}
               {!leadReady ? <SystemNotice text="请至少选择一个产品、买家类型和国家。" /> : null}
               {!gatewayConnected || !canRunLead ? (
                 <SystemNotice text={gatewayConnected ? "客户搜索暂不可用，请先完成系统初始化。" : "系统暂未连接，暂时不能执行找客户任务。"} />
@@ -3121,7 +3173,7 @@ function TaskSheet({
               {leadRunning ? <SystemNotice text="已有获客任务正在运行；背调可以同时继续执行。" /> : null}
             </div>
             <SheetFooter>
-              <Button disabled={!canRunLead || !leadReady || leadRunning} onClick={buildLeadSubmitInput}>
+              <Button disabled={!canRunLead || !leadReady || leadRunning || leadFilterSettingsLoading} onClick={buildLeadSubmitInput}>
                 {leadRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 提交获客任务（{effectiveLeadTargetCount} 个）
               </Button>

@@ -771,6 +771,7 @@ const requiredTables = [
   "cbe_cost_limits",
   "cbe_cost_allowances",
   "cbe_cost_approval_requests",
+  "cbe_lead_filter_settings",
   "screening_batches",
   "screening_batch_targets",
   "cbe_schema_migrations",
@@ -805,6 +806,7 @@ const requiredIndexes = [
   "cbe_cost_allowances_user_idx",
   "cbe_cost_approval_requests_pending_idx",
   "cbe_cost_approval_requests_user_idx",
+  "cbe_lead_filter_settings_updated_idx",
   "agent_runs_queue_claim_idx",
   "agent_runs_active_session_idx",
   "screening_batches_parent_idx",
@@ -832,14 +834,18 @@ const p22StoreModules = [
   "route-utils.ts",
   "admin.ts",
   "session.ts",
+  "lead-settings.ts",
   "workload-coordinator.ts",
 ];
 
 const p22EmployeeRoutes = [
   "employee/customers/route.ts",
   "employee/cost-budget/route.ts",
+  "employee/cost-events/route.ts",
+  "employee/cost-allowance-requests/route.ts",
   "employee/lead-runs/route.ts",
   "employee/lead-runs/[id]/complete/route.ts",
+  "employee/lead-filter-settings/route.ts",
   "employee/screening-runs/route.ts",
   "employee/screening-runs/[id]/complete/route.ts",
   "employee/screening-runs/[id]/retry/route.ts",
@@ -861,11 +867,13 @@ const p22AdminRoutes = [
   "admin/operators/route.ts",
   "admin/operators/[id]/route.ts",
   "admin/operators/[id]/customers/route.ts",
+  "admin/profile/password/route.ts",
   "admin/high-value-customers/route.ts",
   "admin/costs/route.ts",
   "admin/cost-limits/route.ts",
   "admin/cost-approvals/route.ts",
   "admin/agent-usage/route.ts",
+  "admin/lead-filter-settings/route.ts",
 ];
 
 const cbeAuthRoutes = [
@@ -878,6 +886,7 @@ const cbeManagerPages = [
   "page.tsx",
   "employees/page.tsx",
   "high-value-customers/page.tsx",
+  "lead-settings/page.tsx",
   "costs/page.tsx",
   "_data/admin-api.ts",
   "_components/report-dialog.tsx",
@@ -897,6 +906,11 @@ check("006 Screening address locations migration exists", migrationFiles.include
 check("007 Screening retry and memory approval migration exists", migrationFiles.includes("007_screening_retry_memory_approval.sql"));
 check("008 Accio manual import formats migration exists", migrationFiles.includes("008_accio_manual_import_formats.sql"));
 check("009 customer work item dedupe migration exists", migrationFiles.includes("009_customer_work_items_deduped_screening.sql"));
+check("010 Lead filter settings migration exists", migrationFiles.includes("010_lead_filter_settings.sql"));
+check("011 Screening conversation behavior cleanup migration exists", migrationFiles.includes("011_remove_screening_conversation_behavior.sql"));
+check("012 legacy Accio Screening target cleanup migration exists", migrationFiles.includes("012_remove_legacy_accio_screening_targets.sql"));
+check("013 Screening behavior JSON residue cleanup migration exists", migrationFiles.includes("013_remove_screening_behavior_json_residue.sql"));
+check("014 Screening behavior text residue cleanup migration exists", migrationFiles.includes("014_remove_screening_behavior_text_residue.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -915,6 +929,11 @@ check("schema defines manager cost control periods", ["'day'", "'week'", "'month
 check("schema defines cost approval lifecycle", ["cbe_cost_limits", "cbe_cost_allowances", "cbe_cost_approval_requests", "'pending'", "'approved'", "'rejected'"].every((needle) => migrationSql.includes(needle)));
 check("schema defines owner/team/visibility fields", ["owner_user_id", "team_name", "visibility_scope"].every((needle) => migrationSql.includes(needle)));
 check("schema defines task activity monitoring events", migrationSql.includes("agent_run_activity_events") && migrationSql.includes("target_summary"));
+check("schema defines tenant Lead filter settings", ["cbe_lead_filter_settings", "products_json", "buyer_types_json", "countries_json"].every((needle) => migrationSql.includes(needle)));
+check("schema removes legacy Screening conversation behavior artifacts", ["conversation_behavior", "accio_behavior", "screening_score_blocks", "screening_evidence", "screening_reports"].every((needle) => migrationSql.includes(needle)));
+check("schema removes legacy Accio-derived Screening targets", ["tmp_legacy_accio_screening_targets", "screening_batch_targets", "screening_targets", "source = 'accio_memory'"].every((needle) => migrationSql.includes(needle)));
+check("schema removes legacy Screening behavior JSON residue", ["coverage_gaps", "open_questions", "销售对话", "行为记录"].every((needle) => migrationSql.includes(needle)));
+check("schema removes legacy Screening behavior text residue", ["聊天记录", "销售对话", "行为记录", "Accio"].every((needle) => migrationSql.includes(needle)));
 check("schema defines migration history table", migrationSql.includes("cbe_schema_migrations"));
 check("schema backfills Screening address-footprint JSON rows", migrationSql.includes("screening_address_backfill_") && migrationSql.includes("address_footprint,locations"));
 check("schema persists per-target paid Screening retry state", [
@@ -1065,11 +1084,32 @@ check("tenant context recognizes canonical and rewritten CBE API paths", [
 ].every((needle) => tenantContextTs.includes(needle)));
 check("session helper uses httpOnly-compatible signed role-scoped cookies", ["CBE_SESSION_COOKIE", "CBE_EMPLOYEE_SESSION_COOKIE", "CBE_ADMIN_SESSION_COOKIE", "cbeSessionCookieNameForRole", "createHmac", "timingSafeEqual"].every((needle) => sessionHelperTs.includes(needle)));
 check("auth login resolves RBAC token and sets CBE session cookies", authRouteText.includes("sentura.rbac.users.resolveByToken") && authRouteText.includes("response.cookies.set") && authRouteText.includes("CBE_SESSION_COOKIE") && authRouteText.includes("cbeSessionCookieNameForRole"));
-check("auth login can self-heal the seeded manager preset without raw DB env access", authRouteText.includes("PRESET_MANAGER_LOGIN") && authRouteText.includes("cbe-user-admin-001") && authRouteText.includes('displayName: "孙总"') && authRouteText.includes('password: "1234"') && authRouteText.includes("hashCbePassword"));
+check("auth login bootstraps preset manager only when password hash is missing", authRouteText.includes("PRESET_MANAGER_LOGIN") && authRouteText.includes("cbe-user-admin-001") && authRouteText.includes('displayName: "孙总"') && authRouteText.includes('password: "1234"') && authRouteText.includes("hashCbePassword") && authRouteText.includes("password_hash = coalesce(password_hash, $4)") && authRouteText.includes("&& !presetRow.password_hash"));
 check("manager login page copies employee login layout and submits admin role", managerLoginPageTs.includes('src="/logo-full.svg"') && managerLoginPageTs.includes('placeholder="管理者姓名"') && managerLoginPageTs.includes('cbeRole: "admin"') && managerLoginPageTs.includes("CBE_ADMIN_EMPLOYEES_PATH"));
 check("manager login is enforced by admin session instead of default admin header", managerAdminApiTs.includes("NEXT_PUBLIC_CBE_ADMIN_USER_ID?.trim()") && !managerAdminApiTs.includes('?? "cbe-user-admin-001"') && managerAdminApiTs.includes("CBE_ADMIN_LOGIN_PATH") && managerAppShellTs.includes("isAdminLoginPath") && managerAppShellTs.includes("CBE_SESSION_API_PATH") && managerAppShellTs.includes("role=admin") && managerAppShellTs.includes('body?.user?.cbeRole !== "admin"'));
 check("employee and manager guards use separate role sessions", managerAppShellTs.includes("role=operator") && managerAppShellTs.includes("role=admin") && managerAppShellTs.includes("logout?role="));
 check("admin operator creation writes real CBE name/password profile without gateway dependency", adminRouteText.includes("createLocalOperatorIdentity") && adminRouteText.includes("password_only") && !adminRouteText.includes("sentura.rbac.users.upsert") && p22AllStoreText.includes("upsertAdminOperatorProfile") && p22AllStoreText.includes("password_hash") && p22AllStoreText.includes("operator_name_exists"));
+check("manager can change own password after current-password verification", [
+  "AdminChangePasswordRequestSchema",
+  "current_password",
+  "new_password",
+].every((needle) => dashboardSchemasTs.includes(needle)) && [
+  "updateAdminOwnPassword",
+  "verifyCbePassword",
+  "admin_current_password_invalid",
+  "hashCbePassword(input.new_password)",
+].every((needle) => p22AllStoreText.includes(needle)) && [
+  "AdminChangePasswordRequestSchema",
+  "updateAdminOwnPassword",
+  'expectedRole: "admin"',
+].every((needle) => adminRouteText.includes(needle)) && [
+  "password_hash = coalesce(password_hash, $4)",
+  "&& !presetRow.password_hash",
+].every((needle) => authRouteText.includes(needle)) && [
+  "修改密码",
+  "submitAdminPasswordChange",
+  "CBE_ADMIN_API_BASE}/profile/password",
+].every((needle) => managerAppShellTs.includes(needle)) && managerAdminApiTs.includes("updateAdminOwnPassword"));
 check("CBE route errors surface plain RPC error messages", read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes('"message" in error') && read(path.join(DASHBOARD_STORE_DIR, "route-utils.ts")).includes("record.message"));
 check("admin store exposes manager three-page data functions", ["listAdminOperators", "listAdminHighValueCustomers", "listAdminCosts", "upsertAdminCostLimit", "decideAdminCostApproval"].every((needle) => p22AllStoreText.includes(needle)));
 check("admin routes include write endpoints for operator status, limits, approvals", adminRouteText.includes("PATCH(") && adminRouteText.includes("POST(") && adminRouteText.includes("AdminCostLimitPatchRequestSchema") && adminRouteText.includes("AdminCostApprovalDecisionRequestSchema"));
@@ -1096,7 +1136,7 @@ check("employee API persists dynamic task timing metadata through coordinator re
 ].every((needle) => p22AllStoreText.includes(needle)));
 check("AppShell switches employee and manager titles/nav", managerAppShellTs.includes("跨境电商员工操作系统") && managerAppShellTs.includes("跨境电商管理者系统") && managerAppShellTs.includes("员工管理") && managerAppShellTs.includes("优先跟进客户") && managerAppShellTs.includes("费用监控"));
 check("manager UI renders only the requested three pages", managerPageText.includes("员工管理") && managerPageText.includes("优先跟进客户") && managerPageText.includes("费用监控") && managerPageText.includes("完整背调报告"));
-check("manager cost UI separates actual, estimated, and unpriced cost signals", managerPageText.includes("已发生费用") && managerPageText.includes("预计") && managerPageText.includes("暂未折算"));
+check("manager cost UI separates actual, unpriced, and allowance-request signals", managerPageText.includes("已发生费用") && managerPageText.includes("暂未折算") && managerPageText.includes("待审批额度申请") && managerPageText.includes("申请理由"));
 check("manager employee cost details moved from employee management to cost monitoring", [
   "selectedCostUserId",
   "fetchAdminOperator",
@@ -1113,6 +1153,32 @@ check("manager cost amounts are capped at two decimals in UI, schema, and overru
   "function moneyUsdText(",
   "requestedAllowanceUsd = moneyUsd",
 ].every((needle) => p22AllStoreText.includes(needle)) && !p22AllStoreText.includes("toFixed(6)"));
+check("manager and employee cost UI share server-scoped actual-spend records and allowance requests", [
+  "fetchEmployeeCostEvents",
+  "employeeApi(\"/cost-events\")",
+  "requestEmployeeCostAllowance",
+  "employeeApi(\"/cost-allowance-requests\")",
+].every((needle) => managerEmployeeApiTs.includes(needle)) && [
+  "getEmployeeCostEvents",
+  "createEmployeeCostAllowanceRequest",
+  "requestKind: \"employee_allowance_request\"",
+  "reason,",
+  "const spendUsd = summary.spendUsd",
+].every((needle) => p22AllStoreText.includes(needle)) && [
+  "EmployeeCostAllowanceRequestSchema",
+  "requested_allowance_usd",
+  "reason",
+].every((needle) => dashboardSchemasTs.includes(needle)) && [
+  "getEmployeeCostEvents",
+  "resolveCbeTenantContext",
+].every((needle) => read(path.join(DASHBOARD_API_DIR, "employee/cost-events/route.ts")).includes(needle)) && [
+  "EmployeeCostAllowanceRequestSchema",
+  "createEmployeeCostAllowanceRequest",
+].every((needle) => read(path.join(DASHBOARD_API_DIR, "employee/cost-allowance-requests/route.ts")).includes(needle)) && [
+  "approvalReason(approval)",
+  "员工主动申请",
+  "申请理由",
+].every((needle) => managerPageText.includes(needle)));
 
 section("CE20/P2.3 Employee DB-backed UI migration");
 for (const route of p23EmployeeRoutes) {
@@ -1120,10 +1186,26 @@ for (const route of p23EmployeeRoutes) {
 }
 const employeeApiTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-api.ts"));
 const employeeRunnerTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-task-runner.ts"));
+const employeeScreeningPromptTs = employeeRunnerTs.slice(
+  employeeRunnerTs.indexOf("function buildScreeningPrompt"),
+  employeeRunnerTs.indexOf("function buildAccioPrompt"),
+);
+const employeeDataTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-data.ts"));
 const employeeStoreTs = read(path.join(DASHBOARD_STORES_DIR, "use-cbe-employee-store.ts"));
 const employeeHomePageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "page.tsx"));
 const employeeCustomersPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx"));
 const employeeMemoryPageTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "memory/page.tsx"));
+const cbeSchemaTs = read(path.join(ROOT, "sentura/lib/cross-border-ecommerce.ts"));
+const animatedListTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/animated-list.tsx"));
+const brandUiTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/brand-ui.tsx"));
+const uiTableTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "ui/table.tsx"));
+const documentExportTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/document-export.ts"));
+const customerReportDialogTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/customer-report-dialog.tsx"));
+const screeningReportCopyTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/screening-report-copy.ts"));
+const memoryChatCustomerListTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "cross-border/memory-chat-customer-list.tsx"));
+const adminEmployeesPageTs = read(path.join(DASHBOARD_ADMIN_DIR, "employees/page.tsx"));
+const adminMemoryPageTs = read(path.join(DASHBOARD_ADMIN_DIR, "memory/page.tsx"));
+const adminCustomerListTableTs = read(path.join(DASHBOARD_ADMIN_DIR, "_components/customer-list-table.tsx"));
 const screeningStoreTs = read(path.join(DASHBOARD_STORE_DIR, "screening.ts"));
 const employeeNotificationTargetsTs = read(path.join(DASHBOARD_EMPLOYEE_DIR, "_data/employee-notification-targets.ts"));
 const appShellTs = read(path.join(DASHBOARD_COMPONENTS_DIR, "app-shell.tsx"));
@@ -1134,8 +1216,30 @@ const dbInspectionSql = read(CBE_DB_INSPECTION_SQL);
 check("P2.3 client API reads Employee projections", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API writes task lifecycle endpoints", ["createEmployeeLeadRun", "completeEmployeeLeadRun", "createEmployeeScreeningRun", "completeEmployeeScreeningRun", "createEmployeeAccioImport", "completeEmployeeAccioImport", "failEmployeeTaskInDb"].every((needle) => employeeApiTs.includes(needle)));
 check("P2.3 client API normalizes strict marker contracts", ["normalizeLeadPayload", "normalizeScreeningPayload", "normalizeAccioPayload", "fetched_at", "source_references", "sha256Hex"].every((needle) => employeeApiTs.includes(needle)));
-check("P2.3 Screening reports reconnect batch targets to lead candidates defensively", ["resolveLeadCandidateIdByIds", "target.lead_id, target.target_id", "resolveLeadCandidateIdByDomain", "resolveLeadCandidateIdByCompany", "lead_candidate_id = coalesce(lead_candidate_id", "source <> 'accio_memory'"].every((needle) => screeningStoreTs.includes(needle)));
+check("P2.3 Screening reports reconnect batch targets to lead candidates defensively", ["resolveLeadCandidateIdByIds", "target.lead_id, target.target_id", "resolveLeadCandidateIdByDomain", "resolveLeadCandidateIdByCompany", "lead_candidate_id = coalesce(lead_candidate_id"].every((needle) => screeningStoreTs.includes(needle)));
 check("P2.3 hidden runner supports pre-created DB session keys", employeeRunnerTs.includes("createPlannedEmployeeSessionKey") && employeeRunnerTs.includes("plannedSessionKey ?? createEmployeeSessionKey(agentId)"));
+check("CE47 Lead runs above five are internally batched and overflow retried", [
+  "LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT = 5",
+  "function leadInternalBatchSizes",
+  "shouldInternallyBatchLeadTask",
+  "runLeadInternalBatchGroup",
+  "Promise.allSettled",
+  "isLeadContextOverflowError",
+  "internal_batch",
+  "internal_session_keys",
+  "internal_batching",
+].every((needle) => employeeRunnerTs.includes(needle)) && [
+  "internal_session_keys: asStringArray(raw.internal_session_keys)",
+  "internal_batching: asRecord(raw.internal_batching)",
+].every((needle) => managerEmployeeApiTs.includes(needle)) && [
+  "internal_session_keys: z.array(z.string().min(1)).max(20).optional()",
+  "internal_batching: JsonRecordSchema.optional()",
+].every((needle) => dashboardSchemasTs.includes(needle)) && [
+  "function runScopeSessionKeys",
+  "metadata.internal_session_keys",
+  "internal_session_keys: input.payload.internal_session_keys ?? []",
+  "internal_batching: input.payload.internal_batching ?? null",
+].every((needle) => p22AllStoreText.includes(needle)));
 check("P2.3 store persists draft/cache only", employeeStoreTs.includes("sentura-cbe-employee-draft-cache-v1") && employeeStoreTs.includes("draftCache: state.draftCache") && !employeeStoreTs.includes("rows: state.rows,") && !employeeStoreTs.includes("tasks: trimTasks(state.tasks),"));
 check("P2.3 demo seed fallback is explicit", employeeStoreTs.includes("CBE_USE_DEMO_SEED") && employeeStoreTs.includes("initialCustomerRows") && employeeStoreTs.includes("initialMemoryRows"));
 check("P2.3 home page hydrates customers, memory, and tasks from APIs", ["fetchEmployeeCustomers", "fetchEmployeeMemoryRecords", "fetchEmployeeTasks"].every((needle) => employeeHomePageTs.includes(needle)));
@@ -1150,6 +1254,41 @@ check("P2.3 employee API cost budget syncs manager limits", employeeApiTs.includ
 check("P2.3 employee login uses manager-set name/password session", authLoginPageTs.includes("displayName") && authLoginPageTs.includes("password") && authRouteText.includes("verifyCbePassword") && appShellTs.includes("/api/auth/logout"));
 check("P2.3 failure route validates stable error codes", p23RouteText.includes("FailEmployeeTaskRequestSchema") && p22AllStoreText.includes("failEmployeeTask") && dashboardSchemasTs.includes("FailEmployeeTaskRequestSchema"));
 check("P2.3 customer projection includes report/source detail for UI", read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("report_json") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("source_urls") && read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes("matchedProducts"));
+check("P2.3 customer projection shows searched Lead product keywords only", ["lead_query_config_json", "query_config_json as lead_query_config_json", "productKeywordsFromQueryConfig", "isPlaceholderProduct", "displayProductsForRow"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes(needle)) && employeeCustomersPageTs.includes("productKeywords: runInput.productKeywords") && employeeApiTs.includes("searchedProducts.length"));
+check("P2.3 customer projection shows admin-managed Chinese country labels", ["countryNameForRow", "lead_settings_countries_json", "countries_json as lead_settings_countries_json", "DEFAULT_LEAD_COUNTRY_OPTIONS", "leadQueryCountries"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "customers.ts")).includes(needle)) && employeeApiTs.includes("asString(record.countryName) ?? countryName(record.country)") && read(path.join(DASHBOARD_ADMIN_DIR, "_components/customer-list-table.tsx")).includes("row.countryName?.trim() || countryLabels[country] || country"));
+check("P2.3 customer list exports filtered PDF and DOCX with data columns and filter summary", ["exportCustomerListDocument", "buildCustomerListDocument", 'columns: ["公司名称", "国家", "类型", "产品", "网站", "时间", "评分"]', "导出筛选条件", "筛选条件：${filterText}", "不包含网页选择框和操作列", "customerListScoreLabel"].every((needle) => documentExportTs.includes(needle)) && !documentExportTs.includes('columns: ["公司名称", "国家", "类型", "产品", "网站", "时间", "评分", "操作"]') && ["exportCustomerListDocument", "exportFilterLabels", "customers: filtered", "totalBeforeFilter: rows.length", 'exportCustomerList("docx")', 'exportCustomerList("pdf")', "导出 DOCX", "导出 PDF"].every((needle) => employeeCustomersPageTs.includes(needle)));
+check("P2.3 Screening report gaps are reconciled with scored/not-applicable blocks", ["reconcileCoverageGapsWithScoreBlocks", 'block.status === "scored" || block.status === "not_applicable"', "coverageGapRequiresReview", "severity"].every((needle) => employeeDataTs.includes(needle)) && [employeeApiTs, employeeRunnerTs].every((text) => text.includes("reconcileCoverageGapsWithScoreBlocks")) && ["evidence.finding 必须是员工可直接判断的中文事实摘要", "confidence 通常应为 0.95-1.0", "coverage_gaps 不得再列同一 block", "可展示文本必须面向没有技术背景的中文业务用户"].every((needle) => employeeRunnerTs.includes(needle)));
+check("P2.3 Screening evidence display preserves concrete plain-Chinese findings", ["function isGenericEvidenceFinding", "return plainFinding;", "normalizeMachineLikePunctuation", "域名登记信息", "邮件防冒用记录", "该报告没有提供足够具体的字段摘要"].every((needle) => screeningReportCopyTs.includes(needle)) && !screeningReportCopyTs.includes("请结合来源网址复核具体内容"));
+check("P2.3 Screening legal-dispute block is schema, runner, and report-UI supported", [
+  "legal_disputes",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "public_legal_database",
+].every((needle) => cbeSchemaTs.includes(needle) && dashboardSchemasTs.includes(needle) && employeeApiTs.includes(needle) && employeeRunnerTs.includes(needle) && screeningReportCopyTs.includes(needle)) &&
+  ["法律纠纷与案件", "legal_disputes"].every((needle) => employeeDataTs.includes(needle) && customerReportDialogTs.includes(needle) && employeeCustomersPageTs.includes(needle) && documentExportTs.includes(needle)) &&
+  adminCustomerListTableTs.includes("legal_disputes") &&
+  ["legal_identity 20、domain_email 20、public_footprint 15", "legal_disputes 为独立评分板块"].every((needle) => employeeRunnerTs.includes(needle)));
+check("P2.3 Screening conversation behavior artifacts are removed from scoring, reports, and cleanup migration", [
+  "011_remove_screening_conversation_behavior.sql",
+  "012_remove_legacy_accio_screening_targets.sql",
+  "013_remove_screening_behavior_json_residue.sql",
+  "014_remove_screening_behavior_text_residue.sql",
+  "screening_score_blocks",
+  "screening_evidence",
+  "screening_reports",
+  "screening_targets",
+].every((needle) => migrationFiles.join("\n").includes(needle) || migrationSql.includes(needle)) &&
+  [
+    "block 必须且只能覆盖 legal_identity、domain_email、public_footprint、business_fit、trade_financial、legal_disputes",
+    "legal_identity 20、domain_email 20、public_footprint 15、business_fit 20、trade_financial 10、legal_disputes 15",
+  ].every((needle) => employeeScreeningPromptTs.includes(needle)) &&
+  !["conversation_behavior", "accio_behavior", "聊天记录", "销售对话", "行为记录"].some((needle) => employeeScreeningPromptTs.includes(needle)) &&
+  !["legacyConversationScoreBlock", "legacyAccioEvidenceLayer", "isScreeningConversationArtifact"].some((needle) => employeeApiTs.includes(needle) || adminCustomerListTableTs.includes(needle)) &&
+  !["conversation_behavior", "accio_behavior", "行为记录"].some((needle) => customerReportDialogTs.includes(needle) || documentExportTs.includes(needle) || screeningReportCopyTs.includes(needle) || employeeDataTs.includes(needle)));
+check("P2.3 paginated lists use browser scroll instead of inner vertical scroll", animatedListTs.includes("scrollable?: boolean") && animatedListTs.includes("scrollable ? \"overflow-y-auto\" : \"overflow-visible\"") && uiTableTs.includes("overflow-x-auto overflow-y-hidden") && [employeeHomePageTs, employeeCustomersPageTs, employeeMemoryPageTs, memoryChatCustomerListTs].every((text) => text.includes("scrollable={false}")) && [employeeCustomersPageTs, employeeMemoryPageTs, memoryChatCustomerListTs, adminCustomerListTableTs].every((text) => text.includes("overflow-x-auto overflow-y-hidden")) && adminEmployeesPageTs.includes("max-h-[calc(100dvh-2rem)]") && adminEmployeesPageTs.includes("overflow-y-auto overscroll-contain") && !adminEmployeesPageTs.includes("ScrollArea") && !adminMemoryPageTs.includes("min-h-0 overflow-y-auto p-4 sm:p-5"));
+check("P2.3 paginated filter changes reset pagination to first page", brandUiTs.includes("resetKey") && brandUiTs.includes("resetPending ? 1 : pageState.page") && brandUiTs.includes("setPageState({ page: 1, resetKey })") && [employeeCustomersPageTs, adminCustomerListTableTs, memoryChatCustomerListTs].every((text) => text.includes("PaginationResetKey") && text.includes("resetKey:")) && employeeMemoryPageTs.includes("memoryPaginationResetKey") && employeeMemoryPageTs.includes("chatCustomerPaginationResetKey") && employeeMemoryPageTs.includes("resetKey: memoryPaginationResetKey") && employeeMemoryPageTs.includes("resetKey: chatCustomerPaginationResetKey"));
 check("P2.3 memory projection includes agent run status", read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes("agent_run_status") && employeeApiTs.includes("agentRunStatus"));
 check("P2.3 Accio store persists and projects import source/input metadata", ["source_kind", "input_format", "attachment_metadata_json", "sourceKind", "inputFormat", "attachmentMetadata"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));
 check("P2.3 Accio memory projection exposes structured deal facts", ["customerProfile", "purchaseIntent", "negotiatedPrices", "behaviorSignals", "customer_profile_json", "purchase_intent_json", "negotiated_price_json"].every((needle) => read(path.join(DASHBOARD_STORE_DIR, "accio.ts")).includes(needle) || employeeApiTs.includes(needle)));

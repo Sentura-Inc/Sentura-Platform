@@ -2,18 +2,20 @@ import type { CbeDb } from "./db";
 import { queryCbe, withCbeTransaction } from "./db";
 import { CbeStoreError } from "./errors";
 import { createCbeId } from "./ids";
-import { hashCbePassword } from "./session";
+import { hashCbePassword, verifyCbePassword } from "./session";
 import { getServerGatewayClient } from "../gateway/server-client";
 import type { CostEvent } from "../gateway/types";
 import type {
   AdminCostApprovalDecisionRequest,
   AdminCostAllowancePatchRequest,
   AdminCostLimitPatchRequest,
+  AdminChangePasswordRequest,
   AdminCreateOperatorRequest,
   AdminUpdateOperatorRequest,
   CbeAgentId,
   CbeCostPeriod,
   CbeTaskKind,
+  EmployeeCostAllowanceRequest,
   ListQuery,
   TenantContext,
 } from "./schemas";
@@ -169,10 +171,7 @@ export async function listAdminOperators(context: TenantContext) {
         from (
           select
             ar.started_at,
-            case
-              when coalesce(ledger.actual_cost_usd, 0) > 0 then ledger.actual_cost_usd
-              else coalesce(ar.cost_usd_estimate, 0)
-            end as spend_usd
+            coalesce(ledger.actual_cost_usd, 0) as spend_usd
           from agent_runs ar
           left join lateral (
             select sum(cost_usd) filter (where cost_usd is not null) as actual_cost_usd
@@ -535,13 +534,13 @@ function summarizeSenturaCostEvents(events: CostEvent[]) {
   return events.reduce(
     (acc, event) => {
       const amount = eventCostUsd(event);
-      acc.spendUsd += amount;
       if (event.costUsd === null) {
         acc.unpricedCallCount += 1;
       } else if (event.pricingStatus === "estimated") {
         acc.estimatedCostUsd += amount;
       } else {
         acc.actualCostUsd += amount;
+        acc.spendUsd += amount;
       }
       return acc;
     },
@@ -587,6 +586,7 @@ interface OperatorRunScopeRow {
   started_at: Date | null;
   finished_at: Date | null;
   cost_usd_estimate: string | null;
+  metadata_json: Record<string, unknown> | null;
 }
 
 async function listOperatorRunScopes(context: TenantContext, operatorIds: string[]) {
@@ -603,7 +603,8 @@ async function listOperatorRunScopes(context: TenantContext, operatorIds: string
         status,
         started_at,
         finished_at,
-        cost_usd_estimate::text as cost_usd_estimate
+        cost_usd_estimate::text as cost_usd_estimate,
+        metadata_json
       from agent_runs
       where tenant_id = $1
         and owner_user_id = any($2::text[])
@@ -613,6 +614,19 @@ async function listOperatorRunScopes(context: TenantContext, operatorIds: string
     [context.tenantId, operatorIds],
   );
   return result.rows;
+}
+
+function runScopeSessionKeys(run: Pick<OperatorRunScopeRow, "session_key" | "metadata_json">) {
+  const keys = new Set<string>();
+  if (run.session_key) keys.add(run.session_key);
+  const metadata = run.metadata_json ?? {};
+  const internalSessionKeys = Array.isArray(metadata.internal_session_keys)
+    ? metadata.internal_session_keys
+    : [];
+  for (const key of internalSessionKeys) {
+    if (typeof key === "string" && key.trim()) keys.add(key.trim());
+  }
+  return Array.from(keys);
 }
 
 async function applySenturaCostToOperatorRows<T extends Record<string, unknown>>(
@@ -625,7 +639,9 @@ async function applySenturaCostToOperatorRows<T extends Record<string, unknown>>
 
   const sessionOwner = new Map<string, string>();
   for (const run of runScopes) {
-    if (run.session_key) sessionOwner.set(run.session_key, run.owner_user_id);
+    for (const sessionKey of runScopeSessionKeys(run)) {
+      sessionOwner.set(sessionKey, run.owner_user_id);
+    }
   }
 
   const events = await fetchSenturaCostEvents({ limit: 10000 });
@@ -649,9 +665,9 @@ async function applySenturaCostToOperatorRows<T extends Record<string, unknown>>
     if (!ownerEvents) return row;
     const costFor = (range: "today" | "week" | "month" | "all") => {
       const start = range === "all" ? null : starts[range];
-      return ownerEvents
+      return summarizeSenturaCostEvents(ownerEvents
         .filter((event) => start === null || eventTimeMs(event) >= start)
-        .reduce((sum, event) => sum + eventCostUsd(event), 0);
+      ).spendUsd;
     };
     return {
       ...row,
@@ -674,7 +690,9 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
 
   const sessionOwner = new Map<string, string>();
   for (const run of runScopes) {
-    if (run.session_key) sessionOwner.set(run.session_key, run.owner_user_id);
+    for (const sessionKey of runScopeSessionKeys(run)) {
+      sessionOwner.set(sessionKey, run.owner_user_id);
+    }
   }
 
   const events = await fetchSenturaCostEvents({ startTime: rangeStartIso(range), limit: 10000 });
@@ -695,7 +713,7 @@ async function applySenturaCostToCostRows<T extends Record<string, unknown>>(
       summary.estimatedCostUsd,
       numeric(row.estimated_cost_usd as string | number | null | undefined),
     );
-    const spendUsd = summary.actualCostUsd + pendingEstimateUsd;
+    const spendUsd = summary.spendUsd;
     const baseLimitUsd = numeric(row.base_limit_usd as string | number | null | undefined);
     const activeAllowanceUsd = numeric(row.active_allowance_usd as string | number | null | undefined);
     return {
@@ -718,7 +736,9 @@ async function listSenturaCostEventsForOperator(
 
   const sessionKeys = new Set<string>();
   for (const run of runScopes) {
-    if (run.session_key) sessionKeys.add(run.session_key);
+    for (const sessionKey of runScopeSessionKeys(run)) {
+      sessionKeys.add(sessionKey);
+    }
   }
 
   const events = await fetchSenturaCostEvents({ limit: 10000 });
@@ -743,7 +763,7 @@ async function getSenturaCostSpendForUserPeriod(
 ) {
   const runScopes = await listOperatorRunScopes(context, [userId]);
   if (runScopes.length === 0) return null;
-  const sessionKeys = new Set(runScopes.map((run) => run.session_key).filter((value): value is string => Boolean(value)));
+  const sessionKeys = new Set(runScopes.flatMap(runScopeSessionKeys));
   if (sessionKeys.size === 0) return null;
   const events = await fetchSenturaCostEvents({ startTime: rangeStartIso(periodToRange(period)), limit: 10000 });
   if (!events) return null;
@@ -781,10 +801,7 @@ async function getDbSpendForUserPeriod(
   const spend = await queryCbe<{ spend_usd: string | null }>(
     `
       select coalesce(sum(
-        case
-          when coalesce(ledger.actual_cost_usd, 0) > 0 then ledger.actual_cost_usd
-          else coalesce(ar.cost_usd_estimate, 0)
-        end
+        coalesce(ledger.actual_cost_usd, 0)
       ), 0)::text as spend_usd
       from agent_runs ar
       left join lateral (
@@ -1086,6 +1103,7 @@ interface CostApprovalRow {
   decision_note: string | null;
   decided_at: Date | null;
   created_at: Date;
+  metadata_json?: Record<string, unknown> | null;
 }
 
 function toCostItem(row: CostRow) {
@@ -1191,13 +1209,7 @@ export async function listAdminCosts(
       ) allowances on true
       left join lateral (
         select
-          coalesce(sum(
-            case
-              when coalesce(ledger.actual_cost_usd, 0) > 0 then ledger.actual_cost_usd
-              when ar.status in ('queued', 'running', 'polling') then coalesce(ar.cost_usd_estimate, 0)
-              else 0
-            end
-          ), 0) as spend_usd,
+          coalesce(sum(coalesce(ledger.actual_cost_usd, 0)), 0) as spend_usd,
           coalesce(sum(coalesce(ledger.actual_cost_usd, 0)), 0) as actual_cost_usd,
           coalesce(sum(
             case
@@ -1253,7 +1265,8 @@ export async function listAdminCosts(
         req.status,
         req.decision_note,
         req.decided_at,
-        req.created_at
+        req.created_at,
+        req.metadata_json
       from cbe_cost_approval_requests req
       left join cbe_user_profiles prof
         on prof.tenant_id = req.tenant_id
@@ -1338,6 +1351,8 @@ export async function listAdminCosts(
       status: row.status,
       created_at: row.created_at.toISOString(),
       decision_note: row.decision_note,
+      request_kind: typeof row.metadata_json?.requestKind === "string" ? row.metadata_json.requestKind : null,
+      request_reason: typeof row.metadata_json?.reason === "string" ? row.metadata_json.reason : row.target_summary,
     })),
   };
 }
@@ -1386,6 +1401,134 @@ export async function getEmployeeCostBudget(
     remainingUsd: limitEnabled ? moneyUsd(limitUsd - spendUsd) : null,
     updatedAt: row?.updated_at?.toISOString() ?? null,
   };
+}
+
+export async function getEmployeeCostEvents(context: TenantContext) {
+  const senturaCostEvents = await listSenturaCostEventsForOperator(context, context.userId);
+  if (senturaCostEvents !== null) {
+    return {
+      source: "sentura_cost" as const,
+      events: senturaCostEvents,
+      scopedSessionCount: new Set(senturaCostEvents.map((event) => event.sessionKey)).size,
+      outsideScopeCount: 0,
+    };
+  }
+
+  const costEvents = await queryCbe(
+    `
+      select
+        ar.id as agent_run_id,
+        ar.agent_id,
+        ar.task_kind,
+        ar.session_key,
+        ar.target_summary,
+        ar.status,
+        ar.started_at,
+        ar.finished_at,
+        ar.cost_usd_estimate::text as cost_usd_estimate,
+        l.provider,
+        l.endpoint,
+        l.source_type,
+        l.request_units::text as request_units,
+        l.cost_usd::text as actual_cost_usd,
+        l.status as ledger_status,
+        l.created_at as ledger_created_at
+      from agent_runs ar
+      left join api_call_ledger l
+        on l.tenant_id = ar.tenant_id
+       and l.agent_run_id = ar.id
+      where ar.tenant_id = $1
+        and ar.owner_user_id = $2
+      order by coalesce(l.created_at, ar.started_at) desc, ar.id desc
+      limit 1000
+    `,
+    [context.tenantId, context.userId],
+  );
+  const rows = costEvents.rows.map((row) => ({
+    ...row,
+    cost_usd_estimate: moneyUsdText(row.cost_usd_estimate as string | number | null | undefined),
+    actual_cost_usd: row.actual_cost_usd === null
+      ? null
+      : moneyUsdText(row.actual_cost_usd as string | number | null | undefined),
+  }));
+  const events = rows.map((row) => dbCostEventRowToCostEvent(context, row));
+  return {
+    source: "db_fallback" as const,
+    events,
+    scopedSessionCount: new Set(events.map((event) => event.sessionKey)).size,
+    outsideScopeCount: 0,
+  };
+}
+
+export async function createEmployeeCostAllowanceRequest(
+  context: TenantContext,
+  input: EmployeeCostAllowanceRequest,
+) {
+  const period: CbeCostPeriod = "month";
+  const budget = await getEmployeeCostBudget(context, period);
+  const requestedAllowanceUsd = moneyUsd(input.requested_allowance_usd);
+  const reason = input.reason.trim();
+  const approvalId = createCbeId("cost_approval");
+  const metadataJson = {
+    requestKind: "employee_allowance_request",
+    reason,
+    requestedBy: "employee",
+    submittedAt: new Date().toISOString(),
+  };
+
+  const result = await queryCbe<CostApprovalRow>(
+    `
+      insert into cbe_cost_approval_requests (
+        id,
+        tenant_id,
+        user_id,
+        agent_id,
+        task_kind,
+        target_summary,
+        estimated_cost_usd,
+        period,
+        current_spend_usd,
+        base_limit_usd,
+        active_allowance_usd,
+        requested_allowance_usd,
+        requested_by_user_id,
+        metadata_json
+      )
+      values ($1, $2, $3, 'cbe-lead-discovery', 'handoff', $4, 0, $5, $6, $7, $8, $9, $3, $10::jsonb)
+      returning
+        id,
+        user_id,
+        null::text as operator_name,
+        agent_id,
+        task_kind,
+        target_summary,
+        estimated_cost_usd::text as estimated_cost_usd,
+        period,
+        current_spend_usd::text as current_spend_usd,
+        base_limit_usd::text as base_limit_usd,
+        active_allowance_usd::text as active_allowance_usd,
+        requested_allowance_usd::text as requested_allowance_usd,
+        status,
+        decision_note,
+        decided_at,
+        created_at,
+        metadata_json
+    `,
+    [
+      approvalId,
+      context.tenantId,
+      context.userId,
+      `员工申请临时额度：${reason}`,
+      period,
+      budget.spendUsd,
+      budget.baseLimitUsd,
+      budget.activeAllowanceUsd,
+      requestedAllowanceUsd,
+      JSON.stringify(metadataJson),
+    ],
+  );
+
+  return toCostApproval(result.rows[0]);
 }
 
 export async function upsertAdminCostLimit(
@@ -1751,6 +1894,46 @@ export async function updateAdminOperator(
     throw new CbeStoreError(404, "operator_missing", "Requested CBE operator was not found.");
   }
   return getAdminOperator(context, operatorId);
+}
+
+export async function updateAdminOwnPassword(
+  context: TenantContext,
+  input: AdminChangePasswordRequest,
+) {
+  const profile = await queryCbe<{ password_hash: string | null }>(
+    `
+      select password_hash
+      from cbe_user_profiles
+      where tenant_id = $1
+        and user_id = $2
+        and cbe_role = 'admin'
+        and status <> 'inactive'
+      limit 1
+    `,
+    [context.tenantId, context.userId],
+  );
+  const row = profile.rows[0];
+  if (!row) {
+    throw new CbeStoreError(404, "admin_profile_missing", "管理员账号不存在。");
+  }
+  if (!verifyCbePassword(input.current_password, row.password_hash)) {
+    throw new CbeStoreError(403, "admin_current_password_invalid", "当前密码不正确。");
+  }
+
+  await queryCbe(
+    `
+      update cbe_user_profiles
+      set
+        password_hash = $3,
+        updated_at = now()
+      where tenant_id = $1
+        and user_id = $2
+        and cbe_role = 'admin'
+        and status <> 'inactive'
+    `,
+    [context.tenantId, context.userId, hashCbePassword(input.new_password)],
+  );
+  return { ok: true };
 }
 
 export async function deleteAdminOperator(

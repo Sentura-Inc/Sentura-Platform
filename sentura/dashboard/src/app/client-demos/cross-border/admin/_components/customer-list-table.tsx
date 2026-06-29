@@ -19,6 +19,7 @@ import {
   buyerTypeLabel,
   canonicalBuyerType,
   canonicalProduct,
+  isPlaceholderProduct,
   productLabel,
 } from "@/components/cross-border/customer-labels";
 import {
@@ -116,9 +117,9 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "google_maps_local_presence",
   "address_validation",
   "public_footprint",
+  "legal_disputes",
   "trade_customs",
   "financial_public_filing",
-  "accio_behavior",
 ];
 
 const countryLabels: Record<string, string> = {
@@ -440,7 +441,7 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
             summary: asString(block.summary),
             reason: asString(block.reason),
           }),
-  }));
+    }));
   const evidence = asRecordArray(reportJson.evidence).map((item): CustomerEvidenceItem => ({
     layer: evidenceLayer(item.layer ?? item.score_block ?? item.scoreBlock),
     sourceUrl: asString(item.source_url ?? item.url ?? item.source, "-"),
@@ -459,7 +460,7 @@ function parseReport(row: AdminCustomerRow): CustomerScreeningReport | undefined
     scoreBlock: asString(item.score_block ?? item.scoreBlock) || undefined,
     scoreImpact: scoreImpact(item.score_impact ?? item.scoreImpact),
     affectsScore: item.affects_score === undefined ? true : Boolean(item.affects_score),
-  }));
+    }));
   const coverageGaps = asRecordArray(reportJson.coverage_gaps).map((gap) => ({
     block: asString(gap.block ?? gap.score_block, "public_footprint"),
     reason: simplifyDisplayText(asString(gap.reason ?? gap.summary)) ?? "缺少这一项核验依据。",
@@ -499,7 +500,7 @@ function adminCustomerToListItem(row: AdminCustomerRow): AdminListCustomerItem {
     source,
     companyName: row.companyName,
     country,
-    countryName: countryLabels[country] ?? country,
+    countryName: row.countryName?.trim() || countryLabels[country] || country,
     buyerType: row.buyerType ?? (source === "manual_screening" ? "manual-input" : "buyer"),
     products,
     website: row.website ?? (row.domain ? `https://${row.domain}` : undefined),
@@ -660,8 +661,9 @@ function CustomerProductBadges({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const visibleProducts = expanded ? products : products.slice(0, 2);
-  const hiddenCount = Math.max(0, products.length - visibleProducts.length);
+  const displayProducts = products.filter((product) => !isPlaceholderProduct(product));
+  const visibleProducts = expanded ? displayProducts : displayProducts.slice(0, 2);
+  const hiddenCount = Math.max(0, displayProducts.length - visibleProducts.length);
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -670,7 +672,7 @@ function CustomerProductBadges({
           {productLabel(product)}
         </Badge>
       ))}
-      {products.length > 2 ? (
+      {displayProducts.length > 2 ? (
         <button
           type="button"
           aria-expanded={expanded}
@@ -986,7 +988,11 @@ export function AdminCustomerListTable({
     }
     return next;
   }, [customerSort, filters, query, rows, showStatusFilters, statusFilter]);
-  const customerPage = usePagedItems(filtered, 10);
+  const customerPaginationResetKey = useMemo(
+    () => JSON.stringify({ customerSort, filters, query, showStatusFilters, statusFilter }),
+    [customerSort, filters, query, showStatusFilters, statusFilter],
+  );
+  const customerPage = usePagedItems(filtered, 10, { resetKey: customerPaginationResetKey });
   const pagedCustomers = customerPage.items;
 
   const toggleProductsExpanded = (customerId: string) => {
@@ -1179,7 +1185,7 @@ export function AdminCustomerListTable({
                 />
               ))}
             </div>
-            <div className="hidden overflow-x-auto rounded-md border md:block">
+            <div className="hidden overflow-x-auto overflow-y-hidden rounded-md border md:block">
               <table className="w-full min-w-[1160px] text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>

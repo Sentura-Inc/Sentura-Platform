@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  LEAD_FILTER_BUYER_TYPE_LIMIT,
+  LEAD_FILTER_COUNTRY_LIMIT,
+  LEAD_FILTER_PRODUCT_LIMIT,
+} from "../cross-border-lead-settings";
 
 export const CBE_TENANT_ID = "cross-border-ecommerce";
 export const CBE_DEFAULT_OPERATOR_USER_ID = "cbe-user-operator-001";
@@ -66,6 +71,11 @@ export type TenantContext = z.infer<typeof TenantContextSchema>;
 export const SourceTypeSchema = z.enum([
   "official_api",
   "official_registry_page",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "public_legal_database",
   "public_web",
   "public_dns",
   "google_maps_places",
@@ -96,7 +106,7 @@ export const ScoreBlockIdSchema = z.enum([
   "public_footprint",
   "business_fit",
   "trade_financial",
-  "conversation_behavior",
+  "legal_disputes",
 ]);
 export const CompanyScaleClassSchema = z.enum([
   "listed_or_public",
@@ -160,6 +170,64 @@ export const CreateLeadRunRequestSchema = z.object({
 });
 export type CreateLeadRunRequest = z.infer<typeof CreateLeadRunRequestSchema>;
 
+const LeadFilterSlugSchema = z.string().trim().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/);
+
+export const LeadProductFilterOptionSchema = z.object({
+  id: LeadFilterSlugSchema,
+  label: z.string().trim().min(1).max(48),
+  keyword: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(220).default(""),
+});
+export type LeadProductFilterOption = z.infer<typeof LeadProductFilterOptionSchema>;
+
+export const LeadBuyerTypeFilterOptionSchema = z.object({
+  id: LeadFilterSlugSchema,
+  label: z.string().trim().min(1).max(48),
+  keyword: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(220).default(""),
+});
+export type LeadBuyerTypeFilterOption = z.infer<typeof LeadBuyerTypeFilterOptionSchema>;
+
+export const LeadCountryFilterOptionSchema = z.object({
+  code: z.string().trim().min(2).max(2).regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()),
+  label: z.string().trim().min(1).max(48),
+  language: z.string().trim().min(2).max(12).regex(/^[A-Za-z][A-Za-z-]*$/).transform((value) => value.toLowerCase()),
+  description: z.string().trim().max(220).default(""),
+});
+export type LeadCountryFilterOption = z.infer<typeof LeadCountryFilterOptionSchema>;
+
+function requireUniqueValues<T>(
+  values: T[],
+  field: keyof T,
+  label: string,
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>();
+  for (const item of values) {
+    const value = String(item[field]).toLowerCase();
+    if (seen.has(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${label} cannot contain duplicate ${String(field)} values.`,
+        path: [field as string],
+      });
+      return;
+    }
+    seen.add(value);
+  }
+}
+
+export const LeadFilterSettingsInputSchema = z.object({
+  products: z.array(LeadProductFilterOptionSchema).min(1).max(LEAD_FILTER_PRODUCT_LIMIT),
+  buyerTypes: z.array(LeadBuyerTypeFilterOptionSchema).min(1).max(LEAD_FILTER_BUYER_TYPE_LIMIT),
+  countries: z.array(LeadCountryFilterOptionSchema).min(1).max(LEAD_FILTER_COUNTRY_LIMIT),
+}).superRefine((value, ctx) => {
+  requireUniqueValues(value.products, "id", "products", ctx);
+  requireUniqueValues(value.buyerTypes, "id", "buyerTypes", ctx);
+  requireUniqueValues(value.countries, "code", "countries", ctx);
+});
+export type LeadFilterSettingsInput = z.infer<typeof LeadFilterSettingsInputSchema>;
+
 export const LeadDiscoveryEvidenceSchema = z.object({
   signal: z.string().min(1).optional(),
   source_url: z.string().url(),
@@ -211,6 +279,8 @@ export const LeadMarkerPayloadSchema = z.object({
   run_id: z.string().min(1).optional(),
   leads: z.array(LeadCandidateMarkerSchema).min(1),
   shortage_reason: z.string().min(1).optional(),
+  internal_session_keys: z.array(z.string().min(1)).max(20).optional(),
+  internal_batching: JsonRecordSchema.optional(),
 });
 export type LeadMarkerPayload = z.infer<typeof LeadMarkerPayloadSchema>;
 
@@ -496,6 +566,12 @@ export const AdminUpdateOperatorRequestSchema = z.object({
 });
 export type AdminUpdateOperatorRequest = z.infer<typeof AdminUpdateOperatorRequestSchema>;
 
+export const AdminChangePasswordRequestSchema = z.object({
+  current_password: z.string().min(1),
+  new_password: z.string().min(4),
+});
+export type AdminChangePasswordRequest = z.infer<typeof AdminChangePasswordRequestSchema>;
+
 export const AdminBatchDeleteOperatorsRequestSchema = z.object({
   user_ids: z.array(z.string().min(1)).min(1).max(20),
 });
@@ -524,6 +600,14 @@ export const AdminCostApprovalDecisionRequestSchema = z.object({
   decision_note: z.string().min(1).optional(),
 });
 export type AdminCostApprovalDecisionRequest = z.infer<typeof AdminCostApprovalDecisionRequestSchema>;
+
+export const EmployeeCostAllowanceRequestSchema = z.object({
+  requested_allowance_usd: CbeMoneyUsdSchema.refine((value) => value > 0, {
+    message: "requested_allowance_usd must be greater than 0.",
+  }),
+  reason: z.string().trim().min(2).max(500),
+});
+export type EmployeeCostAllowanceRequest = z.infer<typeof EmployeeCostAllowanceRequestSchema>;
 
 export const DeleteMemoryRecordsRequestSchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(100),

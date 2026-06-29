@@ -67,28 +67,42 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-27 | Lead target cap and whole-condition search | Capped Lead Discovery target count at 10, removed per-group/per-query result controls, merged selected filters into one search brief, and kept the first N compliant non-duplicate buyers to prevent wide grouped tool loops. |
 | 2026-06-28 | Admin memory organization page | Added manager `/admin/memory` with employee account rows, chat-record counts, `记忆整理` nav placement immediately after `客户列表`, and a read-only Employee-equivalent chat-customer list for each selected employee. |
 | 2026-06-28 | Employee automatic long-term memory write and Admin full transcript read | Changed analyzed `记忆整理` records to automatically create approved structured `memory_facts`, disabled memory-fact review decisions, removed Employee/Admin memory-decision UI copy, kept Screening handoff disabled, and let Manager `/admin/memory` read selected employees' full stored chat transcripts. |
+| 2026-06-28 | Admin-managed Chinese Lead filters and invalid-source option removal | Added tenant-level Admin management for Chinese Lead product, buyer-type, and country/region business terms; Employee `寻找客户` now consumes those fixed options; customer product chips display only searched Lead product keywords; customer country labels display Admin-managed Chinese names such as `IT` -> `意大利`; the Lead Agent handles translation/query expansion/country-language normalization; user-configurable invalid-source/excluded-domain controls and payload fields were removed. |
+| 2026-06-28 | Paginated list browser-scroll-only UX | Removed local vertical scroll containers from paginated Employee/Admin customer and memory lists so only the browser/page scroll controls long paginated lists. |
+| 2026-06-28 | Filtered pagination first-page reset | Added a shared pagination reset key so filtered/searchable/sortable Employee/Admin paginated customer and memory lists return to page 1 after filter conditions change. |
+| 2026-06-28 | Admin self password change | Added Manager header `修改密码`, a role-scoped Admin profile password API, store-side current-password verification before hashing the new password, and login fallback protection so preset `孙总/1234` cannot overwrite an existing Admin password hash. |
+| 2026-06-28 | Employee customer-list export | Added Employee `获客与背调` DOCX/PDF customer-list export using current filters, all filtered rows, data columns only, visible filter-condition text, and the shared CBE document template. |
+| 2026-06-28 | Screening decision-ready evidence and actionable gaps | Strengthened `cbe-buyer-screening` rules/skills and hidden prompts so official registry evidence is high confidence, findings contain concrete source fields, small-company trade/financial absence is not over-stated, and report normalization removes gaps that conflict with scored/not-applicable blocks. |
+| 2026-06-29 | Screening legal-dispute/case risk block | Added country-aware public legal-dispute/case/insolvency/regulatory-enforcement checks, a dedicated `legal_disputes` evidence layer and 15-point score block, revised score weights, legal source types, report labels, and static regression coverage. |
+| 2026-06-29 | Screening concrete evidence display follow-up | Verified current DB reports already store concrete registry/domain/maps/contact/legal-search facts and fixed report copy so cards/exports preserve concrete findings instead of generic confidence-only wording. |
+| 2026-06-29 | Screening plain-Chinese report copy follow-up | Updated Agent rules/skills, hidden Screening prompt, report copy helper, and CE43 tests so customer-visible report text is natural Simplified Chinese for non-technical users. |
+| 2026-06-29 | Screening conversation-behavior removal | Removed chat/sales-behavior evidence from Screening scoring, prompts, schemas, report UI/export labels, customer projections, and local DB artifacts while keeping `记忆整理` separate. |
+| 2026-06-29 | Unified cost display and employee allowance requests | Unified Employee/Admin visible cost numbers on server-scoped actual spend, excluded estimated cost from `已用`, added quota display to cost detail, and added Employee `申请额度` with reasons visible in Admin cost approvals. |
+| 2026-06-29 | Lead internal batching and overflow retry | Split Lead requests above 5 into <=5 hidden sub-runs, added context-overflow recursive retry, merged final payloads, and included internal session keys in cost attribution. |
 
 ## Current Phase 2 Ground Truth
 
 - Phase 2 is the current active CBE implementation lane. New CBE production/database/customer-admin/concurrency/store/UI-persistence work should log here, not in `phase-1.md`.
+- Current Screening uses exactly six public-evidence score blocks: `legal_identity` / `公司注册与线下门店/地址` 20, `domain_email` 20, `public_footprint` 15, `business_fit` 20, `trade_financial` 10, and `legal_disputes` 15. Chat/sales-behavior-derived Screening evidence is removed from the Screening Agent, Dashboard schemas, hidden prompts, report UI/export labels, customer projections, and local DB artifacts; `记忆整理` Accio import/summary remains separate.
 - Dashboard code and the Alibaba ECS target now use production-facing CBE routes: Employee entry `/employee`, Employee login `/employee/login`, Admin entry `/admin`, Admin login `/admin/login`, Employee APIs `/api/employee/*`, Admin APIs `/api/admin/*`, and role session API `/api/session`. Old `/client-demos/cross-border/{employee,admin}` page URLs redirect to the canonical paths, and canonical routes rewrite to the existing implementation files during the transition. Route helpers also recognize the internal rewrite destination paths so SSR renders Admin pages with the manager shell even when Next resolves `/admin/login` through `/client-demos/cross-border/admin/login`.
 - The Alibaba Cloud target setup baseline is complete as of 2026-06-26: OpenClaw Gateway runs loopback-only as root's systemd user service on `127.0.0.1:18789`, Sentura Dashboard runs on `127.0.0.1:3000`, Nginx proxies `app.sentura.ai`, `admin.sentura.ai`, and `/gateway`, Alibaba RDS PostgreSQL database `sentura` has migrations `001`-`008` plus seeded CBE admin/operator profiles, and public HTTPS/WSS reachability is verified through Alibaba ALB. Current target checks include live RDS store 244/244, public canonical app/admin redirects and pages, expected unauthenticated 401s from canonical APIs, public WSS Gateway, built Docker sandbox image `openclaw-sandbox:bookworm-slim`, sandboxed `cbe-lead-discovery` startup, Google Places Lead tool HTTP 200, recovered production CPR Screening report `RPT-20260625-CPR-001` saved from an existing fenced-JSON transcript, recovered production Cellairis Screening report `SR-20260625-CELLAIRIS-001` saved after nested OpenClaw transcript parsing, recovered production Adorama Screening report `cbe_sr_20260626_adorama_001` saved after long-transcript repair-result recovery, recovered production `USB-C charger / US` Lead run with NEM Electronics Corp / Entro Wholesale / Mighty Wireless and 12 sources after OpenClaw `chat.history.maxChars` cap correction, and hidden-task structured-output repair plus nested/long transcript recovery deployed to ECS with CBE static 424/424 plus Dashboard typecheck/build pass. CE33 local code now recalibrates Lead/Screening task time budgets dynamically and records timing metadata, but that timing change has not yet been deployed to ECS. This is deployment/connectivity evidence, not a full `production_go_live_ready` label until target load-smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS are recorded.
 - Phase 1 remains historically important but is not the default detail file for new Phase 2 sessions.
 - Customer-facing CBE roles are only `operator` and `admin`.
+- Visible cost `已用` in Employee cost mini/card, Admin employee management, and Admin `费用监控` uses server-scoped actual spend only. Estimated task cost is for preflight/diagnostics and must not be counted as visible used cost.
 - `operator` uses the existing `个人中心`, `获客与背调`, and `记忆整理` surfaces.
-- `admin` is a customer-side monitoring/supervisor role for live tasks, aggregate lists, per-user lists, Agent usage, costs, failures, and statistics. It is not a Sentura platform administrator and must not expose employee creation, prompt/tool/model/provider settings, OpenClaw config, Gateway config, MCP config, or sandbox/tool-policy changes.
+- `admin` is a customer-side monitoring/supervisor role for live tasks, aggregate lists, per-user lists, Agent usage, costs, failures, statistics, and tenant-level Lead filter taxonomy management. It is not a Sentura platform administrator and must not expose employee creation, prompt/tool/model/provider settings, OpenClaw config, Gateway config, MCP config, or sandbox/tool-policy changes.
 - P2.1 is complete and was re-verified on 2026-06-17. The PostgreSQL foundation lives under `sentura/lib/cross-border-store/` and uses `CBE_DATABASE_URL`; credentials must remain in env/secret injection, not committed files.
 - P2.2 typed Dashboard store/API routes are complete.
 - P2.3 DB-backed Employee UI migration is complete. `个人中心`, `获客与背调`, `记忆整理`, task notifications, and hidden Lead/Screening/Accio create-complete-fail flows now read/write through the P2.2 APIs; `localStorage` is limited to draft/cache state and explicit demo seed fallback.
 - `获客与背调` keeps its current main row information but now uses lighter row backgrounds, a single `评分排序` select, no row-level delete buttons, expandable product overflow chips, Beijing `YYYY-MM-DD HH:mm:ss` found times, no `新找到` row badge, green `✅` screened status, and business score wording. Completed Lead/Screening task links use `highlightTask` to locate affected rows and flash a light-blue outline for 3 seconds.
 - The global message center closes when the user clicks outside its dialog. Terminal task-status banners persist dismissal locally and through the task dismiss API so dismissed completed banners do not reappear after route switching.
 - Manager-side `查看报告` uses the shared Employee `CustomerReportDialog` implementation. The report overlay renders through `document.body` so it is not clipped by the Manager employee-detail dialog's transform/overflow container; `X` and outside-click close are verified.
-- Manager has a dedicated `/client-demos/cross-border/admin/login` page matching the Employee login layout. The preset Manager account is `孙总` / `1234`; login submits `cbeRole: "admin"`. CBE login now writes role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) plus the legacy `sentura_cbe_session` compatibility cookie, and session checks pass `role=operator` or `role=admin` so Employee and Manager sessions can coexist without kicking each other back to login. Manager APIs rely on cookie session by default; `NEXT_PUBLIC_CBE_ADMIN_USER_ID` remains only as an explicit override.
+- Manager has a dedicated `/client-demos/cross-border/admin/login` page matching the Employee login layout. The preset Manager account is `孙总` / `1234`; login submits `cbeRole: "admin"`. CBE login now writes role-scoped cookies (`sentura_cbe_employee_session`, `sentura_cbe_admin_session`) plus the legacy `sentura_cbe_session` compatibility cookie, and session checks pass `role=operator` or `role=admin` so Employee and Manager sessions can coexist without kicking each other back to login. Manager APIs rely on cookie session by default; `NEXT_PUBLIC_CBE_ADMIN_USER_ID` remains only as an explicit override. The preset `孙总/1234` fallback can bootstrap only a missing `password_hash`; once an Admin password hash exists, `/api/auth/login` verifies the DB hash and the old preset cannot overwrite a changed password.
 - Manual DB inspection for P2.3 should use `scripts/inspect-cross-border-live-db.sql`. The physical tables intentionally do not duplicate every UI projection field as same-named columns.
 - P2.4 workload coordinator and Lead Discovery coordinator are complete as of 2026-06-21. The Dashboard store now queues above 24 active OpenClaw CBE sessions, does not start normal work above the configured caps, and Lead exact/near/top-up scope decisions happen before hidden OpenClaw sessions start.
 - Lead Discovery pre-run `scope_hash`/`scope_similarity` is only a cost/backpressure predictor. The database is the authoritative dedupe reference before any customer row becomes visible in an employee list.
 - Lead Discovery `targetCount` means database-unique, unassigned customers for the current request, not "number of search results inspected" and not "employee visible-list total". A normal repeated same-scope request keeps the full requested new-customer target; only internal `run_mode = "top_up_unique_leads"` runs use the missing-count remainder. Before any executable hidden search starts, the coordinator retrieves tenant DB identities and passes them as `existing_identity_keys` so the employee avoids already-found customers during query generation and candidate filtering. Completion then reconciles returned candidates against tenant-level identities/candidates/results, writes only new unique candidates, records duplicate same-owner/other-operator reasons in `lead_run_results`, and top-ups missing unique counts with `run_mode = "top_up_unique_leads"` plus database-derived `existing_identity_keys`.
-- Lead Discovery currently caps `targetCount` at 10, removes per-group/per-query search controls, merges selected products/countries/buyer types into one search brief, and keeps the first N compliant non-duplicate downstream buyer companies in discovery order. The employee must not build Cartesian-product query plans or group-balance results.
+- Lead Discovery currently caps `targetCount` at 10, removes per-group/per-query search controls, lets Admin manage the fixed product/country-or-region/buyer-type taxonomy through Chinese business terms only, merges the selected Admin-managed filters into one search brief, keeps the first N compliant non-duplicate downstream buyer companies in discovery order, and displays only the searched Lead product keywords in customer product chips. The employee must not add/remove taxonomy options, build Cartesian-product query plans, group-balance results, or see placeholder/unconfirmed products as product chips. The Lead Agent is responsible for understanding Chinese Admin terms, translating/expanding search phrasing, and normalizing countries/regions to search, ISO, and language context. User-configurable invalid-source/excluded-domain controls are removed from Employee UI/API/prompt/scope/workspace defaults; internal marketplace/social/directory rejection remains quality control.
 - Runtime no longer returns `reuse_completed_pool`; completed scopes can only provide denylist context for new/top-up work and must not copy one employee's assigned customer rows into another employee's list.
 - Screening user batches now split into parent tasks plus single-target child runs by default. As of 2026-06-24, P2.5 creates a parent `agent_runs` row plus `screening_batches`, one child `agent_runs` / `screening_batch_targets` row per target, and a route-triggered drain that claims queued children with row locks, leases, admission checks, and parent aggregate refresh. Multi-target single-session Screening runs remain blocked unless the explicit batch-3 feature flag is enabled.
 - P2.6 DB-only load-smoke tooling is implemented as of 2026-06-24. `scripts/test-cross-border-phase2-load-smoke.ts` validates 50 temporary operators/sessions, 10 Lead `find-10` requests with exact/near duplicate scopes, 5 Screening batches split into 25 single-target children, retry/drain after one child failure, 3 Accio imports, 24 soft-cap queueing, DB-only 32-active hard guard, and p95/cost/audit report metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` and `跨境电商/P2.6-LOAD-SMOKE-RUNBOOK.md` cover the backup/restore drill and readiness labels. Current broad CBE static regression is 415/415. Local preflight is `db_only_preflight_passed`; full target-deployment go-live remains conditional on target smoke, target restore drill, provider/source-rate headroom, model concurrency, DB connection limits, and Gateway RSS behavior.
@@ -99,7 +113,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 - Current Screening country routing: GB Companies House and US SEC/RDAP/email/trade paths are current MCP-backed routes; France/Japan/Korea/Brazil/Italy are adapter backlog items with documented registration steps; Germany/Spain/Mexico stay official-page/manual routes unless a signed provider adapter is added.
 - Google Maps Places + OpenClaw web search is implemented as the primary Lead Discovery acquisition route. `cross-border-intel` now exposes read-only `cbe_intel_google_places_search`, `cbe_intel_google_place_details`, `cbe_intel_google_geocode`, and `cbe_intel_google_address_validate`; setup scripts pass `GOOGLE_MAPS_API_KEY` and conservative request caps from env into the MCP server.
 - Lead Discovery is Maps-first: Text Search/Nearby Search create storefront/local buyer seeds, Place Details is reserved for shortlists, web search/fetch verifies company-owned site and mobile-accessory buyer fit, and CBE DB reconciliation remains the source of truth for uniqueness/allocation.
-- Screening uses Google Maps for public local-presence, address/website consistency, the dedicated address-footprint report section, and the implemented scale-aware first `公司注册与线下门店/地址` score block. Google Maps can satisfy that 25% authenticity block for small local/offline companies when an `OPERATIONAL` physical address is confirmed and no contradictory evidence exists. For listed/public and medium-large companies, Maps must be fused with registry/disclosure evidence and still is not formal KYB, legal ownership, trade, financial, fraud, or Accio behavior proof. `GOOGLE_MAPS_API_KEY` must stay server-side/secret-only; Google API calls require field masks, request caps, source attribution, redacted source URLs, and `api_call_ledger` metadata.
+- Screening uses Google Maps for public local-presence, address/website consistency, the dedicated address-footprint report section, and the implemented scale-aware first `公司注册与线下门店/地址` score block. Google Maps can satisfy that 20-point authenticity block for small local/offline companies when an `OPERATIONAL` physical address is confirmed and no contradictory evidence exists. For listed/public and medium-large companies, Maps must be fused with registry/disclosure evidence and still is not formal KYB, legal ownership, trade, financial, fraud, or Accio behavior proof. `GOOGLE_MAPS_API_KEY` must stay server-side/secret-only; Google API calls require field masks, request caps, source attribution, redacted source URLs, and `api_call_ledger` metadata.
 - Screening address-footprint is implemented: every company investigation should attempt a bounded Google Maps address discovery pass and render a visually distinct `Google Maps 地址版图` / `address_footprint` section that lists discovered offices, stores, warehouses/distribution sites, service/repair locations, validation verdicts, match confidence, and coverage limitations. Implementation covers the hidden Employee prompt, Screening workspace skills, `cross-border-intel` `screening_address_footprint` Details field mask, Dashboard marker/schema normalization, dedicated `screening_address_locations` row storage, DB completion metadata, shared report UI, and legacy Screening page rendering.
 - Dashboard hidden Lead/Screening/Accio/image tasks now use longer Maps-plus-web estimates, propagate long `timeoutMs` through the Gateway client, treat frontend `chat.send` timeout as recoverable when transcript polling can still find markers, and run a final 60s transcript grace window before reporting marker timeout. Structured-output parsing is marker-first, then whole-response JSON/code-fenced JSON fallback with expected top-level array guards (`leads`, `reports`, `summaries`, image `images`), then one no-tools/no-reinvestigation repair turn for malformed or completed non-marker replies. Transcript reads are timestamp-scoped so old preflight/final/repair messages do not satisfy later turns. Setup now reads both project `.env` and `~/.openclaw/.env` before writing `cross-border-intel` MCP env references.
 - The `寻找客户` sheet now snapshots the current target-count input ref at submit time and echoes `目标 N 个客户` in the drawer summary/button. A 2026-06-21 live audit found the Google-backed run succeeded but the backend prompt and `lead_runs.target_count` were already 3, so the 3-result outcome was not caused by Google/API failure or post-run dedupe.
@@ -2452,3 +2466,410 @@ Boundary:
 - This restores Employee long-term memory persistence only. It does not restore `发送到背调`, Accio-to-Screening handoff creation, Accio customer-list projection, or supplement-chat routing from `获客与背调`.
 - Manager/Admin can read selected employees' memory records and full stored transcripts, but cannot write or approve memory from the manager page.
 - This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Admin-Managed Lead Filters and Invalid-Source Option Removal
+
+Context:
+
+- The user wanted the Employee `寻找客户` filter concepts to stay fixed and non-editable for operators.
+- Product keywords, buyer types, and countries should instead be one Admin-managed tenant business variable.
+- Follow-up clarification: Admin should only need to type Chinese; English search keywords, ISO country codes, languages, and market-specific query expansion should be handled by the Lead Agent.
+- The user also wanted to remove the invalid-source option because testing showed little value.
+
+Changes:
+
+- Added shared Lead filter defaults/types in `sentura/dashboard/src/lib/cross-border-lead-settings.ts`.
+- Added typed validation in `sentura/dashboard/src/lib/cross-border-store/schemas.ts`.
+- Added migration `sentura/lib/cross-border-store/migrations/010_lead_filter_settings.sql` and store module `sentura/dashboard/src/lib/cross-border-store/lead-settings.ts`.
+- Added Admin/Employee Lead filter settings APIs:
+  - `GET/PATCH /api/client-demos/cross-border/admin/lead-filter-settings`;
+  - `GET /api/client-demos/cross-border/employee/lead-filter-settings`.
+- Added Manager page `/admin/lead-settings` and Admin nav label `获客设置`.
+- Simplified `/admin/lead-settings` so Admin only edits Chinese product words, Chinese buyer-type words, and Chinese country/region names; search keyword, ISO, language, and description inputs are hidden from the Admin form.
+- Normalized Lead settings store reads/writes so product and buyer-type `keyword` values follow the Chinese `label`, including older tenant rows that previously stored English hidden keywords.
+- Updated Employee `获客与背调` Lead task sheet to fetch Admin-managed products, buyer types, and countries, render them as fixed operator choices, submit Chinese labels, and disable submit until settings load.
+- Updated the hidden Lead task prompt and `cbe-lead-discovery` query skill so the Agent explicitly owns Chinese-term understanding, translation/query expansion, and country/region normalization.
+- Updated Lead completion and immediate run projection so saved/displayed product chips use the selected search product keywords, not Agent placeholder product values.
+- Updated customer projection to prefer the linked Lead run's `query_config_json.product_keywords` for historical rows and filter placeholder/unconfirmed products before Employee/Admin badge rendering.
+- Updated customer projection to return `countryName` from tenant Lead settings `countries_json`, with default and single-query-label fallbacks, so newly added Admin countries such as `意大利` display under `IT`.
+- Removed user-configurable `excludeDomains` / `exclude_domains` from Lead run API payloads, hidden task prompts, scope fingerprinting, the legacy standalone Lead demo page/API, and `cbe-lead-discovery` workspace defaults/docs.
+- Kept internal rejection of marketplaces, social sites, directories, and supplier pages as Lead candidate quality control rather than a user-visible configurable option.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint over touched Dashboard Lead settings/API/Employee files: PASS with 4 existing warnings in `employee/customers/page.tsx`.
+- `/admin/lead-settings`: HTTP 200; page content includes `只需要输入中文业务词` and no longer includes the old `搜索关键词`, `ISO`, `语言`, or `说明` input placeholders.
+- Admin and Employee Lead settings APIs both return `{ products: 5, buyerTypes: 6, countries: 6 }` with canonical Chinese product/buyer `keyword` values.
+- Local Employee customer API smoke for operator `cbe-user-operator-9fc8f72c-751a-451e-9edc-221e96e4377f`: first six rows returned `products: ["手机屏幕"]`, `leadQueryProducts: ["手机屏幕"]`, and no placeholder/unconfirmed product values.
+- Local Admin customer API smoke for `cbe-user-admin-001`: first six rows returned the same visible searched product keyword set and no placeholder/unconfirmed product values.
+- Local Employee/Admin customer API smoke after adding `意大利`: `GPoint - Riparazioni & Vendita Cellulari Napoli` returned `country: "IT"`, `countryName: "意大利"`, and `leadQueryCountries: ["意大利"]`.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE38 assertions PASS; broad script currently reports 432 passed / 9 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE38 assertions PASS; broad script currently reports 228 passed / 4 unrelated existing failures.
+
+Boundary:
+
+- Admin can manage only customer-business Chinese Lead filter taxonomy. Admin still cannot create employees, tune prompts, change tools/models/providers, mutate OpenClaw/Gateway/MCP config, or bypass duplicate-run coordination.
+- English query terms, country ISO codes, search language choices, and market-specific query expansion are Agent/runtime interpretation concerns, not Admin-managed fields.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Paginated List Browser-Scroll-Only UX
+
+Context:
+
+- The user reported a common UX bug across all paginated lists: the list itself had a vertical scroll container, which conflicted with the browser/page scroll and created double-scroll behavior.
+- Required surfaces were Employee `客户列表`, Employee `记忆整理` lists, Admin `员工管理` clicked-name customer list, Admin `客户列表`, Admin `记忆整理` lists, and other paginated list areas.
+
+Changes:
+
+- Added `scrollable?: boolean` to shared `AnimatedList`.
+- Paginated card-list usages now set `scrollable={false}`, which maps the viewport to `overflow-visible` instead of `overflow-y-auto`.
+- Updated Employee home summary lists, Employee customer mobile list, Employee memory chat-customer list, Employee raw memory-record mobile list, and the shared `MemoryChatCustomerList`.
+- Added `overflow-y-hidden` to shared `Table` containers and direct desktop table wrappers so horizontal table overflow does not create a second vertical scrollbar inside paginated lists.
+- Removed the local `ScrollArea` wrapper and height/overflow lock around the Admin employee-detail customer list.
+- Restored Admin employee-detail dialog-level scrolling (`overflow-y-auto overscroll-contain`) because this modal can exceed the viewport; the nested customer table/list remains `overflow-y-hidden` and does not own vertical scroll.
+- Removed the local vertical scroll wrapper and height/overflow lock around the Admin memory per-employee chat-customer dialog.
+- Kept horizontal table overflow for wide tables and kept internal scrolling for non-paginated detail/form/transcript surfaces.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused ESLint over touched list pages/components: PASS with 4 existing warnings in `employee/customers/page.tsx`.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE39 assertion PASS; broad script reports 433 passed / 9 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE39 assertion PASS; broad script reports 229 passed / 4 unrelated existing failures.
+- Local HTTP smoke on dev server: `/employee/customers`, `/employee/memory`, `/admin/high-value-customers`, `/admin/memory`, and `/admin/employees` return HTTP 200.
+- `git diff --check`: PASS.
+- Follow-up after screenshot review: CE39 assertions now cover desktop table wrappers and the shared `Table` scroll container, not only `AnimatedList`.
+- Follow-up Admin employee-detail browser check: opening `吴思彤` shows the dialog scrolls (`overflowY=auto`, `dialogCanScroll=true`) and the nested table wrapper does not vertically scroll (`overflowY=hidden`, `tableWrapCanYScroll=false`).
+
+Boundary:
+
+- This changes list scroll behavior only. It does not change task execution, filters, pagination size, data APIs, customer projection, memory persistence, or Admin/Employee permissions.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Filtered Pagination First-Page Reset
+
+Context:
+
+- The user reported a shared UX issue across paginated lists with filters: after changing filters, the list stayed on the old page number instead of returning to page 1.
+- Required behavior: all lists with filter/search/sort conditions should refresh pagination to the first page when those conditions change.
+
+Changes:
+
+- Extended shared `usePagedItems` with an optional `resetKey`.
+- The hook now derives page 1 immediately when `resetKey` changes, then asynchronously stores the reset state to avoid React's synchronous set-state-in-effect lint rule.
+- Added explicit reset signatures to filtered paginated surfaces:
+  - Employee `客户列表`: search, status, filter drawer values, score tiers/date range, and score sorting.
+  - Employee `记忆整理`: raw memory-record filters and chat-customer filters, with separate reset keys for the two pagers.
+  - Shared `MemoryChatCustomerList`: search, owner/source/date/country/type/product filters, memory status, and chat-customer sufficiency filters.
+  - Admin customer tables: search, owner/country/type/product filters, status filters, and score/time sorting.
+- Left unfiltered Employee home summary pagers unchanged.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/components/cross-border/brand-ui.tsx src/app/client-demos/cross-border/employee/customers/page.tsx src/app/client-demos/cross-border/employee/memory/page.tsx src/components/cross-border/memory-chat-customer-list.tsx src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE40 assertion PASS; broad script reports 434 passed / 9 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE40 assertion PASS; broad script reports 230 passed / 4 unrelated existing failures.
+
+Boundary:
+
+- This changes pagination state only. It does not change filter semantics, filter persistence, page size, APIs, customer/memory projections, task execution, or Admin/Employee permissions.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Admin Self Password Change
+
+Context:
+
+- The user asked for a place in the Manager/Admin side where the currently logged-in Admin can change their own password.
+- The existing employee-management flow already allowed Admins to set or reset employee passwords; this request is only for the Admin's own login password.
+
+Changes:
+
+- Added `修改密码` to the authenticated Manager header beside logout.
+- Added a Manager password dialog with current password, new password, and confirm-new-password fields.
+- Added frontend validation for required fields, minimum four-character new passwords, and matching confirmation.
+- Added `AdminChangePasswordRequestSchema` and `PATCH /api/admin/profile/password`.
+- Added `updateAdminOwnPassword` to the Dashboard CBE Admin store. It loads the current Admin profile, verifies `current_password` with `verifyCbePassword`, and stores only `hashCbePassword(input.new_password)`.
+- Added an Admin API helper `updateAdminOwnPassword` for future manager-page reuse.
+- Inspected the Admin login path: the login page submits the typed password to `/api/auth/login`, and the backend reads `cbe_user_profiles.password_hash`. Fixed the preset Admin fallback so `孙总/1234` can initialize only a missing hash and cannot overwrite an existing changed Admin password.
+- Added CE41 static assertions to both CBE regression scripts.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/components/app-shell.tsx src/app/api/client-demos/cross-border/admin/profile/password/route.ts src/lib/cross-border-store/admin.ts src/lib/cross-border-store/schemas.ts src/app/client-demos/cross-border/admin/_data/admin-api.ts`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE41 assertion PASS; broad script reports 435 passed / 9 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE41 assertion PASS; broad script reports 232 passed / 4 unrelated existing failures.
+- Local HTTP smoke on dev server: `/admin/employees` returned HTTP 200 and included `修改密码`; unauthenticated `PATCH /api/admin/profile/password` returned `401 cbe_login_required`; seeded Admin debug-header request with a wrong current password returned `403 admin_current_password_invalid`.
+- Local DB/API regression on dev server: temporarily replaced the seeded Admin hash with a generated temporary-password hash, verified old `1234` login returned `401 invalid_admin_credentials`, verified the temporary new password returned `200` with `admin`, and restored the original hash in `finally`.
+
+Boundary:
+
+- This changes only Manager self-service password management. It does not add platform-admin configuration, prompt/tool/model/provider controls, OpenClaw/Gateway/MCP configuration, or Employee-side password self-service.
+- Employee password creation/reset remains in the existing Admin employee-management flow.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-28 — Employee Customer-List Export
+
+Context:
+
+- The user asked for Employee `获客与背调` customer-list export in both PDF and DOCX.
+- The export should contain the customer list, keep columns consistent with the webpage list, and support the same filter conditions such as product, country, and buyer type.
+- Existing export styling should follow the other CBE export templates.
+
+Changes:
+
+- Added `exportCustomerListDocument` to `sentura/dashboard/src/components/cross-border/document-export.ts`, reusing the existing browser-side PDF/DOCX generator and CBE document style used by report/cost exports.
+- Added `导出 DOCX` and `导出 PDF` buttons to Employee `获客与背调`.
+- Export input uses `customers: filtered`, so the downloaded list includes every customer matching the current search/filter/status/sort state, not only the current pagination page.
+- Exported columns are `公司名称`, `国家`, `类型`, `产品`, `网站`, `时间`, and `评分`; webpage-only checkbox and `操作` columns are intentionally omitted.
+- Export metadata and the document body record active search/filter/sort labels plus filtered-vs-total customer counts for later classification.
+- Added static assertions to both CBE regression scripts.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/components/cross-border/document-export.ts src/app/client-demos/cross-border/employee/customers/page.tsx`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE42 assertion PASS; broad script reports 436 passed / 9 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE42 assertion PASS; broad script reports 233 passed / 4 unrelated existing failures.
+- Local HTTP smoke: `http://localhost:3000/employee/customers` returned 200 and rendered `导出 DOCX` / `导出 PDF`.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- This is a client-side list export feature only. It does not change customer data, filter semantics, backend APIs, task execution, Admin lists, or permission boundaries.
+
+## 2026-06-28 — Screening Decision-ready Evidence And Actionable Gaps
+
+Context:
+
+- The user reviewed `背调报告-Tech Haven.pdf` and pointed out that the report did not reduce human work: evidence just gave generic judgments, a Companies House official registration link was treated as low confidence, and `还缺什么` listed vague or contradictory problems that humans could not reasonably fix.
+- Required direction: seriously optimize the `背调 Agent` working logic, not only wording.
+
+Changes:
+
+- Updated `cbe-buyer-screening` hard rules so each evidence `finding` must include concrete decision-ready source facts.
+- Defined official registry/API/page evidence such as Companies House, SEC, state registries, or equivalents as primary evidence with confidence 0.95-1.0 when company/country/status match.
+- Updated `evidence-collection`, `buyer-scoring`, and `report-writing` skills:
+  - preserve exact registry/domain/email/maps/trade fields,
+  - require fact-based score-block summaries,
+  - prevent scored/not-applicable blocks from being repeated in gaps,
+  - treat small private/local-company trade/financial absence as `not_applicable` or optional unless the target profile makes it material.
+- Strengthened the hidden Employee Screening prompt with concrete `evidence.finding`, confidence, score-block, and `coverage_gaps` requirements.
+- Added `reconcileCoverageGapsWithScoreBlocks` to Employee report normalization so live task payloads and stored DB reports drop gaps that conflict with `scored` or `not_applicable` score blocks unless the gap names a concrete contradiction/risk.
+- Updated `跨境电商/SCREENING.md` and CE43 test tracking.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/app/client-demos/cross-border/employee/_data/employee-data.ts src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts src/app/client-demos/cross-border/employee/_data/employee-api.ts`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE43 assertion PASS and the related concrete-gap assertion now PASS; broad script reports 438 passed / 8 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE43 assertion PASS; broad script reports 234 passed / 4 unrelated existing failures.
+
+Boundary:
+
+- This changes Screening Agent logic, hidden prompt contract, report normalization, docs, and static regression coverage only.
+- It does not add providers, change Screening fan-out, change customer ownership, or deploy to ECS/public domains.
+
+## 2026-06-29 — Screening Concrete Evidence Display Follow-up
+
+Context:
+
+- After syncing the updated `cbe-buyer-screening` workspace into `~/.openclaw/workspace/cbe-buyer-screening`, the user reran Screening and still saw report sections that only said `已找到` plus confidence and manual review.
+- Local DB inspection showed the latest stored reports already contained concrete facts such as registry numbers, DNS/MX/SPF/DMARC details, Google Place details, addresses, phones, emails, legal-dispute query scopes, and source-specific no-hit wording.
+- Root cause: the Dashboard report copy helper treated detailed findings with English/technical fields as unsafe and replaced them with generic human-review text.
+
+Changes:
+
+- Updated `screening-report-copy.ts` so `simplifyScreeningReportText` preserves long concrete mixed Chinese/English evidence text instead of falling back merely because it contains English or technical tokens.
+- Added generic-finding detection for old/empty `已找到/可信度/人工复核`-style findings.
+- Updated `screeningEvidenceFindingText` so concrete `evidence.finding` text is returned directly in report cards and shared export tables; generic fallback copy is used only when the stored finding is missing or itself generic.
+- Added a CE43.6 static regression assertion to `scripts/test-cross-border-phase2-store.ts`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/components/cross-border/screening-report-copy.ts src/components/cross-border/customer-report-dialog.tsx src/components/cross-border/document-export.ts src/app/client-demos/cross-border/employee/customers/page.tsx src/app/client-demos/cross-border/admin/_components/customer-list-table.tsx`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE43.6 assertion PASS; broad script reports 236 passed / 4 unrelated existing failures.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- This is a Dashboard display/export-copy fix. It does not change stored report JSON, rerun the Agent, add new providers, or deploy to ECS/public domains.
+
+## 2026-06-29 — Screening Plain-Chinese Report Copy Follow-up
+
+Context:
+
+- After concrete evidence became visible, the user pointed out that the report language was still too AI/technical for non-technical customers.
+- Required behavior: once the Screening Agent finds information, it must organize it in normal natural Chinese. Only hard-to-replace terms such as company names, source names, URLs/domains, emails, registration numbers, case numbers, and product/legal terms should stay in English/original language.
+
+Changes:
+
+- Updated `cbe-buyer-screening/AGENTS.md` so every customer-visible report text field must be natural Simplified Chinese for non-technical sales users.
+- Updated `evidence-collection`, `report-writing`, `buyer-scoring`, and `legal-dispute-check` skills so internal raw fields can be preserved, but report-facing `finding`, score summaries, gap reasons/actions, recommendations, and open questions must be ordinary Chinese business language.
+- Updated the hidden Employee Screening prompt so report-facing text must not expose machine/tool/schema wording such as API, JSON, payload, endpoint, provider, field_mask, RDAP, DNS, MX, SPF, DMARC, business_status, relationship_status, source_type, query, or score_block.
+- Updated `screening-report-copy.ts` to translate common technical fragments into customer-readable Chinese labels such as `域名登记信息`, `收信记录`, `发信防伪记录`, and `邮件防冒用记录`.
+- Updated `跨境电商/SCREENING.md` examples so sample findings are Chinese natural-language summaries instead of English technical source-field strings.
+- Synced the repo `cbe-buyer-screening` workspace into `~/.openclaw/workspace/cbe-buyer-screening`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/components/cross-border/screening-report-copy.ts src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE43 plain-Chinese assertions PASS; broad script reports 441 passed / 8 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE43.7 assertion PASS; broad script reports 236 passed / 4 unrelated existing failures.
+
+Boundary:
+
+- This is a report-language quality fix. It does not add a new evidence source, change score weights, change stored JSON schema, or deploy to ECS/public domains.
+
+## 2026-06-29 — Screening Legal-dispute/case Risk Block
+
+Context:
+
+- The user pointed out that legal disputes and legal cases are materially important seller-risk signals and asked to research country-specific public search approaches before changing the Screening Agent.
+- The implementation needed to add a real investigation layer, not just generic adverse-media wording.
+
+Research basis:
+
+- Public-source legal screening should combine official court/case-law search, insolvency or bankruptcy notices, regulatory enforcement pages, public legal databases, and scoped web search.
+- Official exact-match legal-source findings are high-impact evidence; no-hit and blocked/no-login court portals are only coverage statements.
+- Name collisions are common, so the Agent must match company legal name, registry number, address, website/domain, country, and locality before treating a legal item as target-specific.
+
+Changes:
+
+- Added `sentura/agents/cbe-buyer-screening/skills/legal-dispute-check/SKILL.md` with country routes for GB, US, FR, DE, ES, IT, BR, MX, JP, KR, and fallback markets.
+- Added `legal_disputes` as a dedicated evidence layer and 15-point score block for lawsuits, court cases, insolvency/bankruptcy, debt enforcement, regulatory enforcement, fraud judgments, sanctions/compliance actions, and repeated corroborated litigation.
+- Revised Screening score weights to `legal_identity` 20, `domain_email` 20, `public_footprint` 15, `business_fit` 20, `trade_financial` 10, and `legal_disputes` 15.
+- Added legal source types across shared schemas, Dashboard schemas, prompt normalization, diagnostic fallback API, report labels, copy helpers, and document export.
+- Updated the hidden Employee Screening prompt and `cbe-buyer-screening` hard rules so exact official legal-source matches can force downgrade, while no-hit/blocked legal searches are described as scoped coverage and never as proof of no cases.
+- Updated `跨境电商/SCREENING.md`, `跨境电商/PHASE-2.md`, CE44 tests, and milestone fixtures to reflect the new score model.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused Dashboard ESLint over touched Screening data/API/report/export files: PASS.
+- `pnpm exec tsx scripts/test-cross-border-milestone2.ts`: PASS, 41/41.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE44 assertion PASS; broad script reports 441 passed / 8 unrelated existing failures outside this slice.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE44 assertion PASS; broad script reports 235 passed / 4 unrelated existing failures outside this slice.
+- `git diff --check`: PASS.
+
+Boundary:
+
+- This adds public-source legal-risk investigation and reporting. It does not add paid legal database access, PACER login, court-portal login, legal advice, formal KYB certification, or a guarantee that every jurisdiction's sealed/local case has been found.
+- This local change has not been deployed to ECS in this session.
+
+## 2026-06-29 — Screening Conversation-behavior Removal
+
+Context:
+
+- The user pointed out that `conversation_behavior` should already have been removed because `记忆整理` and `背调/获客` are now separate workflows.
+- A failed Screening completion confirmed the risk: the Agent returned a legacy `conversation_behavior` block with `max_points=0`, and schema validation rejected it before the report could persist.
+
+Changes:
+
+- Removed the conversation/sales-behavior score block from shared Screening schemas and Dashboard store schemas.
+- Removed behavior/chat-derived evidence layers and labels from Employee/Admin report parsing, report dialogs, copy helpers, and document exports.
+- Updated Employee `获客与背调` so selected customers run Lead/Screening only, with no memory-refresh route, no supplement-chat action, and no target filtering based on memory-record sufficiency.
+- Updated the hidden Screening prompt and standalone diagnostic route so reports use only six public-evidence blocks: `legal_identity`, `domain_email`, `public_footprint`, `business_fit`, `trade_financial`, and `legal_disputes`.
+- Updated `cbe-buyer-screening` workspace files and Screening skills to remove Accio/chat/sales-behavior evidence requirements while keeping read-only memory use limited to prior Screening reports or operator-approved sourced facts.
+- Added migration `011_remove_screening_conversation_behavior.sql` to remove legacy Screening behavior rows from `screening_score_blocks`, `screening_evidence`, and `screening_reports.report_json`.
+- Added migration `012_remove_legacy_accio_screening_targets.sql` to remove legacy Accio-derived Screening targets/reports and dependent child rows.
+- Added migration `013_remove_screening_behavior_json_residue.sql` to remove old behavior/chat text left in nested report JSON arrays such as coverage gaps and open questions.
+- Added migration `014_remove_screening_behavior_text_residue.sql` to remove remaining old behavior/chat wording from historical report JSON text fields.
+- Updated `跨境电商/SCREENING.md`, CE2/CE45 tests, and the Phase 2 test matrix.
+- Synced repo `cbe-buyer-screening` into local `~/.openclaw/workspace/cbe-buyer-screening`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused Dashboard ESLint over touched Screening/customer/report/export files: PASS.
+- `pnpm exec tsx scripts/test-cross-border-milestone2.ts`: PASS, 40/40.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE45 assertions PASS; broad script reports 444 passed / 7 unrelated existing failures outside this slice.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE45 assertion PASS; broad script reports 245 passed / 4 unrelated existing failures outside this slice.
+- Local migration run applied `011_remove_screening_conversation_behavior.sql`, `012_remove_legacy_accio_screening_targets.sql`, `013_remove_screening_behavior_json_residue.sql`, and `014_remove_screening_behavior_text_residue.sql`.
+- Local DB cleanup probe returned `{"score_blocks":0,"evidence_rows":0,"report_json_rows":0,"accio_screening_targets":0,"accio_screening_reports":0}` for legacy Screening behavior/Accio-derived artifacts.
+- Runtime workspace scan after sync found no legacy behavior/chat scoring terms in `~/.openclaw/workspace/cbe-buyer-screening`.
+
+Boundary:
+
+- This removes chat-record-derived evidence only from Screening and `获客与背调`.
+- It does not remove `记忆整理`, Accio import parsing, Accio summary display, stored transcripts, or memory facts.
+- This local change has not been deployed to ECS/public domains.
+
+## 2026-06-29 — Unified Cost Display and Employee Allowance Requests
+
+Context:
+
+- The user found three different visible cost numbers for the same employee: Employee used cost, Admin employee-management cost, and Admin cost-monitor cost.
+- The user also asked Employee cost detail to show the quota, and asked for Employee-side temporary allowance requests with a reason visible to Admin.
+
+Root cause:
+
+- Employee `EmployeeCostMini` / `EmployeeCostCard` was fetching tasks, then using the browser gateway client to load cost events and filter by task session keys. That created a third client-side cost source.
+- Admin employee management used `listAdminOperators()` and `applySenturaCostToOperatorRows()`.
+- Admin `费用监控` used `listAdminCosts()` and `applySenturaCostToCostRows()`.
+- Shared cost summary and DB fallback logic could count estimated task cost as used cost, while the Admin table displayed actual cost. This made visible totals drift.
+
+Changes:
+
+- Added `GET /employee/cost-events` backed by `getEmployeeCostEvents()`, which uses the same server-side run-session ownership mapping as Admin cost detail.
+- Updated Employee cost components to use `fetchEmployeeCostEvents()` and `fetchEmployeeCostBudget()` instead of `useGateway().client.getCostEvents()` and `fetchEmployeeTasks()` for the used-cost number.
+- Changed shared cost summarization so `pricingStatus === "estimated"` is not counted in `spendUsd` / `已用`; estimated cost remains separate.
+- Changed Admin operator and Admin cost-row reconciliation so `spend_usd` follows actual spend, and DB fallback no longer substitutes `agent_runs.cost_usd_estimate` into visible used cost.
+- Added monthly quota display to `CostDetailDialog`: `本月额度` and `剩余额度`.
+- Added Employee `申请额度` buttons in the personal-center cost card and the cost detail dialog.
+- Added `EmployeeCostAllowanceRequestSchema` and `POST /employee/cost-allowance-requests`, writing `cbe_cost_approval_requests` with `metadata_json.requestKind = "employee_allowance_request"` and the submitted `reason`.
+- Updated Admin `费用监控` approvals to show `员工主动申请` and an explicit `申请理由` field.
+- Updated CE46 static assertions in `scripts/test-cross-border-agents.ts` and `scripts/test-cross-border-phase2-store.ts`.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Focused Dashboard ESLint over changed cost store/API/UI files: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE46 assertion PASS; broad script reports 446 passed / 6 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE46 assertion PASS; broad script reports 249 passed / 3 unrelated existing failures after replacing the outdated "visible estimated cost" assertion.
+- Local dev server smoke:
+  - `/employee/cost-budget` for `cbe-user-operator-001`: `spendUsd = 0`, `baseLimitUsd = 120`, `limitUsd = 120`, `remainingUsd = 120`.
+  - `/employee/cost-events`: `source = "db_fallback"`, 2 scoped event rows, month actual spend `0`.
+  - `/admin/costs?range=month`: the same operator row returned `spend_usd = 0`, `actual_cost_usd = 0`, `remaining_usd = 120`.
+  - Submitted a local smoke allowance request for `US$1.23`; Admin costs API returned `request_kind = "employee_allowance_request"` and the submitted Chinese `request_reason`; then rejected and cleaned the smoke request/notification from the local DB.
+
+Boundary:
+
+- This is local Dashboard/store/API work only; it has not been deployed to ECS/public domains.
+- The visible `已用` number is actual recorded spend. Pre-task estimates remain for budget preflight and diagnostics but are not treated as used cost.
+
+## 2026-06-29 — Lead Internal Batching and Overflow Retry
+
+Context:
+
+- The user asked to fix intermittent OpenClaw `context overflow: estimated context size exceeds safe threshold during tool loop` failures when `寻找客户` requests ask for many leads.
+- The required fix is not to lighten Lead research evidence. Instead, any single Lead task with requested target count above 5 must be internally split, with automatic retry if a sub-run still overflows.
+- The user clarified that this applies to any single request above 5, not only the previous 10-lead case.
+
+Changes:
+
+- Added `LEAD_INTERNAL_BATCH_MAX_TARGET_COUNT = 5` and `shouldInternallyBatchLeadTask()` so target counts `1-5` still run as one task, while `6-10` run as hidden internal batches.
+- Added balanced split sizing: `6 => 3 + 3`, `7 => 4 + 3`, `8 => 4 + 4`, `9 => 5 + 4`, and `10 => 5 + 5`.
+- Each hidden batch runs as its own OpenClaw Lead Discovery session, with `internal_batch` metadata in the prompt so the Agent only completes that batch target count and avoids duplicating prior segments where possible.
+- Added context-overflow detection for safe-threshold/context-size/context-window/prompt-too-long errors. If a batch overflows and target count is still above 1, that batch is recursively force-split and retried.
+- Merged successful child payloads into one final Lead payload before DB reconciliation/top-up, preserving existing customer dedupe and completion behavior.
+- Persisted `internal_session_keys` and `internal_batching` into Lead completion metadata.
+- Updated Admin/Employee cost aggregation to read `agent_runs.metadata_json.internal_session_keys`, so split child sessions remain attributable to the same employee/run.
+- Added CE47 static assertions to the CBE agent and Phase 2 store regression scripts.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec eslint --quiet src/app/client-demos/cross-border/employee/_data/employee-task-runner.ts src/app/client-demos/cross-border/employee/_data/employee-api.ts src/lib/cross-border-store/schemas.ts src/lib/cross-border-store/lead-runs.ts src/lib/cross-border-store/admin.ts`: PASS.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm exec tsx scripts/test-cross-border-agents.ts`: CE47 assertion PASS; broad script reports 447 passed / 6 unrelated existing failures.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE47 assertion PASS; broad script reports 250 passed / 3 unrelated existing failures.
+
+Boundary:
+
+- This intentionally does not reduce Lead evidence collection, source breadth, or Agent output requirements.
+- Employee/Admin UI still shows one Lead task and one requested target count up to 10; batching is hidden inside the Employee task runner.
+- This is local only and has not been deployed to ECS/public domains.

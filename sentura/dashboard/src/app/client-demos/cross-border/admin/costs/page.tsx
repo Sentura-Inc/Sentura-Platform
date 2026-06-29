@@ -85,6 +85,14 @@ function highlightFrameClass(active: boolean) {
     : "";
 }
 
+function approvalKindLabel(approval: AdminApprovalRow) {
+  return approval.request_kind === "employee_allowance_request" ? "员工主动申请" : "系统超额提醒";
+}
+
+function approvalReason(approval: AdminApprovalRow) {
+  return approval.request_reason ?? approval.target_summary ?? "暂无申请理由";
+}
+
 function FieldHelp({ label, children }: { label: string; children: string }) {
   return (
     <Tooltip>
@@ -722,6 +730,14 @@ function AdminCostsContent() {
         onRangeChange={setCostDetailRange}
         loading={Boolean(selectedCostUserId && !costDetail)}
         exportDisabled={!costDetail}
+        costBudget={costDetail?.summary ? {
+          period: "month",
+          baseLimitUsd: money(costDetail.summary.base_limit_usd),
+          activeAllowanceUsd: money(costDetail.summary.active_allowance_usd),
+          limitUsd: money(costDetail.summary.base_limit_usd) + money(costDetail.summary.active_allowance_usd),
+          limitEnabled: true,
+          remainingUsd: money(costDetail.summary.remaining_usd),
+        } : undefined}
         emptyMessage={costDetail ? "当前范围暂无费用明细。" : "正在加载费用明细。"}
         onExport={exportCostDetail}
       />
@@ -750,12 +766,13 @@ function AdminCostsContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate font-medium">{approval.display_name}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">{approval.task_kind} · {approval.period}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{approvalKindLabel(approval)} · {approval.period}</div>
                     </div>
                     <div className="shrink-0 text-sm font-semibold">{usd(approval.requested_allowance_usd)}</div>
                   </div>
+                  <div className="mt-2 text-xs font-medium text-muted-foreground">申请理由</div>
                   <div className="mt-2 line-clamp-3 rounded-md bg-muted/35 px-2 py-1.5 text-xs leading-5 text-muted-foreground">
-                    {approval.target_summary ?? "暂无任务内容"}
+                    {approvalReason(approval)}
                   </div>
                   <div className="mt-3 grid gap-2">
                     <div className="relative">
@@ -792,10 +809,10 @@ function AdminCostsContent() {
             <TableHeader>
               <TableRow>
                 <TableHead>员工</TableHead>
-                <TableHead>任务</TableHead>
+                <TableHead>来源</TableHead>
                 <TableHead>周期</TableHead>
                 <TableHead>请求额度</TableHead>
-                <TableHead>任务内容</TableHead>
+                <TableHead>申请理由</TableHead>
                 <TableHead className="text-right">处理</TableHead>
               </TableRow>
             </TableHeader>
@@ -813,7 +830,7 @@ function AdminCostsContent() {
                   }}
                 >
                   <TableCell>{approval.display_name}</TableCell>
-                  <TableCell>{approval.task_kind}</TableCell>
+                  <TableCell>{approvalKindLabel(approval)}</TableCell>
                   <TableCell>{approval.period}</TableCell>
                   <TableCell>
                     <div className="relative w-28">
@@ -828,7 +845,7 @@ function AdminCostsContent() {
                       <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-xs"><span className="line-clamp-2">{approval.target_summary ?? "-"}</span></TableCell>
+                  <TableCell className="max-w-xs"><span className="line-clamp-2">{approvalReason(approval)}</span></TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button size="sm" onClick={() => decide(approval, "approved")} disabled={busy?.startsWith(`approval:${approval.id}`)}>
@@ -846,7 +863,7 @@ function AdminCostsContent() {
               })}
               {approvals.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">暂无待审批申请。</TableCell>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">暂无待审批申请。</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>

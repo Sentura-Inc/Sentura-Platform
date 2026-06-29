@@ -182,8 +182,6 @@ function leadScopeFingerprint(queryConfig: Record<string, unknown>) {
     buyer_personas: normalizedStrings(queryConfig.buyer_types ?? queryConfig.buyer_personas),
     countries: normalizedStrings(queryConfig.countries, { upper: true }),
     languages: normalizedStrings(queryConfig.languages),
-    source_policy: normalizedStrings(queryConfig.source_policy ?? ["public_web", "company_site_only"]),
-    exclude_domains: normalizedStrings(queryConfig.exclude_domains),
     time_window_hours: 24,
   };
   const canonical = JSON.stringify(canonicalScopeJson);
@@ -208,12 +206,8 @@ function overlapScore(left: unknown, right: unknown) {
 function leadScopeSimilarity(left: Record<string, unknown>, right: Record<string, unknown>) {
   return (
     overlapScore(left.products, right.products) * 0.35 +
-    overlapScore(left.buyer_personas, right.buyer_personas) * 0.25 +
-    overlapScore(left.countries, right.countries) * 0.25 +
-    (
-      overlapScore(left.source_policy, right.source_policy) * 0.5 +
-      overlapScore(left.exclude_domains, right.exclude_domains) * 0.5
-    ) * 0.10 +
+    overlapScore(left.buyer_personas, right.buyer_personas) * 0.30 +
+    overlapScore(left.countries, right.countries) * 0.30 +
     overlapScore(left.languages, right.languages) * 0.05
   );
 }
@@ -1013,6 +1007,8 @@ export async function saveLeadRunResult(
         saved_customer_ids: candidateRecords.map((candidate) => candidate.id),
         lead_candidate_ids: candidateRecords.map((candidate) => candidate.id),
         shortage_reason: input.payload.shortage_reason,
+        internal_session_keys: input.payload.internal_session_keys ?? [],
+        internal_batching: input.payload.internal_batching ?? null,
       },
     });
     if (!agentRun) {
@@ -1035,6 +1031,8 @@ export async function saveLeadRunResult(
         top_up_needed: reconciliation.topUpNeeded,
         missing_count: reconciliation.missingCount,
         saved_customer_ids: candidateRecords.map((candidate) => candidate.id),
+        internal_session_keys: input.payload.internal_session_keys ?? [],
+        internal_batching: input.payload.internal_batching ?? null,
       },
     });
     await createAuditEvent(client, context, {
@@ -1050,6 +1048,8 @@ export async function saveLeadRunResult(
         duplicate_leads: reconciliation.duplicateCount,
         top_up_needed: reconciliation.topUpNeeded,
         missing_count: reconciliation.missingCount,
+        internal_session_keys: input.payload.internal_session_keys ?? [],
+        internal_batching: input.payload.internal_batching ?? null,
       },
     });
 

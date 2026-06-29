@@ -7,6 +7,7 @@ Use this skill when the operator asks for new overseas buyer discovery, a schedu
 ## Procedure
 
 1. Normalize the input.
+   - Treat product, buyer persona, and country/region values as Admin-managed Chinese business terms unless the operator explicitly provides another language.
    - Translate Chinese product terms into English search keywords while preserving the Chinese meaning in the operator summary.
    - Normalize countries to ISO alpha-2 codes and map them to country names/languages.
    - Use defaults from `BOOTSTRAP.md` only when the operator omitted a field.
@@ -24,9 +25,8 @@ Use this skill when the operator asks for new overseas buyer discovery, a schedu
    - Retail and repair buyer: `mobile phone repair screen protector United Kingdom locations`.
    - Store/location/contact proof: `"cell phone accessories" "retail store" Germany "locations"`, `"smartphone repair" "charger" Brazil "contact us"`.
    - Reseller/import buyer: `"mobile accessories importer buyer" "phone case" Mexico "about us"`, `"electronics reseller buyer" "USB-C charger" France`.
-   - Domain exclusions: use tool/API exclude-domain controls for social, directory, marketplace, and generic supplier domains. Avoid stuffing many negative operators into the query when they reduce result relevance.
-4. Apply exclusions before and after search:
-   - Exclude Amazon, Alibaba, AliExpress, Temu, eBay, and operator-supplied domains.
+4. Apply invalid-source filtering before and after search:
+   - Exclude Amazon, Alibaba, AliExpress, Temu, eBay, and comparable marketplace domains as invalid buyer sources.
    - Exclude every domain/name key present in `existing_identity_keys` before writing search queries and again when reviewing search results.
    - Exclude Facebook, LinkedIn, Instagram, YouTube, TikTok, X/Twitter, Reddit, Pinterest, business directories, marketplace pages, public company-info pages, review sites, supplier directories, and generic wholesale-list pages.
    - Exclude supplier pages that are clearly factories, manufacturers, OEM/ODM sellers, exporters, or China-based marketplace sellers rather than downstream overseas buyers.
@@ -81,7 +81,6 @@ Return a query plan and candidate extraction notes. Include:
       "source_type": "public_web"
     }
   ],
-  "exclusions": ["amazon.com", "alibaba.com"],
   "search_timestamp": "ISO-8601"
 }
 ```

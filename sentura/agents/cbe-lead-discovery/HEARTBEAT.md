@@ -8,7 +8,7 @@ Heartbeat runs are for scheduled lead-search preparation, not outreach.
 
 When a scheduled or heartbeat run is configured by the operator:
 
-1. Reuse the operator-approved product keywords, countries, languages, target count, and exclusion domains.
+1. Reuse the Admin/operator-approved Chinese product terms, buyer personas, target countries/regions, and target count.
 2. Generate the query plan before searching.
 3. Search public sources only.
 4. Produce a deduplicated JSON and Markdown lead package.

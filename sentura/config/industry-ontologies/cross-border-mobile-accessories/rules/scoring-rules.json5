@@ -16,7 +16,7 @@
       },
       {
         status: "not_applicable",
-        meaning: "The evidence block does not apply to this target, such as behavior for a cold Marketing lead.",
+        meaning: "The evidence block does not apply to this target.",
         inScoreDenominator: false,
         inCoverageDenominator: false,
       },
@@ -58,19 +58,19 @@
   evidenceBlocks: [
     {
       id: "legal_identity",
-      maxPoints: 25,
+      maxPoints: 20,
       applicableWhen: "company name or registry number exists",
-      lowCostSources: ["Companies House", "SEC EDGAR", "official registry web result", "public official page"],
+      lowCostSources: ["Companies House", "SEC EDGAR", "official registry web result", "public official page", "Google Maps physical-address evidence for small local/offline targets"],
     },
     {
       id: "domain_email",
-      maxPoints: 25,
+      maxPoints: 20,
       applicableWhen: "domain, website, or email exists or can be discovered",
       lowCostSources: ["DNS MX", "DNS SPF", "DNS DMARC", "RDAP", "email syntax", "free-provider flag", "disposable-domain list"],
     },
     {
       id: "public_footprint",
-      maxPoints: 20,
+      maxPoints: 15,
       applicableWhen: "website, social/profile URL, or public search result exists",
       lowCostSources: ["web_search", "web_fetch", "public LinkedIn company result", "public Facebook/Instagram/YouTube snippets"],
     },
@@ -78,7 +78,7 @@
       id: "business_fit",
       maxPoints: 20,
       applicableWhen: "product interest or discovered product/category evidence exists",
-      lowCostSources: ["website categories", "search snippets", "Accio product requests", "lead matched products"],
+      lowCostSources: ["website categories", "search snippets", "lead matched products"],
     },
     {
       id: "trade_financial",
@@ -88,11 +88,10 @@
       defaultUnavailableStatus: "disabled_by_budget",
     },
     {
-      id: "conversation_behavior",
+      id: "legal_disputes",
       maxPoints: 15,
-      applicableWhen: "Accio chat or sales interaction exists",
-      lowCostSources: ["Accio Memory summary", "CRM/chat transcript", "manual sales notes"],
-      coldLeadDefaultStatus: "not_applicable",
+      applicableWhen: "company legal name, registry id, domain, country, or location is enough to search public legal sources",
+      lowCostSources: ["official court search", "official case-law search", "official insolvency notices", "regulatory enforcement pages", "public legal databases", "bounded web search"],
     },
   ],
   forcedDowngrades: [
@@ -117,8 +116,8 @@
       rule: "Public sources show fraud/scam accusations from credible official or repeated independent sources.",
     },
     {
-      id: "abnormal_payment_behavior",
-      rule: "Accio chat asks for unrelated third-party bank payment before formal order.",
+      id: "material_legal_dispute_or_enforcement",
+      rule: "Official court, insolvency, bankruptcy, regulator, sanctions, or repeated public legal-source evidence exact-matches the target and shows a recent or material seller-risk event.",
     },
   ],
   provenance: {

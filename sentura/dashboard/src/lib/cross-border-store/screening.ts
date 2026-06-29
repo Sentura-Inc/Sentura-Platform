@@ -639,7 +639,6 @@ async function saveScreeningTargetMarker(
             from screening_targets
             where tenant_id = $1
               and lead_candidate_id = $2
-              and source <> 'accio_memory'
               and (
                 $10::boolean
                 or owner_user_id = $11

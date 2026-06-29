@@ -812,7 +812,11 @@ export function MemoryChatCustomerList({
     return chips;
   }, [chatCustomerFilter, filterOptions.buyerTypes, filterOptions.owners, filterOptions.products, filters, setChatCustomerFilter, setFilters, setStatusFilter, statusFilter]);
 
-  const chatCustomerPage = usePagedItems(filteredChatCustomers, pageSize);
+  const chatCustomerPaginationResetKey = useMemo(
+    () => JSON.stringify({ chatCustomerFilter, filters, query, statusFilter }),
+    [chatCustomerFilter, filters, query, statusFilter],
+  );
+  const chatCustomerPage = usePagedItems(filteredChatCustomers, pageSize, { resetKey: chatCustomerPaginationResetKey });
   const activeFilterCount = activeFilterChips.length;
 
   return (
@@ -919,7 +923,7 @@ export function MemoryChatCustomerList({
                     openDetail={setActiveRecord}
                   />
                 ) : (
-                  <AnimatedList viewportClassName="grid gap-3 overflow-visible" displayScrollbar={false}>
+                  <AnimatedList viewportClassName="grid gap-3 overflow-visible" displayScrollbar={false} scrollable={false}>
                     {chatCustomerPage.items.map((row) => (
                       <ChatCustomerCard
                         key={row.record.recordId}
@@ -1002,7 +1006,7 @@ function ChatCustomerTable({
           />
         ))}
       </div>
-      <div className="hidden overflow-x-auto rounded-md border md:block">
+      <div className="hidden overflow-x-auto overflow-y-hidden rounded-md border md:block">
         <Table>
           <TableHeader>
             <TableRow>

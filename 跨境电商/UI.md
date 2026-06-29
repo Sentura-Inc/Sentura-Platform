@@ -6,7 +6,7 @@
 >
 > Status: Employee role target UI design plus Phase-2 customer Admin monitoring boundary. Detailed Admin monitoring page implementation remains planned.
 >
-> Last updated: 2026-06-16
+> Last updated: 2026-06-28
 
 This document defines the customer-facing role UI for the mobile-accessory cross-border e-commerce client lane. Shared platform/runtime design lives in [`DESIGN.md`](DESIGN.md). Phase-2 production/user-permission planning lives in [`PHASE-2.md`](PHASE-2.md). Agent-specific behavior remains in [`MARKET_ACQUISITION.md`](MARKET_ACQUISITION.md), [`SCREENING.md`](SCREENING.md), and [`MEMORY_PROCESSING.md`](MEMORY_PROCESSING.md).
 
@@ -37,7 +37,7 @@ The CBE UI uses customer-specific product roles, not the full Sentura platform r
 | Product role | Chinese label | Visible navigation | Data scope | Main actions |
 |---|---|---|---|---|
 | `operator` | 普通用户 / 业务员工 | `个人中心`, `获客与背调`, `记忆整理` | Own rows, shared customer pool rows, joined shared Lead runs, assigned handoffs. | Start Lead/Screening/Accio tasks, view own reports and task progress, retry own recoverable failures. |
-| `admin` | 管理员 / 业务主管 | Existing Employee pages plus `管理员` | Tenant-wide or team-wide monitoring scope. | Monitor who is running which task, which Agent is being called, target under investigation, aggregate lead/screening lists, per-user lists, and statistics. |
+| `admin` | 管理员 / 业务主管 | Existing Employee pages plus `管理员` | Tenant-wide or team-wide monitoring scope. | Monitor who is running which task, which Agent is being called, target under investigation, aggregate lead/screening lists, per-user lists, statistics, and manage their own login password. |
 
 Admin monitoring surfaces must not appear for ordinary users:
 
@@ -50,6 +50,8 @@ Admin monitoring surfaces must not appear for ordinary users:
 Ordinary users can still see task status, cost for their own usage, and report evidence for rows they are allowed to access. They cannot see other users' private task inputs, tenant-wide statistics, or admin monitoring tables.
 
 Admin monitoring pages are read-mostly. Admins cannot create AI employees, change Agent prompts/tools, change model/API/provider keys, edit sandbox settings, or bypass the duplicate Lead coordinator from this customer UI.
+
+Admins may change only their own Manager login password from the Admin header. This does not create Employee-side password self-service and does not expose platform, provider, OpenClaw, MCP, or tool-policy configuration.
 
 ## 2. Information Architecture
 
@@ -175,7 +177,7 @@ Header row:
 | Position | UI |
 |---|---|
 | Left | Title `获客与背调` + small subtitle showing row count and active filters. |
-| Right | Action buttons: `寻找客户`, `批量背调`, `手动背调`. |
+| Right | Action buttons: `寻找客户`, `批量背调`, `手动背调`, `导出 DOCX`, `导出 PDF`. |
 
 Search row:
 
@@ -184,6 +186,7 @@ Search row:
 | Search input | Placeholder `按公司名称搜索`; filters by normalized company name and aliases. |
 | Filter button | Opens drawer/popover with country, type, product, found time, score status, score tier. |
 | Selected filter chips | Appear under search; each chip removable. |
+| Export actions | Export the current filtered customer list to DOCX/PDF. Exported rows follow the same search/filter/status/sort state as the webpage and include all filtered rows, not only the current page. The exported file shows a `导出筛选条件` section and omits webpage-only selection/operation columns. |
 
 Primary buttons:
 
@@ -192,6 +195,7 @@ Primary buttons:
 | `寻找客户` | Lead-run drawer with product, country, buyer type, target count, exclusions. | Starts hidden `cbe-lead-discovery` task. |
 | `批量背调` | Confirmation drawer for selected customer rows. | Starts hidden `cbe-buyer-screening` batch task. |
 | `手动背调` | Manual form for company/country/type/product/website/email/contact/notes. | Creates manual target, then starts hidden `cbe-buyer-screening` task. |
+| `导出 DOCX` / `导出 PDF` | Browser download. | Uses the current filtered customer-list projection and the shared CBE document export template. |
 
 ### 5.2 Customer List Columns
 
@@ -204,7 +208,7 @@ The main body is a full-width list/table. Use stable column widths on desktop; c
 | 类型 | `buyer_type` | Importer, distributor, retailer, repair chain, e-commerce seller, manual input, Accio handoff. |
 | 产品 | `matched_products` / `product_interest` | Show 1-2 chips, then `+N`. |
 | 网站 | `website` | Domain text; opens source drawer or external URL in a safe new tab. |
-| 找到时间 | `found_at` | From Lead Discovery, manual creation, or Accio handoff time. |
+| 时间 | `found_at` + latest Screening time | Shows Lead acquisition time and Screening time in one compact stack. |
 | 评分 | final `normalized_score` + `score_tier` | `normalized_score` is the single customer-facing score: evidence quality 80% + evidence coverage 20%. Hidden as `未评分` until Screening can calculate a score. |
 | 操作 | row actions | `开始调研` if not scored; `查看报告` if scored; `查看进度` while running. |
 

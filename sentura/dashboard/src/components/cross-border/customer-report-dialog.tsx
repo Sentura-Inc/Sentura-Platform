@@ -52,7 +52,7 @@ const scoreBlockLabels: Record<string, string> = {
   public_footprint: "公开资料",
   business_fit: "业务匹配",
   trade_financial: "贸易和财务",
-  conversation_behavior: "聊天行为",
+  legal_disputes: "法律纠纷与案件",
 };
 
 const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
@@ -63,9 +63,9 @@ const evidenceLayerLabels: Record<ScreeningEvidenceLayer, string> = {
   google_maps_local_presence: "线下地址线索",
   address_validation: "地址一致性",
   public_footprint: "公开资料",
+  legal_disputes: "法律纠纷与案件",
   trade_customs: "贸易记录",
   financial_public_filing: "财务公开信息",
-  accio_behavior: "聊天行为",
 };
 
 const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
@@ -76,16 +76,14 @@ const evidenceLayerOrder: ScreeningEvidenceLayer[] = [
   "google_maps_local_presence",
   "address_validation",
   "public_footprint",
+  "legal_disputes",
   "trade_customs",
   "financial_public_filing",
-  "accio_behavior",
 ];
 
-const hiddenScoreBlocks = new Set(["conversation_behavior"]);
 const hiddenEvidenceLayers = new Set<ScreeningEvidenceLayer>([
   "google_maps_local_presence",
   "address_validation",
-  "accio_behavior",
 ]);
 
 const addressTypeLabels: Record<AddressFootprintAddressType, string> = {
@@ -273,7 +271,7 @@ function CompanyScalePanel({ assessment }: { assessment?: CompanyScaleAssessment
 }
 
 function ScoreBreakdownChart({ blocks }: { blocks: CustomerScoreBlock[] }) {
-  const displayBlocks = blocks.filter((block) => !hiddenScoreBlocks.has(block.block));
+  const displayBlocks = blocks;
   const maxTotal = displayBlocks.reduce((sum, block) => sum + block.maxPoints, 0);
   if (displayBlocks.length === 0 || maxTotal <= 0) {
     return (

@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -560,12 +559,12 @@ export default function AdminEmployeesPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[88vh] w-[96vw] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-[1280px]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[96vw] max-w-[1280px] overflow-y-auto overscroll-contain p-0 sm:max-h-[calc(100dvh-4rem)] sm:max-w-[1280px]">
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>{detail?.profile?.display_name ?? "员工详情"}</DialogTitle>
             <DialogDescription>查看该员工的客户、报告和账号状态。</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="min-h-0 px-5 pb-5">
+          <div className="px-5 pb-5">
             {!detail ? (
               <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -581,7 +580,7 @@ export default function AdminEmployeesPage() {
                 </section>
               </div>
             )}
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
 

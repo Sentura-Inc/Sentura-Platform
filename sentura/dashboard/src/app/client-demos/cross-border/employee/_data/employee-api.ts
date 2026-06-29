@@ -23,6 +23,7 @@ import {
   estimateMemoryTaskCost,
   estimateScreeningTaskCost,
   isGenericCoverageGapReason,
+  reconcileCoverageGapsWithScoreBlocks,
 } from "./employee-data";
 import {
   ACCIO_AGENT_ID,
@@ -42,6 +43,8 @@ import {
 } from "./employee-task-runner";
 import { CBE_EMPLOYEE_API_BASE } from "@/lib/cross-border-routes";
 import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
+import type { CostEvent } from "@/lib/gateway";
+import type { LeadFilterSettings } from "@/lib/cross-border-lead-settings";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
 
 type JsonRecord = Record<string, unknown>;
@@ -246,9 +249,11 @@ interface ApiCustomerRecord {
   recordId: string;
   companyName: string;
   country: string | null;
+  countryName?: string | null;
   buyerType: string | null;
   domain: string | null;
   matchedProducts?: string[];
+  leadQueryCountries?: string[];
   website?: string | null;
   leadStatus: string;
   screeningStatus: string;
@@ -300,6 +305,20 @@ export interface EmployeeCostBudgetSnapshot extends CostBudget {
   source: "server";
 }
 
+export interface EmployeeCostEventsSnapshot {
+  source: "sentura_cost" | "db_fallback";
+  events: CostEvent[];
+  scopedSessionCount: number;
+  outsideScopeCount: number;
+}
+
+export interface EmployeeCostAllowanceRequestResult {
+  id: string;
+  requestedAllowanceUsd?: number;
+  status?: string;
+  createdAt?: string;
+}
+
 export class CbeEmployeeApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -336,6 +355,11 @@ const COUNTRY_NAMES: Record<string, string> = {
 const ALLOWED_SOURCE_TYPES = new Set([
   "official_api",
   "official_registry_page",
+  "official_court_search",
+  "official_case_law",
+  "official_insolvency_notice",
+  "regulatory_enforcement",
+  "public_legal_database",
   "public_web",
   "public_dns",
   "google_maps_places",
@@ -354,7 +378,7 @@ const SCORE_BLOCK_IDS = new Set([
   "public_footprint",
   "business_fit",
   "trade_financial",
-  "conversation_behavior",
+  "legal_disputes",
 ]);
 
 function asRecord(value: unknown): JsonRecord {
@@ -391,9 +415,24 @@ function asStringArray(value: unknown): string[] {
           record.name ??
           record.value,
         );
-        return recordText ? [recordText] : [];
-      })
+      return recordText ? [recordText] : [];
+    })
     : [];
+}
+
+function isPlaceholderProduct(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
+  return !normalized ||
+    normalized === "mobile-accessories" ||
+    normalized === "product-pending-confirmation" ||
+    normalized === "产品待确认" ||
+    normalized === "未确认" ||
+    normalized === "待确认";
+}
+
+function displayProducts(values: unknown, fallback: string[] = []) {
+  const products = asStringArray(values).filter((item) => !isPlaceholderProduct(item));
+  return products.length ? products : fallback;
 }
 
 function payloadArray(payload: unknown, key: string): unknown[] {
@@ -576,6 +615,10 @@ function simplifyDisplayText(value: string | null | undefined) {
     .replace(/\breturned\b/gi, "返回")
     .replace(/\binvalid_mailbox\b/gi, "邮箱不可达")
     .replace(/\bundeliverable\b/gi, "邮箱不可达");
+}
+
+function coverageGapSeverity(value: unknown): CustomerCoverageGap["severity"] | undefined {
+  return value === "blocking" || value === "recommended" || value === "optional" ? value : undefined;
 }
 
 function missingEvidenceUrl(companyName: string, evidenceIndex = 0) {
@@ -900,24 +943,34 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     asNumber(raw.normalized_score ?? raw.normalizedScore) ??
     record.normalizedScore;
   const riskTier = normalizeRiskTier(raw.risk_tier ?? raw.riskTier ?? record.screeningStatus, normalizedScore);
-  const normalizedCoverageGaps = payloadArray(raw.coverage_gaps ?? raw.coverageGaps ?? [], "coverage_gaps").map((item, index): CustomerCoverageGap => {
-    const gap = asRecord(item);
-    const block = asString(gap.block ?? gap.score_block) ?? `coverage-gap-${index + 1}`;
-    const status = asString(gap.status);
-    const normalizedStatus =
-      status === "scored" ||
-      status === "not_applicable" ||
-      status === "unavailable_api" ||
-      status === "disabled_by_budget" ||
-      status === "pending_human_input"
-        ? status
-        : undefined;
-    return {
-      block,
-      reason: simplifyDisplayText(asString(gap.reason ?? gap.summary ?? gap.note)) ?? coverageGapReasonForBlock(block, normalizedStatus),
-      action: simplifyDisplayText(asString(gap.action ?? gap.recommended_action)) ?? coverageGapActionForBlock(block, normalizedStatus),
-    };
-  });
+  const normalizedCoverageGaps = payloadArray(raw.coverage_gaps ?? raw.coverageGaps ?? [], "coverage_gaps")
+    .map((item, index): CustomerCoverageGap => {
+      const gap = asRecord(item);
+      const block = asString(gap.block ?? gap.score_block) ?? `coverage-gap-${index + 1}`;
+      const status = asString(gap.status);
+      const normalizedStatus =
+        status === "scored" ||
+        status === "not_applicable" ||
+        status === "unavailable_api" ||
+        status === "disabled_by_budget" ||
+        status === "pending_human_input"
+          ? status
+          : undefined;
+      return {
+        block,
+        reason: simplifyDisplayText(asString(gap.reason ?? gap.summary ?? gap.note)) ?? coverageGapReasonForBlock(block, normalizedStatus),
+        action: simplifyDisplayText(asString(gap.action ?? gap.recommended_action)) ?? coverageGapActionForBlock(block, normalizedStatus),
+        severity: coverageGapSeverity(gap.severity),
+      };
+    });
+  const derivedCoverageGaps = coverageGapsFromScoreBlocks(scoreBlocks);
+  const candidateCoverageGaps =
+    normalizedCoverageGaps.length > 0 &&
+    !normalizedCoverageGaps.every((gap) => isGenericCoverageGapReason(gap.reason))
+      ? normalizedCoverageGaps
+      : derivedCoverageGaps.length > 0
+        ? derivedCoverageGaps
+        : normalizedCoverageGaps;
   return {
     reportId: asString(raw.report_id ?? raw.reportId) ?? record.latestScreeningReportId ?? record.recordId,
     riskTier,
@@ -928,13 +981,7 @@ function reportFromRecord(record: ApiCustomerRecord): CustomerScreeningReport | 
     companyScaleAssessment: normalizeCompanyScaleAssessment(raw.company_scale_assessment ?? raw.companyScaleAssessment),
     scoreBlocks,
     evidence,
-    coverageGaps:
-      normalizedCoverageGaps.length > 0 &&
-      !normalizedCoverageGaps.every((gap) => isGenericCoverageGapReason(gap.reason))
-        ? normalizedCoverageGaps
-        : coverageGapsFromScoreBlocks(scoreBlocks).length > 0
-          ? coverageGapsFromScoreBlocks(scoreBlocks)
-          : normalizedCoverageGaps,
+    coverageGaps: reconcileCoverageGapsWithScoreBlocks(candidateCoverageGaps, scoreBlocks),
     addressFootprint: normalizeAddressFootprint(raw.address_footprint ?? raw.addressFootprint),
     openQuestions: asStringArray(raw.open_questions ?? raw.openQuestions),
   };
@@ -956,9 +1003,9 @@ function customerFromApi(record: ApiCustomerRecord): CustomerListItem {
     source: record.recordType === "screening_target" ? "manual_screening" : "lead_discovery",
     companyName: record.companyName,
     country: record.country ?? "ZZ",
-    countryName: countryName(record.country),
+    countryName: asString(record.countryName) ?? countryName(record.country),
     buyerType: record.buyerType ?? "buyer",
-    products: record.matchedProducts?.length ? record.matchedProducts : ["mobile accessories"],
+    products: displayProducts(record.matchedProducts),
     website,
     foundAt: record.createdAt,
     screeningStatus: status,
@@ -1023,7 +1070,6 @@ function taskEstimateMs(kind: string, metadata: JsonRecord = {}) {
     countries: stringList(queryConfig.countries).join(", "),
     buyerTypes: stringList(queryConfig.buyer_types ?? queryConfig.buyer_personas).join(", "),
     targetCount,
-    excludeDomains: stringList(queryConfig.exclude_domains).join(", "),
     runMode: metadata.run_mode === "top_up_unique_leads" ? "top_up_unique_leads" : "new_scope",
   });
 }
@@ -1252,6 +1298,26 @@ export async function fetchEmployeeCostBudget(): Promise<EmployeeCostBudgetSnaps
   };
 }
 
+export async function fetchEmployeeCostEvents(): Promise<EmployeeCostEventsSnapshot> {
+  const body = await fetchEmployeeJson<JsonRecord>(employeeApi("/cost-events"));
+  return {
+    source: body.source === "db_fallback" ? "db_fallback" : "sentura_cost",
+    events: Array.isArray(body.events) ? (body.events as CostEvent[]) : [],
+    scopedSessionCount: asNumber(body.scopedSessionCount ?? body.scoped_session_count) ?? 0,
+    outsideScopeCount: asNumber(body.outsideScopeCount ?? body.outside_scope_count) ?? 0,
+  };
+}
+
+export function requestEmployeeCostAllowance(input: {
+  requestedAllowanceUsd: number;
+  reason: string;
+}) {
+  return jsonPost<EmployeeCostAllowanceRequestResult>(employeeApi("/cost-allowance-requests"), {
+    requested_allowance_usd: input.requestedAllowanceUsd,
+    reason: input.reason,
+  });
+}
+
 export async function markEmployeeNotificationsRead(ids: string[]) {
   if (ids.length === 0) return { readIds: [] as string[] };
   return jsonPost<{ readIds: string[] }>(employeeApi("/notifications/read"), { ids });
@@ -1263,6 +1329,10 @@ export async function deleteEmployeeNotifications(ids: string[]) {
     method: "DELETE",
     body: JSON.stringify({ ids }),
   });
+}
+
+export function fetchEmployeeLeadFilterSettings() {
+  return fetchEmployeeJson<{ settings: LeadFilterSettings }>(employeeApi("/lead-filter-settings"));
 }
 
 export async function dismissEmployeeTaskInDb(id: string) {
@@ -1301,7 +1371,6 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
     countries: countries.join(", "),
     buyerTypes: buyerTypes.join(", "),
     targetCount,
-    excludeDomains: asStringArray(input.excludeDomains).join(", "),
   };
   const estimatedMs = estimateLeadTaskDurationMs(normalizedInput);
   const timeoutMs = estimateEmployeeTaskTimeoutMs(estimatedMs);
@@ -1312,7 +1381,6 @@ export async function createEmployeeLeadRun(input: EmployeeLeadTaskInput, sessio
         product_keywords: productKeywords,
         countries,
         buyer_types: buyerTypes,
-        exclude_domains: asStringArray(input.excludeDomains),
       },
       target_count: targetCount,
       run_mode: input.runMode ?? "new_scope",
@@ -1467,12 +1535,15 @@ export async function createEmployeeAccioImport(input: AccioMemoryTaskInput, ses
   );
 }
 
-function normalizeLeadPayload(payload: unknown) {
+function normalizeLeadPayload(payload: unknown, productKeywords?: string) {
   const now = new Date().toISOString();
   const raw = asRecord(payload);
+  const searchedProducts = asStringArray(productKeywords);
   return {
     run_id: asString(raw.run_id),
     shortage_reason: asString(raw.shortage_reason),
+    internal_session_keys: asStringArray(raw.internal_session_keys),
+    internal_batching: asRecord(raw.internal_batching),
     leads: payloadArray(payload, "leads").map((item, index) => {
       const lead = asRecord(item);
       const website = toUrl(lead.website ?? lead.url);
@@ -1510,7 +1581,9 @@ function normalizeLeadPayload(payload: unknown) {
         country: toCountryCode(lead.country),
         city: asString(lead.city),
         buyer_type: asString(lead.buyer_type) ?? "buyer",
-        matched_products: asStringArray(lead.matched_products).length ? asStringArray(lead.matched_products) : ["mobile accessories"],
+        matched_products: searchedProducts.length
+          ? searchedProducts
+          : displayProducts(lead.matched_products, ["mobile accessories"]),
         source_urls: sourceUrls,
         discovery_evidence: evidence,
         dedupe_key: asString(lead.dedupe_key),
@@ -1595,7 +1668,7 @@ function normalizeScreeningPayload(payload: unknown) {
             {
               block: "public_footprint",
               status: "pending_human_input" as const,
-              max_points: 20,
+              max_points: 15,
               earned_points: null,
               source_count: evidence.length,
               reason: traceabilityGap
@@ -1616,7 +1689,9 @@ function normalizeScreeningPayload(payload: unknown) {
         })), normalizedEvidenceCoverage) ??
         asNumber(report.normalized_score ?? report.normalizedScore ?? report.score);
       const riskTier = traceabilityGap ? "insufficient_evidence" : normalizeRiskTier(report.risk_tier ?? report.riskTier, score);
-      const reportCoverageGaps = Array.isArray(report.coverage_gaps) ? report.coverage_gaps.map(asRecord) : [];
+      const reportCoverageGaps = Array.isArray(report.coverage_gaps)
+        ? report.coverage_gaps.map(asRecord)
+        : [];
       const traceabilityGapRecord = {
         block: "public_footprint",
         status: "pending_human_input",
@@ -1801,13 +1876,14 @@ export async function completeEmployeeLeadRun(input: {
   agentRunId: string;
   sessionKey: string;
   payload: unknown;
+  productKeywords?: string;
 }) {
   return jsonPost<CompleteEmployeeLeadRunResponse>(
     employeeApi(`/lead-runs/${input.leadRunId}/complete`),
     {
       agent_run_id: input.agentRunId,
       session_key: input.sessionKey,
-      payload: normalizeLeadPayload(input.payload),
+      payload: normalizeLeadPayload(input.payload, input.productKeywords),
     },
   );
 }
@@ -1857,30 +1933,6 @@ export async function failEmployeeTaskInDb(input: {
       ? { api_status: input.error.status, api_code: input.error.code, api_details: input.error.details }
       : {},
   });
-}
-
-export function manualInputToSyntheticAccio(input: ManualScreeningInput) {
-  return {
-    conversations: [
-      {
-        conversation_id: `manual-${Date.now()}`,
-        buyer: {
-          company_name: input.companyName,
-          country: input.country,
-          display_name: input.contactPerson,
-          email: input.email,
-          website: input.website,
-        },
-        messages: [
-          {
-            timestamp: new Date().toISOString(),
-            sender: "operator",
-            text: input.operatorNotes || input.productInterest || "Manual screening context.",
-          },
-        ],
-      },
-    ],
-  };
 }
 
 export function isAccioAgent(agentId: string) {

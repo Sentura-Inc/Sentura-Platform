@@ -1,3 +1,12 @@
+import {
+  DEFAULT_LEAD_BUYER_TYPE_OPTIONS,
+  DEFAULT_LEAD_COUNTRY_OPTIONS,
+  DEFAULT_LEAD_PRODUCT_OPTIONS,
+  type LeadFilterSettings,
+} from "@/lib/cross-border-lead-settings";
+
+export type { LeadFilterSettings };
+
 export type CustomerStatus =
   | "not_started"
   | "running"
@@ -22,9 +31,9 @@ export type ScreeningEvidenceLayer =
   | "google_maps_local_presence"
   | "address_validation"
   | "public_footprint"
+  | "legal_disputes"
   | "trade_customs"
-  | "financial_public_filing"
-  | "accio_behavior";
+  | "financial_public_filing";
 
 export const MAX_LEAD_TARGET_COUNT = 10;
 
@@ -37,6 +46,15 @@ export interface CustomerScoreBlock {
   summary?: string;
   reason?: string;
 }
+
+export const customerScreeningScoreBlockLabels: Record<string, string> = {
+  legal_identity: "公司注册与线下门店/地址",
+  domain_email: "域名与邮箱",
+  public_footprint: "公开业务足迹",
+  business_fit: "业务匹配",
+  trade_financial: "贸易与财务",
+  legal_disputes: "法律纠纷与案件",
+};
 
 export interface CustomerEvidenceItem {
   layer: ScreeningEvidenceLayer;
@@ -55,6 +73,7 @@ export interface CustomerCoverageGap {
   block: string;
   reason: string;
   action?: string;
+  severity?: "blocking" | "recommended" | "optional";
 }
 
 export type AddressFootprintCoverageStatus =
@@ -202,17 +221,17 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
   }
   switch (block) {
     case "legal_identity":
-      return "公司注册信息、官方注册页或可确认的 Google Maps（谷歌地图）线下门店/地址未形成足够真实性证据。";
+      return "公司注册信息、官方注册页或可确认的 Google Maps 线下门店/地址未形成足够真实性证据。";
     case "domain_email":
       return "RDAP、DNS、官网联系邮箱或邮箱验证未搜索到足够依据。";
     case "public_footprint":
       return "公开资料或线下地址信息未找到足够业务足迹。";
     case "business_fit":
       return "公开页面未确认产品、渠道或买家画像匹配。";
+    case "legal_disputes":
+      return "法院、判例、破产公告或监管处罚检索未形成可用法律纠纷结论。";
     case "trade_financial":
       return "贸易/海关记录、SEC 或财务公开文件未搜索到可用结果。";
-    case "conversation_behavior":
-      return "该项目已不纳入当前背调评分。";
     default:
       return "本次未找到可用结果；报告未提供更具体原因。";
   }
@@ -221,7 +240,7 @@ export function coverageGapReasonForBlock(block: string, status?: ScreeningEvide
 export function coverageGapActionForBlock(block: string, status?: ScreeningEvidenceStatus) {
   if (status === "disabled_by_budget") return "开启对应付费来源或提高单次预算后重新背调。";
   if (status === "unavailable_api") return "人工补充可核验的来源网址后重新复核。";
-  if (status === "not_applicable") return "如后续产生聊天或销售记录，可再补充行为依据。";
+  if (status === "not_applicable") return "该项不适用于当前目标，无需补充。";
   switch (block) {
     case "legal_identity":
       return "补充公司注册号、法定名称、官方注册地区，或提供门店/办公地址线索后重新查询。";
@@ -229,8 +248,8 @@ export function coverageGapActionForBlock(block: string, status?: ScreeningEvide
       return "补充官网域名、业务邮箱或联系人邮箱后重新验证。";
     case "trade_financial":
       return "开启贸易/财务数据源，或补充进口商名称、注册号后重新搜索。";
-    case "conversation_behavior":
-      return undefined;
+    case "legal_disputes":
+      return "补充法定名称、注册号、所在地或指定司法辖区后重新检索公开案件/破产/监管处罚来源。";
     default:
       return undefined;
   }
@@ -238,7 +257,7 @@ export function coverageGapActionForBlock(block: string, status?: ScreeningEvide
 
 export function coverageGapsFromScoreBlocks(blocks: CustomerScoreBlock[]): CustomerCoverageGap[] {
   return blocks
-    .filter((block) => block.status !== "scored")
+    .filter((block) => block.status !== "scored" && block.status !== "not_applicable")
     .map((block) => ({
       block: block.block,
       reason: block.reason?.trim() || coverageGapReasonForBlock(block.block, block.status),
@@ -249,6 +268,25 @@ export function coverageGapsFromScoreBlocks(blocks: CustomerScoreBlock[]): Custo
 export function isGenericCoverageGapReason(reason: string | undefined) {
   const normalized = reason?.trim();
   return !normalized || normalized === "缺少该维度证据。" || normalized === "缺少该维度证据";
+}
+
+function coverageGapRequiresReview(gap: CustomerCoverageGap) {
+  const text = `${gap.reason} ${gap.action ?? ""}`.toLowerCase();
+  return /矛盾|冲突|不一致|不匹配|异常|风险|诉讼|案件|法院|破产|清算|监管|人工复核|人工确认|contradict|conflict|mismatch|inconsistent|risk|fraud|scam|lawsuit|litigation|court|insolvency|bankruptcy|enforcement|manual review/.test(text);
+}
+
+export function reconcileCoverageGapsWithScoreBlocks(
+  gaps: CustomerCoverageGap[],
+  blocks: CustomerScoreBlock[],
+): CustomerCoverageGap[] {
+  if (gaps.length === 0 || blocks.length === 0) return gaps;
+  const resolvedBlocks = new Set(
+    blocks
+      .filter((block) => block.status === "scored" || block.status === "not_applicable")
+      .map((block) => block.block),
+  );
+  if (resolvedBlocks.size === 0) return gaps;
+  return gaps.filter((gap) => !resolvedBlocks.has(gap.block) || coverageGapRequiresReview(gap));
 }
 
 export type MemoryStatus = "not_started" | "running" | "analyzed" | "failed";
@@ -302,13 +340,6 @@ export interface LeadCountryOption {
   description: string;
 }
 
-export interface LeadExcludeDomainOption {
-  id: string;
-  label: string;
-  description: string;
-  domains: string[];
-}
-
 export interface TaskEstimate {
   label: string;
   estimatedUsd: number;
@@ -326,113 +357,11 @@ export const employeeProfile = {
     "cross-border-employee-demo",
 };
 
-export const leadProductOptions: LeadProductOption[] = [
-  {
-    id: "phone-case",
-    label: "手机壳",
-    keyword: "phone case",
-    description: "寻找采购手机保护壳、保护套的买家。",
-  },
-  {
-    id: "tempered-glass",
-    label: "钢化膜",
-    keyword: "tempered glass screen protector",
-    description: "寻找采购手机屏幕保护膜的买家。",
-  },
-  {
-    id: "usb-c-charger",
-    label: "充电器",
-    keyword: "USB-C charger",
-    description: "寻找采购充电器、数据线等电源配件的买家。",
-  },
-  {
-    id: "magsafe",
-    label: "MagSafe 配件",
-    keyword: "MagSafe accessories",
-    description: "寻找采购磁吸支架、磁吸充电等配件的买家。",
-  },
-  {
-    id: "repair-parts",
-    label: "维修配件",
-    keyword: "mobile phone repair parts",
-    description: "寻找采购屏幕、排线、电池等维修件的买家。",
-  },
-];
+export const leadProductOptions: LeadProductOption[] = DEFAULT_LEAD_PRODUCT_OPTIONS;
 
-export const leadBuyerTypeOptions: LeadBuyerTypeOption[] = [
-  {
-    id: "repair-chain",
-    label: "维修连锁",
-    keyword: "mobile phone repair chain",
-    description: "有线下门店或维修服务网络，通常采购维修件和保护类产品。",
-  },
-  {
-    id: "electronics-retailer",
-    label: "电子零售商",
-    keyword: "electronics retailer",
-    description: "销售手机、电子产品或配件的零售公司。",
-  },
-  {
-    id: "accessory-retailer",
-    label: "配件零售商",
-    keyword: "cell phone accessories retailer",
-    description: "主营手机壳、膜、充电器等配件的零售商。",
-  },
-  {
-    id: "cell-phone-store",
-    label: "手机门店",
-    keyword: "cell phone store",
-    description: "本地手机门店或门店型经销商。",
-  },
-  {
-    id: "reseller",
-    label: "转售采购商",
-    keyword: "electronics reseller buyer",
-    description: "面向下游渠道转售的采购商。",
-  },
-  {
-    id: "importer",
-    label: "进口采购商",
-    keyword: "mobile accessories importer buyer",
-    description: "有进口或批发采购特征的公司。",
-  },
-];
+export const leadBuyerTypeOptions: LeadBuyerTypeOption[] = DEFAULT_LEAD_BUYER_TYPE_OPTIONS;
 
-export const leadCountryOptions: LeadCountryOption[] = [
-  { code: "GB", label: "英国", language: "en", description: "优先查公司主体和官网线索。" },
-  { code: "US", label: "美国", language: "en", description: "优先查官网、州注册和财务公开线索。" },
-  { code: "DE", label: "德国", language: "de", description: "适合电子零售和配件渠道。" },
-  { code: "FR", label: "法国", language: "fr", description: "适合法语市场渠道搜索。" },
-  { code: "BR", label: "巴西", language: "pt", description: "适合维修配件和本地渠道搜索。" },
-  { code: "MX", label: "墨西哥", language: "es", description: "适合拉美零售和维修渠道搜索。" },
-];
-
-export const leadExcludeDomainOptions: LeadExcludeDomainOption[] = [
-  {
-    id: "marketplaces",
-    label: "跨境平台",
-    description: "排除平台页，保留真实公司官网。",
-    domains: ["amazon.com", "alibaba.com", "aliexpress.com", "temu.com", "ebay.com"],
-  },
-  {
-    id: "social",
-    label: "社媒主页",
-    description: "排除只有社媒主页、无法确认公司的页面。",
-    domains: ["facebook.com", "instagram.com", "linkedin.com", "x.com", "tiktok.com"],
-  },
-  {
-    id: "directories",
-    label: "目录/榜单",
-    description: "排除黄页、名单页和泛目录结果。",
-    domains: ["yelp.com", "yellowpages.com", "trustpilot.com", "clutch.co"],
-  },
-  {
-    id: "supplier-directories",
-    label: "供应商目录",
-    description: "排除供应侧目录，避免找到卖家而不是买家。",
-    domains: ["globalsources.com", "made-in-china.com", "dhgate.com"],
-  },
-];
+export const leadCountryOptions: LeadCountryOption[] = DEFAULT_LEAD_COUNTRY_OPTIONS;
 
 export const monthlyCostBudget: CostBudget = {
   period: "month",
@@ -490,11 +419,12 @@ export const costEstimateAssumptions = {
 
 function reportBlocks(overrides: Partial<Record<string, Partial<CustomerScoreBlock>>> = {}): CustomerScoreBlock[] {
   const base: CustomerScoreBlock[] = [
-    { block: "legal_identity", status: "scored", maxPoints: 25, earnedPoints: 20, sourceCount: 1, summary: "公司主体或官方来源已核验。" },
-    { block: "domain_email", status: "scored", maxPoints: 25, earnedPoints: 21, sourceCount: 2, summary: "官网和邮箱信号基本稳定。" },
-    { block: "public_footprint", status: "scored", maxPoints: 20, earnedPoints: 16, sourceCount: 2, summary: "公开资料与业务画像匹配。" },
+    { block: "legal_identity", status: "scored", maxPoints: 20, earnedPoints: 16, sourceCount: 1, summary: "公司主体或官方来源已核验。" },
+    { block: "domain_email", status: "scored", maxPoints: 20, earnedPoints: 17, sourceCount: 2, summary: "官网和邮箱信号基本稳定。" },
+    { block: "public_footprint", status: "scored", maxPoints: 15, earnedPoints: 12, sourceCount: 2, summary: "公开资料与业务画像匹配。" },
     { block: "business_fit", status: "scored", maxPoints: 20, earnedPoints: 18, sourceCount: 2, summary: "产品和渠道与手机配件采购匹配。" },
     { block: "trade_financial", status: "unavailable_api", maxPoints: 10, earnedPoints: null, sourceCount: 0, reason: "贸易或财务资料未启用或未命中。" },
+    { block: "legal_disputes", status: "scored", maxPoints: 15, earnedPoints: 13, sourceCount: 1, summary: "公开法律纠纷检索未发现目标主体的重大风险。" },
   ];
   return base.map((block) => ({ ...block, ...(overrides[block.block] ?? {}) }));
 }
@@ -534,11 +464,12 @@ export const customerRows: CustomerListItem[] = [
       createdAt: "2026-06-14 09:27",
       recommendedAction: "加入高优先级跟进名单，补充采购联系人后进入报价。",
       scoreBlocks: reportBlocks({
-        legal_identity: { earnedPoints: 22, summary: "公开主体信息与门店页一致。" },
-        domain_email: { earnedPoints: 23, summary: "官网域名、同域联系邮箱和 DNS 信号稳定。" },
-        public_footprint: { earnedPoints: 17, summary: "官网、维修服务页和公开搜索结果能证明业务存在。" },
+        legal_identity: { earnedPoints: 18, summary: "公开主体信息与门店页一致。" },
+        domain_email: { earnedPoints: 19, summary: "官网域名、同域联系邮箱和 DNS 信号稳定。" },
+        public_footprint: { earnedPoints: 13, summary: "官网、维修服务页和公开搜索结果能证明业务存在。" },
         business_fit: { earnedPoints: 19, summary: "门店维修和配件销售与目标产品高度匹配。" },
         trade_financial: { status: "pending_human_input", earnedPoints: null, reason: "缺少进口记录或采购记录线索。" },
+        legal_disputes: { earnedPoints: 13, summary: "公开法律纠纷检索未发现目标主体的重大案件或破产风险。" },
       }),
       evidence: [
         {
@@ -596,11 +527,21 @@ export const customerRows: CustomerListItem[] = [
           affectsScore: true,
           costPosture: "公开资料",
         },
+        {
+          layer: "legal_disputes",
+          sourceUrl: "https://www.google.com/search?q=Mobile%20Lab%20UK%20lawsuit%20insolvency%20court",
+          sourceType: "public_web",
+          finding: "公开网络法律风险检索未发现与 Mobile Lab UK 明确同主体匹配的重大诉讼、破产或监管处罚结果；该结论仅覆盖本次公开检索范围。",
+          confidence: 0.58,
+          scoreBlock: "legal_disputes",
+          scoreImpact: "positive",
+          affectsScore: true,
+          costPosture: "公开资料",
+        },
       ],
       coverageGaps: coverageGaps(
         "未取得可直接归属到该主体的贸易/海关记录。",
         "未取得财务公开信息；英国私营或非美上市主体应以 Companies House/本地公开财务来源复核。",
-        "未提供聊天或销售对话记录，行为信号不计入分母。",
       ),
       openQuestions: ["补充采购联系人邮箱。", "确认是否有近期进口或批发采购记录。"],
     },
@@ -654,6 +595,7 @@ export const customerRows: CustomerListItem[] = [
         public_footprint: { earnedPoints: 10, summary: "公开足迹较少，仅能证明基础网页存在。" },
         business_fit: { earnedPoints: 13, summary: "产品方向与手机配件相关，但公开页面证据不足。" },
         trade_financial: { status: "disabled_by_budget", earnedPoints: null, reason: "贸易/海关记录未启用。" },
+        legal_disputes: { status: "pending_human_input", earnedPoints: null, sourceCount: 0, reason: "缺少可确认法定名称/RFC，公开案件检索无法稳定排除同名主体。" },
       }),
       evidence: [
         {
@@ -683,8 +625,9 @@ export const customerRows: CustomerListItem[] = [
         "缺少公司注册号或官方注册页。",
         "缺少公司邮箱，无法触发付费邮箱验证。",
         "贸易/海关数据未启用，不能作为负面证据。",
+        "缺少法定名称/RFC，公开法律纠纷检索存在同名主体风险。",
         "未取得财务公开信息；墨西哥私营或非美国申报主体应补充本地注册/税务主体资料。",
-        "未提供聊天或销售对话记录。",
+        "缺少可交叉验证的线下门店或公开采购联系人资料。",
       ),
       openQuestions: ["要求客户补充注册主体/RFC。", "要求客户用公司域名邮箱回复。"],
     },
@@ -721,6 +664,7 @@ export const customerRows: CustomerListItem[] = [
         public_footprint: { earnedPoints: 8, summary: "公开足迹薄弱。" },
         business_fit: { earnedPoints: 12, summary: "有手机壳相关页面，但采购角色不清晰。" },
         trade_financial: { status: "unavailable_api", earnedPoints: null, reason: "未命中可用贸易/财务记录。" },
+        legal_disputes: { earnedPoints: 8, summary: "公开搜索出现投诉/纠纷疑似结果，但缺少官方案件号或法定主体匹配，需人工复核。" },
       }),
       evidence: [
         {
@@ -743,6 +687,17 @@ export const customerRows: CustomerListItem[] = [
           scoreBlock: "trade_financial",
           scoreImpact: "coverage_only",
           affectsScore: false,
+          costPosture: "公开资料弱证据",
+        },
+        {
+          layer: "legal_disputes",
+          sourceUrl: "https://www.google.com/search?q=Case%20Outlet%20Direct%20lawsuit%20complaint%20court",
+          sourceType: "public_web",
+          finding: "公开搜索出现与 Case Outlet Direct 名称相近的投诉/纠纷线索，但未发现官方案件号、法院页面或注册主体匹配，不能单独作为定性结论。",
+          confidence: 0.42,
+          scoreBlock: "legal_disputes",
+          scoreImpact: "neutral",
+          affectsScore: true,
           costPosture: "公开资料弱证据",
         },
       ],

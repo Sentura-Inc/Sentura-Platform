@@ -23,11 +23,10 @@ Find overseas B2B buyer candidates for mobile-phone accessories using public web
 
 ## Main Inputs
 
-- product keywords;
-- buyer personas;
-- target countries/languages;
-- target candidate count, capped at 10;
-- exclusion domains.
+- Admin-managed Chinese product terms;
+- Admin-managed Chinese buyer personas;
+- Admin-managed Chinese target countries/regions;
+- target candidate count, capped at 10.
 
 ## Main Outputs
 

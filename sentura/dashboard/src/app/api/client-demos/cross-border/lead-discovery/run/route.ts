@@ -15,7 +15,6 @@ interface RunRequest {
   countries?: unknown;
   languages?: unknown;
   daily_candidate_target?: unknown;
-  exclude_domains?: unknown;
   max_queries?: unknown;
 }
 
@@ -64,7 +63,6 @@ const COUNTRY_LABELS: Record<string, string> = {
 const DEFAULT_PRODUCTS = ["phone case", "tempered glass screen protector", "USB-C charger"];
 const DEFAULT_PERSONAS = ["mobile phone repair chain", "electronics retailer", "cell phone accessories retailer"];
 const DEFAULT_COUNTRIES = ["GB", "US"];
-const DEFAULT_EXCLUDE_DOMAINS = ["amazon.com", "alibaba.com", "aliexpress.com", "temu.com", "ebay.com"];
 const BLOCKED_LEAD_DOMAINS = [
   "1688.com",
   "alibaba.com",
@@ -324,17 +322,16 @@ function domainFromUrl(url: string): string {
   return normalizeDomain(url);
 }
 
-function isExcludedDomain(domain: string, excludedDomains: string[]): boolean {
-  return excludedDomains.some((item) => {
-    const excluded = normalizeDomain(item);
-    return domain === excluded || domain.endsWith(`.${excluded}`);
+function matchesDomainList(domain: string, domains: string[]): boolean {
+  return domains.some((item) => {
+    const normalized = normalizeDomain(item);
+    return domain === normalized || domain.endsWith(`.${normalized}`);
   });
 }
 
-function isBlockedLeadDomain(domain: string, excludedDomains: string[]): boolean {
+function isBlockedLeadDomain(domain: string): boolean {
   return (
-    isExcludedDomain(domain, excludedDomains) ||
-    isExcludedDomain(domain, BLOCKED_LEAD_DOMAINS) ||
+    matchesDomainList(domain, BLOCKED_LEAD_DOMAINS) ||
     DIRECTORY_DOMAIN_HINTS.some((hint) => domain.includes(hint))
   );
 }
@@ -402,13 +399,12 @@ function companyWebsiteSignal(url: string, title: string, content: string): bool
 function rejectionReasonForResult(
   result: TavilyResult,
   query: QueryPlanEntry,
-  excludedDomains: string[],
 ): string | undefined {
   const url = asText(result.url);
   if (!url) return "missing_url";
   const domain = domainFromUrl(url);
   if (!domain) return "missing_domain";
-  if (isBlockedLeadDomain(domain, excludedDomains)) return `blocked_non_company_domain:${domain}`;
+  if (isBlockedLeadDomain(domain)) return `blocked_non_company_domain:${domain}`;
 
   const title = asText(result.title);
   const content = asText(result.content);
@@ -464,7 +460,7 @@ function buildQueries(input: {
   return entries;
 }
 
-async function tavilySearch(query: string, maxResults: number, excludedDomains: string[], signal: AbortSignal) {
+async function tavilySearch(query: string, maxResults: number, signal: AbortSignal) {
   const apiKey = envValue("TAVILY_API_KEY");
   if (!apiKey) {
     throw new Error("TAVILY_API_KEY is not configured for live lead discovery");
@@ -483,7 +479,6 @@ async function tavilySearch(query: string, maxResults: number, excludedDomains: 
       include_answer: false,
       include_images: false,
       include_raw_content: false,
-      exclude_domains: excludedDomains,
     }),
     signal,
   });
@@ -516,13 +511,12 @@ function leadFromResult(args: {
   runId: string;
   index: number;
   fetchedAt: string;
-  excludedDomains: string[];
 }) {
   const url = asText(args.result.url);
   if (!url) return undefined;
   const domain = domainFromUrl(url);
   if (!domain) return undefined;
-  const rejectionReason = rejectionReasonForResult(args.result, args.query, args.excludedDomains);
+  const rejectionReason = rejectionReasonForResult(args.result, args.query);
   if (rejectionReason) return undefined;
 
   const title = asText(args.result.title);
@@ -580,9 +574,6 @@ export async function POST(request: Request) {
     const products = stringArray(body.product_keywords, DEFAULT_PRODUCTS);
     const personas = stringArray(body.buyer_personas, DEFAULT_PERSONAS);
     const countries = stringArray(body.countries, DEFAULT_COUNTRIES).map((country) => country.toUpperCase());
-    const excludeDomains = Array.from(
-      new Set([...stringArray(body.exclude_domains, DEFAULT_EXCLUDE_DOMAINS), ...DEFAULT_EXCLUDE_DOMAINS, ...BLOCKED_LEAD_DOMAINS]),
-    ).slice(0, 150);
     const target = boundedNumber(body.daily_candidate_target, LEAD_DISCOVERY_MAX_TARGET_COUNT, 1, LEAD_DISCOVERY_MAX_TARGET_COUNT);
     const maxQueries = boundedNumber(
       body.max_queries,
@@ -633,13 +624,13 @@ export async function POST(request: Request) {
         status: "sent",
       });
       try {
-        const results = await tavilySearch(query.query, LEAD_DISCOVERY_INTERNAL_RESULTS_PER_QUERY, excludeDomains, signal);
+        const results = await tavilySearch(query.query, LEAD_DISCOVERY_INTERNAL_RESULTS_PER_QUERY, signal);
         queryLog[queryLog.length - 1].status = "reviewed";
         for (const result of results) {
           const url = asText(result.url);
           const domain = url ? domainFromUrl(url) : "";
-          if (!domain || seenDomains.has(domain) || isBlockedLeadDomain(domain, excludeDomains)) continue;
-          const lead = leadFromResult({ result, query, runId, index: leads.length, fetchedAt, excludedDomains: excludeDomains });
+          if (!domain || seenDomains.has(domain) || isBlockedLeadDomain(domain)) continue;
+          const lead = leadFromResult({ result, query, runId, index: leads.length, fetchedAt });
           if (!lead) continue;
           seenDomains.add(domain);
           leads.push(lead);
@@ -663,7 +654,7 @@ export async function POST(request: Request) {
       errors,
       shortage:
         compactLeads.length < target
-          ? `实时查询返回 ${compactLeads.length}/${target} 条去重候选；缺口来自搜索结果不足、排除域名或同域名重复。`
+          ? `实时查询返回 ${compactLeads.length}/${target} 条去重候选；缺口来自搜索结果不足、无效来源过滤或同域名重复。`
           : null,
     });
   } catch (error) {
