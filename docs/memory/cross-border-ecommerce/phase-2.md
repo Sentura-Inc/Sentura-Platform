@@ -81,6 +81,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-29 | Lead internal batching and overflow retry | Split Lead requests above 5 into <=5 hidden sub-runs, added context-overflow recursive retry, merged final payloads, and included internal session keys in cost attribution. |
 | 2026-06-29 | ECS/RDS deployment of e923dc9f and 7a127651 | Deployed the two latest CBE commits to Alibaba ECS/RDS, applied migrations 010-014 after backup, synced Lead/Screening OpenClaw workspaces, rebuilt/restarted services, and verified local/public smoke. |
 | 2026-06-30 | Trial hard limits for customer pilot | Locked trial usage to 3 active/suspended employee accounts plus 150 saved Lead successes and 150 saved Screening successes; added immutable ledger, store/API enforcement, live UI meters, migrations 015/016, and CE48 coverage. |
+| 2026-06-30 | Trial hard limits ECS deployment and pilot DB cleanup | Deployed `a0bf51bc8` to Alibaba ECS/RDS, backed up RDS, applied migrations 015/016 without seed data, removed CBE test data, retained only `孙总` Admin, rebuilt/restarted services, and verified login plus 150/150 trial-limit smoke. |
 
 ## Current Phase 2 Ground Truth
 
@@ -2956,9 +2957,18 @@ Verification:
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE48 assertions PASS; broad script reports 259 passed / 4 unrelated existing failures.
 - Local dev server smoke: `/employee` returned HTTP 200; Admin and Employee trial-limits APIs returned the live snapshot when called with their role debug headers; unauthenticated Employee API returned expected `401 cbe_login_required`.
 
+Deployment:
+
+- Deployed to Alibaba ECS/RDS on 2026-06-30 at `/root/Sentura-Platform` commit `a0bf51bc8`.
+- RDS backup before migration: `/root/cbe-db-backups/cbe-pre-a0bf51bc8-20260630T120557Z.dump`.
+- Applied migrations `015_trial_usage_limits.sql` and `016_trial_usage_start_clean.sql` without `--seed`.
+- Removed CBE test data and retained only `孙总` Admin. Post-cleanup counts: `sentura_users = 1`, active Admin profiles `= 1`, non-inactive operators `= 0`, Lead/Screening/Accio/task rows `= 0`, Lead usage `= 0`, Screening usage `= 0`.
+- Server typecheck/build PASS; `sentura-dashboard.service` and root user `openclaw-gateway.service` active after restart.
+- Smoke PASS: loopback `/employee`, `/admin/login`, `孙总/1234` login API, `/admin/employees`, Admin trial-limits API, public `https://app.sentura.ai/employee`, and public `https://admin.sentura.ai/admin/login` all returned 200.
+- Admin trial-limits API returned operators `0/3`, Lead `0/150`, and Screening `0/150`.
+- Runtime workspace sync was not required because this rollout did not change `sentura/agents/**` or `workspaces/**`.
+
 Boundary:
 
-- This is local code/database work only; it has not yet been deployed to ECS/RDS.
-- The local operator snapshot is exactly at the 3-account trial limit. The new code blocks additional creation; before production rollout, check whether the target database already has more than 3 non-inactive operators and deliberately deactivate extra trial accounts if needed.
 - Deleting customers/reports does not restore Lead/Screening quota because quota comes from immutable usage events.
 - Failed tasks, duplicate Lead candidates, and unsaved/clipped Screening payloads do not consume quota.

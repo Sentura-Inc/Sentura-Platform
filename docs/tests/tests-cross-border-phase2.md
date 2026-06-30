@@ -1941,6 +1941,7 @@ Latest verification, 2026-06-30:
 - Local trial snapshot after migration: `operatorAccounts 3/3`, `leadSuccesses 0/150`, `screeningSuccesses 0/150`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: new CE48 assertions PASS; broad script reports 259 passed / 4 unrelated existing failures.
 - Local dev server smoke: `/employee` returned HTTP 200; Admin and Employee trial-limits APIs returned the live snapshot when called with their role debug headers; unauthenticated Employee API returned expected `401 cbe_login_required`.
+- ECS/RDS deploy smoke: Alibaba ECS fast-forwarded to `a0bf51bc8`; RDS backup created at `/root/cbe-db-backups/cbe-pre-a0bf51bc8-20260630T120557Z.dump`; migrations `015` and `016` applied without `--seed`; CBE test data removed with only `孙总` Admin retained; server typecheck/build PASS; `sentura-dashboard.service` and root user `openclaw-gateway.service` active; loopback/public `/employee` and `/admin/login` returned 200; `孙总/1234` Admin login returned 200 and redirected to `/admin/employees`; Admin trial-limits API returned operators `0/3`, Lead `0/150`, and Screening `0/150`.
 
 Boundary:
 

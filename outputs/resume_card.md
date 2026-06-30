@@ -22,7 +22,14 @@ Started/completed locally 2026-06-30 in `/Users/henry/Desktop/Sentura-Platform`.
   - Local snapshot: operators 3/3, Lead 0/150, Screening 0/150.
   - `scripts/test-cross-border-phase2-store.ts`: new CE48 assertions PASS; broad result 259 passed / 4 unrelated existing failures.
   - Local dev server smoke: `/employee` HTTP 200; Admin and Employee trial-limits APIs return the live snapshot with role headers.
-- Deployment status: local only; not yet deployed to ECS/RDS. Before production rollout, check whether target DB already has more than 3 non-inactive operators and deliberately deactivate extras if needed.
+- Deployment status:
+  - Pushed `origin/ecommerce` to `a0bf51bc`.
+  - Alibaba ECS `/root/Sentura-Platform` fast-forwarded to `a0bf51bc8` through a local git bundle because server HTTPS fetch lacked GitHub credentials.
+  - RDS backup created at `/root/cbe-db-backups/cbe-pre-a0bf51bc8-20260630T120557Z.dump`.
+  - RDS migrations `015_trial_usage_limits.sql` and `016_trial_usage_start_clean.sql` applied without `--seed`.
+  - CBE test data removed: DB now has 1 user, 1 active Admin (`孙总`), 0 operators, 0 Lead/Screening/Accio/task rows, and Lead/Screening usage `0/150`.
+  - Server build PASS; `sentura-dashboard.service` and root user `openclaw-gateway.service` active.
+  - Smoke PASS: loopback `/employee`, `/admin/login`, `孙总/1234` login API, `/admin/employees`, Admin trial-limits API, public `https://app.sentura.ai/employee`, and public `https://admin.sentura.ai/admin/login` all returned 200.
 
 # Recent Completed Context: Lead Internal Batching
 

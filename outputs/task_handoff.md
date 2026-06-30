@@ -12,7 +12,7 @@ User requested hard trial limits before the customer starts trial use:
 
 ## Current State
 
-Implementation is complete locally, with code, migrations, docs, tests, memory, and resume card updated.
+Implementation is complete and deployed, with code, migrations, docs, tests, memory, and resume card updated.
 
 Hard limits:
 
@@ -56,10 +56,21 @@ Key files:
 - `git diff --check`: PASS.
 - Local dev server smoke: `http://127.0.0.1:3000/employee` returned HTTP 200; `GET /api/client-demos/cross-border/admin/trial-limits` with `x-cbe-admin-user-id: cbe-user-admin-001` returned the live snapshot; `GET /api/client-demos/cross-border/employee/trial-limits` with `x-cbe-user-id: cbe-user-operator-001` returned the same live snapshot. Without an Employee session/header, the Employee API correctly returns `401 cbe_login_required`.
 
+## Deployment
+
+- Pushed `origin/ecommerce` to `a0bf51bc`.
+- Alibaba ECS `/root/Sentura-Platform` fast-forwarded from `7a127651` to `a0bf51bc8` through a local git bundle because server HTTPS fetch lacked GitHub credentials.
+- RDS backup created before migration: `/root/cbe-db-backups/cbe-pre-a0bf51bc8-20260630T120557Z.dump`.
+- Applied RDS migrations `015_trial_usage_limits.sql` and `016_trial_usage_start_clean.sql` without `--seed`.
+- Removed CBE test data and retained only `孙总` Admin: `sentura_users = 1`, active Admin profiles `= 1`, non-inactive operators `= 0`, Lead/Screening/Accio/task rows `= 0`, Lead usage `= 0`, Screening usage `= 0`.
+- Server `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- Server `pnpm --dir sentura/dashboard build`: PASS.
+- Services after restart: `sentura-dashboard.service = active`, root user `openclaw-gateway.service = active`.
+- Smoke PASS: loopback `/employee`, `/admin/login`, `POST /api/auth/login` with `孙总/1234`, `/admin/employees`, Admin trial-limits API, public `https://app.sentura.ai/employee`, and public `https://admin.sentura.ai/admin/login` all returned 200. Admin trial-limits API returned operators `0/3`, Lead `0/150`, Screening `0/150`.
+
 ## Boundaries And Next Steps
 
-- This is local only; it has not been deployed to ECS/RDS.
-- Before production rollout, check the target DB for non-inactive `operator` count. If it already exceeds 3, deliberately deactivate extra trial accounts before or during rollout.
+- Runtime workspace sync was not needed in this rollout because no `sentura/agents/**` or `workspaces/**` files changed.
 - Trial quota is not restored by deleting customer/report rows because `cbe_trial_usage_events` is the immutable ledger.
 - The only intended way to lift the limits is a deliberate platform-owner code/config/database change followed by migration/deploy.
 
