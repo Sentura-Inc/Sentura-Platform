@@ -80,7 +80,7 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-29 | Unified cost display and employee allowance requests | Unified Employee/Admin visible cost numbers on server-scoped actual spend, excluded estimated cost from `已用`, added quota display to cost detail, and added Employee `申请额度` with reasons visible in Admin cost approvals. |
 | 2026-06-29 | Lead internal batching and overflow retry | Split Lead requests above 5 into <=5 hidden sub-runs, added context-overflow recursive retry, merged final payloads, and included internal session keys in cost attribution. |
 | 2026-06-29 | ECS/RDS deployment of e923dc9f and 7a127651 | Deployed the two latest CBE commits to Alibaba ECS/RDS, applied migrations 010-014 after backup, synced Lead/Screening OpenClaw workspaces, rebuilt/restarted services, and verified local/public smoke. |
-| 2026-06-30 | Trial hard limits for customer pilot | Locked trial usage to 3 active/suspended employee accounts plus 300 saved Lead successes and 300 saved Screening successes; added immutable ledger, store/API enforcement, live UI meters, migrations 015/016, and CE48 coverage. |
+| 2026-06-30 | Trial hard limits for customer pilot | Locked trial usage to 3 active/suspended employee accounts plus 150 saved Lead successes and 150 saved Screening successes; added immutable ledger, store/API enforcement, live UI meters, migrations 015/016, and CE48 coverage. |
 
 ## Current Phase 2 Ground Truth
 
@@ -2920,7 +2920,7 @@ Context:
 
 - The user said the customer is about to start trial use and requested non-bypassable limits until the platform owner manually changes them:
   - Admin can create at most 3 employee accounts.
-  - Across all three employees, the trial can consume only 300 successful Lead acquisitions plus 300 successful Screening runs.
+  - Across all three employees, the trial can consume only 150 successful Lead acquisitions plus 150 successful Screening runs.
   - Failed Lead/Screening tasks must not count.
   - Admin and Employee UI must show dynamic trial-limit hints.
   - Neither Admin nor Employee-side API/UI paths may exceed the limits.
@@ -2929,8 +2929,8 @@ Changes:
 
 - Added shared constants in `sentura/dashboard/src/lib/cross-border-trial-limits.ts`:
   - `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`
-  - `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300`
-  - `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300`
+  - `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 150`
+  - `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 150`
 - Added `cbe_trial_usage_events` through migration `015_trial_usage_limits.sql`, with tenant/kind/source uniqueness so each saved successful Lead or Screening report is counted once.
 - Added migration `016_trial_usage_start_clean.sql` to clear historical backfilled usage rows. The customer trial starts from this rollout instead of consuming quota from previous local/test/pilot data.
 - Added `sentura/dashboard/src/lib/cross-border-store/trial-limits.ts` for snapshots, tenant-row locks, capacity assertions, and immutable usage-event writes.
@@ -2950,15 +2950,15 @@ Verification:
 - Focused Dashboard ESLint over changed trial-limit store/API/UI files: PASS.
 - Applied local migrations with Dashboard env and `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS. Migration `016_trial_usage_start_clean.sql` applied after `015_trial_usage_limits.sql`.
 - Local trial snapshot after migration:
-  - `operatorAccounts`: `used = 4`, `limit = 3`, `remaining = 0`.
-  - `leadSuccesses`: `used = 0`, `limit = 300`, `remaining = 300`.
-  - `screeningSuccesses`: `used = 0`, `limit = 300`, `remaining = 300`.
+  - `operatorAccounts`: `used = 3`, `limit = 3`, `remaining = 0`.
+  - `leadSuccesses`: `used = 0`, `limit = 150`, `remaining = 150`.
+  - `screeningSuccesses`: `used = 0`, `limit = 150`, `remaining = 150`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE48 assertions PASS; broad script reports 259 passed / 4 unrelated existing failures.
 - Local dev server smoke: `/employee` returned HTTP 200; Admin and Employee trial-limits APIs returned the live snapshot when called with their role debug headers; unauthenticated Employee API returned expected `401 cbe_login_required`.
 
 Boundary:
 
 - This is local code/database work only; it has not yet been deployed to ECS/RDS.
-- The local 4/3 operator snapshot comes from pre-existing seed/dev profiles. The new code blocks additional creation; before production rollout, check whether the target database already has more than 3 non-inactive operators and deliberately deactivate extra trial accounts if needed.
+- The local operator snapshot is exactly at the 3-account trial limit. The new code blocks additional creation; before production rollout, check whether the target database already has more than 3 non-inactive operators and deliberately deactivate extra trial accounts if needed.
 - Deleting customers/reports does not restore Lead/Screening quota because quota comes from immutable usage events.
 - Failed tasks, duplicate Lead candidates, and unsaved/clipped Screening payloads do not consume quota.

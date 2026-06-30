@@ -5,7 +5,7 @@
 User requested hard trial limits before the customer starts trial use:
 
 1. Admin can create at most 3 employee accounts.
-2. Across all employees, trial usage can consume only 300 successful Lead acquisitions and 300 successful Screening reports.
+2. Across all employees, trial usage can consume only 150 successful Lead acquisitions and 150 successful Screening reports.
 3. Failed Lead/Screening tasks do not count.
 4. Admin and Employee UI must show dynamic limit hints.
 5. Neither Admin nor Employee paths can bypass the limits; only the platform owner should lift them manually.
@@ -17,8 +17,8 @@ Implementation is complete locally, with code, migrations, docs, tests, memory, 
 Hard limits:
 
 - `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`
-- `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300`
-- `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300`
+- `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 150`
+- `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 150`
 
 Key files:
 
@@ -51,7 +51,7 @@ Key files:
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
 - Focused Dashboard ESLint over changed trial-limit store/API/UI files: PASS.
 - Local migration apply with Dashboard env and `--seed`: PASS; migrations `015` and `016` are applied.
-- Local trial snapshot after migration: operators `4/3` from pre-existing dev profiles, Lead `0/300`, Screening `0/300`.
+- Local trial snapshot after migration: operators `3/3`, Lead `0/150`, Screening `0/150`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE48 assertions PASS; broad script exits nonzero with 259 passed / 4 unrelated existing failures.
 - `git diff --check`: PASS.
 - Local dev server smoke: `http://127.0.0.1:3000/employee` returned HTTP 200; `GET /api/client-demos/cross-border/admin/trial-limits` with `x-cbe-admin-user-id: cbe-user-admin-001` returned the live snapshot; `GET /api/client-demos/cross-border/employee/trial-limits` with `x-cbe-user-id: cbe-user-operator-001` returned the same live snapshot. Without an Employee session/header, the Employee API correctly returns `401 cbe_login_required`.

@@ -1,6 +1,6 @@
 export const CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3;
-export const CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300;
-export const CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300;
+export const CBE_TRIAL_LEAD_SUCCESS_LIMIT = 150;
+export const CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 150;
 
 export type CbeTrialUsageKind = "lead_success" | "screening_success";
 

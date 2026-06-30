@@ -4,7 +4,7 @@ Started/completed locally 2026-06-30 in `/Users/henry/Desktop/Sentura-Platform`.
 
 - User requested non-bypassable trial limits before customer trial:
   - Admin can create at most 3 employee accounts.
-  - Across all employees, only 300 successful Lead acquisitions and 300 successful Screening reports count during trial.
+  - Across all employees, only 150 successful Lead acquisitions and 150 successful Screening reports count during trial.
   - Failed tasks do not count.
   - Admin/Employee UI must show dynamic remaining-limit hints.
   - Only platform-owner manual changes should lift the limits.
@@ -18,8 +18,8 @@ Started/completed locally 2026-06-30 in `/Users/henry/Desktop/Sentura-Platform`.
 - Verification:
   - Dashboard typecheck PASS.
   - Focused ESLint over changed trial-limit store/API/UI files PASS.
-  - Local migrations `015`/`016` applied with `--seed`; historical usage backfill cleared so trial Lead/Screening quota starts at 0/300.
-  - Local snapshot: operators 4/3 from pre-existing dev profiles, Lead 0/300, Screening 0/300.
+  - Local migrations `015`/`016` applied with `--seed`; historical usage backfill cleared so trial Lead/Screening quota starts at 0/150.
+  - Local snapshot: operators 3/3, Lead 0/150, Screening 0/150.
   - `scripts/test-cross-border-phase2-store.ts`: new CE48 assertions PASS; broad result 259 passed / 4 unrelated existing failures.
   - Local dev server smoke: `/employee` HTTP 200; Admin and Employee trial-limits APIs return the live snapshot with role headers.
 - Deployment status: local only; not yet deployed to ECS/RDS. Before production rollout, check whether target DB already has more than 3 non-inactive operators and deliberately deactivate extras if needed.

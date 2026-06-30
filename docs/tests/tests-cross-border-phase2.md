@@ -1914,7 +1914,7 @@ Scope:
 
 Fix:
 
-- Added fixed trial constants: 3 employee accounts, 300 successful Lead acquisitions, and 300 successful Screening reports.
+- Added fixed trial constants: 3 employee accounts, 150 successful Lead acquisitions, and 150 successful Screening reports.
 - Added immutable `cbe_trial_usage_events` as the quota ledger. Successful Lead/Screening writes record one usage event per saved result; deleting customers or reports does not return quota.
 - Added migration `015_trial_usage_limits.sql` for the ledger plus migration `016_trial_usage_start_clean.sql` so the customer trial starts clean instead of counting historical local/test rows.
 - Admin operator creation now locks the tenant row and rejects creation when active/suspended `operator` accounts already reach 3.
@@ -1925,20 +1925,20 @@ Test cases:
 
 | ID | Area | Method | Expected |
 |---|---|---|---|
-| CE48.1 | Trial constants | Static script + typecheck | `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`, `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300`, and `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300` are shared by server and UI. |
+| CE48.1 | Trial constants | Static script + typecheck | `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`, `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 150`, and `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 150` are shared by server and UI. |
 | CE48.2 | Immutable ledger | Migration/static script | `cbe_trial_usage_events` exists with tenant/kind/source uniqueness and indexes; migration `016` removes only historical backfill rows. |
 | CE48.3 | Admin cap | Static script + store path review | `upsertAdminOperatorProfiles` uses the 3-account constant, locks the tenant, and throws `trial_operator_limit_exceeded` before inserting a fourth operator. |
 | CE48.4 | Lead cap | Static script + typecheck | Lead create preflight checks remaining quota; completion locks the tenant, records one `lead_success` usage event per saved new-unique Lead, and reports `trial_limit_skipped_leads` for clipped candidates. |
 | CE48.5 | Screening cap | Static script + typecheck | Screening create preflight checks remaining quota; completion locks the tenant, records one `screening_success` usage event per saved report, and reports `trial_limit_skipped_reports` for clipped reports. |
 | CE48.6 | UI visibility | Static script + lint | `TrialLimitBanner` appears in Employee/Admin shells and task drawers show remaining Lead/Screening quota. |
-| CE48.7 | Local snapshot | Migration + DB probe | After applying `015` and `016`, historical successes do not consume the new trial quota; local snapshot shows Lead `0/300` and Screening `0/300`. |
+| CE48.7 | Local snapshot | Migration + DB probe | After applying `015` and `016`, historical successes do not consume the new trial quota; local snapshot shows Lead `0/150` and Screening `0/150`. |
 
 Latest verification, 2026-06-30:
 
 - `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
 - Focused Dashboard ESLint over changed trial-limit store/API/UI files: PASS.
 - `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed` with local Dashboard env: PASS; applied `016_trial_usage_start_clean.sql` after `015_trial_usage_limits.sql`.
-- Local trial snapshot after migration: `operatorAccounts 4/3`, `leadSuccesses 0/300`, `screeningSuccesses 0/300`. The 4/3 operator value is from pre-existing local seed/dev profiles; the new code blocks additional creation and production should be checked before rollout if old operators already exceed 3.
+- Local trial snapshot after migration: `operatorAccounts 3/3`, `leadSuccesses 0/150`, `screeningSuccesses 0/150`.
 - `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: new CE48 assertions PASS; broad script reports 259 passed / 4 unrelated existing failures.
 - Local dev server smoke: `/employee` returned HTTP 200; Admin and Employee trial-limits APIs returned the live snapshot when called with their role debug headers; unauthenticated Employee API returned expected `401 cbe_login_required`.
 

@@ -66,7 +66,7 @@ Phase 2 must deliver:
 8. Customer-specific user levels for admins and ordinary business users, focused on monitoring, scoped work execution, and reporting rather than Sentura platform administration.
 9. Report-calibrated workload control: Lead `find-10` stays a single session, Screening batches are split into bounded single-target child runs, and all three CBE employees share one queue/backpressure policy.
 10. Google Maps Places + OpenClaw web search becomes the target primary acquisition/backcheck source combination: Maps discovers local/storefront buyer seeds; web search/fetch verifies official-site product fit and non-local B2B evidence.
-11. Trial hard limits for the customer pilot: at most 3 active/suspended `operator` accounts, tenant-wide 300 saved successful Lead acquisitions, and tenant-wide 300 saved successful Screening reports.
+11. Trial hard limits for the customer pilot: at most 3 active/suspended `operator` accounts, tenant-wide 150 saved successful Lead acquisitions, and tenant-wide 150 saved successful Screening reports.
 
 Phase 2 must not:
 
@@ -140,8 +140,8 @@ The initial customer trial is locked until the platform owner manually changes c
 | Limit | Counted source | Enforcement |
 |---|---|---|
 | Up to 3 employee accounts | `cbe_user_profiles` rows with `cbe_role = 'operator'` and `status <> 'inactive'` | Admin operator creation locks the tenant row, counts current operators, and rejects creation with `trial_operator_limit_exceeded` when no slot remains. |
-| Up to 300 successful Lead acquisitions | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'lead_success'` | Lead create preflight rejects over-cap requests; completion locks the tenant, saves only remaining new-unique customers, records one usage event per saved Lead, and reports quota clipping. |
-| Up to 300 successful Screening reports | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'screening_success'` | Screening create preflight rejects over-cap requests; completion locks the tenant, saves only remaining reports, records one usage event per saved report, and fails cleanly when no quota remains. |
+| Up to 150 successful Lead acquisitions | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'lead_success'` | Lead create preflight rejects over-cap requests; completion locks the tenant, saves only remaining new-unique customers, records one usage event per saved Lead, and reports quota clipping. |
+| Up to 150 successful Screening reports | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'screening_success'` | Screening create preflight rejects over-cap requests; completion locks the tenant, saves only remaining reports, records one usage event per saved report, and fails cleanly when no quota remains. |
 
 Only successful persisted Lead/Screening results consume quota. Failed tasks, parser failures, provider failures, duplicate Lead candidates, and rejected unsaved Screening payloads do not consume quota. Deleting customer/report rows does not return quota because the immutable usage event is the trial ledger. Migration `015_trial_usage_limits.sql` creates the ledger; migration `016_trial_usage_start_clean.sql` clears historical backfilled usage so the trial starts from the current rollout rather than prior local/test/pilot data.
 
