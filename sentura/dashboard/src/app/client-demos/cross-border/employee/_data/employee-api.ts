@@ -45,6 +45,7 @@ import { CBE_EMPLOYEE_API_BASE } from "@/lib/cross-border-routes";
 import { publicReportSourceUrl } from "@/lib/cross-border-source-links";
 import type { CostEvent } from "@/lib/gateway";
 import type { LeadFilterSettings } from "@/lib/cross-border-lead-settings";
+import type { CbeTrialLimitsSnapshot } from "@/lib/cross-border-trial-limits";
 import type { CbeEmployeeTaskRecord, CbeEmployeeTaskStatus } from "@/stores/use-cbe-employee-store";
 
 type JsonRecord = Record<string, unknown>;
@@ -169,6 +170,7 @@ export interface ApiLeadRunReconciliation {
   returnedCount: number;
   newUniqueCount: number;
   duplicateCount: number;
+  trialLimitSkippedCount?: number;
   missingCount: number;
   topUpNeeded: boolean;
   identityDenylist: string[];
@@ -179,7 +181,7 @@ export interface ApiLeadRunReconciliation {
     companyName: string;
     normalizedDomain: string | null;
     country: string | null;
-    status: "new_unique" | "duplicate_same_owner" | "duplicate_other_operator";
+    status: "new_unique" | "duplicate_same_owner" | "duplicate_other_operator" | "trial_quota_exceeded";
     duplicateReason: string | null;
     existingCandidateId: string | null;
     existingOwnerUserId: string | null;
@@ -1333,6 +1335,10 @@ export async function deleteEmployeeNotifications(ids: string[]) {
 
 export function fetchEmployeeLeadFilterSettings() {
   return fetchEmployeeJson<{ settings: LeadFilterSettings }>(employeeApi("/lead-filter-settings"));
+}
+
+export function fetchEmployeeTrialLimits() {
+  return fetchEmployeeJson<{ trialLimits: CbeTrialLimitsSnapshot }>(employeeApi("/trial-limits"));
 }
 
 export async function dismissEmployeeTaskInDb(id: string) {

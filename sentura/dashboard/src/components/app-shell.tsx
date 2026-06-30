@@ -16,6 +16,7 @@ import {
   LogOut,
   Maximize2,
   Minimize2,
+  Search,
   ShieldCheck,
   SlidersHorizontal,
   Star,
@@ -58,6 +59,7 @@ import {
   CBE_ADMIN_LOGIN_PATH,
   CBE_ADMIN_MEMORY_PATH,
   CBE_EMPLOYEE_CUSTOMERS_PATH,
+  CBE_EMPLOYEE_API_BASE,
   CBE_EMPLOYEE_HOME_PATH,
   CBE_EMPLOYEE_LOGIN_PATH,
   CBE_EMPLOYEE_MEMORY_PATH,
@@ -83,6 +85,7 @@ import {
   clearCbeSessionDisplayName,
   setCbeSessionDisplayName,
 } from "@/lib/cbe-session-display-name";
+import type { CbeTrialLimitsSnapshot } from "@/lib/cross-border-trial-limits";
 
 const employeeNav = [
   {
@@ -191,6 +194,83 @@ function asText(value: unknown, fallback = "") {
 function isHeaderNavItemActive(pathname: string, href: string) {
   if (href === CBE_EMPLOYEE_HOME_PATH) return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function TrialLimitMeter({
+  icon: Icon,
+  label,
+  used,
+  limit,
+}: {
+  icon: LucideIcon;
+  label: string;
+  used: number;
+  limit: number;
+}) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 100;
+  return (
+    <div className="min-w-[132px] flex-1">
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Icon className="h-3.5 w-3.5" />
+          {label}
+        </span>
+        <span className="font-mono text-muted-foreground">{used}/{limit}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-white/70">
+        <div
+          className={cn(
+            "h-1.5 rounded-full",
+            pct >= 100 ? "bg-destructive" : pct >= 85 ? "bg-amber-500" : "bg-emerald-500",
+          )}
+          style={{ width: `${Math.max(4, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TrialLimitBanner({
+  snapshot,
+  isAdmin,
+}: {
+  snapshot: CbeTrialLimitsSnapshot | null;
+  isAdmin: boolean;
+}) {
+  if (!snapshot) return null;
+  const exhausted = snapshot.operatorAccounts.exhausted ||
+    snapshot.leadSuccesses.exhausted ||
+    snapshot.screeningSuccesses.exhausted;
+  const nearLimit = !exhausted &&
+    (snapshot.operatorAccounts.remaining <= 1 ||
+      snapshot.leadSuccesses.remaining <= 20 ||
+      snapshot.screeningSuccesses.remaining <= 20);
+  return (
+    <div className="border-b border-[var(--sentura-border)] bg-white/82 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-4 py-2 text-xs text-foreground sm:flex-row sm:items-center sm:justify-between lg:px-6">
+        <div className="flex min-w-0 items-start gap-2">
+          {exhausted ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          ) : nearLimit ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          )}
+          <div className="min-w-0 leading-5">
+            <span className="font-medium">试用期限制</span>
+            <span className="text-muted-foreground">
+              ：最多 {snapshot.operatorAccounts.limit} 个员工账户，全部员工合计获客成功 {snapshot.leadSuccesses.limit} 个、背调成功 {snapshot.screeningSuccesses.limit} 次。 达到上限后无法继续提交或保存成功结果。
+            </span>
+          </div>
+        </div>
+        <div className="grid min-w-0 gap-2 sm:w-[520px] sm:grid-cols-3">
+          <TrialLimitMeter icon={UsersRound} label="员工" used={snapshot.operatorAccounts.used} limit={snapshot.operatorAccounts.limit} />
+          <TrialLimitMeter icon={Search} label="获客" used={snapshot.leadSuccesses.used} limit={snapshot.leadSuccesses.limit} />
+          <TrialLimitMeter icon={ShieldCheck} label="背调" used={snapshot.screeningSuccesses.used} limit={snapshot.screeningSuccesses.limit} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function browserFullscreenElement() {
@@ -835,6 +915,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [trialLimits, setTrialLimits] = useState<CbeTrialLimitsSnapshot | null>(null);
+  const shouldShowTrialLimits = !isAuthPath && (isAdminAppPath || (!isAdminPath && isEmployeePath));
 
   useEffect(() => {
     if (!isEmployeePath || isAuthPath) return;
@@ -924,6 +1006,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.clearInterval(timer);
     };
   }, [isAdminPath, isAuthPath, setTasks]);
+
+  useEffect(() => {
+    if (!shouldShowTrialLimits) {
+      return;
+    }
+    let cancelled = false;
+    async function refreshTrialLimits() {
+      try {
+        const endpoint = isAdminAppPath
+          ? `${CBE_ADMIN_API_BASE}/trial-limits`
+          : `${CBE_EMPLOYEE_API_BASE}/trial-limits`;
+        const headers = isAdminAppPath && CBE_ADMIN_USER_ID ? { "x-cbe-admin-user-id": CBE_ADMIN_USER_ID } : undefined;
+        const response = await fetch(endpoint, { cache: "no-store", ...(headers ? { headers } : {}) });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error("trial limits API failed");
+        if (!cancelled) setTrialLimits((body?.trialLimits ?? null) as CbeTrialLimitsSnapshot | null);
+      } catch {
+        if (!cancelled) setTrialLimits(null);
+      }
+    }
+    void refreshTrialLimits();
+    const timer = window.setInterval(refreshTrialLimits, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isAdminAppPath, shouldShowTrialLimits]);
 
   function resetPasswordDialogState() {
     setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -1074,6 +1183,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <MissingTokenBanner />
+      {shouldShowTrialLimits ? <TrialLimitBanner snapshot={trialLimits} isAdmin={isAdminAppPath} /> : null}
       {!isAdminPath && !isAuthPath ? <EmployeeTaskStatusBar /> : null}
 
       <main className="min-h-0 flex-1">

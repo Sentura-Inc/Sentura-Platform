@@ -31,6 +31,11 @@ import {
 } from "./schemas";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
 import { admitCbeWorkload, assertScreeningSessionShape, getCbeWorkloadSettings, workloadMetadata } from "./workload-coordinator";
+import {
+  assertCbeTrialScreeningCapacity,
+  getCbeTrialRemainingAfterLock,
+  recordCbeTrialUsageEvent,
+} from "./trial-limits";
 
 export interface ScreeningTargetRecord {
   id: string;
@@ -1484,8 +1489,9 @@ export async function createScreeningRun(
 ) {
   const input = CreateScreeningRunRequestSchema.parse(rawInput);
   const targetCount = input.targets?.length ?? (typeof input.metadata_json.target_count === "number"
-    ? input.metadata_json.target_count
-    : 1);
+      ? input.metadata_json.target_count
+      : 1);
+  await assertCbeTrialScreeningCapacity(context, targetCount);
   const settings = getCbeWorkloadSettings();
   const shouldFanOut =
     targetCount > settings.screeningMaxTargetsPerSession &&
@@ -1990,6 +1996,16 @@ export async function saveScreeningReports(
   input: CompleteScreeningRunRequest,
 ) {
   return withCbeTransaction(async (client) => {
+    const remainingTrialScreeningCapacity = await getCbeTrialRemainingAfterLock(client, context, "screening_success");
+    if (remainingTrialScreeningCapacity <= 0 && input.payload.reports.length > 0) {
+      throw new CbeStoreError(
+        409,
+        "trial_screening_limit_exceeded",
+        "试用期背调成功额度已用完，本次报告不会写入客户列表。",
+      );
+    }
+    const reportsToSave = input.payload.reports.slice(0, remainingTrialScreeningCapacity);
+    const trialLimitSkippedCount = Math.max(0, input.payload.reports.length - reportsToSave.length);
     const targets: ScreeningTargetRecord[] = [];
     const reports: ScreeningReportRecord[] = [];
     const affectedCustomerIds: string[] = [];
@@ -1997,7 +2013,7 @@ export async function saveScreeningReports(
     let blockCount = 0;
     let addressFootprintLocationCount = 0;
 
-    for (const report of input.payload.reports) {
+    for (const report of reportsToSave) {
       const target = await insertScreeningTarget(client, context, report);
       targets.push(target.record);
       const targetRecordId =
@@ -2044,6 +2060,16 @@ export async function saveScreeningReports(
       );
       const savedReport = toScreeningReportRecord(reportResult.rows[0]);
       reports.push(savedReport);
+      await recordCbeTrialUsageEvent(client, context, {
+        usageKind: "screening_success",
+        agentRunId: input.agent_run_id,
+        sourceRecordType: "screening_report",
+        sourceRecordId: savedReport.id,
+        metadataJson: {
+          screening_target_id: target.record.id,
+          company_name: report.company_name,
+        },
+      });
       addressFootprintLocationCount += await insertAddressFootprintLocations(client, context, {
         report,
         reportId: savedReport.id,
@@ -2135,7 +2161,7 @@ export async function saveScreeningReports(
       }
     }
 
-    const completedReportCount = Math.max(reports.length, targets.length);
+    const completedReportCount = reports.length;
     const agentRun = await completeAgentRun(client, context, {
       agentRunId: input.agent_run_id,
       sessionKey: input.session_key,
@@ -2148,6 +2174,7 @@ export async function saveScreeningReports(
         saved_evidence: evidenceCount,
         saved_score_blocks: blockCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
+        trial_limit_skipped_reports: trialLimitSkippedCount,
       },
     });
     if (!agentRun) {
@@ -2179,6 +2206,7 @@ export async function saveScreeningReports(
         saved_customer_ids: affectedCustomerIds,
         saved_evidence: evidenceCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
+        trial_limit_skipped_reports: trialLimitSkippedCount,
         screening_batch: batchAggregate,
       },
     });
@@ -2192,10 +2220,11 @@ export async function saveScreeningReports(
         saved_reports: completedReportCount,
         saved_evidence: evidenceCount,
         saved_address_footprint_locations: addressFootprintLocationCount,
+        trial_limit_skipped_reports: trialLimitSkippedCount,
       },
     });
 
-    return { agentRun, targets, reports };
+    return { agentRun, targets, reports, trialLimitSkippedCount };
   });
 }
 

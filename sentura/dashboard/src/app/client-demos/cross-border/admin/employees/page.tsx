@@ -34,6 +34,7 @@ import {
   type AdminOperatorRow,
 } from "../_data/admin-api";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
+import { CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT } from "@/lib/cross-border-trial-limits";
 
 type RangeKey = "today" | "week" | "month" | "all";
 
@@ -44,7 +45,7 @@ const ranges: Array<{ key: RangeKey; label: string }> = [
   { key: "all", label: "全部" },
 ];
 const ADMIN_EMPLOYEE_RANGE_STORAGE_KEY = "sentura:cbe:admin:employees-range:v1";
-const MAX_OPERATOR_ACCOUNTS = 20;
+const MAX_OPERATOR_ACCOUNTS = CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT;
 
 function isRangeKey(value: unknown): value is RangeKey {
   return ranges.some((item) => item.key === value);
@@ -335,6 +336,9 @@ export default function AdminEmployeesPage() {
               当前 {operators.length}/{MAX_OPERATOR_ACCOUNTS}，还可创建 {remainingOperatorSlots} 个
             </span>
           </div>
+          <p className="text-sm text-muted-foreground">
+            试用期员工账号上限已锁定为 {MAX_OPERATOR_ACCOUNTS} 个。
+          </p>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_1.2fr_1fr_130px_auto]">
           <Input placeholder="姓名" value={form.displayName} onChange={(event) => setForm((value) => ({ ...value, displayName: event.target.value }))} />

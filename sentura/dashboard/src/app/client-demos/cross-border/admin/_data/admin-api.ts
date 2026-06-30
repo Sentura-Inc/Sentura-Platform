@@ -6,6 +6,7 @@ import {
 } from "@/lib/cross-border-routes";
 import type { CostEvent } from "@/lib/gateway";
 import type { LeadFilterSettings } from "@/lib/cross-border-lead-settings";
+import type { CbeTrialLimitsSnapshot } from "@/lib/cross-border-trial-limits";
 import type { MemoryRecordItem } from "../../employee/_data/employee-data";
 
 type JsonRecord = Record<string, unknown>;
@@ -129,6 +130,10 @@ async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function fetchAdminOperators() {
   return adminFetch<{ items: AdminOperatorRow[] }>(`${CBE_ADMIN_API_BASE}/operators`);
+}
+
+export function fetchAdminTrialLimits() {
+  return adminFetch<{ trialLimits: CbeTrialLimitsSnapshot }>(`${CBE_ADMIN_API_BASE}/trial-limits`);
 }
 
 export function fetchAdminLeadFilterSettings() {

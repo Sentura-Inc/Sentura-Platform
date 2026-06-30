@@ -26,11 +26,16 @@ import type {
 } from "./schemas";
 import { listEmployeeCustomers } from "./customers";
 import { listEmployeeMemoryRecords } from "./accio";
+import { CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT } from "../cross-border-trial-limits";
+import {
+  assertCbeTrialOperatorCapacity,
+  lockCbeTrialLimitsForTenant,
+} from "./trial-limits";
 
 const COST_EPSILON_USD = 0.005;
 // Manager and employee cost screens currently expose monthly controls only.
 const ENFORCED_EMPLOYEE_COST_LIMIT_PERIODS: CbeCostPeriod[] = ["month"];
-const MAX_CBE_OPERATOR_ACCOUNTS = 20;
+const MAX_CBE_OPERATOR_ACCOUNTS = CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT;
 
 type AdminOperatorProfileInput = AdminCreateOperatorRequest & {
   user_id: string;
@@ -1901,6 +1906,7 @@ export async function upsertAdminOperatorProfiles(
   }
 
   return withCbeTransaction(async (client) => {
+    await lockCbeTrialLimitsForTenant(client, context);
     const inputIds = inputs.map((input) => input.user_id);
     const currentCount = await client.query<{ count: string }>(
       `
@@ -1915,11 +1921,7 @@ export async function upsertAdminOperatorProfiles(
     );
     const totalAfterCreate = Number(currentCount.rows[0]?.count ?? 0) + inputs.length;
     if (totalAfterCreate > MAX_CBE_OPERATOR_ACCOUNTS) {
-      throw new CbeStoreError(
-        409,
-        "operator_limit_exceeded",
-        `员工账号上限为 ${MAX_CBE_OPERATOR_ACCOUNTS} 个，请先删除或停用不需要的员工后再创建。`,
-      );
+      await assertCbeTrialOperatorCapacity(client, context, inputs.length);
     }
 
     const duplicateName = await client.query<{ display_name: string }>(

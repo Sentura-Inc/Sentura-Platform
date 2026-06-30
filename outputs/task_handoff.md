@@ -1,3 +1,68 @@
+# Sentura CBE Trial Hard Limits 2026-06-30
+
+## Task Introduction
+
+User requested hard trial limits before the customer starts trial use:
+
+1. Admin can create at most 3 employee accounts.
+2. Across all employees, trial usage can consume only 300 successful Lead acquisitions and 300 successful Screening reports.
+3. Failed Lead/Screening tasks do not count.
+4. Admin and Employee UI must show dynamic limit hints.
+5. Neither Admin nor Employee paths can bypass the limits; only the platform owner should lift them manually.
+
+## Current State
+
+Implementation is complete locally, with code, migrations, docs, tests, memory, and resume card updated.
+
+Hard limits:
+
+- `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`
+- `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300`
+- `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300`
+
+Key files:
+
+- `sentura/dashboard/src/lib/cross-border-trial-limits.ts`
+- `sentura/dashboard/src/lib/cross-border-store/trial-limits.ts`
+- `sentura/lib/cross-border-store/migrations/015_trial_usage_limits.sql`
+- `sentura/lib/cross-border-store/migrations/016_trial_usage_start_clean.sql`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/employee/trial-limits/route.ts`
+- `sentura/dashboard/src/app/api/client-demos/cross-border/admin/trial-limits/route.ts`
+- `sentura/dashboard/src/components/app-shell.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/employee/customers/page.tsx`
+- `sentura/dashboard/src/app/client-demos/cross-border/admin/employees/page.tsx`
+- `sentura/dashboard/src/lib/cross-border-store/admin.ts`
+- `sentura/dashboard/src/lib/cross-border-store/lead-runs.ts`
+- `sentura/dashboard/src/lib/cross-border-store/screening.ts`
+- `scripts/test-cross-border-phase2-store.ts`
+
+## Implementation Notes
+
+- Admin operator creation locks the tenant row and rejects creation when active/suspended `operator` accounts are already at 3.
+- Lead and Screening create paths reject requests larger than the remaining successful quota.
+- Lead and Screening completion paths lock the tenant and write immutable usage events only for saved successful results.
+- Failed tasks, duplicate Lead candidates, and unsaved/clipped Screening reports do not consume quota.
+- Migration `015` creates and initially backfills `cbe_trial_usage_events`; migration `016` deletes historical backfill rows so the trial starts from this rollout.
+- Employee/Admin shells poll `/trial-limits` APIs every 10 seconds and show live meters.
+- Employee Lead, batch Screening, and manual Screening drawers block over-quota submissions before launching hidden tasks.
+
+## Verification
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Focused Dashboard ESLint over changed trial-limit store/API/UI files: PASS.
+- Local migration apply with Dashboard env and `--seed`: PASS; migrations `015` and `016` are applied.
+- Local trial snapshot after migration: operators `4/3` from pre-existing dev profiles, Lead `0/300`, Screening `0/300`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE48 assertions PASS; broad script exits nonzero with 259 passed / 4 unrelated existing failures.
+- `git diff --check`: PASS.
+- Local dev server smoke: `http://127.0.0.1:3000/employee` returned HTTP 200; `GET /api/client-demos/cross-border/admin/trial-limits` with `x-cbe-admin-user-id: cbe-user-admin-001` returned the live snapshot; `GET /api/client-demos/cross-border/employee/trial-limits` with `x-cbe-user-id: cbe-user-operator-001` returned the same live snapshot. Without an Employee session/header, the Employee API correctly returns `401 cbe_login_required`.
+
+## Boundaries And Next Steps
+
+- This is local only; it has not been deployed to ECS/RDS.
+- Before production rollout, check the target DB for non-inactive `operator` count. If it already exceeds 3, deliberately deactivate extra trial accounts before or during rollout.
+- Trial quota is not restored by deleting customer/report rows because `cbe_trial_usage_events` is the immutable ledger.
+- The only intended way to lift the limits is a deliberate platform-owner code/config/database change followed by migration/deploy.
+
 # Sentura Cost Detail Filter Box And Export Template 2026-06-29
 
 ## Task Introduction
@@ -713,12 +778,20 @@ Completed locally:
 
 Known broad-script caveat from prior CBE work: these scripts may still exit nonzero because of unrelated existing assertions, but CE47 labels should pass.
 
+## Deployment
+
+- Deployed to Alibaba ECS/RDS on 2026-06-29.
+- Server checkout `/root/Sentura-Platform` is at `7a1276511cc14fd5580ba8b1d18ee3dd2b6b1c57`.
+- Server dependencies were refreshed with frozen pnpm lockfiles.
+- RDS was backed up with a PostgreSQL 18 Docker client, then migrated through `010`-`014` with `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts` and no `--seed`.
+- `/root/.openclaw/workspace/cbe-lead-discovery` and `/root/.openclaw/workspace/cbe-buyer-screening` were synced from repo source while preserving runtime-only state.
+- Dashboard typecheck/build passed, `sentura-dashboard.service` and root user `openclaw-gateway.service` were restarted, and local/public smoke passed for `app.sentura.ai/employee`, `admin.sentura.ai/admin/login`, `127.0.0.1:3000`, and `127.0.0.1:18789`.
+
 ## Boundaries
 
 - This does not lighten Lead Discovery source policy, evidence collection, or output requirements.
 - Employee UI still exposes one requested target count up to 10.
 - The split is internal to hidden runner execution and completion metadata.
-- This is local only. It has not been deployed to ECS/public domains.
 
 # Sentura CBE Login Click No Response 2026-06-28
 

@@ -115,6 +115,7 @@ import {
   fetchEmployeeCustomers,
   fetchEmployeeLeadFilterSettings,
   fetchEmployeeTasks,
+  fetchEmployeeTrialLimits,
 } from "../_data/employee-api";
 import {
   clearCbeEmployeeTaskAbortSignal,
@@ -122,6 +123,7 @@ import {
 } from "../_data/employee-task-cancellation";
 import { CBE_EMPLOYEE_MEMORY_PATH } from "@/lib/cross-border-routes";
 import { usePersistentUiState } from "@/lib/use-persistent-ui-state";
+import type { CbeTrialLimitsSnapshot } from "@/lib/cross-border-trial-limits";
 
 type SheetMode = "lead" | "bulk" | "manual" | "detail" | "filters" | "delete" | null;
 
@@ -1315,6 +1317,7 @@ function CrossBorderCustomersPageContent() {
   const [hydrated, setHydrated] = useState(false);
   const [leadFilterSettings, setLeadFilterSettings] = useState<LeadFilterSettings>(defaultLeadFilterSettings);
   const [leadFilterSettingsLoading, setLeadFilterSettingsLoading] = useState(true);
+  const [trialLimits, setTrialLimits] = useState<CbeTrialLimitsSnapshot | null>(null);
   const handledHighlightRequestRef = useRef<string | null>(null);
   const [pendingCustomerHighlight, setPendingCustomerHighlight] = useState<{ ids: string[] } | null>(null);
   const highlightTaskId = searchParams.get("highlightTask");
@@ -1382,6 +1385,24 @@ function CrossBorderCustomersPageContent() {
       cancelled = true;
     };
   }, [setRows, setTasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshTrialLimits() {
+      try {
+        const result = await fetchEmployeeTrialLimits();
+        if (!cancelled) setTrialLimits(result.trialLimits);
+      } catch {
+        if (!cancelled) setTrialLimits(null);
+      }
+    }
+    void refreshTrialLimits();
+    const timer = window.setInterval(refreshTrialLimits, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1651,12 +1672,14 @@ function CrossBorderCustomersPageContent() {
   ]);
 
   const refreshDbBackedLists = async () => {
-    const [customers, latestTasks] = await Promise.all([
+    const [customers, latestTasks, latestTrialLimits] = await Promise.all([
       fetchEmployeeCustomers(),
       fetchEmployeeTasks(),
+      fetchEmployeeTrialLimits().catch(() => null),
     ]);
     setRows(customers);
     setTasks(latestTasks);
+    if (latestTrialLimits) setTrialLimits(latestTrialLimits.trialLimits);
     setSelectedIds((current) => current.filter((customerId) => customers.some((item) => item.customerId === customerId)));
   };
 
@@ -1753,7 +1776,15 @@ function CrossBorderCustomersPageContent() {
       return;
     }
     if (!Number.isFinite(normalizedInput.targetCount) || normalizedInput.targetCount < 1) {
-      showNotice("目标数量必须大于 0，最多 20 个。", "error");
+      showNotice(`目标数量必须大于 0，最多 ${MAX_LEAD_TARGET_COUNT} 个。`, "error");
+      return;
+    }
+    if (trialLimits && normalizedInput.targetCount > trialLimits.leadSuccesses.remaining) {
+      showNotice(
+        `试用期获客成功额度剩余 ${trialLimits.leadSuccesses.remaining} 个，本次最多只能提交 ${trialLimits.leadSuccesses.remaining} 个。`,
+        "error",
+        8000,
+      );
       return;
     }
     if (!canRunLead) {
@@ -1772,6 +1803,7 @@ function CrossBorderCustomersPageContent() {
     let totalSaved = 0;
     let totalReturned = 0;
     let totalDuplicates = 0;
+    let totalTrialSkipped = 0;
     const savedCustomerIds: string[] = [];
     setSheetMode(null);
     try {
@@ -1864,13 +1896,16 @@ function CrossBorderCustomersPageContent() {
         const reconciliation = completion.reconciliation;
         const newUniqueCount = reconciliation.newUniqueCount;
         const duplicateCount = reconciliation.duplicateCount;
+        const trialLimitSkippedCount = reconciliation.trialLimitSkippedCount ?? 0;
         const returnedCount = reconciliation.returnedCount;
         totalSaved += newUniqueCount;
         totalReturned += returnedCount;
         totalDuplicates += duplicateCount;
+        totalTrialSkipped += trialLimitSkippedCount;
         savedCustomerIds.push(...completion.candidates.map((candidate) => candidate.id));
         const attemptMessage = `第 ${attempt} 轮返回 ${returnedCount} 个候选，新增 ${newUniqueCount} 个唯一客户${
           duplicateCount > 0 ? `，跳过 ${duplicateCount} 个重复客户` : ""
+        }${trialLimitSkippedCount > 0 ? `，试用额度截断 ${trialLimitSkippedCount} 个候选` : ""
         }${reconciliation.missingCount > 0 ? `，还差 ${reconciliation.missingCount} 个` : ""}。`;
         completeTask(localTaskId, newUniqueCount, attemptMessage, result.sessionKey);
         clearCbeEmployeeTaskAbortSignal(localTaskId);
@@ -1897,10 +1932,13 @@ function CrossBorderCustomersPageContent() {
       const finalMessage = totalSaved >= normalizedInput.targetCount
         ? `获客完成：新增 ${totalSaved} 个唯一客户${
             totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个重复客户` : ""
+          }${totalTrialSkipped > 0 ? `，试用额度截断 ${totalTrialSkipped} 个候选` : ""
           }。`
         : `获客暂时只新增 ${totalSaved}/${normalizedInput.targetCount} 个唯一客户${
             totalDuplicates > 0 ? `，已跳过 ${totalDuplicates} 个重复客户` : ""
-          }；共找到 ${totalReturned} 个候选，公开来源暂时不足以补齐。`;
+          }${totalTrialSkipped > 0 ? `，试用额度截断 ${totalTrialSkipped} 个候选` : ""}；共找到 ${totalReturned} 个候选${
+            totalTrialSkipped > 0 ? "，已达到当前试用获客上限。" : "，公开来源暂时不足以补齐。"
+          }`;
       await refreshDbBackedLists();
       flashNewCustomers(savedCustomerIds);
       showNotice(finalMessage, totalSaved >= normalizedInput.targetCount ? "success" : "error", totalSaved >= normalizedInput.targetCount ? 5000 : 12000);
@@ -1950,6 +1988,14 @@ function CrossBorderCustomersPageContent() {
     const screeningTargets = customersToScreeningTargets(targets);
     if (screeningTargets.length === 0) {
       showNotice("请先选择至少一个客户。", "error");
+      return;
+    }
+    if (trialLimits && screeningTargets.length > trialLimits.screeningSuccesses.remaining) {
+      showNotice(
+        `试用期背调成功额度剩余 ${trialLimits.screeningSuccesses.remaining} 次，本次最多只能提交 ${trialLimits.screeningSuccesses.remaining} 次。`,
+        "error",
+        8000,
+      );
       return;
     }
     const ids = new Set(targets.map((item) => item.customerId));
@@ -2030,7 +2076,7 @@ function CrossBorderCustomersPageContent() {
           });
           lastSessionKey = result.sessionKey;
           const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
-          return { status: "completed" as const, count: Math.max(savedReportCount, result.records.length, 1) };
+          return { status: "completed" as const, count: savedReportCount };
         } catch (error) {
           const message = employeeTaskErrorMessage(error);
           const sessionKey = error instanceof EmployeeTaskError ? error.sessionKey : activeSessionKey;
@@ -2142,6 +2188,10 @@ function CrossBorderCustomersPageContent() {
       );
       return;
     }
+    if (trialLimits && trialLimits.screeningSuccesses.remaining <= 0) {
+      showNotice("试用期背调成功额度已用完，暂时不能创建新的背调任务。", "error", 8000);
+      return;
+    }
     const target = manualInputToScreeningTarget(normalizedInput);
     const plannedSessionKey = createPlannedEmployeeSessionKey(SCREENING_AGENT_ID);
     const estimatedMs = estimateScreeningTaskDurationMs([target], options);
@@ -2187,7 +2237,7 @@ function CrossBorderCustomersPageContent() {
         payload: result.payload,
       });
       const savedReportCount = Array.isArray(savedResult.reports) ? savedResult.reports.length : 0;
-      const completedCount = Math.max(savedReportCount, result.records.length, 1);
+      const completedCount = savedReportCount;
       const message = `手动背调已完成，已新增/更新 ${completedCount} 个客户。`;
       completeTask(localTaskId, completedCount, message, result.sessionKey);
       await refreshDbBackedLists();
@@ -2586,6 +2636,7 @@ function CrossBorderCustomersPageContent() {
         activeFilterCount={activeFilterCount}
         leadFilterSettings={leadFilterSettings}
         leadFilterSettingsLoading={leadFilterSettingsLoading}
+        trialLimits={trialLimits}
         leadRunning={leadRunningUi}
         screeningRunning={screeningRunningUi}
         onLeadSubmit={submitLeadTask}
@@ -3069,6 +3120,7 @@ function TaskSheet({
   activeFilterCount,
   leadFilterSettings,
   leadFilterSettingsLoading,
+  trialLimits,
   leadRunning,
   screeningRunning,
   onLeadSubmit,
@@ -3099,6 +3151,7 @@ function TaskSheet({
   activeFilterCount: number;
   leadFilterSettings: LeadFilterSettings;
   leadFilterSettingsLoading: boolean;
+  trialLimits: CbeTrialLimitsSnapshot | null;
   leadRunning: boolean;
   screeningRunning: boolean;
   onLeadSubmit: (input: EmployeeLeadTaskInput) => void;
@@ -3123,6 +3176,12 @@ function TaskSheet({
     operatorNotes: "",
   });
   const effectiveLeadTargetCount = normalizeLeadTargetCount(Number(leadTargetCountText));
+  const leadTrialRemaining = trialLimits?.leadSuccesses.remaining;
+  const screeningTrialRemaining = trialLimits?.screeningSuccesses.remaining;
+  const leadTrialBlocked = typeof leadTrialRemaining === "number" && leadTrialRemaining <= 0;
+  const leadRequestExceedsTrial = typeof leadTrialRemaining === "number" && effectiveLeadTargetCount > leadTrialRemaining;
+  const bulkScreeningExceedsTrial = typeof screeningTrialRemaining === "number" && selectedCustomers.length > screeningTrialRemaining;
+  const screeningTrialBlocked = typeof screeningTrialRemaining === "number" && screeningTrialRemaining <= 0;
   const sanitizedLeadSelection = useMemo(
     () => sanitizeLeadSelectionForSettings(leadSelection, leadFilterSettings),
     [leadFilterSettings, leadSelection],
@@ -3170,6 +3229,7 @@ function TaskSheet({
   const leadReady = leadCounts.products > 0 && leadCounts.buyerTypes > 0 && leadCounts.countries > 0;
   const buildLeadSubmitInput = () => {
     const submittedTargetCount = normalizeLeadTargetCount(Number(leadTargetInputRef.current?.value ?? leadTargetCountText));
+    if (typeof leadTrialRemaining === "number" && submittedTargetCount > leadTrialRemaining) return;
     const submittedSelection = sanitizeLeadSelectionForSettings({
       ...leadSelection,
       targetCount: submittedTargetCount,
@@ -3491,9 +3551,14 @@ function TaskSheet({
               <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
                 将搜索 {leadCounts.products} 类产品、{leadCounts.buyerTypes} 类买家、
                 {leadCounts.countries} 个国家，目标 {effectiveLeadTargetCount} 个客户。结果只保留具体买家公司。
+                {typeof leadTrialRemaining === "number" ? ` 试用期获客剩余 ${leadTrialRemaining} 个成功名额。` : ""}
               </div>
 
               <TaskCostNotice {...leadEstimate} />
+              {leadTrialBlocked ? <SystemNotice text="试用期获客成功额度已用完，暂时不能提交新的获客任务。" /> : null}
+              {!leadTrialBlocked && leadRequestExceedsTrial ? (
+                <SystemNotice text={`试用期获客成功额度剩余 ${leadTrialRemaining ?? 0} 个，本次最多只能提交 ${leadTrialRemaining ?? 0} 个。`} />
+              ) : null}
               {leadFilterSettingsLoading ? <SystemNotice text="正在读取管理员设置的获客条件。" /> : null}
               {!leadReady ? <SystemNotice text="请至少选择一个产品、买家类型和国家。" /> : null}
               {!gatewayConnected || !canRunLead ? (
@@ -3502,7 +3567,7 @@ function TaskSheet({
               {leadRunning ? <SystemNotice text="已有获客任务正在运行；背调可以同时继续执行。" /> : null}
             </div>
             <SheetFooter>
-              <Button disabled={!canRunLead || !leadReady || leadRunning || leadFilterSettingsLoading} onClick={buildLeadSubmitInput}>
+              <Button disabled={!canRunLead || !leadReady || leadRunning || leadFilterSettingsLoading || leadTrialBlocked || leadRequestExceedsTrial} onClick={buildLeadSubmitInput}>
                 {leadRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 提交获客任务（{effectiveLeadTargetCount} 个）
               </Button>
@@ -3530,6 +3595,15 @@ function TaskSheet({
               </div>
               <ScreeningOptionControls options={screeningOptions} setOptions={setScreeningOptions} />
               <TaskCostNotice {...bulkEstimate} />
+              {typeof screeningTrialRemaining === "number" ? (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  试用期背调剩余 {screeningTrialRemaining} 次成功名额；本次选择 {selectedCustomers.length} 个客户。
+                </div>
+              ) : null}
+              {screeningTrialBlocked ? <SystemNotice text="试用期背调成功额度已用完，暂时不能提交新的背调任务。" /> : null}
+              {!screeningTrialBlocked && bulkScreeningExceedsTrial ? (
+                <SystemNotice text={`试用期背调成功额度剩余 ${screeningTrialRemaining ?? 0} 次，本次最多只能提交 ${screeningTrialRemaining ?? 0} 次。`} />
+              ) : null}
               {!gatewayConnected || !canRunScreening ? (
                 <SystemNotice text={gatewayConnected ? "背调功能暂不可用，请先完成系统初始化。" : "系统暂未连接，暂时不能执行背调任务。"} />
               ) : null}
@@ -3537,7 +3611,7 @@ function TaskSheet({
             </div>
             <SheetFooter>
               <Button
-                disabled={!canRunScreening || selectedCustomers.length === 0 || screeningLoading || screeningRunning}
+                disabled={!canRunScreening || selectedCustomers.length === 0 || screeningLoading || screeningRunning || screeningTrialBlocked || bulkScreeningExceedsTrial}
                 onClick={() => onScreeningSubmit(selectedCustomers, screeningOptionsPayload)}
               >
                 {screeningRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}
@@ -3629,10 +3703,16 @@ function TaskSheet({
               </ManualFormField>
               <ScreeningOptionControls options={screeningOptions} setOptions={setScreeningOptions} />
               <TaskCostNotice {...manualEstimate} />
+              {typeof screeningTrialRemaining === "number" ? (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  试用期背调剩余 {screeningTrialRemaining} 次成功名额。
+                </div>
+              ) : null}
+              {screeningTrialBlocked ? <SystemNotice text="试用期背调成功额度已用完，暂时不能创建新的背调任务。" /> : null}
               {screeningRunning ? <SystemNotice text="已有背调任务正在运行；获客可以同时继续执行。" /> : null}
             </div>
             <SheetFooter>
-              <Button disabled={!canRunScreening || screeningRunning || !manualFormReady} onClick={submitManualForm}>
+              <Button disabled={!canRunScreening || screeningRunning || !manualFormReady || screeningTrialBlocked} onClick={submitManualForm}>
                 {screeningRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 创建并背调
               </Button>

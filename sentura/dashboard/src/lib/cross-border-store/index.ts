@@ -17,4 +17,5 @@ export * from "./screening";
 export * from "./session";
 export * from "./tasks";
 export * from "./tenant-context";
+export * from "./trial-limits";
 export * from "./workload-coordinator";

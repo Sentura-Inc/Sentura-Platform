@@ -79,6 +79,8 @@ Independent Phase 2 memory for the mobile-accessory Cross-border e-commerce / �
 | 2026-06-29 | Screening conversation-behavior removal | Removed chat/sales-behavior evidence from Screening scoring, prompts, schemas, report UI/export labels, customer projections, and local DB artifacts while keeping `记忆整理` separate. |
 | 2026-06-29 | Unified cost display and employee allowance requests | Unified Employee/Admin visible cost numbers on server-scoped actual spend, excluded estimated cost from `已用`, added quota display to cost detail, and added Employee `申请额度` with reasons visible in Admin cost approvals. |
 | 2026-06-29 | Lead internal batching and overflow retry | Split Lead requests above 5 into <=5 hidden sub-runs, added context-overflow recursive retry, merged final payloads, and included internal session keys in cost attribution. |
+| 2026-06-29 | ECS/RDS deployment of e923dc9f and 7a127651 | Deployed the two latest CBE commits to Alibaba ECS/RDS, applied migrations 010-014 after backup, synced Lead/Screening OpenClaw workspaces, rebuilt/restarted services, and verified local/public smoke. |
+| 2026-06-30 | Trial hard limits for customer pilot | Locked trial usage to 3 active/suspended employee accounts plus 300 saved Lead successes and 300 saved Screening successes; added immutable ledger, store/API enforcement, live UI meters, migrations 015/016, and CE48 coverage. |
 
 ## Current Phase 2 Ground Truth
 
@@ -2872,4 +2874,91 @@ Boundary:
 
 - This intentionally does not reduce Lead evidence collection, source breadth, or Agent output requirements.
 - Employee/Admin UI still shows one Lead task and one requested target count up to 10; batching is hidden inside the Employee task runner.
-- This is local only and has not been deployed to ECS/public domains.
+- At implementation time this was local only; the ECS/RDS deployment entry below supersedes that deployment status.
+
+## 2026-06-29 — ECS/RDS Deployment of e923dc9f and 7a127651
+
+Context:
+
+- The user asked to deploy commits `e923dc9fc0daab95a2e453a2ddc6e25c2d8417b3` and `7a1276511cc14fd5580ba8b1d18ee3dd2b6b1c57` to the Alibaba ECS target, including the live `~/.openclaw` runtime workspaces and database changes.
+- Server target was `/root/Sentura-Platform` on branch `ecommerce`; runtime workspace target was `/root/.openclaw/workspace`; CBE database connection came from the existing Dashboard `.env.local` on the server.
+
+Actions:
+
+- Verified the server checkout was clean and still at `5db2d951`, then fetched `origin/ecommerce` with temporary GitHub auth and fast-forwarded to `7a1276511cc14fd5580ba8b1d18ee3dd2b6b1c57`.
+- Ran `pnpm install --frozen-lockfile` at the repo root and `pnpm --dir sentura/dashboard install --frozen-lockfile` because the deployment included lockfile/package changes.
+- Created a pre-migration RDS backup with a temporary `postgres:18` Docker client because the server's local `pg_dump` 16 client was older than the RDS PostgreSQL 18.3 server. Backup path: `/root/cbe-db-backups/cbe-pre-7a127651-20260629T105852Z.dump`.
+- Ran `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts` without `--seed`, applying `010_lead_filter_settings.sql`, `011_remove_screening_conversation_behavior.sql`, `012_remove_legacy_accio_screening_targets.sql`, `013_remove_screening_behavior_json_residue.sql`, and `014_remove_screening_behavior_text_residue.sql`.
+- Synced repo source into `/root/.openclaw/workspace/cbe-lead-discovery` and `/root/.openclaw/workspace/cbe-buyer-screening`, copying the 8 workspace files, `config.json5`, and `skills/` while preserving runtime-only state such as `.openclaw/` and `memory/`.
+- Rebuilt the Dashboard, restored generated `sentura/dashboard/next-env.d.ts`, restarted `sentura-dashboard.service`, and restarted root's user-level `openclaw-gateway.service`.
+
+Verification:
+
+- Server repo head: `7a1276511cc14fd5580ba8b1d18ee3dd2b6b1c57`; server checkout clean after build cleanup.
+- RDS `cbe_schema_migrations` has `010` through `014`; `cbe_lead_filter_settings` exists; legacy `conversation_behavior` score-block rows count is `0`.
+- Runtime workspace `diff -qr` matched repo source for `cbe-lead-discovery` and `cbe-buyer-screening` files/skills.
+- `pnpm --dir sentura/dashboard exec tsc --noEmit --pretty false`: PASS.
+- `pnpm --dir sentura/dashboard build`: PASS.
+- Services active after restart: Dashboard system service active; root user `openclaw-gateway.service` active; `127.0.0.1:3000` and `127.0.0.1:18789` listening.
+- Smoke checks:
+  - `http://127.0.0.1:3000/employee`: HTTP 200, `Sentura 跨境电商系统`.
+  - `http://127.0.0.1:3000/admin/login`: HTTP 200, `Sentura 跨境电商系统`.
+  - `http://127.0.0.1:3000/client-demos/cross-border/admin/lead-settings`: HTTP 200 and redirects to `/admin/lead-settings`.
+  - `http://127.0.0.1:18789/`: HTTP 200, `OpenClaw Control`.
+  - `https://app.sentura.ai/employee`: HTTP 200, `Sentura 跨境电商系统`.
+  - `https://admin.sentura.ai/admin/login`: HTTP 200, `Sentura 跨境电商系统`.
+
+Notes:
+
+- Dashboard restart logged one benign systemd `Failed to kill control group ... ignoring: Invalid argument` message, then restarted successfully and reported Next ready.
+- Gateway restart logs showed existing configuration warnings (`OPENAI_API_KEY` missing for a disabled memory config, insecure control UI flags), but no post-restart error/fail lines and the Gateway reached `ready`.
+- The deployment updates the ECS/RDS target only; it is still not a full `production_go_live_ready` label because the remaining target load-smoke/restore drill and provider/source-rate/model/DB/Gateway headroom evidence are separate readiness work.
+
+## 2026-06-30 — Trial Hard Limits for Customer Pilot
+
+Context:
+
+- The user said the customer is about to start trial use and requested non-bypassable limits until the platform owner manually changes them:
+  - Admin can create at most 3 employee accounts.
+  - Across all three employees, the trial can consume only 300 successful Lead acquisitions plus 300 successful Screening runs.
+  - Failed Lead/Screening tasks must not count.
+  - Admin and Employee UI must show dynamic trial-limit hints.
+  - Neither Admin nor Employee-side API/UI paths may exceed the limits.
+
+Changes:
+
+- Added shared constants in `sentura/dashboard/src/lib/cross-border-trial-limits.ts`:
+  - `CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT = 3`
+  - `CBE_TRIAL_LEAD_SUCCESS_LIMIT = 300`
+  - `CBE_TRIAL_SCREENING_SUCCESS_LIMIT = 300`
+- Added `cbe_trial_usage_events` through migration `015_trial_usage_limits.sql`, with tenant/kind/source uniqueness so each saved successful Lead or Screening report is counted once.
+- Added migration `016_trial_usage_start_clean.sql` to clear historical backfilled usage rows. The customer trial starts from this rollout instead of consuming quota from previous local/test/pilot data.
+- Added `sentura/dashboard/src/lib/cross-border-store/trial-limits.ts` for snapshots, tenant-row locks, capacity assertions, and immutable usage-event writes.
+- Admin operator creation now uses the 3-account constant, locks the tenant, counts non-inactive operators, and rejects over-cap creation with `trial_operator_limit_exceeded`.
+- Lead create preflight rejects requests above remaining Lead quota. Lead completion locks the tenant, saves only remaining new-unique leads, records `lead_success` usage events, marks clipped candidates as `trial_quota_exceeded`, and disables top-up when missing output is caused by trial quota.
+- Screening create preflight rejects requests above remaining Screening quota. Screening completion locks the tenant, saves only remaining reports, records `screening_success` usage events, and throws `trial_screening_limit_exceeded` when no success quota remains.
+- Added Employee/Admin trial limit APIs:
+  - `/api/employee/trial-limits`
+  - `/api/admin/trial-limits`
+- Added a live AppShell trial banner with used/limit meters for employee accounts, Lead successes, and Screening successes.
+- Added Employee task-drawer checks so `寻找客户`, `批量背调`, and `手动背调` cannot be submitted when the remaining successful quota would be exceeded.
+- Updated CE48 static coverage in `scripts/test-cross-border-phase2-store.ts`, including migration files, routes, store paths, UI banner text, and cleanup of local probe usage events.
+
+Verification:
+
+- `pnpm --dir sentura/dashboard exec tsc --noEmit`: PASS.
+- Focused Dashboard ESLint over changed trial-limit store/API/UI files: PASS.
+- Applied local migrations with Dashboard env and `pnpm exec tsx sentura/lib/cross-border-store/migrate.ts --seed`: PASS. Migration `016_trial_usage_start_clean.sql` applied after `015_trial_usage_limits.sql`.
+- Local trial snapshot after migration:
+  - `operatorAccounts`: `used = 4`, `limit = 3`, `remaining = 0`.
+  - `leadSuccesses`: `used = 0`, `limit = 300`, `remaining = 300`.
+  - `screeningSuccesses`: `used = 0`, `limit = 300`, `remaining = 300`.
+- `pnpm exec tsx scripts/test-cross-border-phase2-store.ts`: CE48 assertions PASS; broad script reports 259 passed / 4 unrelated existing failures.
+- Local dev server smoke: `/employee` returned HTTP 200; Admin and Employee trial-limits APIs returned the live snapshot when called with their role debug headers; unauthenticated Employee API returned expected `401 cbe_login_required`.
+
+Boundary:
+
+- This is local code/database work only; it has not yet been deployed to ECS/RDS.
+- The local 4/3 operator snapshot comes from pre-existing seed/dev profiles. The new code blocks additional creation; before production rollout, check whether the target database already has more than 3 non-inactive operators and deliberately deactivate extra trial accounts if needed.
+- Deleting customers/reports does not restore Lead/Screening quota because quota comes from immutable usage events.
+- Failed tasks, duplicate Lead candidates, and unsaved/clipped Screening payloads do not consume quota.

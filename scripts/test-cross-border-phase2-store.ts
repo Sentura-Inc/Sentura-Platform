@@ -235,6 +235,33 @@ async function cleanupP2DashboardProbe(agentRunIds: string[], leadDomain: string
     ]);
     await client.query(
       `
+        delete from cbe_trial_usage_events
+        where tenant_id = $1
+          and (
+            agent_run_id = any($2::text[])
+            or (
+              usage_kind = 'screening_success'
+              and source_record_id in (
+                select id from screening_reports where tenant_id = $1 and agent_run_id = any($2::text[])
+              )
+            )
+            or (
+              usage_kind = 'lead_success'
+              and source_record_id in (
+                select id
+                from lead_run_results
+                where tenant_id = $1
+                  and lead_run_id in (
+                    select id from lead_runs where tenant_id = $1 and agent_run_id = any($2::text[])
+                  )
+              )
+            )
+          )
+      `,
+      [CBE_TENANT_ID, agentRunIds],
+    );
+    await client.query(
+      `
         delete from screening_address_locations
         where tenant_id = $1
           and screening_report_id in (
@@ -774,6 +801,7 @@ const requiredTables = [
   "cbe_lead_filter_settings",
   "screening_batches",
   "screening_batch_targets",
+  "cbe_trial_usage_events",
   "cbe_schema_migrations",
 ];
 
@@ -815,6 +843,7 @@ const requiredIndexes = [
   "screening_batch_targets_paid_state_idx",
   "memory_facts_review_idx",
   "handoff_events_screening_consumption_idx",
+  "cbe_trial_usage_events_kind_idx",
 ];
 
 const p22StoreModules = [
@@ -836,6 +865,7 @@ const p22StoreModules = [
   "session.ts",
   "lead-settings.ts",
   "workload-coordinator.ts",
+  "trial-limits.ts",
 ];
 
 const p22EmployeeRoutes = [
@@ -846,6 +876,7 @@ const p22EmployeeRoutes = [
   "employee/lead-runs/route.ts",
   "employee/lead-runs/[id]/complete/route.ts",
   "employee/lead-filter-settings/route.ts",
+  "employee/trial-limits/route.ts",
   "employee/screening-runs/route.ts",
   "employee/screening-runs/[id]/complete/route.ts",
   "employee/screening-runs/[id]/retry/route.ts",
@@ -874,6 +905,7 @@ const p22AdminRoutes = [
   "admin/cost-approvals/route.ts",
   "admin/agent-usage/route.ts",
   "admin/lead-filter-settings/route.ts",
+  "admin/trial-limits/route.ts",
 ];
 
 const cbeAuthRoutes = [
@@ -911,6 +943,8 @@ check("011 Screening conversation behavior cleanup migration exists", migrationF
 check("012 legacy Accio Screening target cleanup migration exists", migrationFiles.includes("012_remove_legacy_accio_screening_targets.sql"));
 check("013 Screening behavior JSON residue cleanup migration exists", migrationFiles.includes("013_remove_screening_behavior_json_residue.sql"));
 check("014 Screening behavior text residue cleanup migration exists", migrationFiles.includes("014_remove_screening_behavior_text_residue.sql"));
+check("015 trial usage limits migration exists", migrationFiles.includes("015_trial_usage_limits.sql"));
+check("016 clean trial usage start migration exists", migrationFiles.includes("016_trial_usage_start_clean.sql"));
 check("migration filenames are ordered and numeric", migrationFiles.every((file) => /^\d{3}_[a-z0-9_]+\.sql$/.test(file)));
 
 const migrationSql = migrationFiles.map((file) => read(path.join(MIGRATIONS_DIR, file))).join("\n");
@@ -930,6 +964,8 @@ check("schema defines cost approval lifecycle", ["cbe_cost_limits", "cbe_cost_al
 check("schema defines owner/team/visibility fields", ["owner_user_id", "team_name", "visibility_scope"].every((needle) => migrationSql.includes(needle)));
 check("schema defines task activity monitoring events", migrationSql.includes("agent_run_activity_events") && migrationSql.includes("target_summary"));
 check("schema defines tenant Lead filter settings", ["cbe_lead_filter_settings", "products_json", "buyer_types_json", "countries_json"].every((needle) => migrationSql.includes(needle)));
+check("schema defines immutable trial usage events", ["cbe_trial_usage_events", "lead_success", "screening_success", "backfilled_from"].every((needle) => migrationSql.includes(needle)));
+check("schema clears historical trial usage backfill for trial start", migrationSql.includes("016_trial_usage_start_clean") || migrationSql.includes("delete from cbe_trial_usage_events"));
 check("schema removes legacy Screening conversation behavior artifacts", ["conversation_behavior", "accio_behavior", "screening_score_blocks", "screening_evidence", "screening_reports"].every((needle) => migrationSql.includes(needle)));
 check("schema removes legacy Accio-derived Screening targets", ["tmp_legacy_accio_screening_targets", "screening_batch_targets", "screening_targets", "source = 'accio_memory'"].every((needle) => migrationSql.includes(needle)));
 check("schema removes legacy Screening behavior JSON residue", ["coverage_gaps", "open_questions", "销售对话", "行为记录"].every((needle) => migrationSql.includes(needle)));
@@ -1117,6 +1153,22 @@ check("employee task create paths call budget preflight before agent run insert"
   const text = read(path.join(DASHBOARD_STORE_DIR, file));
   return /await checkCbeCostBudgetBeforeRun[\s\S]+insertAgentRun/.test(text);
 }));
+check("trial limits are enforced in store write paths and UI", [
+  "CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT",
+  "assertCbeTrialLeadCapacity",
+  "getCbeTrialRemainingAfterLock",
+  "recordCbeTrialUsageEvent",
+  "trial_limit_skipped_leads",
+  "trial_limit_skipped_reports",
+  "trial_operator_limit_exceeded",
+].every((needle) => p22AllStoreText.includes(needle)) && [
+  "TrialLimitBanner",
+  "trial-limits",
+].every((needle) => managerAppShellTs.includes(needle)) && [
+  "fetchEmployeeTrialLimits",
+  "leadTrialRemaining",
+  "screeningTrialRemaining",
+].every((needle) => read(path.join(DASHBOARD_EMPLOYEE_DIR, "customers/page.tsx")).includes(needle)) && managerPageText.includes("CBE_TRIAL_OPERATOR_ACCOUNT_LIMIT"));
 check("employee API passes estimated task costs to server", ["estimateLeadTaskCost", "estimateScreeningTaskCost", "estimateMemoryTaskCost", "estimated_cost_usd"].every((needle) => managerEmployeeApiTs.includes(needle)));
 check("employee API persists dynamic task timing metadata through coordinator records", [
   "estimateLeadTaskDurationMs",

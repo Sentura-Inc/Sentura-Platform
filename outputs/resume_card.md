@@ -1,30 +1,33 @@
-# Active Task: CBE Lead Internal Batching and Overflow Retry
+# Completed Task: CBE Trial Hard Limits
 
-Started/completed 2026-06-29 in `/Users/henry/Desktop/Sentura-Platform`.
+Started/completed locally 2026-06-30 in `/Users/henry/Desktop/Sentura-Platform`.
 
-- User reported intermittent Lead Discovery failures such as `context overflow: estimated context size exceeds safe threshold during tool loop`.
-- Required behavior: do not lighten Lead research. Any single Employee `寻找客户` request with target count above 5 must be split internally into hidden sub-runs, and overflow in a sub-run must trigger automatic smaller-batch retry.
+- User requested non-bypassable trial limits before customer trial:
+  - Admin can create at most 3 employee accounts.
+  - Across all employees, only 300 successful Lead acquisitions and 300 successful Screening reports count during trial.
+  - Failed tasks do not count.
+  - Admin/Employee UI must show dynamic remaining-limit hints.
+  - Only platform-owner manual changes should lift the limits.
 - Implemented locally:
-  - `targetCount <= 5` still runs as one OpenClaw Lead Discovery session.
-  - `targetCount > 5` uses balanced hidden batches of at most 5:
-    - `6 = 3 + 3`
-    - `7 = 4 + 3`
-    - `8 = 4 + 4`
-    - `9 = 5 + 4`
-    - `10 = 5 + 5`
-  - Hidden batches run as separate OpenClaw sessions and are merged into one final Lead payload before normal DB reconciliation/top-up.
-  - Sub-batches that fail with context overflow / safe threshold / context-window style errors are recursively split and retried.
-  - The Lead prompt receives `internal_batch` metadata so the Agent only completes the current sub-target and tries different search-result segments for later batches.
-  - The merged payload records `internal_session_keys` and `internal_batching` in `agent_runs.metadata_json`.
-  - Admin/Employee cost attribution now includes internal child session keys, so split Lead runs do not disappear from cost totals.
-  - CE47 static regression assertions were added to both CBE agent and Phase 2 store scripts.
+  - Shared constants in `sentura/dashboard/src/lib/cross-border-trial-limits.ts`.
+  - Immutable quota ledger `cbe_trial_usage_events` via migrations `015_trial_usage_limits.sql` and `016_trial_usage_start_clean.sql`.
+  - Store/API enforcement in Admin operator creation, Lead create/complete, and Screening create/complete paths.
+  - Employee/Admin `/trial-limits` API routes.
+  - AppShell trial banner with live meters, plus Employee task-drawer preflight blocks for Lead, batch Screening, and manual Screening.
+  - CE48 docs/tests/memory updates.
 - Verification:
-  - Focused ESLint over touched Lead/store files PASS.
   - Dashboard typecheck PASS.
-  - `scripts/test-cross-border-agents.ts`: CE47 PASS; broad result 447 passed / 6 unrelated existing failures.
-  - `scripts/test-cross-border-phase2-store.ts`: CE47 PASS; broad result 250 passed / 3 unrelated existing failures.
-  - `git diff --check`: PASS.
-- Deployment status: local only; not deployed to ECS/public domains.
+  - Focused ESLint over changed trial-limit store/API/UI files PASS.
+  - Local migrations `015`/`016` applied with `--seed`; historical usage backfill cleared so trial Lead/Screening quota starts at 0/300.
+  - Local snapshot: operators 4/3 from pre-existing dev profiles, Lead 0/300, Screening 0/300.
+  - `scripts/test-cross-border-phase2-store.ts`: new CE48 assertions PASS; broad result 259 passed / 4 unrelated existing failures.
+  - Local dev server smoke: `/employee` HTTP 200; Admin and Employee trial-limits APIs return the live snapshot with role headers.
+- Deployment status: local only; not yet deployed to ECS/RDS. Before production rollout, check whether target DB already has more than 3 non-inactive operators and deliberately deactivate extras if needed.
+
+# Recent Completed Context: Lead Internal Batching
+
+- CE47 Lead batching/overflow retry was completed and deployed to Alibaba ECS/RDS on 2026-06-29 at server checkout `7a1276511cc14fd5580ba8b1d18ee3dd2b6b1c57`.
+- RDS migrations `010`-`014` were applied after backup; Lead/Screening OpenClaw runtime workspaces were synced; Dashboard/Gateway restarted; public app/admin smoke passed.
 
 # Local Pending Task: CBE Login Click No Response
 

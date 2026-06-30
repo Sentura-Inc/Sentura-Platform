@@ -4,7 +4,7 @@
 >
 > Status: Phase 2 implementation plan. This document is the execution bridge from the completed Phase-1 Employee UI and three-agent MVP to production persistence, multi-user concurrency, and durable agent optimization.
 >
-> Last updated: 2026-06-28
+> Last updated: 2026-06-30
 
 # Sentura x Cross-Border E-Commerce — Phase 2 Plan
 
@@ -66,6 +66,7 @@ Phase 2 must deliver:
 8. Customer-specific user levels for admins and ordinary business users, focused on monitoring, scoped work execution, and reporting rather than Sentura platform administration.
 9. Report-calibrated workload control: Lead `find-10` stays a single session, Screening batches are split into bounded single-target child runs, and all three CBE employees share one queue/backpressure policy.
 10. Google Maps Places + OpenClaw web search becomes the target primary acquisition/backcheck source combination: Maps discovers local/storefront buyer seeds; web search/fetch verifies official-site product fit and non-local B2B evidence.
+11. Trial hard limits for the customer pilot: at most 3 active/suspended `operator` accounts, tenant-wide 300 saved successful Lead acquisitions, and tenant-wide 300 saved successful Screening reports.
 
 Phase 2 must not:
 
@@ -131,6 +132,20 @@ Admins cannot:
 - Override the Lead coordinator by launching duplicate same-scope tasks outside the shared-result/top-up flow.
 - Change other Admin passwords or expose Employee-side password self-service outside the existing Admin employee-management reset flow.
 - Auto-send outreach.
+
+### Customer Trial Hard Limits
+
+The initial customer trial is locked until the platform owner manually changes code/config/database state. This is not an advisory UI-only cap.
+
+| Limit | Counted source | Enforcement |
+|---|---|---|
+| Up to 3 employee accounts | `cbe_user_profiles` rows with `cbe_role = 'operator'` and `status <> 'inactive'` | Admin operator creation locks the tenant row, counts current operators, and rejects creation with `trial_operator_limit_exceeded` when no slot remains. |
+| Up to 300 successful Lead acquisitions | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'lead_success'` | Lead create preflight rejects over-cap requests; completion locks the tenant, saves only remaining new-unique customers, records one usage event per saved Lead, and reports quota clipping. |
+| Up to 300 successful Screening reports | Immutable `cbe_trial_usage_events` rows with `usage_kind = 'screening_success'` | Screening create preflight rejects over-cap requests; completion locks the tenant, saves only remaining reports, records one usage event per saved report, and fails cleanly when no quota remains. |
+
+Only successful persisted Lead/Screening results consume quota. Failed tasks, parser failures, provider failures, duplicate Lead candidates, and rejected unsaved Screening payloads do not consume quota. Deleting customer/report rows does not return quota because the immutable usage event is the trial ledger. Migration `015_trial_usage_limits.sql` creates the ledger; migration `016_trial_usage_start_clean.sql` clears historical backfilled usage so the trial starts from the current rollout rather than prior local/test/pilot data.
+
+Both Employee and Admin shells show the locked trial limits and live used/limit meters through `/api/employee/trial-limits` and `/api/admin/trial-limits`. Employee task drawers also block submissions that exceed the currently remaining successful Lead or Screening quota.
 
 ### Admin Page Modules
 
@@ -1455,6 +1470,8 @@ sentura/lib/cross-border-store/
   migrations/001_initial_schema.sql
   migrations/002_lead_scope_coordinator.sql
   migrations/004_workload_queue_and_screening_fanout.sql
+  migrations/015_trial_usage_limits.sql
+  migrations/016_trial_usage_start_clean.sql
   migrate.ts
   db.ts
   schemas.ts
@@ -1474,11 +1491,13 @@ sentura/dashboard/src/lib/cross-border-store/
   notifications.ts
   api-ledger.ts
   audit.ts
+  trial-limits.ts
 
 sentura/dashboard/src/app/api/client-demos/cross-border/employee/
   customers/route.ts
   lead-runs/route.ts
   lead-runs/[id]/complete/route.ts
+  trial-limits/route.ts
   screening-runs/route.ts
   screening-runs/[id]/complete/route.ts
   memory/route.ts
@@ -1496,6 +1515,7 @@ sentura/dashboard/src/app/api/client-demos/cross-border/admin/
   operators/route.ts
   operators/[id]/route.ts
   agent-usage/route.ts
+  trial-limits/route.ts
 
 sentura/dashboard/src/app/client-demos/cross-border/employee/
   page.tsx
@@ -1533,6 +1553,7 @@ Phase 2 implementation tests:
 | CE21 — P2.4 workload coordinator and Lead dedupe | `scripts/test-cross-border-phase2-concurrency.ts` | PASS 2026-06-21; rechecked 2026-06-24 with 46/46 live/static coverage including the new Screening fan-out probe, parent-not-prematurely-completed check, and saved-report completion-count check. Global active-task soft/hard caps queue excess work; two exact same-scope Lead requests create one active OpenClaw run and two memberships; near duplicates offer choices; completed scopes no longer reuse assigned rows; normal repeated same-scope requests keep the full current-request new-customer target; every executable Lead run carries tenant DB pre-search denylist; explicit top-up denylist and completion-time DB duplicate skipping work. |
 | CE22 — P2.5 Lead reconciliation, Screening fan-out/API scope, and Accio durable workflow | Store tests + Browser + MCP tests | Lead completion reconciles returned candidates against the DB before visible writes, skips duplicate same-owner/other-operator/team/tenant customers, records duplicate reasons, top-ups missing unique counts, and updates UI/Admin summaries; multi-target Screening requests create one parent task and single-target child runs; route-triggered drain claims queued children with leases and aggregate parent refresh; Employee completion messages count backend-saved Screening reports; no production batch-5/batch-10 Screening session starts. Live OpenClaw validation completed two real three-target bulk Screening runs under operator `吴思彤`. Paid email/trade retry state, explicit re-approval, retry recovery, Accio approval-to-memory, and durable Screening handoff consumption are implemented and covered by live PostgreSQL store checks. |
 | CE23 — P2.6 load smoke | `scripts/test-cross-border-phase2-load-smoke.ts` + backup/restore drill + staged run | Static contract checks plus live DB-only smoke cover 50 sessions, 10 Lead `find-10` requests, 5 Screening batches split into 25 child runs, 3 Accio imports, 24/32/48 active-task behavior, p95 API latency, and cost/audit metadata. `scripts/cross-border-phase2-backup-restore-drill.sh` verifies `pg_dump`/`pg_restore` plus restored-store checks; the local disposable restore drill and Dashboard production build passed on 2026-06-24. Local DB-only preflight can be labeled `db_only_preflight_passed`; `production_go_live_ready` still requires target-deployment smoke, target restore drill, and provider quota/source-rate confirmation. |
+| CE48 — Trial hard limits | `scripts/test-cross-border-phase2-store.ts` + type/lint + local DB snapshot | Admin cannot create a fourth active/suspended operator; Lead/Screening successful saves are capped by immutable `cbe_trial_usage_events`; failed/duplicate/unsaved results do not consume quota; Employee/Admin UI surfaces show live remaining counts and block over-quota submissions. |
 
 Minimum verification after each implementation slice:
 

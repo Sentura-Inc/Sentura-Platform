@@ -15,6 +15,11 @@ import type {
 } from "./schemas";
 import { CreateLeadRunRequestSchema } from "./schemas";
 import { checkCbeCostBudgetBeforeRun } from "./admin";
+import {
+  assertCbeTrialLeadCapacity,
+  getCbeTrialRemainingAfterLock,
+  recordCbeTrialUsageEvent,
+} from "./trial-limits";
 
 export interface LeadRunRecord {
   id: string;
@@ -68,7 +73,8 @@ export interface LeadSourceRecord {
 type LeadCandidateReconciliationStatus =
   | "new_unique"
   | "duplicate_same_owner"
-  | "duplicate_other_operator";
+  | "duplicate_other_operator"
+  | "trial_quota_exceeded";
 
 export interface LeadCandidateReconciliationItem {
   rank: number;
@@ -90,6 +96,7 @@ export interface LeadRunReconciliationSummary {
   returnedCount: number;
   newUniqueCount: number;
   duplicateCount: number;
+  trialLimitSkippedCount: number;
   missingCount: number;
   topUpNeeded: boolean;
   identityDenylist: string[];
@@ -606,6 +613,7 @@ export async function createLeadRun(
   rawInput: CreateLeadRunRequest,
 ) {
   const input = CreateLeadRunRequestSchema.parse(rawInput);
+  await assertCbeTrialLeadCapacity(context, input.target_count);
   await checkCbeCostBudgetBeforeRun(context, {
     agentId: "cbe-lead-discovery",
     taskKind: "lead",
@@ -787,6 +795,8 @@ export async function saveLeadRunResult(
   input: CompleteLeadRunRequest,
 ) {
   return withCbeTransaction(async (client) => {
+    const remainingTrialLeadCapacity = await getCbeTrialRemainingAfterLock(client, context, "lead_success");
+    let savedTrialLeadCount = 0;
     const existing = await client.query<LeadRunRow>(
       `
         select id, agent_run_id, status, target_count, completed_at
@@ -817,6 +827,9 @@ export async function saveLeadRunResult(
       if (existingCandidate) {
         status = duplicateStatusForCandidate(existingCandidate, context);
         duplicateReason = duplicateReasonForCandidate(existingCandidate, context);
+      } else if (savedTrialLeadCount >= remainingTrialLeadCapacity) {
+        status = "trial_quota_exceeded";
+        duplicateReason = "trial_lead_success_limit_reached";
       } else {
         const candidateResult = await client.query<LeadCandidateRow>(
           `
@@ -864,6 +877,7 @@ export async function saveLeadRunResult(
         if (candidateResult.rows[0]) {
           candidate = toLeadCandidateRecord(candidateResult.rows[0]);
           candidateRecords.push(candidate);
+          savedTrialLeadCount++;
           for (const evidence of lead.discovery_evidence) {
             sourceRecords.push(await insertLeadSource(client, context, candidate.id, evidence));
           }
@@ -894,7 +908,8 @@ export async function saveLeadRunResult(
         savedCandidateId: candidate?.id ?? null,
       };
       reconciliationItems.push(reconciliationItem);
-      await client.query(
+      const leadRunResultId = createCbeId("lead_result");
+      const leadRunResult = await client.query<{ id: string }>(
         `
           insert into lead_run_results (
             id,
@@ -913,9 +928,10 @@ export async function saveLeadRunResult(
             duplicate_status = excluded.duplicate_status,
             duplicate_reason = excluded.duplicate_reason,
             source_snapshot_json = excluded.source_snapshot_json
+          returning id
         `,
         [
-          createCbeId("lead_result"),
+          leadRunResultId,
           context.tenantId,
           leadRunId,
           leadIdentity.id,
@@ -928,6 +944,19 @@ export async function saveLeadRunResult(
           }),
         ],
       );
+      if (candidate && status === "new_unique") {
+        await recordCbeTrialUsageEvent(client, context, {
+          usageKind: "lead_success",
+          agentRunId: input.agent_run_id,
+          sourceRecordType: "lead_run_result",
+          sourceRecordId: leadRunResult.rows[0]?.id ?? leadRunResultId,
+          metadataJson: {
+            lead_run_id: leadRunId,
+            lead_candidate_id: candidate.id,
+            company_name: candidate.companyName,
+          },
+        });
+      }
     }
 
     const leadRunResult = await client.query<LeadRunRow>(
@@ -960,6 +989,10 @@ export async function saveLeadRunResult(
       ...(await identityKeysForTenantCandidates(client, context)),
     ]);
     const missingCount = Math.max(0, existing.rows[0].target_count - candidateRecords.length);
+    const duplicateCount = reconciliationItems.filter((item) =>
+      item.status === "duplicate_same_owner" || item.status === "duplicate_other_operator"
+    ).length;
+    const trialLimitSkippedCount = reconciliationItems.filter((item) => item.status === "trial_quota_exceeded").length;
     if (scopeId) {
       const producedCount = await producedCandidateCountForScope(client, context, scopeId);
       await client.query(
@@ -982,9 +1015,10 @@ export async function saveLeadRunResult(
       requestedCount: existing.rows[0].target_count,
       returnedCount: input.payload.leads.length,
       newUniqueCount: candidateRecords.length,
-      duplicateCount: reconciliationItems.filter((item) => item.status !== "new_unique").length,
+      duplicateCount,
+      trialLimitSkippedCount,
       missingCount,
-      topUpNeeded: missingCount > 0,
+      topUpNeeded: missingCount > 0 && trialLimitSkippedCount === 0,
       identityDenylist: topUpDenylist,
       items: reconciliationItems,
     };
@@ -998,6 +1032,7 @@ export async function saveLeadRunResult(
         items_produced: candidateRecords.length,
         returned_leads: input.payload.leads.length,
         duplicate_leads: reconciliation.duplicateCount,
+        trial_limit_skipped_leads: reconciliation.trialLimitSkippedCount,
         top_up_needed: reconciliation.topUpNeeded,
         missing_count: missingCount,
         existing_identity_keys: topUpDenylist,
@@ -1028,6 +1063,7 @@ export async function saveLeadRunResult(
         saved_leads: candidateRecords.length,
         returned_leads: input.payload.leads.length,
         duplicate_leads: reconciliation.duplicateCount,
+        trial_limit_skipped_leads: reconciliation.trialLimitSkippedCount,
         top_up_needed: reconciliation.topUpNeeded,
         missing_count: reconciliation.missingCount,
         saved_customer_ids: candidateRecords.map((candidate) => candidate.id),
@@ -1046,6 +1082,7 @@ export async function saveLeadRunResult(
         saved_sources: sourceRecords.length,
         returned_leads: input.payload.leads.length,
         duplicate_leads: reconciliation.duplicateCount,
+        trial_limit_skipped_leads: reconciliation.trialLimitSkippedCount,
         top_up_needed: reconciliation.topUpNeeded,
         missing_count: reconciliation.missingCount,
         internal_session_keys: input.payload.internal_session_keys ?? [],
@@ -1059,7 +1096,7 @@ export async function saveLeadRunResult(
       candidates: candidateRecords,
       sources: sourceRecords,
       reconciliation,
-      topUp: missingCount > 0 && scopeId
+      topUp: reconciliation.topUpNeeded && scopeId
         ? {
             scopeId,
             missingCount,
